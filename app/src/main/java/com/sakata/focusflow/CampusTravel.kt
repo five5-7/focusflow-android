@@ -1,0 +1,48 @@
+package com.sakata.focusflow
+
+enum class CampusZone(val label: String) {
+    WEST_TEACHING("西教学区"),
+    EAST_TEACHING("东教学区"),
+    NORTH_TEACHING("北教学区"),
+    CHEMISTRY_LABS("化学实验中心"),
+    LIBRARY("图书馆"),
+    EAST_STADIUM("东田径场")
+}
+
+data class CampusPlace(val name: String, val zone: CampusZone, val kind: String)
+
+/**
+ * Initial, deliberately conservative estimates. They are planning buffers rather
+ * than navigation directions and should be calibrated with the user's feedback.
+ */
+object ZijingangTravel {
+    val places = listOf(
+        CampusPlace("西1教学楼", CampusZone.WEST_TEACHING, "教学楼"),
+        CampusPlace("西2教学楼", CampusZone.WEST_TEACHING, "教学楼"),
+        CampusPlace("东4教学楼", CampusZone.EAST_TEACHING, "教学楼"),
+        CampusPlace("东6教学楼", CampusZone.EAST_TEACHING, "教学楼"),
+        CampusPlace("北2教学楼", CampusZone.NORTH_TEACHING, "教学楼"),
+        CampusPlace("化学实验中心", CampusZone.CHEMISTRY_LABS, "实验"),
+        CampusPlace("图书馆", CampusZone.LIBRARY, "学习"),
+        CampusPlace("东田径场", CampusZone.EAST_STADIUM, "运动")
+    )
+
+    fun estimateMinutes(from: CampusZone, to: CampusZone, profile: CommuteProfile): Int {
+        val walkingMinutes = if (from == to) 2 else when (setOf(from, to)) {
+            setOf(CampusZone.WEST_TEACHING, CampusZone.EAST_TEACHING) -> 14
+            setOf(CampusZone.WEST_TEACHING, CampusZone.NORTH_TEACHING) -> 11
+            setOf(CampusZone.WEST_TEACHING, CampusZone.CHEMISTRY_LABS) -> 12
+            setOf(CampusZone.EAST_TEACHING, CampusZone.NORTH_TEACHING) -> 10
+            setOf(CampusZone.EAST_TEACHING, CampusZone.EAST_STADIUM) -> 8
+            setOf(CampusZone.EAST_TEACHING, CampusZone.LIBRARY) -> 8
+            setOf(CampusZone.LIBRARY, CampusZone.EAST_STADIUM) -> 9
+            else -> 12
+        }
+        val travel = when (profile.campusMode) {
+            "自行车" -> maxOf(3, (walkingMinutes * 0.6).toInt())
+            "电动车" -> maxOf(3, (walkingMinutes * 0.5).toInt())
+            else -> walkingMinutes
+        }
+        return travel + profile.buildingBufferMinutes * 2
+    }
+}
