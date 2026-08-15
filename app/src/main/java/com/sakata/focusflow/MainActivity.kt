@@ -136,7 +136,7 @@ private fun FocusFlowApp() {
                 NavigationBar {
                     NavigationBarItem(selected = tab == 0, onClick = { selectTab(0) }, icon = { Text(if (tab == 0) "●" else "○") }, modifier = Modifier.weight(1f), label = { Text("今日") })
                     NavigationBarItem(selected = tab == 1, onClick = { selectTab(1) }, icon = { Text(if (tab == 1) "●" else "○") }, modifier = Modifier.weight(1f), label = { Text("收集箱") })
-                    Box(Modifier.weight(0.82f).fillMaxHeight(), contentAlignment = Alignment.Center) {
+                    Box(Modifier.weight(0.82f), contentAlignment = Alignment.Center) {
                         FloatingActionButton(modifier = Modifier.size(50.dp), onClick = { addOpen = true }) { Text("＋", style = MaterialTheme.typography.headlineSmall) }
                     }
                     NavigationBarItem(selected = tab == 2, onClick = { selectTab(2) }, icon = { Text(if (tab == 2) "●" else "○") }, modifier = Modifier.weight(1f), label = { Text("计划") })
