@@ -1,11 +1,15 @@
 package com.sakata.focusflow
 
 import android.Manifest
+import android.app.AlarmManager
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -35,6 +39,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.delay
 import java.util.UUID
 
 class MainActivity : ComponentActivity() {
@@ -71,13 +76,6 @@ data class Item(
     val durationMinutes: Int = 60
 )
 
-data class ActivitySession(
-    val id: Long = System.currentTimeMillis(),
-    val name: String,
-    val endsAt: Long,
-    val status: String = "active"
-)
-
 data class CommuteProfile(
     val enabled: Boolean = false,
     val oneWayMinutes: Int = 0,
@@ -93,6 +91,8 @@ private fun FocusFlowApp() {
     var tab by remember { mutableIntStateOf(0) }
     var addOpen by remember { mutableStateOf(false) }
     var activityOpen by remember { mutableStateOf(false) }
+    var transitionTarget by remember { mutableStateOf<ActivitySession?>(null) }
+    var autoPromptedSessionId by remember { mutableStateOf<Long?>(null) }
     var rescheduleTarget by remember { mutableStateOf<Item?>(null) }
     var inboxEditTarget by remember { mutableStateOf<Item?>(null) }
     var items by remember {
@@ -105,6 +105,8 @@ private fun FocusFlowApp() {
         })
     }
     var activeSession by remember { mutableStateOf(store.loadLatestActiveSession()) }
+    var activityHistory by remember { mutableStateOf(store.loadRecentActivitySessions()) }
+    var activitySettings by remember { mutableStateOf(store.loadActivityReminderSettings()) }
     var commuteProfile by remember { mutableStateOf(store.loadCommuteProfile()) }
     var courses by remember { mutableStateOf(if (store.hasCourseSetup()) store.loadCourses() else ScreenshotCoursePreview.courses) }
     var courseEditor by remember { mutableStateOf<Course?>(null) }
@@ -120,12 +122,39 @@ private fun FocusFlowApp() {
     var improvementOpen by remember { mutableStateOf(false) }
     var roadmapSelections by remember { mutableStateOf(store.loadRoadmapSelections()) }
     var planPage by remember { mutableStateOf<PlanPage?>(null) }
+    val suggestedNextStep = items
+        .filter { !it.done && it.kind != "收集箱" && it.kind != "暂停" }
+        .sortedWith(compareBy<Item> { it.scheduledAt ?: Long.MAX_VALUE }.thenBy { it.title })
+        .firstOrNull()
+    val upcomingCommitment = nextActivityCommitment(items, courses)
+    val suggestedNextStepName = upcomingCommitment?.title ?: suggestedNextStep?.title.orEmpty()
     fun saveItems(updated: List<Item>) { items = updated; store.saveItems(updated) }
     fun selectTab(index: Int) {
         if (index == 2) planPage = null
         tab = index
     }
     BackHandler(enabled = tab == 2 && planPage != null) { planPage = null }
+
+    LaunchedEffect(Unit) {
+        ReminderScheduler.restoreActivityReminders(context)
+        while (true) {
+            val restored = store.loadLatestActiveSession()
+            activeSession = restored
+            activityHistory = store.loadRecentActivitySessions()
+            if (restored == null) {
+                transitionTarget = null
+            } else if (transitionTarget?.id == restored.id && transitionTarget != restored) {
+                transitionTarget = restored
+            }
+            if (restored?.status == ActivitySession.STATUS_AWAITING_CONFIRMATION && autoPromptedSessionId != restored.id) {
+                transitionTarget = restored
+                autoPromptedSessionId = restored.id
+            } else if (restored?.status != ActivitySession.STATUS_AWAITING_CONFIRMATION) {
+                autoPromptedSessionId = null
+            }
+            delay(1_000)
+        }
+    }
 
     MaterialTheme(colorScheme = lightColorScheme(
         primary = androidx.compose.ui.graphics.Color(0xFF155E75),
@@ -165,7 +194,9 @@ private fun FocusFlowApp() {
                         if (item.goalId == null) saveItems(items.map { if (it.id == item.id) it.copy(done = true, completionLevel = "完成", completedAt = System.currentTimeMillis()) else it }) else completionTarget = item
                     },
                     activeSession = activeSession,
+                    activityHistory = activityHistory,
                     onStartActivity = { activityOpen = true },
+                    onReviewActivity = { activeSession?.let { transitionTarget = it } },
                     onPickTime = { item -> rescheduleTarget = item },
                     onEdit = { item -> inboxEditTarget = item },
                     onShrink = { item -> saveItems(items.map { if (it.id == item.id) it.copy(title = item.title.removePrefix("重新安排："), kind = "任务", detail = "短版：先做 10 分钟 · 今天有空时") else it }) },
@@ -208,9 +239,13 @@ private fun FocusFlowApp() {
                     },
                     feedback = feedback
                 )
-                else -> SettingsScreen(Modifier.padding(padding), commuteProfile, improvementNotes, roadmapSelections, onCommuteChange = { updated ->
+                else -> SettingsScreen(Modifier.padding(padding), commuteProfile, improvementNotes, roadmapSelections, activitySettings, onCommuteChange = { updated ->
                     commuteProfile = updated
                     store.saveCommuteProfile(updated)
+                }, onActivitySettingsChange = { updated ->
+                    activitySettings = updated
+                    store.saveActivityReminderSettings(updated)
+                    activeSession?.let { ReminderScheduler.scheduleActivityReminders(context, it, updated) }
                 }, onAddImprovement = { improvementOpen = true }, onToggleRoadmap = { feature ->
                     roadmapSelections = if (feature.id in roadmapSelections) roadmapSelections - feature.id else roadmapSelections + feature.id
                     store.saveRoadmapSelections(roadmapSelections)
@@ -225,13 +260,56 @@ private fun FocusFlowApp() {
             if (tomorrow) ReminderScheduler.scheduleTaskReminder(context, captured)
             addOpen = false
         }
-        if (activityOpen) ActivityDialog(onDismiss = { activityOpen = false }) { name, minutes ->
-            val session = ActivitySession(name = name, endsAt = System.currentTimeMillis() + minutes * 60_000L)
+        if (activityOpen) ActivityDialog(suggestedNextStepName, onDismiss = { activityOpen = false }) { category, name, endsAt, nextStep ->
+            val now = System.currentTimeMillis()
+            val session = ActivitySession(name = name, category = category, plannedStartAt = now, actualStartAt = now, endsAt = endsAt, nextStep = nextStep)
             store.saveSession(session)
             activeSession = session
-            ReminderScheduler.scheduleActivityEnd(context, session)
+            ReminderScheduler.scheduleActivityReminders(context, session, activitySettings)
             activityOpen = false
         }
+        transitionTarget?.let { session -> ActivityTransitionDialog(
+            session = session,
+            maxExtensions = activitySettings.maxExtensions,
+            upcomingCommitment = upcomingCommitment,
+            onDismiss = { transitionTarget = null },
+            onFinish = { actualEndAt ->
+                store.finishSession(session.id, ActivitySession.STATUS_COMPLETED, "finished_now", actualEndAt)
+                ReminderScheduler.cancelActivityReminders(context, session.id)
+                activeSession = null
+                transitionTarget = null
+            },
+            onStartNext = {
+                val now = System.currentTimeMillis()
+                store.finishSession(session.id, ActivitySession.STATUS_COMPLETED, "started_next", now)
+                ReminderScheduler.cancelActivityReminders(context, session.id)
+                val nextName = session.nextStep.ifBlank { suggestedNextStepName }
+                if (nextName.isNotBlank()) {
+                    val courseDuration = courses.firstOrNull { nextName.startsWith(it.title) }?.let { CourseGapPlanner.periodEnd(it.endPeriod) - CourseGapPlanner.periodStart(it.startPeriod) }
+                    val duration = items.firstOrNull { it.title == nextName }?.durationMinutes ?: courseDuration ?: 30
+                    val nextSession = ActivitySession(name = nextName, category = "下一步", plannedStartAt = now, actualStartAt = now, endsAt = now + duration * 60_000L)
+                    store.saveSession(nextSession)
+                    activeSession = nextSession
+                    ReminderScheduler.scheduleActivityReminders(context, nextSession, activitySettings)
+                } else activeSession = null
+                transitionTarget = null
+            },
+            onExtend = { minutes, reason ->
+                store.extendSession(session.id, minutes, reason)?.let { extended ->
+                    activeSession = extended
+                    ReminderScheduler.scheduleActivityReminders(context, extended, activitySettings)
+                }
+                transitionTarget = null
+            },
+            onReplan = {
+                store.finishSession(session.id, ActivitySession.STATUS_SKIPPED, "replan")
+                ReminderScheduler.cancelActivityReminders(context, session.id)
+                store.addReplanItem(session.nextStep.ifBlank { session.name })
+                items = store.loadItems()
+                activeSession = null
+                transitionTarget = null
+            }
+        ) }
         rescheduleTarget?.let { item -> RescheduleTimeDialog(item, onDismiss = { rescheduleTarget = null }) { scheduledAt, duration, label ->
             val delayed = item.copy(kind = "任务", detail = "已改期至$label；届时会再次出现", scheduledAt = scheduledAt, durationMinutes = duration, dayOnly = false)
             saveItems(items.map { if (it.id == item.id) delayed else it })
@@ -295,14 +373,22 @@ private fun FocusFlowApp() {
     items: List<Item>,
     onTaskDone: (Item) -> Unit,
     activeSession: ActivitySession?,
+    activityHistory: List<ActivitySession>,
     onStartActivity: () -> Unit,
+    onReviewActivity: () -> Unit,
     onPickTime: (Item) -> Unit,
     onEdit: (Item) -> Unit,
     onShrink: (Item) -> Unit,
     onPause: (Item) -> Unit,
     onAbandon: (Item) -> Unit
 ) {
-    val now = System.currentTimeMillis()
+    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(activeSession?.id, activeSession?.endsAt) {
+        while (activeSession != null) {
+            now = System.currentTimeMillis()
+            delay(1_000)
+        }
+    }
     val scheduledToday = items.filter { !it.done && it.scheduledAt?.let(::isToday) == true }.sortedBy { it.scheduledAt }
     val flexibleItems = items.filter { !it.done && it.kind != "暂停" && it.kind != "收集箱" && it.scheduledAt == null }
     val inboxItems = items.filter { !it.done && it.kind == "收集箱" }
@@ -313,12 +399,32 @@ private fun FocusFlowApp() {
         Text("今日概览", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
         Text("先看状态与下一步；具体时间安排已移到“日程”。", style = MaterialTheme.typography.bodyLarge)
         Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
-            Row(Modifier.fillMaxWidth().padding(18.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                Column(Modifier.weight(1f)) {
-                    Text(activeSession?.let { "正在：${it.name}" } ?: "当前状态未设置", fontWeight = FontWeight.Bold)
-                    Text(activeSession?.let { "结束后会询问你下一步。" } ?: "开始活动后，提醒会按你当前状态变得更合适。")
+            Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (activeSession == null) {
+                    Text("当前状态未设置", fontWeight = FontWeight.Bold)
+                    Text("开始前约定结束时间和下一步；到点后由你明确决定。")
+                    Button(onClick = onStartActivity) { Text("开始活动") }
+                } else {
+                    val due = now >= activeSession.endsAt || activeSession.status == ActivitySession.STATUS_AWAITING_CONFIRMATION
+                    Text(if (due) "需要确认：${activeSession.name}" else "正在：${activeSession.name}", fontWeight = FontWeight.Bold)
+                    Text(if (due) "已到预计结束时间 ${formatTime(activeSession.endsAt)}" else "剩余 ${formatActivityRemaining(activeSession.endsAt - now)} · 预计 ${formatTime(activeSession.endsAt)} 结束")
+                    if (activeSession.nextStep.isNotBlank()) Text("下一步：${activeSession.nextStep}")
+                    if (activeSession.extensionCount > 0) Text("已延长 ${activeSession.extensionCount} 次${activeSession.extensionReason.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty()}", style = MaterialTheme.typography.bodySmall)
+                    Button(onClick = onReviewActivity) { Text(if (due) "处理到点" else "结束或调整") }
                 }
-                Button(onClick = onStartActivity) { Text("开始活动") }
+            }
+        }
+        val completedActivities = activityHistory.filter { it.actualEndAt?.let(::isToday) == true }
+        if (completedActivities.isNotEmpty()) {
+            ElevatedCard {
+                Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                    Text("今日活动记录 · ${completedActivities.size} 次", fontWeight = FontWeight.Bold)
+                    completedActivities.take(3).forEach { session ->
+                        val minutes = (((session.actualEndAt ?: session.endsAt) - session.actualStartAt).coerceAtLeast(0) / 60_000L).toInt()
+                        Text("${session.name} · $minutes 分钟 · ${if (session.status == ActivitySession.STATUS_COMPLETED) "已结束" else "已重新安排"}", style = MaterialTheme.typography.bodySmall)
+                    }
+                    Text("休息和娱乐只作为时间记录，不会被简单判定为负面。", style = MaterialTheme.typography.labelSmall)
+                }
             }
         }
         ElevatedCard { Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
@@ -705,6 +811,27 @@ private fun dateAt(dayOffset: Int, hour: Int): Long {
 
 private fun formatDateTime(time: Long): String = java.text.SimpleDateFormat("M月d日 HH:mm", java.util.Locale.CHINA).format(java.util.Date(time))
 private fun formatTime(time: Long): String = java.text.SimpleDateFormat("HH:mm", java.util.Locale.CHINA).format(java.util.Date(time))
+private fun formatActivityRemaining(milliseconds: Long): String {
+    val totalSeconds = (milliseconds.coerceAtLeast(0) / 1_000L).toInt()
+    val hours = totalSeconds / 3_600
+    val minutes = (totalSeconds % 3_600) / 60
+    val seconds = totalSeconds % 60
+    return if (hours > 0) "%d:%02d:%02d".format(hours, minutes, seconds) else "%02d:%02d".format(minutes, seconds)
+}
+private fun nextActivityCommitment(items: List<Item>, courses: List<Course>, now: Long = System.currentTimeMillis()): ActivityCommitment? {
+    val taskCommitments = items.mapNotNull { item -> item.scheduledAt?.takeIf { !item.done && it > now }?.let { ActivityCommitment(item.title, it) } }
+    val courseCommitments = courses.filter { !it.needsConfirmation && it.weekday == todayWeekday() }.mapNotNull { course ->
+        val startsAt = todayAtMinute(CourseGapPlanner.periodStart(course.startPeriod))
+        startsAt.takeIf { it > now }?.let { ActivityCommitment("${course.title}（${course.building}）", it) }
+    }
+    return (taskCommitments + courseCommitments).minByOrNull(ActivityCommitment::startsAt)
+}
+private fun todayAtMinute(minute: Int): Long = java.util.Calendar.getInstance().apply {
+    set(java.util.Calendar.HOUR_OF_DAY, minute / 60)
+    set(java.util.Calendar.MINUTE, minute % 60)
+    set(java.util.Calendar.SECOND, 0)
+    set(java.util.Calendar.MILLISECOND, 0)
+}.timeInMillis
 private fun formatMinute(minute: Int): String = "%02d:%02d".format(minute / 60, minute % 60)
 private fun todayWeekday(): Int = when (java.util.Calendar.getInstance().get(java.util.Calendar.DAY_OF_WEEK)) {
     java.util.Calendar.SUNDAY -> 7
@@ -1040,13 +1167,34 @@ private fun weekdayName(day: Int) = listOf("", "周一", "周二", "周三", "�
     }
 }
 
-@Composable private fun SettingsScreen(modifier: Modifier, commuteProfile: CommuteProfile, improvementNotes: List<ImprovementNote>, roadmapSelections: Set<String>, onCommuteChange: (CommuteProfile) -> Unit, onAddImprovement: () -> Unit, onToggleRoadmap: (RoadmapFeature) -> Unit) {
+@Composable private fun SettingsScreen(modifier: Modifier, commuteProfile: CommuteProfile, improvementNotes: List<ImprovementNote>, roadmapSelections: Set<String>, activitySettings: ActivityReminderSettings, onCommuteChange: (CommuteProfile) -> Unit, onActivitySettingsChange: (ActivityReminderSettings) -> Unit, onAddImprovement: () -> Unit, onToggleRoadmap: (RoadmapFeature) -> Unit) {
+    val context = LocalContext.current
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Text("设置", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
-        var persistent by remember { mutableStateOf(false) }
-        var preview by remember { mutableStateOf(true) }
-        SettingSwitch("常驻快速记录通知", "在通知栏提供一键记录", persistent) { persistent = it }
-        SettingSwitch("结束前温和预告", "活动结束前 10 分钟提醒", preview) { preview = it }
+        Text("活动提醒", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        SettingSwitch("活动提醒", "关闭后仍会保留活动记录和手动转场", activitySettings.notificationsEnabled) { onActivitySettingsChange(activitySettings.copy(notificationsEnabled = it)) }
+        SettingSwitch("明确的到点提醒", "到达约定时间时使用更醒目的提醒", activitySettings.strongerEndReminder) { onActivitySettingsChange(activitySettings.copy(strongerEndReminder = it)) }
+        Text("提前预告：${activitySettings.previewMinutes} 分钟")
+        Slider(
+            value = activitySettings.previewMinutes.toFloat(),
+            onValueChange = { onActivitySettingsChange(activitySettings.copy(previewMinutes = (it / 5).toInt() * 5)) },
+            valueRange = 0f..30f,
+            steps = 5
+        )
+        Text("连续延长提示上限：${activitySettings.maxExtensions} 次")
+        Slider(
+            value = activitySettings.maxExtensions.toFloat(),
+            onValueChange = { onActivitySettingsChange(activitySettings.copy(maxExtensions = it.toInt())) },
+            valueRange = 0f..6f,
+            steps = 5
+        )
+        Text("如果 ColorOS 延迟到点提醒，可在系统的“闹钟和提醒”及电池设置中允许 FocusFlow；未授权精确提醒时仍会自动使用普通后台提醒。", style = MaterialTheme.typography.bodySmall)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val exactAllowed = context.getSystemService(AlarmManager::class.java).canScheduleExactAlarms()
+            OutlinedButton(onClick = {
+                context.startActivity(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, Uri.parse("package:${context.packageName}")))
+            }) { Text(if (exactAllowed) "管理精确提醒权限" else "允许精确提醒") }
+        }
         HorizontalDivider()
         Text("通勤与地点", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
         Text("地点不再单独占一个页面；它只在安排课程空档时用于估计去图书馆、操场或下一栋教学楼是否来得及。", style = MaterialTheme.typography.bodySmall)
@@ -1089,4 +1237,115 @@ private fun weekdayName(day: Int) = listOf("", "周一", "周二", "周三", "�
 
 @Composable private fun QuickCaptureDialog(onDismiss: () -> Unit, onSave: (String, Boolean) -> Unit) { var text by remember { mutableStateOf("") }; var tomorrow by remember { mutableStateOf(false) }; AlertDialog(onDismissRequest = onDismiss, title = { Text("快速记录") }, text = { Column(verticalArrangement = Arrangement.spacedBy(10.dp)) { Text("先保存想法，安排可以以后再说。"); OutlinedTextField(value = text, onValueChange = { text = it }, placeholder = { Text("例如：购买教材") }, singleLine = false); FilterChip(selected = tomorrow, onClick = { tomorrow = !tomorrow }, label = { Text("明天要做（不定时间）") }); if (tomorrow) Text("明天上午会温和提醒；你再决定具体什么时候做。", style = MaterialTheme.typography.bodySmall) } }, confirmButton = { Button(enabled = text.isNotBlank(), onClick = { onSave(text.trim(), tomorrow) }) { Text("保存") } }, dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }) }
 
-@Composable private fun ActivityDialog(onDismiss: () -> Unit, onStart: (String, Int) -> Unit) { var selected by remember { mutableStateOf("游戏／娱乐") }; var minutes by remember { mutableStateOf("60") }; AlertDialog(onDismissRequest = onDismiss, title = { Text("开始活动") }, text = { Column(verticalArrangement = Arrangement.spacedBy(10.dp)) { listOf("游戏／娱乐", "学习", "休息", "其他").forEach { label -> FilterChip(selected = selected == label, onClick = { selected = label }, label = { Text(label) }) }; OutlinedTextField(value = minutes, onValueChange = { minutes = it.filter(Char::isDigit) }, label = { Text("预计分钟") }, singleLine = true); Text("结束前 10 分钟会温和提醒；到点后再决定开始下一项、延长或改期。") } }, confirmButton = { Button(onClick = { onStart(selected, minutes.toIntOrNull()?.coerceIn(1, 600) ?: 60) }) { Text("开始计时") } }, dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }) }
+@Composable private fun ActivityDialog(
+    suggestedNextStep: String,
+    onDismiss: () -> Unit,
+    onStart: (category: String, name: String, endsAt: Long, nextStep: String) -> Unit
+) {
+    val context = LocalContext.current
+    var category by remember { mutableStateOf("游戏／娱乐") }
+    var customName by remember { mutableStateOf("") }
+    var timeMode by remember { mutableStateOf("时长") }
+    var minutes by remember { mutableStateOf("60") }
+    var untilAt by remember { mutableLongStateOf(System.currentTimeMillis() + 60 * 60_000L) }
+    var nextStep by remember { mutableStateOf(suggestedNextStep) }
+    val activityName = if (category == "自定义") customName.trim() else category
+    val calculatedEnd = if (timeMode == "时长") System.currentTimeMillis() + (minutes.toIntOrNull()?.coerceIn(1, 600) ?: 60) * 60_000L else untilAt
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("开始活动") },
+        text = {
+            Column(Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("先约定什么时候收尾，以及收尾后要去哪里。")
+                listOf("游戏／娱乐", "学习", "休息", "通勤", "自定义").forEach { label ->
+                    FilterChip(selected = category == label, onClick = { category = label }, label = { Text(label) })
+                }
+                if (category == "自定义") OutlinedTextField(value = customName, onValueChange = { customName = it }, label = { Text("活动名称") }, singleLine = true)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(selected = timeMode == "时长", onClick = { timeMode = "时长" }, label = { Text("预计时长") })
+                    FilterChip(selected = timeMode == "截至", onClick = { timeMode = "截至" }, label = { Text("直到时间") })
+                }
+                if (timeMode == "时长") {
+                    OutlinedTextField(value = minutes, onValueChange = { minutes = it.filter(Char::isDigit).take(3) }, label = { Text("分钟") }, singleLine = true)
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf(15, 30, 60).forEach { value -> FilterChip(selected = minutes == value.toString(), onClick = { minutes = value.toString() }, label = { Text("$value 分") }) }
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf(90, 120).forEach { value -> FilterChip(selected = minutes == value.toString(), onClick = { minutes = value.toString() }, label = { Text("$value 分") }) }
+                    }
+                } else {
+                    OutlinedButton(onClick = {
+                        val calendar = java.util.Calendar.getInstance().apply { timeInMillis = untilAt }
+                        TimePickerDialog(context, { _, hour, minute ->
+                            val chosen = java.util.Calendar.getInstance().apply {
+                                set(java.util.Calendar.HOUR_OF_DAY, hour)
+                                set(java.util.Calendar.MINUTE, minute)
+                                set(java.util.Calendar.SECOND, 0)
+                                set(java.util.Calendar.MILLISECOND, 0)
+                                if (timeInMillis <= System.currentTimeMillis()) add(java.util.Calendar.DAY_OF_YEAR, 1)
+                            }
+                            untilAt = chosen.timeInMillis
+                        }, calendar.get(java.util.Calendar.HOUR_OF_DAY), calendar.get(java.util.Calendar.MINUTE), true).show()
+                    }) { Text("选择结束时间：${formatDateTime(untilAt)}") }
+                }
+                OutlinedTextField(value = nextStep, onValueChange = { nextStep = it }, label = { Text("结束后的下一步（可选）") }, placeholder = { Text("例如：洗漱，或开始复习") })
+                if (suggestedNextStep.isNotBlank() && nextStep == suggestedNextStep) Text("已根据最近的固定安排或待办预填，可直接修改。", style = MaterialTheme.typography.labelSmall)
+                Text("预计 ${formatDateTime(calculatedEnd)} 结束；到点不会自动判定失败，而是进入转场确认。", style = MaterialTheme.typography.bodySmall)
+            }
+        },
+        confirmButton = { Button(enabled = activityName.isNotBlank() && calculatedEnd > System.currentTimeMillis(), onClick = { onStart(category, activityName, calculatedEnd, nextStep.trim()) }) { Text("开始活动") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }
+    )
+}
+
+@Composable private fun ActivityTransitionDialog(
+    session: ActivitySession,
+    maxExtensions: Int,
+    upcomingCommitment: ActivityCommitment?,
+    onDismiss: () -> Unit,
+    onFinish: (actualEndAt: Long) -> Unit,
+    onStartNext: () -> Unit,
+    onExtend: (minutes: Int, reason: String) -> Unit,
+    onReplan: () -> Unit
+) {
+    var extensionMinutes by remember { mutableIntStateOf(10) }
+    var reason by remember { mutableStateOf("") }
+    var endTimeChoice by remember { mutableStateOf("现在") }
+    val canExtend = session.extensionCount < maxExtensions
+    val extensionEnd = System.currentTimeMillis() + extensionMinutes * 60_000L
+    val conflict = upcomingCommitment?.takeIf { it.startsAt < extensionEnd }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (System.currentTimeMillis() >= session.endsAt) "活动时间到了" else "结束或调整活动") },
+        text = {
+            Column(Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("${session.name} · 原定 ${formatTime(session.endsAt)} 结束", fontWeight = FontWeight.SemiBold)
+                if (System.currentTimeMillis() > session.endsAt + 60_000L) {
+                    Text("实际什么时候结束？")
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        FilterChip(selected = endTimeChoice == "现在", onClick = { endTimeChoice = "现在" }, label = { Text("刚刚") })
+                        FilterChip(selected = endTimeChoice == "预计", onClick = { endTimeChoice = "预计" }, label = { Text("按预计时间") })
+                    }
+                }
+                if (session.nextStep.isNotBlank()) {
+                    Text("下一步：${session.nextStep}")
+                    Button(onClick = onStartNext, modifier = Modifier.fillMaxWidth()) { Text("结束并开始下一步") }
+                }
+                HorizontalDivider()
+                Text("需要更多时间")
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf(10, 20, 30).forEach { value -> FilterChip(selected = extensionMinutes == value, onClick = { extensionMinutes = value }, label = { Text("$value 分钟") }) }
+                }
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    listOf("还没结束", "不想停", "临时被打断").forEach { label -> FilterChip(selected = reason == label, onClick = { reason = label }, label = { Text(label) }) }
+                }
+                conflict?.let { Text("延长到 ${formatTime(extensionEnd)} 会碰到 ${formatTime(it.startsAt)} 的 ${it.title}；FocusFlow 不会自动改动它。", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+                if (canExtend) OutlinedButton(onClick = { onExtend(extensionMinutes, reason) }, modifier = Modifier.fillMaxWidth()) { Text("确认延长") }
+                else Text("已达到设置中的连续延长提示上限。你仍可结束后重新开始，并重新作出约定。", style = MaterialTheme.typography.bodySmall)
+                TextButton(onClick = onReplan, modifier = Modifier.fillMaxWidth()) { Text("现在结束，但把下一步放回收集箱") }
+            }
+        },
+        confirmButton = { Button(onClick = { onFinish(if (endTimeChoice == "预计") session.endsAt else System.currentTimeMillis()) }) { Text("确认结束") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("继续当前活动") } }
+    )
+}
