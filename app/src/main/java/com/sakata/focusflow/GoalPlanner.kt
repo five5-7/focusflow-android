@@ -46,7 +46,7 @@ object RoadmapCatalog {
     val features = listOf(
         RoadmapFeature("v2_activity_transition", "V2", "活动计时、分级预告与结束后的下一步转场"),
         RoadmapFeature("v2_custom_time", "V2", "任意日期与时间的改期选择"),
-        RoadmapFeature("v2_course_ocr", "V2", "课表截图 OCR 识别与逐项确认"),
+        RoadmapFeature("v2_course_ocr", "V2 · 2.6 已实现", "课表截图 OCR 识别与逐项确认"),
         RoadmapFeature("v2_route_calibration", "V2", "紫金港路线耗时的实际校正"),
         RoadmapFeature("v2_flexible_initial_plan", "V2", "为弹性任务提供可确认的初步规划时间"),
         RoadmapFeature("v2_goal_review", "V2", "每周目标回顾与低压力调整建议"),

@@ -14,8 +14,8 @@ android {
         applicationId = "com.sakata.focusflow"
         minSdk = 26
         targetSdk = 35
-        versionCode = 250
-        versionName = "2.5"
+        versionCode = 260
+        versionName = "2.6"
     }
 
     compileOptions {
@@ -56,5 +56,6 @@ dependencies {
     implementation(libs.androidx.ui.graphics)
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
+    implementation("com.google.mlkit:text-recognition-chinese:16.0.1")
     debugImplementation(libs.androidx.ui.tooling)
 }
