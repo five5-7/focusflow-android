@@ -168,6 +168,12 @@ class PrototypeStore(context: Context) {
             .apply()
     }
 
+    fun loadCampusLifeEnabled(): Boolean = preferences.getBoolean("campus_life_enabled", true)
+
+    fun saveCampusLifeEnabled(enabled: Boolean) {
+        preferences.edit().putBoolean("campus_life_enabled", enabled).apply()
+    }
+
     fun loadCampusMapPackage(): CampusMapPackage? = runCatching {
         preferences.getString("campus_map_package", null)?.let(CampusMapPackageCodec::parse)
     }.getOrNull()
