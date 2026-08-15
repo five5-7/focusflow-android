@@ -188,6 +188,7 @@ private fun FocusFlowApp() {
                     },
                     activeSession = activeSession,
                     activityHistory = activityHistory,
+                    nextCommitment = upcomingCommitment,
                     onStartActivity = { activityOpen = true },
                     onReviewActivity = { activeSession?.let { transitionTarget = it } },
                     onPickTime = { item -> rescheduleTarget = item },
@@ -371,6 +372,7 @@ private fun FocusFlowApp() {
     onTaskDone: (Item) -> Unit,
     activeSession: ActivitySession?,
     activityHistory: List<ActivitySession>,
+    nextCommitment: ActivityCommitment?,
     onStartActivity: () -> Unit,
     onReviewActivity: () -> Unit,
     onPickTime: (Item) -> Unit,
@@ -381,15 +383,13 @@ private fun FocusFlowApp() {
 ) {
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(activeSession?.id, activeSession?.endsAt) {
-        while (activeSession != null) {
+        while (true) {
             now = System.currentTimeMillis()
-            delay(1_000)
+            delay(if (activeSession == null) 30_000 else 1_000)
         }
     }
-    val scheduledToday = items.filter { !it.done && it.scheduledAt?.let(::isToday) == true }.sortedBy { it.scheduledAt }
-    val flexibleItems = items.filter { !it.done && it.kind != "暂停" && it.kind != "收集箱" && it.scheduledAt == null }
     val inboxItems = items.filter { !it.done && it.kind == "收集箱" }
-    val nextItem = scheduledToday.firstOrNull { (it.scheduledAt ?: Long.MAX_VALUE) >= now } ?: flexibleItems.firstOrNull()
+    val nextSuggestion = recommendNextAction(items, nextCommitment, now)
     val completedToday = items.count { it.done && it.completedAt?.let(::isToday) == true }
     val completedThisWeek = items.count { it.done && it.completedAt?.let(::isInCurrentWeek) == true }
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -430,10 +430,16 @@ private fun FocusFlowApp() {
             Column(horizontalAlignment = Alignment.CenterHorizontally) { Text("${inboxItems.size}", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold); Text("待整理", style = MaterialTheme.typography.labelMedium) }
         } }
         Text("下一件合适的事", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-        nextItem?.let { item ->
+        Text("从临近日程和未定时任务中给出低压力建议，不会自动修改你的安排。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        nextSuggestion?.let { suggestion ->
+            val item = suggestion.item
             ElevatedCard {
                 Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                    Column(Modifier.weight(1f)) { Text(item.title, fontWeight = FontWeight.SemiBold); Text(item.detail) }
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(item.title, fontWeight = FontWeight.SemiBold)
+                        Text(item.detail)
+                        Text(suggestion.reason, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                    }
                     TextButton(onClick = { onTaskDone(item) }) { Text("完成") }
                 }
             }
@@ -832,6 +838,45 @@ private fun formatActivityRemaining(milliseconds: Long): String {
     val seconds = totalSeconds % 60
     return if (hours > 0) "%d:%02d:%02d".format(hours, minutes, seconds) else "%02d:%02d".format(minutes, seconds)
 }
+
+private data class NextActionSuggestion(val item: Item, val reason: String)
+
+private fun recommendNextAction(items: List<Item>, nextCommitment: ActivityCommitment?, now: Long = System.currentTimeMillis()): NextActionSuggestion? {
+    val candidates = items.filter { !it.done && it.kind !in setOf("收集箱", "暂停", "计划") }
+    val scheduled = candidates.filter { it.scheduledAt != null }
+    val overdue = scheduled.filter { (it.scheduledAt ?: Long.MAX_VALUE) < now }.maxByOrNull { it.scheduledAt ?: Long.MIN_VALUE }
+    if (overdue != null) {
+        return NextActionSuggestion(overdue, "原定 ${formatDateTime(overdue.scheduledAt ?: now)}，尚未确认完成；现在不合适时可以重新安排。")
+    }
+
+    val upcoming = scheduled.filter { (it.scheduledAt ?: Long.MIN_VALUE) >= now }.minByOrNull { it.scheduledAt ?: Long.MAX_VALUE }
+    val minutesUntilUpcoming = upcoming?.scheduledAt?.let { ((it - now) / 60_000L).toInt().coerceAtLeast(0) }
+    if (upcoming != null && minutesUntilUpcoming != null && minutesUntilUpcoming <= 90) {
+        return NextActionSuggestion(upcoming, "${formatTime(upcoming.scheduledAt ?: now)} 开始，是最近的固定安排（约 $minutesUntilUpcoming 分钟后）。")
+    }
+
+    val flexible = candidates.filter { it.scheduledAt == null }
+    val minutesBeforeCommitment = nextCommitment?.let { ((it.startsAt - now) / 60_000L).toInt().coerceAtLeast(0) }
+    val usableMinutes = minutesBeforeCommitment?.minus(15)?.coerceAtLeast(0)
+    val fitting = flexible
+        .filter { usableMinutes == null || it.durationMinutes <= usableMinutes }
+        .sortedWith(compareByDescending<Item> { it.goalId != null }.thenBy { it.durationMinutes })
+        .firstOrNull()
+    if (fitting != null) {
+        val reason = if (minutesBeforeCommitment == null) {
+            "当前没有临近的固定安排；这项任务可以直接开始。"
+        } else {
+            "距离 ${nextCommitment.title} 约 $minutesBeforeCommitment 分钟；本项预计 ${fitting.durationMinutes} 分钟，并保留 15 分钟缓冲。"
+        }
+        return NextActionSuggestion(fitting, reason)
+    }
+
+    if (upcoming != null) {
+        return NextActionSuggestion(upcoming, "今天下一项固定安排在 ${formatTime(upcoming.scheduledAt ?: now)}；当前空档不足以稳妥放入其他任务。")
+    }
+    return flexible.minByOrNull(Item::durationMinutes)?.let { NextActionSuggestion(it, "当前没有临近固定安排；先从预计用时较短的一项开始。") }
+}
+
 private fun nextActivityCommitment(items: List<Item>, courses: List<Course>, now: Long = System.currentTimeMillis()): ActivityCommitment? {
     val taskCommitments = items.mapNotNull { item -> item.scheduledAt?.takeIf { !item.done && it > now }?.let { ActivityCommitment(item.title, it) } }
     val courseCommitments = courses.filter { !it.needsConfirmation && it.weekday == todayWeekday() }.mapNotNull { course ->
@@ -1296,7 +1341,7 @@ private fun weekdayName(day: Int) = listOf("", "周一", "周二", "周三", "�
         text = {
             Column(Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("先约定什么时候收尾，以及收尾后要去哪里。")
-                listOf("游戏／娱乐", "学习", "休息", "通勤", "自定义").forEach { label ->
+                listOf("游戏／娱乐", "学习", "休息", "自定义").forEach { label ->
                     FilterChip(selected = category == label, onClick = { category = label }, label = { Text(label) })
                 }
                 if (category == "自定义") OutlinedTextField(value = customName, onValueChange = { customName = it }, label = { Text("活动名称") }, singleLine = true)
