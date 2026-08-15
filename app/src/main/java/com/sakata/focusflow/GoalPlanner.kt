@@ -75,11 +75,28 @@ object GoalPlanner {
 
     fun completedThisWeek(goal: Goal): Int = if (goal.completionWeekKey == currentWeekKey()) goal.completedThisWeek else 0
     fun minimumCompletedThisWeek(goal: Goal): Int = if (goal.completionWeekKey == currentWeekKey()) goal.minimumCompletionsThisWeek else 0
-    fun suggestions(goal: Goal, courses: List<Course>, profile: CommuteProfile): List<GoalSuggestion> =
-        CourseGapPlanner.gaps(courses.filter { !it.needsConfirmation }, profile)
+    fun suggestions(goal: Goal, courses: List<Course>, profile: CommuteProfile): List<GoalSuggestion> {
+        val confirmed = courses.filter { !it.needsConfirmation }
+        val gapSuggestions = CourseGapPlanner.gaps(confirmed, profile)
             .filter { it.minutesFree >= goal.durationMinutes }
-            .sortedByDescending { it.minutesFree }
             .map { GoalSuggestion(it.from.weekday, it.suggestedStartMinute, it.minutesFree) }
+        val fallbackSuggestions = (1..7).flatMap { weekday ->
+            listOf(9 * 60, 14 * 60, 18 * 60, 20 * 60).map { start -> GoalSuggestion(weekday, start, 120) }
+        }.filter { suggestion ->
+            confirmed.none { course ->
+                course.weekday == suggestion.weekday &&
+                    CourseGapPlanner.periodStart(course.startPeriod) < suggestion.startMinute + goal.durationMinutes &&
+                    suggestion.startMinute < CourseGapPlanner.periodEnd(course.endPeriod)
+            }
+        }
+        val calendar = Calendar.getInstance()
+        val currentDay = when (calendar.get(Calendar.DAY_OF_WEEK)) { Calendar.SUNDAY -> 7 else -> calendar.get(Calendar.DAY_OF_WEEK) - 1 }
+        val currentMinute = calendar.get(Calendar.HOUR_OF_DAY) * 60 + calendar.get(Calendar.MINUTE)
+        return (gapSuggestions + fallbackSuggestions)
+            .distinctBy { it.weekday to it.startMinute }
+            .filter { it.weekday > currentDay || (it.weekday == currentDay && it.startMinute > currentMinute + 15) }
+            .sortedWith(compareBy<GoalSuggestion> { it.weekday }.thenBy { it.startMinute })
+    }
 
     fun nextOccurrence(weekday: Int, minuteOfDay: Int): Long {
         val calendar = Calendar.getInstance()
