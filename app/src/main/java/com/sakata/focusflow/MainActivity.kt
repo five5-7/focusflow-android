@@ -99,6 +99,7 @@ private fun FocusFlowApp() {
     var transitionTarget by remember { mutableStateOf<ActivitySession?>(null) }
     var autoPromptedSessionId by remember { mutableStateOf<Long?>(null) }
     var rescheduleTarget by remember { mutableStateOf<Item?>(null) }
+    var flexiblePlanTarget by remember { mutableStateOf<Item?>(null) }
     var inboxEditTarget by remember { mutableStateOf<Item?>(null) }
     var items by remember {
         mutableStateOf(store.recoverMissedGoalTasks().ifEmpty {
@@ -221,6 +222,8 @@ private fun FocusFlowApp() {
                 )
                 1 -> ScheduleScreen(
                     Modifier.padding(padding), items, courses,
+                    energyLevel = energyLevel,
+                    onPlanFlexible = { flexiblePlanTarget = it },
                     onTaskDone = { item ->
                         if (item.goalId == null) saveItems(items.map { if (it.id == item.id) it.copy(done = true, completionLevel = "完成", completedAt = System.currentTimeMillis()) else it }) else completionTarget = item
                     }
@@ -348,6 +351,22 @@ private fun FocusFlowApp() {
             ReminderScheduler.scheduleTaskReminder(context, delayed)
             rescheduleTarget = null
         } }
+        flexiblePlanTarget?.let { item -> FlexiblePlanDialog(
+            item = item,
+            suggestions = FlexiblePlanner.suggestions(item, items, courses, energyLevel),
+            onDismiss = { flexiblePlanTarget = null },
+            onSelect = { suggestion ->
+                val scheduled = item.copy(
+                    scheduledAt = suggestion.startsAt,
+                    durationMinutes = suggestion.durationMinutes,
+                    dayOnly = false,
+                    detail = "初步安排：${formatDateTime(suggestion.startsAt)} · ${suggestion.durationMinutes} 分钟；可随时改期"
+                )
+                saveItems(items.map { if (it.id == item.id) scheduled else it })
+                ReminderScheduler.scheduleTaskReminder(context, scheduled)
+                flexiblePlanTarget = null
+            }
+        ) }
         inboxEditTarget?.let { item -> InboxEditDialog(item, onDismiss = { inboxEditTarget = null }) { title, detail ->
             saveItems(items.map { if (it.id == item.id) it.copy(title = title, detail = detail) else it })
             inboxEditTarget = null
@@ -534,7 +553,7 @@ private fun FocusFlowApp() {
     }
 }
 
-@Composable private fun ScheduleScreen(modifier: Modifier, items: List<Item>, courses: List<Course>, onTaskDone: (Item) -> Unit) {
+@Composable private fun ScheduleScreen(modifier: Modifier, items: List<Item>, courses: List<Course>, energyLevel: String, onPlanFlexible: (Item) -> Unit, onTaskDone: (Item) -> Unit) {
     val weekday = todayWeekday()
     val todaySchedule = items.filter { !it.dayOnly && it.scheduledAt?.let(::isToday) == true }.sortedBy { it.scheduledAt }
     val todayUnslotted = items.filter { !it.done && it.dayOnly && it.scheduledAt?.let(::isToday) == true }
@@ -566,9 +585,25 @@ private fun FocusFlowApp() {
         }
         if (flexibleItems.isNotEmpty()) {
             Text("弹性安排", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            flexibleItems.take(4).forEach { item -> ScheduleTableRow(item.title, item.detail, item.scheduleType()) }
+            Text("根据当前精力、任务时长和已有日程提供初步时间；只有选择后才写入日程。", style = MaterialTheme.typography.bodySmall)
+            flexibleItems.take(4).forEach { item -> FlexibleScheduleRow(item, energyLevel) { onPlanFlexible(item) } }
         }
         Text("已完成的任务继续保留在时间轴上，并以灰色显示。", style = MaterialTheme.typography.bodySmall)
+    }
+}
+
+@Composable private fun FlexibleScheduleRow(item: Item, energyLevel: String, onPlan: () -> Unit) {
+    val type = item.scheduleType()
+    val typeColor = scheduleColor(type)
+    Card(colors = CardDefaults.cardColors(containerColor = typeColor.copy(alpha = 0.10f))) {
+        Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Box(Modifier.width(5.dp).height(46.dp).background(typeColor, MaterialTheme.shapes.small))
+            Column(Modifier.weight(1f)) {
+                Text(item.title, fontWeight = FontWeight.SemiBold)
+                Text("预计 ${item.durationMinutes} 分钟 · 当前精力$energyLevel", style = MaterialTheme.typography.bodySmall)
+            }
+            TextButton(onClick = onPlan) { Text("初步安排") }
+        }
     }
 }
 
@@ -865,6 +900,31 @@ private fun dateAt(dayOffset: Int, hour: Int): Long {
     calendar.set(java.util.Calendar.SECOND, 0)
     calendar.set(java.util.Calendar.MILLISECOND, 0)
     return calendar.timeInMillis
+}
+
+@Composable private fun FlexiblePlanDialog(item: Item, suggestions: List<FlexibleTimeSuggestion>, onDismiss: () -> Unit, onSelect: (FlexibleTimeSuggestion) -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("为弹性任务初步规划") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(item.title, fontWeight = FontWeight.SemiBold)
+                Text("这些时间已避开课程和定时任务，并保留前后缓冲。选择只是初步安排，之后仍可改期。", style = MaterialTheme.typography.bodySmall)
+                if (suggestions.isEmpty()) {
+                    Text("未来七天暂时没有足够连续的空档。任务会继续保留为弹性安排。")
+                } else suggestions.forEach { suggestion ->
+                    ElevatedCard(Modifier.fillMaxWidth().clickable { onSelect(suggestion) }) {
+                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            Text(formatDateTime(suggestion.startsAt), fontWeight = FontWeight.Bold)
+                            Text(suggestion.reason, style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = { TextButton(onClick = onDismiss) { Text("保持弹性") } }
+    )
 }
 
 @Composable private fun RescheduleTimeDialog(item: Item, onDismiss: () -> Unit, onSave: (Long, Int, String) -> Unit) {
