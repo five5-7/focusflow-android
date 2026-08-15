@@ -1,6 +1,6 @@
 # FocusFlow Android prototype
 
-当前应用版本：**2.8**。功能更新记录见 [CHANGELOG.md](CHANGELOG.md)。
+当前应用版本：**2.9**。功能更新记录见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## First open in Android Studio
 
@@ -16,7 +16,7 @@ dependencies used by this prototype.
 
 The included GitHub Actions workflow builds a debug APK on a GitHub runner.
 Push this folder to a GitHub repository, then open **Actions** and run
-**Build FocusFlow APK**. Download the `FocusFlow-2.8-apk` artifact after the
+**Build FocusFlow APK**. Download the `FocusFlow-2.9-apk` artifact after the
 workflow succeeds.
 
 本项目是一个面向 Android 的本地优先日程与执行辅助原型。核心目标不是维护一张完整日历，而是降低记录压力、按当前状态调整提醒，并在错过计划后帮助恢复。
@@ -28,6 +28,8 @@ workflow succeeds.
 - 设置页提供四套可即时切换并本地保存的整体主题，日程分类色也会随主题协调变化
 - “下一件合适的事”会结合逾期、临近安排、可用空档、预计用时和近期反馈给出建议；可直接开始、采用最低版本、改时间或完成
 - 今日页可手动选择精力偏低、正常或充足；弹性任务推荐会调整顺序，但固定日程不受影响
+- 可选每日低打扰状态询问，同时记录精力与当前活动；通知可主动推迟，未回应时当天不连续追问
+- 活动进行中不会插入状态询问；签到历史只保存在本机，现阶段不会据此自动移动固定日程
 - 日程页可为弹性任务生成三个未来七天内的初步候选时间，避开课程和定时任务并保留 15 分钟缓冲；用户选择后才写入日程
 - 课程副页面可选择一张含文字的课表截图，在设备端识别课程名称、星期、节次和教学楼；所有结果必须逐项确认
 - 收集箱安排支持按现有日程推荐空档、保留大致时间范围或选择精确时间；弹性范围内的任务不会被伪装成固定日程
@@ -69,9 +71,9 @@ workflow succeeds.
 
 ## 下一步
 
-1. 为设置开关与长期计划接入持久化。
-2. 让用户调整“未回应”的宽限时长，并为长期计划设置最低版本（如先做十分钟）。
-4. 在 OPPO ColorOS 设备上验证通知、后台限制和重启恢复。
+1. 在真实使用中验证状态询问的默认时段、退避强度与通知文案。
+2. 为长期计划补充更细的最低版本与中断恢复策略。
+3. 在 OPPO ColorOS 设备上验证通知、后台限制和重启恢复。
 
 V3 计划：开始活动时根据已确认的历史活动与下一项日程建议预计时长／结束时间；只有用户确认实际通勤耗时后才逐步学习路线，不静默追踪位置。
 

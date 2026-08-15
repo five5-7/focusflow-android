@@ -5,6 +5,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import java.util.Calendar
 
 object ReminderScheduler {
     fun scheduleActivityEnd(context: Context, session: ActivitySession) {
@@ -43,6 +44,51 @@ object ReminderScheduler {
                 }
             } else scheduleActivityReminders(context, session, store.loadActivityReminderSettings())
         }
+        scheduleDailyStatusCheckIn(context, store.loadStatusCheckInSettings())
+    }
+
+    fun scheduleDailyStatusCheckIn(
+        context: Context,
+        settings: StatusCheckInSettings = PrototypeStore(context).loadStatusCheckInSettings()
+    ) {
+        cancelStatusCheckIn(context)
+        if (!settings.enabled) return
+        val now = System.currentTimeMillis()
+        val next = Calendar.getInstance().apply {
+            set(Calendar.HOUR_OF_DAY, settings.promptHour)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+            if (timeInMillis <= now + 60_000L) add(Calendar.DAY_OF_YEAR, 1)
+        }.timeInMillis
+        scheduleStatusCheckInAt(context, next)
+    }
+
+    fun snoozeStatusCheckIn(context: Context, minutes: Int) {
+        cancelStatusCheckIn(context)
+        scheduleStatusCheckInAt(context, System.currentTimeMillis() + minutes.coerceIn(30, 180) * 60_000L)
+    }
+
+    fun cancelStatusCheckIn(context: Context) {
+        val manager = context.getSystemService(AlarmManager::class.java)
+        val pending = PendingIntent.getBroadcast(
+            context,
+            STATUS_CHECK_IN_REQUEST_CODE,
+            Intent(context, ReminderReceiver::class.java).apply { action = ReminderReceiver.ACTION_STATUS_CHECK_IN },
+            PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
+        )
+        pending?.let(manager::cancel)
+    }
+
+    private fun scheduleStatusCheckInAt(context: Context, triggerAt: Long) {
+        val pending = PendingIntent.getBroadcast(
+            context,
+            STATUS_CHECK_IN_REQUEST_CODE,
+            Intent(context, ReminderReceiver::class.java).apply { action = ReminderReceiver.ACTION_STATUS_CHECK_IN },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        context.getSystemService(AlarmManager::class.java)
+            .setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pending)
     }
 
     fun cancelActivityReminders(context: Context, sessionId: Long) {
@@ -90,5 +136,6 @@ object ReminderScheduler {
         val pending = PendingIntent.getBroadcast(context, requestCode, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         context.getSystemService(AlarmManager::class.java).setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, scheduledAt, pending)
     }
-}
 
+    private const val STATUS_CHECK_IN_REQUEST_CODE = 2_900_001
+}

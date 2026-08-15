@@ -46,13 +46,24 @@ import kotlinx.coroutines.delay
 import java.util.UUID
 
 class MainActivity : ComponentActivity() {
+    private var statusCheckInRequested by mutableStateOf(false)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        statusCheckInRequested = intent.getBooleanExtra(ReminderReceiver.EXTRA_OPEN_STATUS_CHECK_IN, false)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 100)
         }
         enableEdgeToEdge()
-        setContent { FocusFlowApp() }
+        setContent { FocusFlowApp(statusCheckInRequested) { statusCheckInRequested = false } }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent.getBooleanExtra(ReminderReceiver.EXTRA_OPEN_STATUS_CHECK_IN, false)) {
+            statusCheckInRequested = true
+        }
     }
 }
 
@@ -91,7 +102,7 @@ data class CommuteProfile(
 )
 
 @Composable
-private fun FocusFlowApp() {
+private fun FocusFlowApp(statusCheckInRequested: Boolean, onStatusCheckInRequestHandled: () -> Unit) {
     val context = LocalContext.current
     val store = remember(context) { PrototypeStore(context) }
     var tab by remember { mutableIntStateOf(0) }
@@ -117,6 +128,9 @@ private fun FocusFlowApp() {
     var activeSession by remember { mutableStateOf(store.loadLatestActiveSession()) }
     var activityHistory by remember { mutableStateOf(store.loadRecentActivitySessions()) }
     var activitySettings by remember { mutableStateOf(store.loadActivityReminderSettings()) }
+    var statusCheckInSettings by remember { mutableStateOf(store.loadStatusCheckInSettings()) }
+    var latestStatusCheckIn by remember { mutableStateOf(store.loadLatestStatusCheckIn()) }
+    var statusCheckInOpen by remember { mutableStateOf(false) }
     var themeOption by remember { mutableStateOf(store.loadTheme()) }
     var energyLevel by remember { mutableStateOf(store.loadEnergyLevel()) }
     var commuteProfile by remember { mutableStateOf(store.loadCommuteProfile()) }
@@ -179,6 +193,15 @@ private fun FocusFlowApp() {
     BackHandler(enabled = tab == 0 && todayInboxOpen) { todayInboxOpen = false }
     BackHandler(enabled = tab == 2 && planPage != null) { planPage = null }
 
+    LaunchedEffect(statusCheckInRequested) {
+        if (statusCheckInRequested) {
+            tab = 0
+            todayInboxOpen = false
+            statusCheckInOpen = true
+            onStatusCheckInRequestHandled()
+        }
+    }
+
     LaunchedEffect(Unit) {
         ReminderScheduler.restoreActivityReminders(context)
         while (true) {
@@ -236,6 +259,8 @@ private fun FocusFlowApp() {
                     onInboxOpenChange = { todayInboxOpen = it },
                     energyLevel = energyLevel,
                     onEnergyLevelChange = { updated -> energyLevel = updated; store.saveEnergyLevel(updated) },
+                    latestStatusCheckIn = latestStatusCheckIn,
+                    onStatusCheckIn = { statusCheckInOpen = true },
                     onTaskDone = { item ->
                         if (item.goalId == null) saveItems(items.map { if (it.id == item.id) it.copy(done = true, completionLevel = "完成", completedAt = System.currentTimeMillis()) else it }) else completionTarget = item
                     },
@@ -306,7 +331,7 @@ private fun FocusFlowApp() {
                     },
                     feedback = feedback
                 )
-                else -> SettingsScreen(Modifier.padding(padding), themeOption, commuteProfile, campusLifeEnabled, campusMapPackage, currentCampusPlace, improvementNotes, roadmapSelections, activitySettings, onThemeChange = { updated ->
+                else -> SettingsScreen(Modifier.padding(padding), themeOption, commuteProfile, campusLifeEnabled, campusMapPackage, currentCampusPlace, improvementNotes, roadmapSelections, activitySettings, statusCheckInSettings, onThemeChange = { updated ->
                     themeOption = updated
                     store.saveTheme(updated)
                 }, onCommuteChange = { updated ->
@@ -329,6 +354,10 @@ private fun FocusFlowApp() {
                     activitySettings = updated
                     store.saveActivityReminderSettings(updated)
                     activeSession?.let { ReminderScheduler.scheduleActivityReminders(context, it, updated) }
+                }, onStatusCheckInSettingsChange = { updated ->
+                    statusCheckInSettings = updated
+                    store.saveStatusCheckInSettings(updated)
+                    ReminderScheduler.scheduleDailyStatusCheckIn(context, updated)
                 }, onAddImprovement = { improvementOpen = true }, onToggleRoadmap = { feature ->
                     roadmapSelections = if (feature.id in roadmapSelections) roadmapSelections - feature.id else roadmapSelections + feature.id
                     store.saveRoadmapSelections(roadmapSelections)
@@ -352,6 +381,18 @@ private fun FocusFlowApp() {
             activityOpen = false
             activityPreset = null
         }
+        if (statusCheckInOpen) StatusCheckInDialog(
+            initialEnergy = energyLevel,
+            initialActivity = activeSession?.name ?: latestStatusCheckIn?.activity.orEmpty(),
+            onDismiss = { statusCheckInOpen = false },
+            onSave = { selectedEnergy, selectedActivity ->
+                val checkIn = StatusCheckIn(selectedEnergy, selectedActivity)
+                store.saveStatusCheckIn(checkIn)
+                energyLevel = selectedEnergy
+                latestStatusCheckIn = checkIn
+                statusCheckInOpen = false
+            }
+        )
         transitionTarget?.let { session -> ActivityTransitionDialog(
             session = session,
             maxExtensions = activitySettings.maxExtensions,
@@ -514,6 +555,8 @@ private fun FocusFlowApp() {
     onInboxOpenChange: (Boolean) -> Unit,
     energyLevel: String,
     onEnergyLevelChange: (String) -> Unit,
+    latestStatusCheckIn: StatusCheckIn?,
+    onStatusCheckIn: () -> Unit,
     onTaskDone: (Item) -> Unit,
     goals: List<Goal>,
     feedback: List<TaskFeedback>,
@@ -586,8 +629,14 @@ private fun FocusFlowApp() {
         } }
         ElevatedCard {
             Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text("当前精力", fontWeight = FontWeight.Bold)
-                Text("只影响弹性任务的推荐顺序，不会移动固定日程。", style = MaterialTheme.typography.bodySmall)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("当前状态", fontWeight = FontWeight.Bold)
+                        Text(latestStatusCheckIn?.let { "最近记录：${it.activity} · ${formatDateTime(it.recordedAt)}" } ?: "还没有记录正在进行的活动", style = MaterialTheme.typography.bodySmall)
+                    }
+                    TextButton(onClick = onStatusCheckIn) { Text("记录") }
+                }
+                Text("精力只影响弹性任务的推荐顺序，不会移动固定日程。", style = MaterialTheme.typography.bodySmall)
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     listOf("偏低", "正常", "充足").forEach { level ->
                         FilterChip(selected = energyLevel == level, onClick = { onEnergyLevelChange(level) }, label = { Text(level) })
@@ -1629,6 +1678,41 @@ private fun weekdayName(day: Int) = listOf("", "周一", "周二", "周三", "�
     } }, confirmButton = { Button(enabled = text.isNotBlank(), onClick = { onSave(text.trim()) }) { Text("保存") } }, dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } })
 }
 
+@Composable private fun StatusCheckInDialog(
+    initialEnergy: String,
+    initialActivity: String,
+    onDismiss: () -> Unit,
+    onSave: (String, String) -> Unit
+) {
+    var energy by remember { mutableStateOf(initialEnergy.takeIf { it in StatusCheckInCatalog.energies } ?: "正常") }
+    var activity by remember { mutableStateOf(initialActivity.takeIf { it in StatusCheckInCatalog.activities } ?: "空闲") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("记录现在状态") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("精力", fontWeight = FontWeight.Bold)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    StatusCheckInCatalog.energies.forEach { value ->
+                        FilterChip(selected = energy == value, onClick = { energy = value }, label = { Text(value) })
+                    }
+                }
+                Text("正在做什么", fontWeight = FontWeight.Bold)
+                StatusCheckInCatalog.activities.chunked(3).forEach { row ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        row.forEach { value ->
+                            FilterChip(selected = activity == value, onClick = { activity = value }, label = { Text(value) })
+                        }
+                    }
+                }
+                Text("这次记录只用于当前推荐和以后可选的本机学习，不会自动移动固定日程。", style = MaterialTheme.typography.bodySmall)
+            }
+        },
+        confirmButton = { Button(onClick = { onSave(energy, activity) }) { Text("保存状态") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("暂不记录") } }
+    )
+}
+
 @Composable private fun CampusPlacesScreen(modifier: Modifier, profile: CommuteProfile) {
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("紫金港地点", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
@@ -1645,7 +1729,7 @@ private fun weekdayName(day: Int) = listOf("", "周一", "周二", "周三", "�
     }
 }
 
-@Composable private fun SettingsScreen(modifier: Modifier, themeOption: FocusFlowThemeOption, commuteProfile: CommuteProfile, campusLifeEnabled: Boolean, campusMapPackage: CampusMapPackage?, currentCampusPlace: String?, improvementNotes: List<ImprovementNote>, roadmapSelections: Set<String>, activitySettings: ActivityReminderSettings, onThemeChange: (FocusFlowThemeOption) -> Unit, onCommuteChange: (CommuteProfile) -> Unit, onCampusLifeEnabledChange: (Boolean) -> Unit, onCampusMapPackageChange: (CampusMapPackage?) -> Unit, onCurrentCampusPlaceChange: (String?) -> Unit, onActivitySettingsChange: (ActivityReminderSettings) -> Unit, onAddImprovement: () -> Unit, onToggleRoadmap: (RoadmapFeature) -> Unit) {
+@Composable private fun SettingsScreen(modifier: Modifier, themeOption: FocusFlowThemeOption, commuteProfile: CommuteProfile, campusLifeEnabled: Boolean, campusMapPackage: CampusMapPackage?, currentCampusPlace: String?, improvementNotes: List<ImprovementNote>, roadmapSelections: Set<String>, activitySettings: ActivityReminderSettings, statusCheckInSettings: StatusCheckInSettings, onThemeChange: (FocusFlowThemeOption) -> Unit, onCommuteChange: (CommuteProfile) -> Unit, onCampusLifeEnabledChange: (Boolean) -> Unit, onCampusMapPackageChange: (CampusMapPackage?) -> Unit, onCurrentCampusPlaceChange: (String?) -> Unit, onActivitySettingsChange: (ActivityReminderSettings) -> Unit, onStatusCheckInSettingsChange: (StatusCheckInSettings) -> Unit, onAddImprovement: () -> Unit, onToggleRoadmap: (RoadmapFeature) -> Unit) {
     val context = LocalContext.current
     val campusPlaces = campusMapPackage?.places?.takeIf { it.isNotEmpty() } ?: ZijingangTravel.places
     var importStatus by remember { mutableStateOf<String?>(null) }
@@ -1721,6 +1805,31 @@ private fun weekdayName(day: Int) = listOf("", "周一", "周二", "周三", "�
             OutlinedButton(onClick = {
                 context.startActivity(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, Uri.parse("package:${context.packageName}")))
             }) { Text(if (exactAllowed) "管理精确提醒权限" else "允许精确提醒") }
+        }
+        HorizontalDivider()
+        Text("状态询问", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        SettingSwitch("每日低打扰询问", "询问精力与当前活动；关闭后不会删除已有记录", statusCheckInSettings.enabled) {
+            onStatusCheckInSettingsChange(statusCheckInSettings.copy(enabled = it))
+        }
+        if (statusCheckInSettings.enabled) {
+            Text("每天约 ${statusCheckInSettings.promptHour}:00 询问")
+            Slider(
+                value = statusCheckInSettings.promptHour.toFloat(),
+                onValueChange = { onStatusCheckInSettingsChange(statusCheckInSettings.copy(promptHour = it.toInt())) },
+                valueRange = 8f..22f,
+                steps = 13
+            )
+            Text("主动选择稍后时，推迟 ${statusCheckInSettings.snoozeMinutes} 分钟")
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                listOf(30, 60, 120).forEach { minutes ->
+                    FilterChip(
+                        selected = statusCheckInSettings.snoozeMinutes == minutes,
+                        onClick = { onStatusCheckInSettingsChange(statusCheckInSettings.copy(snoozeMinutes = minutes)) },
+                        label = { Text("$minutes 分钟") }
+                    )
+                }
+            }
+            Text("活动进行中会自动等到稍后；没有回应时当天不连续追问。签到数据仅保存在本机，现阶段不会据此自动改动日程。", style = MaterialTheme.typography.bodySmall)
         }
         HorizontalDivider()
         Text("通勤与地点", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
