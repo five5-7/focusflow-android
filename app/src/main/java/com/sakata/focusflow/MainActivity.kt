@@ -68,6 +68,7 @@ private fun FocusFlowApp() {
     var addOpen by remember { mutableStateOf(false) }
     var activityOpen by remember { mutableStateOf(false) }
     var rescheduleTarget by remember { mutableStateOf<Item?>(null) }
+    var inboxEditTarget by remember { mutableStateOf<Item?>(null) }
     var items by remember {
         mutableStateOf(store.recoverMissedGoalTasks().ifEmpty {
             listOf(
@@ -94,7 +95,18 @@ private fun FocusFlowApp() {
     var roadmapSelections by remember { mutableStateOf(store.loadRoadmapSelections()) }
     fun saveItems(updated: List<Item>) { items = updated; store.saveItems(updated) }
 
-    MaterialTheme(colorScheme = lightColorScheme(primary = androidx.compose.ui.graphics.Color(0xFF355C7D))) {
+    MaterialTheme(colorScheme = lightColorScheme(
+        primary = androidx.compose.ui.graphics.Color(0xFF155E75),
+        onPrimary = androidx.compose.ui.graphics.Color.White,
+        primaryContainer = androidx.compose.ui.graphics.Color(0xFFCFFAFE),
+        onPrimaryContainer = androidx.compose.ui.graphics.Color(0xFF164E63),
+        secondary = androidx.compose.ui.graphics.Color(0xFF6D28D9),
+        secondaryContainer = androidx.compose.ui.graphics.Color(0xFFEDE9FE),
+        background = androidx.compose.ui.graphics.Color(0xFFF8FAFC),
+        surface = androidx.compose.ui.graphics.Color.White,
+        surfaceVariant = androidx.compose.ui.graphics.Color(0xFFE2E8F0),
+        outline = androidx.compose.ui.graphics.Color(0xFF94A3B8)
+    )) {
         Scaffold(
             floatingActionButton = {
                 FloatingActionButton(onClick = { addOpen = true }) { Text("＋", style = MaterialTheme.typography.headlineMedium) }
@@ -119,6 +131,7 @@ private fun FocusFlowApp() {
                 1 -> InboxScreen(
                     Modifier.padding(padding), items,
                     onPickTime = { item -> rescheduleTarget = item },
+                    onEdit = { item -> inboxEditTarget = item },
                     onShrink = { item -> saveItems(items.map { if (it.id == item.id) it.copy(title = item.title.removePrefix("重新安排："), kind = "任务", detail = "短版：先做 10 分钟 · 今天有空时") else it }) },
                     onPause = { item -> saveItems(items.map { if (it.id == item.id) it.copy(kind = "暂停", detail = "已暂停；随时可在计划中恢复") else it }) },
                     onAbandon = { item -> saveItems(items.filterNot { it.id == item.id }) }
@@ -180,6 +193,10 @@ private fun FocusFlowApp() {
             saveItems(items.map { if (it.id == item.id) delayed else it })
             ReminderScheduler.scheduleTaskReminder(context, delayed)
             rescheduleTarget = null
+        } }
+        inboxEditTarget?.let { item -> InboxEditDialog(item, onDismiss = { inboxEditTarget = null }) { title, detail ->
+            saveItems(items.map { if (it.id == item.id) it.copy(title = title, detail = detail) else it })
+            inboxEditTarget = null
         } }
         if (addCourseOpen) CourseEditorDialog(null, onDismiss = { addCourseOpen = false }) { course ->
             courses = courses + course.copy(needsConfirmation = false)
@@ -255,33 +272,9 @@ private fun FocusFlowApp() {
             Column(horizontalAlignment = Alignment.CenterHorizontally) { Text("$completedThisWeek", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold); Text("本周完成", style = MaterialTheme.typography.labelMedium) }
             Column(horizontalAlignment = Alignment.CenterHorizontally) { Text("${items.count { !it.done && it.kind == "收集箱" }}", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold); Text("待安排", style = MaterialTheme.typography.labelMedium) }
         } }
-        Text("本周日程", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-        Text("横向滑动可查看完整一周；课程和已安排任务都按时间落在格子里。", style = MaterialTheme.typography.bodySmall)
-        WeeklyScheduleGrid(courses, items)
-        Text("今天的安排", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-        Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("时间", Modifier.width(52.dp), style = MaterialTheme.typography.labelLarge)
-            Text("安排", style = MaterialTheme.typography.labelLarge)
-        }
-        if (todayCourses.isEmpty() && todaySchedule.isEmpty()) {
-            ElevatedCard { Text("今天还没有固定时间日程。想到事情时先点右下角 ＋ 记下即可。", Modifier.padding(16.dp)) }
-        }
-        todayCourses.forEach { course ->
-            ScheduleTableRow(
-                time = "${formatMinute(CourseGapPlanner.periodStart(course.startPeriod))}–${formatMinute(CourseGapPlanner.periodEnd(course.endPeriod))}",
-                title = course.title,
-                detail = "课程 · ${course.building}",
-                type = ScheduleType.COURSE
-            )
-        }
-        todaySchedule.forEach { item ->
-            ScheduleTableRow(
-                time = item.scheduledAt?.let(::formatTime) ?: "待定",
-                title = item.title,
-                detail = item.detail,
-                type = item.scheduleType()
-            )
-        }
+        Text("今日日程表", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        Text("这是按时间排布的主表：即使今天没有事件，也会保留时间格，方便看出空档。", style = MaterialTheme.typography.bodySmall)
+        DailyTimelineTable(todayCourses, todaySchedule)
         if (flexibleItems.isNotEmpty()) {
             Text("弹性任务", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             flexibleItems.take(4).forEach { item ->
@@ -326,6 +319,51 @@ private fun Item.scheduleType(): ScheduleType = when {
                 Text(title, fontWeight = FontWeight.SemiBold)
                 Text("${type.label} · $detail", style = MaterialTheme.typography.bodySmall)
             }
+        }
+    }
+}
+
+@Composable private fun DailyTimelineTable(courses: List<Course>, tasks: List<Item>) {
+    val rows = (8..22).map { hour ->
+        val start = hour * 60
+        val course = courses.firstOrNull { CourseGapPlanner.periodStart(it.startPeriod) in start until start + 60 }
+        val task = tasks.firstOrNull { minuteOfDay(it.scheduledAt ?: 0L) in start until start + 60 }
+        Triple(hour, course, task)
+    }
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+        Column(Modifier.fillMaxWidth().padding(8.dp)) {
+            Row(Modifier.fillMaxWidth().padding(bottom = 6.dp)) {
+                Text("时间", Modifier.width(62.dp), style = MaterialTheme.typography.labelLarge)
+                Text("固定日程 / 已安排任务", style = MaterialTheme.typography.labelLarge)
+            }
+            rows.forEach { (hour, course, task) ->
+                Row(Modifier.fillMaxWidth().heightIn(min = 54.dp)) {
+                    Text("%02d:00".format(hour), Modifier.width(62.dp).padding(top = 10.dp), style = MaterialTheme.typography.labelMedium)
+                    val type = if (course != null) ScheduleType.COURSE else task?.scheduleType()
+                    Surface(
+                        modifier = Modifier.weight(1f).padding(vertical = 2.dp),
+                        color = type?.color?.copy(alpha = 0.18f) ?: MaterialTheme.colorScheme.surfaceVariant,
+                        shape = MaterialTheme.shapes.small
+                    ) {
+                        when {
+                            course != null -> Column(Modifier.padding(8.dp)) {
+                                Text(course.title, fontWeight = FontWeight.SemiBold, color = ScheduleType.COURSE.color)
+                                Text("课程 · ${course.building}", style = MaterialTheme.typography.labelSmall)
+                            }
+                            task != null -> Column(Modifier.padding(8.dp)) {
+                                Text(task.title, fontWeight = FontWeight.SemiBold, color = type?.color ?: MaterialTheme.colorScheme.onSurface)
+                                Text(type?.label ?: "任务", style = MaterialTheme.typography.labelSmall)
+                            }
+                            else -> Text("空档", Modifier.padding(8.dp), color = MaterialTheme.colorScheme.outline, style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
+                }
+            }
+        }
+    }
+    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
+        listOf(ScheduleType.COURSE, ScheduleType.LEARNING, ScheduleType.EXERCISE, ScheduleType.TASK).forEach { type ->
+            Text("● ${type.label}", color = type.color, style = MaterialTheme.typography.labelSmall)
         }
     }
 }
@@ -376,14 +414,21 @@ private fun Item.scheduleType(): ScheduleType = when {
     }
 }
 
-@Composable private fun InboxScreen(modifier: Modifier, items: List<Item>, onPickTime: (Item) -> Unit, onShrink: (Item) -> Unit, onPause: (Item) -> Unit, onAbandon: (Item) -> Unit) {
+@Composable private fun InboxScreen(modifier: Modifier, items: List<Item>, onPickTime: (Item) -> Unit, onEdit: (Item) -> Unit, onShrink: (Item) -> Unit, onPause: (Item) -> Unit, onAbandon: (Item) -> Unit) {
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("收集箱", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
         Text("先记下，不必现在决定。")
         items.filter { it.kind == "收集箱" }.ifEmpty { listOf(Item(title = "暂时没有新想法", detail = "想到事情时点右下角 ＋", kind = "提示")) }.forEach { item ->
-            ElevatedCard { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            ElevatedCard { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(item.title, fontWeight = FontWeight.SemiBold); Text(item.detail)
-                if (item.kind == "收集箱" && !item.title.startsWith("重新安排：")) TextButton(onClick = { onPickTime(item) }) { Text("加入日程") }
+                if (item.kind == "收集箱" && !item.title.startsWith("重新安排：")) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = { onPickTime(item) }) { Text("安排时间") }
+                        OutlinedButton(onClick = { onEdit(item) }) { Text("编辑") }
+                        TextButton(onClick = { onAbandon(item) }) { Text("删除") }
+                    }
+                    Text("安排后会从收集箱移到今日日程表。", style = MaterialTheme.typography.bodySmall)
+                }
                 if (item.title.startsWith("重新安排：")) {
                     Text("这次不做也没关系。请选择下一步：", style = MaterialTheme.typography.bodySmall)
                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -396,6 +441,21 @@ private fun Item.scheduleType(): ScheduleType = when {
             } }
         }
     }
+}
+
+@Composable private fun InboxEditDialog(item: Item, onDismiss: () -> Unit, onSave: (String, String) -> Unit) {
+    var title by remember(item.id) { mutableStateOf(item.title) }
+    var detail by remember(item.id) { mutableStateOf(item.detail.removePrefix("刚刚记录 · ")) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("编辑收集箱项目") },
+        text = { Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            OutlinedTextField(value = title, onValueChange = { title = it }, label = { Text("事情") }, singleLine = true)
+            OutlinedTextField(value = detail, onValueChange = { detail = it }, label = { Text("备注（可选）") }, minLines = 2)
+        } },
+        confirmButton = { Button(enabled = title.isNotBlank(), onClick = { onSave(title.trim(), detail.trim().ifBlank { "稍后决定安排" }) }) { Text("保存") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }
+    )
 }
 
 private fun dateAt(dayOffset: Int, hour: Int): Long {
@@ -473,7 +533,16 @@ private fun isToday(time: Long): Boolean {
 @Composable private fun PlansScreen(modifier: Modifier, items: List<Item>, courses: List<Course>, profile: CommuteProfile, onResume: (Item) -> Unit, onConfirmCourse: (Course) -> Unit, onIgnoreCourse: (Course) -> Unit, onAddCourse: () -> Unit, onEditCourse: (Course) -> Unit, goals: List<Goal>, onAddGoal: () -> Unit, onScheduleGoal: (Goal, GoalSuggestion) -> Unit, resources: List<LearningResource>, onAddResource: () -> Unit, onSelectResource: (LearningResource) -> Unit, feedback: List<TaskFeedback>) {
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("计划", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
-        Text("长期目标会随着上学后的课表动态安排。")
+        Text("先建立目标，再由应用根据课表、通勤和空档给出可执行的下一次。")
+        ElevatedCard(colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("从结果开始", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text("不需要先想好完整计划；填写想得到的结果后，应用会给出最低版本，并在你确认时安排第一次。")
+                Button(onClick = onAddGoal) { Text("新增目标") }
+            }
+        }
+        HorizontalDivider()
+        Text("课表与空档", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
         Text("课表识别预览", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
         TextButton(onClick = onAddCourse) { Text("＋ 手动新增课程") }
         Text("已读取截图中教学楼清楚的课程；地点截断或不清楚的课程没有自动加入。确认后才会作为正式课表。", style = MaterialTheme.typography.bodySmall)
@@ -498,7 +567,7 @@ private fun isToday(time: Long): Boolean {
             } } }
         } else if (confirmed.isEmpty()) Text("确认至少两门同一天的课程后，这里会显示扣除通行时间的真实空档。", style = MaterialTheme.typography.bodySmall)
         HorizontalDivider()
-        Text("目标", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        Text("目标与执行建议", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
         Text("教程资料", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         TextButton(onClick = onAddResource) { Text("＋ 收集教程／链接") }
         resources.forEach { resource -> Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -558,7 +627,7 @@ private fun weekdayName(day: Int) = listOf("", "周一", "周二", "周三", "�
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(if (existing == null) "新增课程" else "编辑课程") },
-        text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        text = { Column(Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedTextField(value = title, onValueChange = { title = it }, label = { Text("课程名称") }, singleLine = true)
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) { (1..5).forEach { day -> FilterChip(selected = weekday == day, onClick = { weekday = day }, label = { Text(weekdayName(day)) }) } }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -587,7 +656,7 @@ private fun weekdayName(day: Int) = listOf("", "周一", "周二", "周三", "�
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("新增目标") },
-        text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        text = { Column(Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("先描述你希望得到的结果；详细计划可以稍后由应用根据空档生成。")
             OutlinedTextField(value = title, onValueChange = { title = it }, label = { Text("目标名称") }, singleLine = true)
             OutlinedTextField(value = desiredOutcome, onValueChange = { desiredOutcome = it }, label = { Text("预期结果（例如：能稳定完成每周锻炼）") }, minLines = 2)
