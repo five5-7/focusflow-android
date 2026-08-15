@@ -30,6 +30,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -83,7 +84,8 @@ data class CommuteProfile(
     val oneWayMinutes: Int = 0,
     val campusMode: String = "步行",
     val buildingBufferMinutes: Int = 3,
-    val eBikeBattery: String = "未知"
+    val eBikeBattery: String = "未知",
+    val routeCalibrations: Map<String, Int> = emptyMap()
 )
 
 @Composable
@@ -91,6 +93,7 @@ private fun FocusFlowApp() {
     val context = LocalContext.current
     val store = remember(context) { PrototypeStore(context) }
     var tab by remember { mutableIntStateOf(0) }
+    var todayInboxOpen by remember { mutableStateOf(false) }
     var addOpen by remember { mutableStateOf(false) }
     var activityOpen by remember { mutableStateOf(false) }
     var transitionTarget by remember { mutableStateOf<ActivitySession?>(null) }
@@ -137,9 +140,11 @@ private fun FocusFlowApp() {
     val campusPlaces = if (campusLifeEnabled) campusMapPackage?.places?.takeIf { it.isNotEmpty() } ?: ZijingangTravel.places else ZijingangTravel.places
     fun saveItems(updated: List<Item>) { items = updated; store.saveItems(updated) }
     fun selectTab(index: Int) {
+        if (index == 0) todayInboxOpen = false
         if (index == 2) planPage = null
         tab = index
     }
+    BackHandler(enabled = tab == 0 && todayInboxOpen) { todayInboxOpen = false }
     BackHandler(enabled = tab == 2 && planPage != null) { planPage = null }
 
     LaunchedEffect(Unit) {
@@ -170,7 +175,13 @@ private fun FocusFlowApp() {
             containerColor = MaterialTheme.colorScheme.background,
             bottomBar = {
                 NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
-                    NavigationBarItem(selected = tab == 0, onClick = { selectTab(0) }, icon = { Text(if (tab == 0) "●" else "○") }, modifier = Modifier.weight(1f), label = { Text("今日") })
+                    NavigationBarItem(
+                        selected = tab == 0,
+                        onClick = { selectTab(0) },
+                        icon = { Text(if (tab != 0) "○" else if (!todayInboxOpen) "●" else "◉") },
+                        modifier = Modifier.weight(1f),
+                        label = { Text(if (todayInboxOpen) "今日·收集箱" else "今日") }
+                    )
                     NavigationBarItem(selected = tab == 1, onClick = { selectTab(1) }, icon = { Text(if (tab == 1) "●" else "○") }, modifier = Modifier.weight(1f), label = { Text("日程") })
                     Box(Modifier.weight(0.82f), contentAlignment = Alignment.Center) {
                         FloatingActionButton(modifier = Modifier.size(50.dp), onClick = { addOpen = true }) { Text("＋", style = MaterialTheme.typography.headlineSmall) }
@@ -189,6 +200,8 @@ private fun FocusFlowApp() {
             when (tab) {
                 0 -> TodayScreen(
                     Modifier.padding(padding), items,
+                    inboxOpen = todayInboxOpen,
+                    onInboxOpenChange = { todayInboxOpen = it },
                     onTaskDone = { item ->
                         if (item.goalId == null) saveItems(items.map { if (it.id == item.id) it.copy(done = true, completionLevel = "完成", completedAt = System.currentTimeMillis()) else it }) else completionTarget = item
                     },
@@ -388,6 +401,8 @@ private fun FocusFlowApp() {
 @Composable private fun TodayScreen(
     modifier: Modifier,
     items: List<Item>,
+    inboxOpen: Boolean,
+    onInboxOpenChange: (Boolean) -> Unit,
     onTaskDone: (Item) -> Unit,
     activeSession: ActivitySession?,
     activityHistory: List<ActivitySession>,
@@ -411,7 +426,13 @@ private fun FocusFlowApp() {
     val nextSuggestion = recommendNextAction(items, nextCommitment, now)
     val completedToday = items.count { it.done && it.completedAt?.let(::isToday) == true }
     val completedThisWeek = items.count { it.done && it.completedAt?.let(::isInCurrentWeek) == true }
-    Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+    Box(modifier.fillMaxSize()) {
+        AnimatedVisibility(
+            visible = !inboxOpen,
+            enter = slideInHorizontally(animationSpec = tween(260), initialOffsetX = { -it / 4 }) + fadeIn(tween(180)),
+            exit = slideOutHorizontally(animationSpec = tween(220), targetOffsetX = { -it / 4 }) + fadeOut(tween(150))
+        ) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Text("今日概览", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
         Text("先看状态与下一步；具体时间安排已移到“日程”。", style = MaterialTheme.typography.bodyLarge)
         Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
@@ -465,15 +486,34 @@ private fun FocusFlowApp() {
         } ?: Text("没有必须现在做的事。你可以休息、开始活动，或随手记录一个想法。")
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Text("收集箱", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-            Text("${inboxItems.size} 项", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            TextButton(onClick = { onInboxOpenChange(true) }) { Text("${inboxItems.size} 项  ›") }
         }
-        Text("先记下，再在这里编辑、安排或删除。", style = MaterialTheme.typography.bodySmall)
+        Text("这里显示最近记录；进入副页面可集中编辑、安排或删除。", style = MaterialTheme.typography.bodySmall)
         if (inboxItems.isEmpty()) {
             Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))) {
                 Text("暂时没有新想法，点底部 ＋ 随手记录。", Modifier.fillMaxWidth().padding(16.dp))
             }
         } else {
-            inboxItems.forEach { item -> InboxItemCard(item, onPickTime, onEdit, onShrink, onPause, onAbandon) }
+            inboxItems.take(2).forEach { item -> InboxItemCard(item, onPickTime, onEdit, onShrink, onPause, onAbandon) }
+            if (inboxItems.size > 2) Text("还有 ${inboxItems.size - 2} 项，进入收集箱继续整理。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+        }
+        AnimatedVisibility(
+            visible = inboxOpen,
+            enter = slideInHorizontally(animationSpec = tween(280), initialOffsetX = { it / 3 }) + fadeIn(tween(190)),
+            exit = slideOutHorizontally(animationSpec = tween(230), targetOffsetX = { it / 3 }) + fadeOut(tween(150))
+        ) {
+            PlanSubpageFrame(Modifier.fillMaxSize(), "收集箱") {
+                Text("集中处理尚未安排的想法；通过系统返回键或再次点击底栏“今日”回到概览。", style = MaterialTheme.typography.bodySmall)
+                if (inboxItems.isEmpty()) {
+                    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))) {
+                        Text("暂时没有新想法，点底部 ＋ 随手记录。", Modifier.fillMaxWidth().padding(16.dp))
+                    }
+                } else {
+                    inboxItems.forEach { item -> InboxItemCard(item, onPickTime, onEdit, onShrink, onPause, onAbandon) }
+                }
+            }
         }
     }
 }
@@ -1250,6 +1290,8 @@ private fun weekdayName(day: Int) = listOf("", "周一", "周二", "周三", "�
     val context = LocalContext.current
     val campusPlaces = campusMapPackage?.places?.takeIf { it.isNotEmpty() } ?: ZijingangTravel.places
     var importStatus by remember { mutableStateOf<String?>(null) }
+    var campusMapHelpOpen by remember { mutableStateOf(false) }
+    var routeCalibrationTarget by remember { mutableStateOf<Pair<CampusPlace, CampusPlace>?>(null) }
     var choosingCurrentPlace by remember { mutableStateOf(false) }
     var choosingDestination by remember { mutableStateOf(false) }
     var previewDestination by remember(campusPlaces, currentCampusPlace) {
@@ -1346,7 +1388,15 @@ private fun weekdayName(day: Int) = listOf("", "周一", "周二", "周三", "�
         } else Text("开始上学后再设置即可。软件不会默认追踪你的位置。", style = MaterialTheme.typography.bodySmall)
         ElevatedCard(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("校园地点包", fontWeight = FontWeight.SemiBold)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Text("校园地点包", fontWeight = FontWeight.SemiBold)
+                    OutlinedButton(
+                        onClick = { campusMapHelpOpen = true },
+                        modifier = Modifier.size(30.dp),
+                        shape = CircleShape,
+                        contentPadding = PaddingValues(0.dp)
+                    ) { Text("?", fontWeight = FontWeight.Bold) }
+                }
                 Text(
                     campusMapPackage?.let { "${it.name} · ${it.places.size} 个地点" } ?: "内置紫金港基础地点 · ${ZijingangTravel.places.size} 个地点",
                     style = MaterialTheme.typography.bodySmall
@@ -1358,7 +1408,7 @@ private fun weekdayName(day: Int) = listOf("", "周一", "周二", "周三", "�
                     importStatus = "已恢复内置紫金港地点"
                 }) { Text("恢复内置地点") }
                 importStatus?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = if (it.startsWith("导入失败")) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary) }
-                Text("格式：name、version=1、places；每个地点包含 name、zone、kind。可用分区：${CampusZone.entries.joinToString { it.name }}。", style = MaterialTheme.typography.labelSmall)
+                Text("不清楚如何制作文件时，点击右上角的圆形问号查看示例和导入步骤。", style = MaterialTheme.typography.labelSmall)
             }
         }
         Text("手动当前位置", fontWeight = FontWeight.SemiBold)
@@ -1374,7 +1424,15 @@ private fun weekdayName(day: Int) = listOf("", "周一", "周二", "周三", "�
             val to = campusPlaces.firstOrNull { it.name == previewDestination }
             if (from != null && to != null) {
                 val minutes = ZijingangTravel.estimateMinutes(from.zone, to.zone, commuteProfile)
-                Text("${from.name} → ${to.name}：按${commuteProfile.campusMode}估计约 $minutes 分钟（含楼内缓冲）。", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
+                val calibrated = ZijingangTravel.calibratedMinutes(from.zone, to.zone, commuteProfile)
+                Text("${from.name} → ${to.name}：按${commuteProfile.campusMode}${if (calibrated == null) "估计" else "校正后"}约 $minutes 分钟（含楼内缓冲）。", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    TextButton(onClick = { routeCalibrationTarget = Pair(from, to) }) { Text(if (calibrated == null) "记录实际耗时" else "更新实际耗时") }
+                    if (calibrated != null) TextButton(onClick = {
+                        val key = ZijingangTravel.routeKey(from.zone, to.zone, commuteProfile.campusMode)
+                        onCommuteChange(commuteProfile.copy(routeCalibrations = commuteProfile.routeCalibrations - key))
+                    }) { Text("恢复初始估计") }
+                }
             }
             TextButton(onClick = { onCurrentCampusPlaceChange(null) }) { Text("清除当前位置") }
         }
@@ -1408,6 +1466,65 @@ private fun weekdayName(day: Int) = listOf("", "周一", "周二", "周三", "�
         selectedName = previewDestination,
         onDismiss = { choosingDestination = false },
         onSelect = { selected -> previewDestination = selected.name; choosingDestination = false }
+    )
+    if (campusMapHelpOpen) CampusMapHelpDialog(onDismiss = { campusMapHelpOpen = false })
+    routeCalibrationTarget?.let { (from, to) ->
+        RouteCalibrationDialog(
+            from = from,
+            to = to,
+            mode = commuteProfile.campusMode,
+            currentMinutes = ZijingangTravel.estimateMinutes(from.zone, to.zone, commuteProfile),
+            onDismiss = { routeCalibrationTarget = null },
+            onSave = { minutes ->
+                val key = ZijingangTravel.routeKey(from.zone, to.zone, commuteProfile.campusMode)
+                onCommuteChange(commuteProfile.copy(routeCalibrations = commuteProfile.routeCalibrations + (key to minutes)))
+                routeCalibrationTarget = null
+            }
+        )
+    }
+}
+
+@Composable private fun CampusMapHelpDialog(onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("如何制作地点包") },
+        text = {
+            Column(Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("1. 用任意文本编辑器新建 UTF-8 文件，并保存为 .json。")
+                Text("2. 填写地点包名称和地点列表。每个地点需要名称、所属分区和类型。")
+                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))) {
+                    Text(
+                        "{\n  \"name\": \"我的校园\",\n  \"version\": 1,\n  \"places\": [\n    { \"name\": \"西1教学楼\", \"zone\": \"WEST_TEACHING\", \"kind\": \"教学楼\" },\n    { \"name\": \"图书馆\", \"zone\": \"LIBRARY\", \"kind\": \"学习\" }\n  ]\n}",
+                        Modifier.padding(12.dp),
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+                Text("分区代码")
+                CampusZone.entries.forEach { zone -> Text("${zone.name}：${zone.label}", style = MaterialTheme.typography.bodySmall) }
+                Text("3. 回到这里点击“导入地点包（JSON）”，从系统文件选择器选中该文件。")
+                Text("导入前会检查版本、地点数量、重复名称和分区代码；失败时不会覆盖当前地点包。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+            }
+        },
+        confirmButton = { Button(onClick = onDismiss) { Text("知道了") } }
+    )
+}
+
+@Composable private fun RouteCalibrationDialog(from: CampusPlace, to: CampusPlace, mode: String, currentMinutes: Int, onDismiss: () -> Unit, onSave: (Int) -> Unit) {
+    var minutes by remember(from, to, mode) { mutableStateOf(currentMinutes.toString()) }
+    val parsed = minutes.toIntOrNull()
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("记录实际耗时") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("${from.name} → ${to.name} · $mode")
+                Text("填写从出发到到达的实际总分钟数，包含进出楼和找教室时间。")
+                OutlinedTextField(value = minutes, onValueChange = { minutes = it.filter(Char::isDigit).take(3) }, label = { Text("实际分钟数") }, singleLine = true)
+                Text("保存后，同一出行方式和分区组合的课程空挡、目标候选时间与路线预览都会使用该数值。", style = MaterialTheme.typography.bodySmall)
+            }
+        },
+        confirmButton = { Button(enabled = parsed != null && parsed in 1..180, onClick = { parsed?.let(onSave) }) { Text("保存校正") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }
     )
 }
 

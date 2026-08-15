@@ -27,7 +27,16 @@ object ZijingangTravel {
         CampusPlace("东田径场", CampusZone.EAST_STADIUM, "运动")
     )
 
+    fun routeKey(from: CampusZone, to: CampusZone, mode: String): String {
+        val zones = listOf(from.name, to.name).sorted()
+        return "$mode|${zones[0]}|${zones[1]}"
+    }
+
+    fun calibratedMinutes(from: CampusZone, to: CampusZone, profile: CommuteProfile): Int? =
+        profile.routeCalibrations[routeKey(from, to, profile.campusMode)]
+
     fun estimateMinutes(from: CampusZone, to: CampusZone, profile: CommuteProfile): Int {
+        calibratedMinutes(from, to, profile)?.let { return it }
         val walkingMinutes = if (from == to) 2 else when (setOf(from, to)) {
             setOf(CampusZone.WEST_TEACHING, CampusZone.EAST_TEACHING) -> 14
             setOf(CampusZone.WEST_TEACHING, CampusZone.NORTH_TEACHING) -> 11
