@@ -52,6 +52,8 @@ object RoadmapCatalog {
         RoadmapFeature("v3_resource_search", "V3", "可选联网搜集教程并比较候选来源"),
         RoadmapFeature("v3_activity_time_suggestion", "V3", "开始活动时按历史与下一项日程建议预计时长或结束时间"),
         RoadmapFeature("v3_context_learning", "V3", "经用户确认后学习实际通勤耗时、常用地点与时段"),
+        RoadmapFeature("v3_campus_poi_discovery", "V3", "自动搜索校区 POI 并推断教学、学习、运动与生活用途"),
+        RoadmapFeature("v3_map_pin_places", "V3", "在地图上点选缺失地点并用逆地理编码建议名称"),
         RoadmapFeature("v3_sleep_protection", "V3", "睡前减速、娱乐延长与恢复机制"),
         RoadmapFeature("v3_ebike", "V3", "电动车充电与远距离出行联动"),
         RoadmapFeature("v3_feedback_analysis", "V3", "基于反馈的长期方法与心态调整建议")

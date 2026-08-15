@@ -15,6 +15,12 @@ class PrototypeStore(context: Context) {
         preferences.edit().putString("app_theme", theme.storageKey).apply()
     }
 
+    fun loadEnergyLevel(): String = (preferences.getString("energy_level", "正常") ?: "正常").takeIf { it in setOf("偏低", "正常", "充足") } ?: "正常"
+
+    fun saveEnergyLevel(level: String) {
+        preferences.edit().putString("energy_level", level).apply()
+    }
+
     fun loadItems(): List<Item> = runCatching {
         val values = JSONArray(preferences.getString("items", "[]") ?: "[]")
         val parsed = List(values.length()) { index ->
