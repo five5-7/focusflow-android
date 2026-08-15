@@ -1,6 +1,6 @@
 # FocusFlow Android prototype
 
-当前应用版本：**1.5**。功能更新记录见 [CHANGELOG.md](CHANGELOG.md)。
+当前应用版本：**1.7**。功能更新记录见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## First open in Android Studio
 
@@ -16,14 +16,16 @@ dependencies used by this prototype.
 
 The included GitHub Actions workflow builds a debug APK on a GitHub runner.
 Push this folder to a GitHub repository, then open **Actions** and run
-**Build FocusFlow APK**. Download the `FocusFlow-1.6-apk` artifact after the
+**Build FocusFlow APK**. Download the `FocusFlow-1.7-apk` artifact after the
 workflow succeeds.
 
 本项目是一个面向 Android 的本地优先日程与执行辅助原型。核心目标不是维护一张完整日历，而是降低记录压力、按当前状态调整提醒，并在错过计划后帮助恢复。
 
 ## 当前实现
 
-- 今日建议页、收集箱、计划、设置四个入口
+- 今日、日程、计划、设置四个顶级入口；收集箱并入今日概览
+- 计划主页使用固定入口目录，课程、空挡、目标与执行、本周回顾、暂停项目分别进入可滚动副页面
+- 教程资料并入“目标与执行”，空挡建议与课程管理分离
 - 无需分类或定时的快速捕捉，内容保存在设备本地
 - “开始活动”对话框：游戏／娱乐、学习、休息等情境与预计时长
 - 活动结束后使用 Android 通知提示下一步；可直接完成、稍后 10 分钟或跳过本次

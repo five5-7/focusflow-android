@@ -135,7 +135,7 @@ private fun FocusFlowApp() {
             bottomBar = {
                 NavigationBar {
                     NavigationBarItem(selected = tab == 0, onClick = { selectTab(0) }, icon = { Text(if (tab == 0) "●" else "○") }, modifier = Modifier.weight(1f), label = { Text("今日") })
-                    NavigationBarItem(selected = tab == 1, onClick = { selectTab(1) }, icon = { Text(if (tab == 1) "●" else "○") }, modifier = Modifier.weight(1f), label = { Text("收集箱") })
+                    NavigationBarItem(selected = tab == 1, onClick = { selectTab(1) }, icon = { Text(if (tab == 1) "●" else "○") }, modifier = Modifier.weight(1f), label = { Text("日程") })
                     Box(Modifier.weight(0.82f), contentAlignment = Alignment.Center) {
                         FloatingActionButton(modifier = Modifier.size(50.dp), onClick = { addOpen = true }) { Text("＋", style = MaterialTheme.typography.headlineSmall) }
                     }
@@ -146,20 +146,23 @@ private fun FocusFlowApp() {
         ) { padding ->
             when (tab) {
                 0 -> TodayScreen(
-                    Modifier.padding(padding), items, courses,
+                    Modifier.padding(padding), items,
                     onTaskDone = { item ->
                         if (item.goalId == null) saveItems(items.map { if (it.id == item.id) it.copy(done = true, completionLevel = "完成", completedAt = System.currentTimeMillis()) else it }) else completionTarget = item
                     },
                     activeSession = activeSession,
-                    onStartActivity = { activityOpen = true }
-                )
-                1 -> InboxScreen(
-                    Modifier.padding(padding), items,
+                    onStartActivity = { activityOpen = true },
                     onPickTime = { item -> rescheduleTarget = item },
                     onEdit = { item -> inboxEditTarget = item },
                     onShrink = { item -> saveItems(items.map { if (it.id == item.id) it.copy(title = item.title.removePrefix("重新安排："), kind = "任务", detail = "短版：先做 10 分钟 · 今天有空时") else it }) },
                     onPause = { item -> saveItems(items.map { if (it.id == item.id) it.copy(kind = "暂停", detail = "已暂停；随时可在计划中恢复") else it }) },
                     onAbandon = { item -> saveItems(items.filterNot { it.id == item.id }) }
+                )
+                1 -> ScheduleScreen(
+                    Modifier.padding(padding), items, courses,
+                    onTaskDone = { item ->
+                        if (item.goalId == null) saveItems(items.map { if (it.id == item.id) it.copy(done = true, completionLevel = "完成", completedAt = System.currentTimeMillis()) else it }) else completionTarget = item
+                    }
                 )
                 2 -> key(planOpenGeneration) { PlansScreen(
                     Modifier.padding(padding), items, courses, commuteProfile,
@@ -271,20 +274,28 @@ private fun FocusFlowApp() {
     }
 }
 
-@Composable private fun TodayScreen(modifier: Modifier, items: List<Item>, courses: List<Course>, onTaskDone: (Item) -> Unit, activeSession: ActivitySession?, onStartActivity: () -> Unit) {
+@Composable private fun TodayScreen(
+    modifier: Modifier,
+    items: List<Item>,
+    onTaskDone: (Item) -> Unit,
+    activeSession: ActivitySession?,
+    onStartActivity: () -> Unit,
+    onPickTime: (Item) -> Unit,
+    onEdit: (Item) -> Unit,
+    onShrink: (Item) -> Unit,
+    onPause: (Item) -> Unit,
+    onAbandon: (Item) -> Unit
+) {
     val now = System.currentTimeMillis()
-    val weekday = todayWeekday()
-    val todaySchedule = items.filter { !it.dayOnly && it.scheduledAt?.let(::isToday) == true }.sortedBy { it.scheduledAt }
-    val todayUnslotted = items.filter { !it.done && it.dayOnly && it.scheduledAt?.let(::isToday) == true }
-    val todayCourses = courses.filter { !it.needsConfirmation && it.weekday == weekday }.sortedBy { it.startPeriod }
+    val scheduledToday = items.filter { !it.done && it.scheduledAt?.let(::isToday) == true }.sortedBy { it.scheduledAt }
     val flexibleItems = items.filter { !it.done && it.kind != "暂停" && it.kind != "收集箱" && it.scheduledAt == null }
-    val nextItem = todaySchedule.firstOrNull { !it.done && (it.scheduledAt ?: Long.MAX_VALUE) >= now } ?: todayUnslotted.firstOrNull() ?: flexibleItems.firstOrNull()
+    val inboxItems = items.filter { !it.done && it.kind == "收集箱" }
+    val nextItem = scheduledToday.firstOrNull { (it.scheduledAt ?: Long.MAX_VALUE) >= now } ?: flexibleItems.firstOrNull()
     val completedToday = items.count { it.done && it.completedAt?.let(::isToday) == true }
     val completedThisWeek = items.count { it.done && it.completedAt?.let(::isInCurrentWeek) == true }
-    var scheduleMode by remember { mutableStateOf("日") }
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Text("今日概览", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
-        Text("用表格看清今天；弹性任务不会伪装成必须完成的固定日程。", style = MaterialTheme.typography.bodyLarge)
+        Text("先看状态与下一步；具体时间安排已移到“日程”。", style = MaterialTheme.typography.bodyLarge)
         Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
             Row(Modifier.fillMaxWidth().padding(18.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                 Column(Modifier.weight(1f)) {
@@ -297,16 +308,49 @@ private fun FocusFlowApp() {
         ElevatedCard { Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) { Text("$completedToday", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold); Text("今日完成", style = MaterialTheme.typography.labelMedium) }
             Column(horizontalAlignment = Alignment.CenterHorizontally) { Text("$completedThisWeek", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold); Text("本周完成", style = MaterialTheme.typography.labelMedium) }
-            Column(horizontalAlignment = Alignment.CenterHorizontally) { Text("${items.count { !it.done && it.kind == "收集箱" }}", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold); Text("待安排", style = MaterialTheme.typography.labelMedium) }
+            Column(horizontalAlignment = Alignment.CenterHorizontally) { Text("${inboxItems.size}", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold); Text("待整理", style = MaterialTheme.typography.labelMedium) }
         } }
+        Text("下一件合适的事", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        nextItem?.let { item ->
+            ElevatedCard {
+                Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                    Column(Modifier.weight(1f)) { Text(item.title, fontWeight = FontWeight.SemiBold); Text(item.detail) }
+                    TextButton(onClick = { onTaskDone(item) }) { Text("完成") }
+                }
+            }
+        } ?: Text("没有必须现在做的事。你可以休息、开始活动，或随手记录一个想法。")
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Text(if (scheduleMode == "日") "今日日程" else "本周日程", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Text("收集箱", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Text("${inboxItems.size} 项", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Text("先记下，再在这里编辑、安排或删除。", style = MaterialTheme.typography.bodySmall)
+        if (inboxItems.isEmpty()) {
+            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))) {
+                Text("暂时没有新想法，点底部 ＋ 随手记录。", Modifier.fillMaxWidth().padding(16.dp))
+            }
+        } else {
+            inboxItems.forEach { item -> InboxItemCard(item, onPickTime, onEdit, onShrink, onPause, onAbandon) }
+        }
+    }
+}
+
+@Composable private fun ScheduleScreen(modifier: Modifier, items: List<Item>, courses: List<Course>, onTaskDone: (Item) -> Unit) {
+    val weekday = todayWeekday()
+    val todaySchedule = items.filter { !it.dayOnly && it.scheduledAt?.let(::isToday) == true }.sortedBy { it.scheduledAt }
+    val todayUnslotted = items.filter { !it.done && it.dayOnly && it.scheduledAt?.let(::isToday) == true }
+    val todayCourses = courses.filter { !it.needsConfirmation && it.weekday == weekday }.sortedBy { it.startPeriod }
+    val flexibleItems = items.filter { !it.done && it.kind != "暂停" && it.kind != "收集箱" && it.scheduledAt == null }
+    var scheduleMode by remember { mutableStateOf("日") }
+    Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Text("日程", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Text(if (scheduleMode == "日") "今天" else "本周", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 FilterChip(selected = scheduleMode == "日", onClick = { scheduleMode = "日" }, label = { Text("日") })
                 FilterChip(selected = scheduleMode == "周", onClick = { scheduleMode = "周" }, label = { Text("周") })
             }
         }
-        Text(if (scheduleMode == "日") "按真实时间连续排布；点击色块查看起止时间。" else "横向查看周一至周日；色块上下界就是开始和结束时间。", style = MaterialTheme.typography.bodySmall)
+        Text(if (scheduleMode == "日") "按真实时间连续排布；点击色块查看起止时间。" else "周一至周日同屏显示；点击色块查看详情。", style = MaterialTheme.typography.bodySmall)
         if (scheduleMode == "日") {
             if (todayUnslotted.isNotEmpty()) {
                 Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))) {
@@ -322,20 +366,9 @@ private fun FocusFlowApp() {
         }
         if (flexibleItems.isNotEmpty()) {
             Text("弹性安排", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            flexibleItems.take(4).forEach { item ->
-                ScheduleTableRow(item.title, item.detail, item.scheduleType())
-            }
+            flexibleItems.take(4).forEach { item -> ScheduleTableRow(item.title, item.detail, item.scheduleType()) }
         }
-        Text("下一件合适的事", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-        nextItem?.let { item ->
-            ElevatedCard {
-                Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                    Column(Modifier.weight(1f)) { Text(item.title, fontWeight = FontWeight.SemiBold); Text(item.detail) }
-                    TextButton(onClick = { onTaskDone(item) }) { Text("完成") }
-                }
-            }
-        } ?: Text("没有必须现在做的事。你可以休息、开始活动，或随手记录一个想法。")
-        Text("颜色表示事件类型；每行仍有文字说明，不会只依赖颜色。", style = MaterialTheme.typography.bodySmall)
+        Text("已完成的任务继续保留在时间轴上，并以灰色显示。", style = MaterialTheme.typography.bodySmall)
     }
 }
 
@@ -471,19 +504,19 @@ private fun layoutTimelineEvents(events: List<TimelineEvent>): List<TimelineEven
         Switch(checked = showCourseInfo, onCheckedChange = { showCourseInfo = it })
     }
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 10.dp)) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 2.dp, vertical = 10.dp)) {
             Row(Modifier.fillMaxWidth()) {
-                Spacer(Modifier.width(50.dp))
+                Spacer(Modifier.width(40.dp))
                 (1..7).forEach { day ->
                     Surface(
-                        modifier = Modifier.weight(1f).padding(horizontal = 1.dp),
+                        modifier = Modifier.weight(1f).padding(horizontal = 0.5.dp),
                         color = if (day == todayWeekday()) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
                         shape = RoundedCornerShape(10.dp)
                     ) { Text(weekdayName(day), Modifier.padding(vertical = 8.dp), textAlign = androidx.compose.ui.text.style.TextAlign.Center, fontWeight = FontWeight.SemiBold) }
                 }
             }
             Row(Modifier.fillMaxWidth()) {
-                TimelineTimeAxis()
+                TimelineTimeAxis(40.dp)
                 (1..7).forEach { day ->
                     TimelineDayLane((courseEvents + taskEvents).filter { it.weekday == day }, Modifier.weight(1f), showCurrentTime = day == todayWeekday(), showLabels = false, compactBlocks = true, onSelect = { selected = it })
                 }
@@ -504,9 +537,9 @@ private fun layoutTimelineEvents(events: List<TimelineEvent>): List<TimelineEven
     selected?.let { TimelineEventDialog(it, onDismiss = { selected = null }, onTaskDone = { item -> selected = null; onTaskDone(item) }) }
 }
 
-@Composable private fun TimelineTimeAxis() {
+@Composable private fun TimelineTimeAxis(width: androidx.compose.ui.unit.Dp = 50.dp) {
     val totalHeight = timelineHourHeight * ((TIMELINE_END_MINUTE - TIMELINE_START_MINUTE) / 60).toFloat()
-    Box(Modifier.width(50.dp).height(totalHeight)) {
+    Box(Modifier.width(width).height(totalHeight)) {
         (TIMELINE_START_MINUTE / 60..TIMELINE_END_MINUTE / 60).forEach { hour ->
             Text("%02d:00".format(hour), Modifier.offset(y = timelineHourHeight * (hour - TIMELINE_START_MINUTE / 60).toFloat() - 7.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
@@ -530,7 +563,7 @@ private fun layoutTimelineEvents(events: List<TimelineEvent>): List<TimelineEven
             val top = timelineHourHeight * (topMinutes / 60f)
             val height = (timelineHourHeight * ((bottomMinutes - topMinutes) / 60f)).coerceAtLeast(18.dp)
             val laneWidth = maxWidth / layout.laneCount.toFloat()
-            val blockWidth = if (compactBlocks) laneWidth * 0.62f else laneWidth
+            val blockWidth = if (compactBlocks) laneWidth * 0.9f else laneWidth
             val blockOffset = (laneWidth - blockWidth) / 2f
             Surface(
                 modifier = Modifier.offset(x = laneWidth * layout.lane.toFloat() + blockOffset, y = top).width(blockWidth).height(height).padding(vertical = 1.dp).clickable { onSelect(event) },
@@ -576,33 +609,27 @@ private fun layoutTimelineEvents(events: List<TimelineEvent>): List<TimelineEven
     )
 }
 
-@Composable private fun InboxScreen(modifier: Modifier, items: List<Item>, onPickTime: (Item) -> Unit, onEdit: (Item) -> Unit, onShrink: (Item) -> Unit, onPause: (Item) -> Unit, onAbandon: (Item) -> Unit) {
-    Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("收集箱", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
-        Text("先记下，不必现在决定。")
-        items.filter { it.kind == "收集箱" }.ifEmpty { listOf(Item(title = "暂时没有新想法", detail = "想到事情时点右下角 ＋", kind = "提示")) }.forEach { item ->
-            ElevatedCard { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(item.title, fontWeight = FontWeight.SemiBold); Text(item.detail)
-                if (item.kind == "收集箱" && !item.title.startsWith("重新安排：")) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onClick = { onPickTime(item) }) { Text("安排时间") }
-                        OutlinedButton(onClick = { onEdit(item) }) { Text("编辑") }
-                        TextButton(onClick = { onAbandon(item) }) { Text("删除") }
-                    }
-                    Text("安排后会从收集箱移到今日日程表。", style = MaterialTheme.typography.bodySmall)
-                }
-                if (item.title.startsWith("重新安排：")) {
-                    Text("这次不做也没关系。请选择下一步：", style = MaterialTheme.typography.bodySmall)
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        TextButton(onClick = { onPickTime(item) }) { Text("改期") }
-                        TextButton(onClick = { onShrink(item) }) { Text("缩短") }
-                        TextButton(onClick = { onPause(item) }) { Text("暂停") }
-                        TextButton(onClick = { onAbandon(item) }) { Text("放弃") }
-                    }
-                }
-            } }
+@Composable private fun InboxItemCard(item: Item, onPickTime: (Item) -> Unit, onEdit: (Item) -> Unit, onShrink: (Item) -> Unit, onPause: (Item) -> Unit, onAbandon: (Item) -> Unit) {
+    ElevatedCard { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text(item.title, fontWeight = FontWeight.SemiBold)
+        Text(item.detail)
+        if (!item.title.startsWith("重新安排：")) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = { onPickTime(item) }) { Text("安排时间") }
+                OutlinedButton(onClick = { onEdit(item) }) { Text("编辑") }
+                TextButton(onClick = { onAbandon(item) }) { Text("删除") }
+            }
+            Text("安排后会从收集箱移到日程。", style = MaterialTheme.typography.bodySmall)
+        } else {
+            Text("这次不做也没关系。请选择下一步：", style = MaterialTheme.typography.bodySmall)
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                TextButton(onClick = { onPickTime(item) }) { Text("改期") }
+                TextButton(onClick = { onShrink(item) }) { Text("缩短") }
+                TextButton(onClick = { onPause(item) }) { Text("暂停") }
+                TextButton(onClick = { onAbandon(item) }) { Text("放弃") }
+            }
         }
-    }
+    } }
 }
 
 @Composable private fun InboxEditDialog(item: Item, onDismiss: () -> Unit, onSave: (String, String) -> Unit) {
@@ -697,146 +724,182 @@ private fun isToday(time: Long): Boolean {
     return target.get(java.util.Calendar.YEAR) == today.get(java.util.Calendar.YEAR) && target.get(java.util.Calendar.DAY_OF_YEAR) == today.get(java.util.Calendar.DAY_OF_YEAR)
 }
 
+private enum class PlanPage(val title: String) {
+    COURSES("课程"), GAPS("空挡建议"), GOALS("目标与执行"), REVIEW("本周回顾"), PAUSED("暂停项目")
+}
+
 @Composable private fun PlansScreen(modifier: Modifier, items: List<Item>, courses: List<Course>, profile: CommuteProfile, onResume: (Item) -> Unit, onConfirmCourse: (Course) -> Unit, onIgnoreCourse: (Course) -> Unit, onAddCourse: () -> Unit, onEditCourse: (Course) -> Unit, goals: List<Goal>, onAddGoal: () -> Unit, onScheduleGoal: (Goal, GoalSuggestion) -> Unit, resources: List<LearningResource>, onAddResource: () -> Unit, onSelectResource: (LearningResource) -> Unit, feedback: List<TaskFeedback>) {
     val awaitingCourses = courses.filter { it.needsConfirmation }
     val confirmedCourses = courses.filter { !it.needsConfirmation }
     val gaps = CourseGapPlanner.gaps(confirmedCourses, profile)
     val paused = items.filter { it.kind == "暂停" }
-    Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    var page by remember { mutableStateOf<PlanPage?>(null) }
+
+    if (page == null) {
+        PlanHubScreen(
+            modifier = modifier,
+            entries = listOf(
+                PlanPage.COURSES to "${confirmedCourses.size} 门已确认 · ${awaitingCourses.size} 门待确认",
+                PlanPage.GAPS to if (gaps.isEmpty()) "暂无可用空挡" else "${gaps.size} 段可用空挡",
+                PlanPage.GOALS to if (goals.isEmpty()) "尚未创建目标 · ${resources.size} 项教程资料" else "${goals.size} 个目标 · ${resources.size} 项教程资料",
+                PlanPage.REVIEW to if (goals.isEmpty()) "有目标后生成建议" else "${goals.size} 项低压力建议",
+                PlanPage.PAUSED to if (paused.isEmpty()) "暂无" else "${paused.size} 项"
+            ),
+            onOpen = { page = it },
+            onAddGoal = onAddGoal
+        )
+        return
+    }
+
+    PlanSubpageFrame(modifier, page!!.title, onBack = { page = null }) {
+        when (page) {
+            PlanPage.COURSES -> {
+                TextButton(onClick = onAddCourse) { Text("＋ 手动新增课程") }
+                if (awaitingCourses.isNotEmpty()) {
+                    Text("待确认课程", fontWeight = FontWeight.Bold)
+                    awaitingCourses.forEach { course ->
+                        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f))) {
+                            Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text("${weekdayName(course.weekday)} · ${course.title}", fontWeight = FontWeight.SemiBold)
+                                Text("第 ${course.startPeriod}–${course.endPeriod} 节 · ${course.building}", style = MaterialTheme.typography.bodySmall)
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    TextButton(onClick = { onConfirmCourse(course) }) { Text("确认") }
+                                    TextButton(onClick = { onIgnoreCourse(course) }) { Text("忽略") }
+                                }
+                            }
+                        }
+                    }
+                } else Text("没有待确认课程。", style = MaterialTheme.typography.bodySmall)
+                HorizontalDivider()
+                Text("已确认课程", fontWeight = FontWeight.Bold)
+                if (confirmedCourses.isEmpty()) Text("确认课程后，它们会用于周日程和空挡计算。", style = MaterialTheme.typography.bodySmall)
+                confirmedCourses.sortedWith(compareBy<Course> { it.weekday }.thenBy { it.startPeriod }).forEach { course ->
+                    ElevatedCard {
+                        Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text("${weekdayName(course.weekday)} · ${course.title}", fontWeight = FontWeight.SemiBold)
+                                Text("第 ${course.startPeriod}–${course.endPeriod} 节 · ${course.building}", style = MaterialTheme.typography.bodySmall)
+                            }
+                            TextButton(onClick = { onEditCourse(course) }) { Text("编辑") }
+                        }
+                    }
+                }
+            }
+            PlanPage.GAPS -> {
+                Text("根据已确认课程、校内路程与缓冲时间计算，不与课程列表混放。", style = MaterialTheme.typography.bodySmall)
+                if (gaps.isEmpty()) Text(if (confirmedCourses.isEmpty()) "先确认课程后再计算空挡。" else "目前没有可显示的同日课程间空挡。")
+                gaps.forEach { gap ->
+                    ElevatedCard {
+                        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                            Text("${weekdayName(gap.from.weekday)}：${gap.from.title} → ${gap.to.title}", fontWeight = FontWeight.SemiBold)
+                            Text("路程约 ${gap.travelMinutes} 分钟")
+                            Text(if (gap.minutesFree >= 15) "可用约 ${gap.minutesFree} 分钟，可用于弹性安排。" else "仅够通行与缓冲，暂不建议安排任务。", style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
+            }
+            PlanPage.GOALS -> {
+                Text("教程资料", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Text("资料作为目标的执行依据，不再单独占一个计划条目。", style = MaterialTheme.typography.bodySmall)
+                TextButton(onClick = onAddResource) { Text("＋ 收集教程／链接") }
+                if (resources.isEmpty()) Text("尚未收集教程。", style = MaterialTheme.typography.bodySmall)
+                resources.forEach { resource ->
+                    ElevatedCard {
+                        Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) { Text(resource.title, fontWeight = FontWeight.SemiBold); Text(resource.url, style = MaterialTheme.typography.bodySmall) }
+                            if (resource.selected) Text("当前标准", color = MaterialTheme.colorScheme.primary) else TextButton(onClick = { onSelectResource(resource) }) { Text("选择") }
+                        }
+                    }
+                }
+                HorizontalDivider()
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Text("目标与执行", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    TextButton(onClick = onAddGoal) { Text("＋ 新增目标") }
+                }
+                if (goals.isEmpty()) Text("从预期结果、每周次数和单次时长开始。")
+                goals.forEach { goal ->
+                    val suggestions = GoalPlanner.suggestions(goal, courses, profile)
+                    ElevatedCard { Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                        Text(goal.title, fontWeight = FontWeight.SemiBold)
+                        val completed = GoalPlanner.completedThisWeek(goal)
+                        val pending = items.count { it.goalId == goal.id && it.kind == "任务" && !it.done }
+                        val remaining = (goal.weeklyTarget - completed - pending).coerceAtLeast(0)
+                        if (goal.desiredOutcome.isNotBlank()) Text("预期结果：${goal.desiredOutcome}")
+                        Text("本周 $completed / ${goal.weeklyTarget} 次 · 已安排 $pending · 待安排 $remaining")
+                        Text("每次 ${goal.durationMinutes} 分钟 · ${goal.metricType}：${goal.metricTarget.ifBlank { "完成本次" }}", style = MaterialTheme.typography.bodySmall)
+                        if (goal.minimumVersion.isNotBlank()) Text("最低版本：${goal.minimumVersion}", style = MaterialTheme.typography.bodySmall)
+                        if (goal.resourceTitle.isNotBlank()) Text("依据：${goal.resourceTitle}${goal.resourceUnit.takeIf { it.isNotBlank() }?.let { " · $it" } ?: ""}", style = MaterialTheme.typography.bodySmall)
+                        feedback.filter { it.goalId == goal.id && it.barrier != "无" }.groupingBy { it.barrier }.eachCount().maxByOrNull { it.value }?.let { (barrier, count) -> Text("最近常见阻碍：$barrier（$count 次）", style = MaterialTheme.typography.bodySmall) }
+                        if (completed >= goal.weeklyTarget) Text("本周目标已达成。", color = MaterialTheme.colorScheme.primary)
+                        else if (remaining == 0) Text("剩余次数均已安排，可在日程中逐次完成或改期。")
+                        else suggestions.firstOrNull { suggestion -> items.none { item -> item.goalId == goal.id && !item.done && item.scheduledAt?.let { todayWeekday(it) == suggestion.weekday && minuteOfDay(it) == suggestion.startMinute } == true } }?.let { suggestion ->
+                            Text("建议：${weekdayName(suggestion.weekday)} ${GoalPlanner.displayTime(suggestion.startMinute)}，可用 ${suggestion.freeMinutes} 分钟")
+                            Button(onClick = { onScheduleGoal(goal, suggestion) }) { Text("安排第 ${completed + pending + 1} / ${goal.weeklyTarget} 次") }
+                        } ?: Text("暂未找到足够连续的空档。")
+                    } }
+                }
+            }
+            PlanPage.REVIEW -> {
+                if (goals.isEmpty()) Text("创建目标并积累完成记录后，这里会给出调整建议。", style = MaterialTheme.typography.bodySmall)
+                goals.forEach { goal ->
+                    ElevatedCard { Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(goal.title, fontWeight = FontWeight.SemiBold)
+                        Text(GoalPlanner.weeklyAdvice(goal, feedback.filter { it.createdAt >= GoalPlanner.currentWeekKey() }))
+                    } }
+                }
+            }
+            PlanPage.PAUSED -> {
+                if (paused.isEmpty()) Text("暂停的任务会集中放在这里，不占用日程。", style = MaterialTheme.typography.bodySmall)
+                paused.forEach { item ->
+                    ElevatedCard {
+                        Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) { Text(item.title.removePrefix("重新安排："), fontWeight = FontWeight.SemiBold); Text(item.detail, style = MaterialTheme.typography.bodySmall) }
+                            TextButton(onClick = { onResume(item) }) { Text("恢复") }
+                        }
+                    }
+                }
+            }
+            null -> Unit
+        }
+    }
+}
+
+@Composable private fun PlanHubScreen(modifier: Modifier, entries: List<Pair<PlanPage, String>>, onOpen: (PlanPage) -> Unit, onAddGoal: () -> Unit) {
+    Column(modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text("计划", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
-        Text("主要功能收在下方条目中；先看摘要，需要时再展开。")
+        Text("选择一个模块进入；滚动只发生在各副页面内。", style = MaterialTheme.typography.bodyMedium)
         ElevatedCard(colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
-            Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                Column(Modifier.weight(1f)) {
                     Text("从结果开始", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                     Text("填写预期结果、每周次数与单次时长。", style = MaterialTheme.typography.bodySmall)
                 }
                 Button(onClick = onAddGoal) { Text("新增目标") }
             }
         }
+        entries.forEach { (page, summary) -> PlanHubItem(page.title, summary) { onOpen(page) } }
+    }
+}
 
-        PlanSectionCard("课程与空档", "${confirmedCourses.size} 门已确认 · ${awaitingCourses.size} 门待确认") {
-            TextButton(onClick = onAddCourse) { Text("＋ 手动新增课程") }
-            if (awaitingCourses.isNotEmpty()) {
-                Text("待确认课程", fontWeight = FontWeight.Bold)
-                awaitingCourses.forEach { course ->
-                    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f))) {
-                        Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text("${weekdayName(course.weekday)} · ${course.title}", fontWeight = FontWeight.SemiBold)
-                            Text("第 ${course.startPeriod}–${course.endPeriod} 节 · ${course.building}", style = MaterialTheme.typography.bodySmall)
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                TextButton(onClick = { onConfirmCourse(course) }) { Text("确认") }
-                                TextButton(onClick = { onIgnoreCourse(course) }) { Text("忽略") }
-                            }
-                        }
-                    }
-                }
-            } else Text("没有待确认课程。", style = MaterialTheme.typography.bodySmall)
-
-            HorizontalDivider()
-            Text("已确认课程", fontWeight = FontWeight.Bold)
-            if (confirmedCourses.isEmpty()) Text("确认课程后，它们会用于周日程和空档计算。", style = MaterialTheme.typography.bodySmall)
-            confirmedCourses.sortedWith(compareBy<Course> { it.weekday }.thenBy { it.startPeriod }).forEach { course ->
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text("${weekdayName(course.weekday)} · ${course.title}", fontWeight = FontWeight.SemiBold)
-                        Text("第 ${course.startPeriod}–${course.endPeriod} 节 · ${course.building}", style = MaterialTheme.typography.bodySmall)
-                    }
-                    TextButton(onClick = { onEditCourse(course) }) { Text("编辑") }
-                }
+@Composable private fun PlanHubItem(title: String, summary: String, onClick: () -> Unit) {
+    ElevatedCard(Modifier.fillMaxWidth().clickable(onClick = onClick)) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text(summary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-
-            HorizontalDivider()
-            Text("课程间空档", fontWeight = FontWeight.Bold)
-            if (gaps.isEmpty()) Text(if (confirmedCourses.isEmpty()) "先确认课程后再计算空档。" else "目前没有可显示的同日课程间空档。", style = MaterialTheme.typography.bodySmall)
-            gaps.take(4).forEach { gap ->
-                Surface(color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), shape = MaterialTheme.shapes.medium) {
-                    Column(Modifier.fillMaxWidth().padding(10.dp)) {
-                        Text("${weekdayName(gap.from.weekday)}：${gap.from.title} → ${gap.to.title}", fontWeight = FontWeight.SemiBold)
-                        Text("路程约 ${gap.travelMinutes} 分钟 · ${if (gap.minutesFree >= 15) "可用约 ${gap.minutesFree} 分钟" else "仅够通行与缓冲"}", style = MaterialTheme.typography.bodySmall)
-                    }
-                }
-            }
-        }
-
-        PlanSectionCard("教程资料", resources.firstOrNull { it.selected }?.let { "当前：${it.title}" } ?: "${resources.size} 项资料") {
-            TextButton(onClick = onAddResource) { Text("＋ 收集教程／链接") }
-            if (resources.isEmpty()) Text("尚未收集教程。", style = MaterialTheme.typography.bodySmall)
-            resources.forEach { resource ->
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) { Text(resource.title, fontWeight = FontWeight.SemiBold); Text(resource.url, style = MaterialTheme.typography.bodySmall) }
-                    if (resource.selected) Text("当前标准", color = MaterialTheme.colorScheme.primary) else TextButton(onClick = { onSelectResource(resource) }) { Text("选择") }
-                }
-            }
-        }
-
-        PlanSectionCard("目标与执行", if (goals.isEmpty()) "尚未创建目标" else "${goals.size} 个目标") {
-            TextButton(onClick = onAddGoal) { Text("＋ 新增目标") }
-            goals.forEach { goal ->
-                val suggestions = GoalPlanner.suggestions(goal, courses, profile)
-                Card { Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(goal.title, fontWeight = FontWeight.SemiBold)
-                    val completed = GoalPlanner.completedThisWeek(goal)
-                    val pending = items.count { it.goalId == goal.id && it.kind == "任务" && !it.done }
-                    val remaining = (goal.weeklyTarget - completed - pending).coerceAtLeast(0)
-                    if (goal.desiredOutcome.isNotBlank()) Text("预期结果：${goal.desiredOutcome}")
-                    Text("本周 $completed / ${goal.weeklyTarget} 次 · 已安排 $pending · 待安排 $remaining")
-                    Text("每次 ${goal.durationMinutes} 分钟 · ${goal.metricType}：${goal.metricTarget.ifBlank { "完成本次" }}", style = MaterialTheme.typography.bodySmall)
-                    if (goal.minimumVersion.isNotBlank()) Text("最低版本：${goal.minimumVersion}", style = MaterialTheme.typography.bodySmall)
-                    if (goal.resourceTitle.isNotBlank()) Text("依据：${goal.resourceTitle}${goal.resourceUnit.takeIf { it.isNotBlank() }?.let { " · $it" } ?: ""}", style = MaterialTheme.typography.bodySmall)
-                    feedback.filter { it.goalId == goal.id && it.barrier != "无" }.groupingBy { it.barrier }.eachCount().maxByOrNull { it.value }?.let { (barrier, count) -> Text("最近常见阻碍：$barrier（$count 次）", style = MaterialTheme.typography.bodySmall) }
-                    if (completed >= goal.weeklyTarget) Text("本周目标已达成。", color = MaterialTheme.colorScheme.primary)
-                    else if (remaining == 0) Text("剩余次数均已安排，可在日程中逐次完成或改期。")
-                    else suggestions.firstOrNull { suggestion -> items.none { item -> item.goalId == goal.id && !item.done && item.scheduledAt?.let { todayWeekday(it) == suggestion.weekday && minuteOfDay(it) == suggestion.startMinute } == true } }?.let { suggestion ->
-                        Text("建议：${weekdayName(suggestion.weekday)} ${GoalPlanner.displayTime(suggestion.startMinute)}，可用 ${suggestion.freeMinutes} 分钟")
-                        Button(onClick = { onScheduleGoal(goal, suggestion) }) { Text("安排第 ${completed + pending + 1} / ${goal.weeklyTarget} 次") }
-                    } ?: Text("暂未找到足够连续的空档。")
-                } }
-            }
-        }
-
-        PlanSectionCard("本周回顾", if (goals.isEmpty()) "有目标后生成建议" else "${goals.size} 项低压力建议") {
-            if (goals.isEmpty()) Text("创建目标并积累完成记录后，这里会给出调整建议。", style = MaterialTheme.typography.bodySmall)
-            goals.forEach { goal ->
-                Card { Column(Modifier.fillMaxWidth().padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(goal.title, fontWeight = FontWeight.SemiBold)
-                    Text(GoalPlanner.weeklyAdvice(goal, feedback.filter { it.createdAt >= GoalPlanner.currentWeekKey() }))
-                } }
-            }
-        }
-
-        PlanSectionCard("暂停项目", if (paused.isEmpty()) "暂无" else "${paused.size} 项") {
-            if (paused.isEmpty()) Text("暂停的任务会集中放在这里，不占用日程。", style = MaterialTheme.typography.bodySmall)
-            paused.forEach { item ->
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) { Text(item.title.removePrefix("重新安排："), fontWeight = FontWeight.SemiBold); Text(item.detail, style = MaterialTheme.typography.bodySmall) }
-                    TextButton(onClick = { onResume(item) }) { Text("恢复") }
-                }
-            }
+            Text("›", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.primary)
         }
     }
 }
 
-@Composable private fun PlanSectionCard(title: String, summary: String, initiallyExpanded: Boolean = false, content: @Composable ColumnScope.() -> Unit) {
-    var expanded by remember { mutableStateOf(initiallyExpanded) }
-    ElevatedCard(Modifier.fillMaxWidth()) {
-        Column {
-            Row(
-                Modifier.fillMaxWidth().clickable { expanded = !expanded }.padding(horizontal = 16.dp, vertical = 14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Column(Modifier.weight(1f)) {
-                    Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    Text(summary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                Text(if (expanded) "︿" else "﹀", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-            }
-            if (expanded) {
-                HorizontalDivider()
-                Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp), content = content)
-            }
+@Composable private fun PlanSubpageFrame(modifier: Modifier, title: String, onBack: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
+    Column(modifier.fillMaxSize().padding(20.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            TextButton(onClick = onBack) { Text("‹ 返回") }
+            Text(title, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
         }
+        Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(top = 12.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(10.dp), content = content)
     }
 }
 
