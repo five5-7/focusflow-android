@@ -76,7 +76,9 @@ data class Item(
     val goalId: Long? = null,
     val completionLevel: String = "",
     val completedAt: Long? = null,
-    val durationMinutes: Int = 60
+    val durationMinutes: Int = 60,
+    val windowStartAt: Long? = null,
+    val windowEndAt: Long? = null
 )
 
 data class CommuteProfile(
@@ -100,6 +102,7 @@ private fun FocusFlowApp() {
     var transitionTarget by remember { mutableStateOf<ActivitySession?>(null) }
     var autoPromptedSessionId by remember { mutableStateOf<Long?>(null) }
     var rescheduleTarget by remember { mutableStateOf<Item?>(null) }
+    var inboxScheduleTarget by remember { mutableStateOf<Item?>(null) }
     var flexiblePlanTarget by remember { mutableStateOf<Item?>(null) }
     var inboxEditTarget by remember { mutableStateOf<Item?>(null) }
     var items by remember {
@@ -255,7 +258,7 @@ private fun FocusFlowApp() {
                     },
                     onReplanSuggestion = { item -> rescheduleTarget = item },
                     onReviewActivity = { activeSession?.let { transitionTarget = it } },
-                    onPickTime = { item -> rescheduleTarget = item },
+                    onPickTime = { item -> inboxScheduleTarget = item },
                     onEdit = { item -> inboxEditTarget = item },
                     onShrink = { item -> saveItems(items.map { if (it.id == item.id) it.copy(title = item.title.removePrefix("重新安排："), kind = "任务", detail = "短版：先做 10 分钟 · 今天有空时") else it }) },
                     onPause = { item -> saveItems(items.map { if (it.id == item.id) it.copy(kind = "暂停", detail = "已暂停；随时可在计划中恢复") else it }) },
@@ -265,6 +268,7 @@ private fun FocusFlowApp() {
                     Modifier.padding(padding), items, courses,
                     energyLevel = energyLevel,
                     onPlanFlexible = { flexiblePlanTarget = it },
+                    onAdjustFlexible = { inboxScheduleTarget = it },
                     onTaskDone = { item ->
                         if (item.goalId == null) saveItems(items.map { if (it.id == item.id) it.copy(done = true, completionLevel = "完成", completedAt = System.currentTimeMillis()) else it }) else completionTarget = item
                     }
@@ -391,11 +395,47 @@ private fun FocusFlowApp() {
             }
         ) }
         rescheduleTarget?.let { item -> RescheduleTimeDialog(item, onDismiss = { rescheduleTarget = null }) { scheduledAt, duration, label ->
-            val delayed = item.copy(kind = "任务", detail = "已改期至$label；届时会再次出现", scheduledAt = scheduledAt, durationMinutes = duration, dayOnly = false)
+            val delayed = item.copy(kind = "任务", detail = "已改期至$label；届时会再次出现", scheduledAt = scheduledAt, durationMinutes = duration, dayOnly = false, windowStartAt = null, windowEndAt = null)
             saveItems(items.map { if (it.id == item.id) delayed else it })
             ReminderScheduler.scheduleTaskReminder(context, delayed)
             rescheduleTarget = null
         } }
+        inboxScheduleTarget?.let { item -> InboxScheduleDialog(
+            item = item,
+            items = items,
+            courses = courses,
+            energyLevel = energyLevel,
+            onDismiss = { inboxScheduleTarget = null },
+            onSchedule = { startsAt, duration, label ->
+                val scheduled = item.copy(
+                    title = item.title.removePrefix("重新安排："),
+                    kind = "任务",
+                    detail = "已安排：$label · $duration 分钟；可随时改期",
+                    scheduledAt = startsAt,
+                    durationMinutes = duration,
+                    dayOnly = false,
+                    windowStartAt = null,
+                    windowEndAt = null
+                )
+                saveItems(items.map { if (it.id == item.id) scheduled else it })
+                ReminderScheduler.scheduleTaskReminder(context, scheduled)
+                inboxScheduleTarget = null
+            },
+            onKeepWindow = { start, end, duration, label ->
+                val flexible = item.copy(
+                    title = item.title.removePrefix("重新安排："),
+                    kind = "任务",
+                    detail = "弹性范围：$label · 预计 $duration 分钟；尚未锁定具体时刻",
+                    scheduledAt = null,
+                    durationMinutes = duration,
+                    dayOnly = false,
+                    windowStartAt = start,
+                    windowEndAt = end
+                )
+                saveItems(items.map { if (it.id == item.id) flexible else it })
+                inboxScheduleTarget = null
+            }
+        ) }
         flexiblePlanTarget?.let { item -> FlexiblePlanDialog(
             item = item,
             suggestions = FlexiblePlanner.suggestions(item, items, courses, energyLevel),
@@ -405,6 +445,8 @@ private fun FocusFlowApp() {
                     scheduledAt = suggestion.startsAt,
                     durationMinutes = suggestion.durationMinutes,
                     dayOnly = false,
+                    windowStartAt = null,
+                    windowEndAt = null,
                     detail = "初步安排：${formatDateTime(suggestion.startsAt)} · ${suggestion.durationMinutes} 分钟；可随时改期"
                 )
                 saveItems(items.map { if (it.id == item.id) scheduled else it })
@@ -611,7 +653,7 @@ private fun FocusFlowApp() {
     }
 }
 
-@Composable private fun ScheduleScreen(modifier: Modifier, items: List<Item>, courses: List<Course>, energyLevel: String, onPlanFlexible: (Item) -> Unit, onTaskDone: (Item) -> Unit) {
+@Composable private fun ScheduleScreen(modifier: Modifier, items: List<Item>, courses: List<Course>, energyLevel: String, onPlanFlexible: (Item) -> Unit, onAdjustFlexible: (Item) -> Unit, onTaskDone: (Item) -> Unit) {
     val weekday = todayWeekday()
     val todaySchedule = items.filter { !it.dayOnly && it.scheduledAt?.let(::isToday) == true }.sortedBy { it.scheduledAt }
     val todayUnslotted = items.filter { !it.done && it.dayOnly && it.scheduledAt?.let(::isToday) == true }
@@ -644,13 +686,13 @@ private fun FocusFlowApp() {
         if (flexibleItems.isNotEmpty()) {
             Text("弹性安排", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             Text("根据当前精力、任务时长和已有日程提供初步时间；只有选择后才写入日程。", style = MaterialTheme.typography.bodySmall)
-            flexibleItems.take(4).forEach { item -> FlexibleScheduleRow(item, energyLevel) { onPlanFlexible(item) } }
+            flexibleItems.take(4).forEach { item -> FlexibleScheduleRow(item, energyLevel, onPlan = { onPlanFlexible(item) }, onAdjust = { onAdjustFlexible(item) }) }
         }
         Text("已完成的任务继续保留在时间轴上，并以灰色显示。", style = MaterialTheme.typography.bodySmall)
     }
 }
 
-@Composable private fun FlexibleScheduleRow(item: Item, energyLevel: String, onPlan: () -> Unit) {
+@Composable private fun FlexibleScheduleRow(item: Item, energyLevel: String, onPlan: () -> Unit, onAdjust: () -> Unit) {
     val type = item.scheduleType()
     val typeColor = scheduleColor(type)
     Card(colors = CardDefaults.cardColors(containerColor = typeColor.copy(alpha = 0.10f))) {
@@ -659,8 +701,12 @@ private fun FocusFlowApp() {
             Column(Modifier.weight(1f)) {
                 Text(item.title, fontWeight = FontWeight.SemiBold)
                 Text("预计 ${item.durationMinutes} 分钟 · 当前精力$energyLevel", style = MaterialTheme.typography.bodySmall)
+                if (item.windowStartAt != null && item.windowEndAt != null) Text("${formatDateTime(item.windowStartAt)} 至 ${formatDateTime(item.windowEndAt)}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
             }
-            TextButton(onClick = onPlan) { Text("初步安排") }
+            Column(horizontalAlignment = Alignment.End) {
+                TextButton(onClick = onPlan) { Text("初步安排") }
+                TextButton(onClick = onAdjust) { Text("调整范围") }
+            }
         }
     }
 }
@@ -960,6 +1006,36 @@ private fun dateAt(dayOffset: Int, hour: Int): Long {
     return calendar.timeInMillis
 }
 
+private data class ScheduleWindowOption(val label: String, val startsAt: Long, val endsAt: Long)
+
+private fun dateAtMinute(dayOffset: Int, minuteOfDay: Int): Long = java.util.Calendar.getInstance().apply {
+    add(java.util.Calendar.DAY_OF_YEAR, dayOffset)
+    set(java.util.Calendar.HOUR_OF_DAY, minuteOfDay / 60)
+    set(java.util.Calendar.MINUTE, minuteOfDay % 60)
+    set(java.util.Calendar.SECOND, 0)
+    set(java.util.Calendar.MILLISECOND, 0)
+}.timeInMillis
+
+private fun scheduleWindowOptions(now: Long = System.currentTimeMillis()): List<ScheduleWindowOption> {
+    val earliest = ((now + 15 * 60_000L + 14 * 60_000L) / (15 * 60_000L)) * (15 * 60_000L)
+    val todayAfternoon = ScheduleWindowOption("今天下午", maxOf(earliest, dateAtMinute(0, 13 * 60)), dateAtMinute(0, 18 * 60))
+    val todayEvening = ScheduleWindowOption("今天晚上", maxOf(earliest, dateAtMinute(0, 18 * 60)), dateAtMinute(0, 23 * 60 + 30))
+    val tomorrowMorning = ScheduleWindowOption("明天上午", dateAtMinute(1, 8 * 60), dateAtMinute(1, 12 * 60))
+    val tomorrowAfternoon = ScheduleWindowOption("明天下午", dateAtMinute(1, 13 * 60), dateAtMinute(1, 18 * 60))
+    val weekEnd = java.util.Calendar.getInstance().apply {
+        timeInMillis = now
+        val weekday = when (get(java.util.Calendar.DAY_OF_WEEK)) { java.util.Calendar.SUNDAY -> 7 else -> get(java.util.Calendar.DAY_OF_WEEK) - 1 }
+        add(java.util.Calendar.DAY_OF_YEAR, 7 - weekday)
+        set(java.util.Calendar.HOUR_OF_DAY, 23)
+        set(java.util.Calendar.MINUTE, 30)
+        set(java.util.Calendar.SECOND, 0)
+        set(java.util.Calendar.MILLISECOND, 0)
+    }.timeInMillis
+    val thisWeek = ScheduleWindowOption("本周内", earliest, weekEnd)
+    return listOf(todayAfternoon, todayEvening, tomorrowMorning, tomorrowAfternoon, thisWeek)
+        .filter { it.endsAt > it.startsAt + 15 * 60_000L }
+}
+
 @Composable private fun FlexiblePlanDialog(item: Item, suggestions: List<FlexibleTimeSuggestion>, onDismiss: () -> Unit, onSelect: (FlexibleTimeSuggestion) -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -982,6 +1058,107 @@ private fun dateAt(dayOffset: Int, hour: Int): Long {
         },
         confirmButton = {},
         dismissButton = { TextButton(onClick = onDismiss) { Text("保持弹性") } }
+    )
+}
+
+@Composable private fun InboxScheduleDialog(
+    item: Item,
+    items: List<Item>,
+    courses: List<Course>,
+    energyLevel: String,
+    onDismiss: () -> Unit,
+    onSchedule: (Long, Int, String) -> Unit,
+    onKeepWindow: (Long, Long, Int, String) -> Unit
+) {
+    val context = LocalContext.current
+    val existingWindow = if (item.windowStartAt != null && item.windowEndAt != null) ScheduleWindowOption("当前范围", item.windowStartAt, item.windowEndAt) else null
+    var mode by remember(item.id) { mutableStateOf(if (existingWindow == null) "推荐空档" else "大致时间") }
+    var duration by remember(item.id) { mutableIntStateOf(item.durationMinutes.coerceIn(15, 180)) }
+    var selectedWindow by remember(item.id) { mutableStateOf(existingWindow) }
+    var exactTime by remember(item.id) { mutableStateOf<Long?>(null) }
+    val windowOptions = scheduleWindowOptions().let { options -> if (existingWindow == null) options else listOf(existingWindow) + options }
+    val planningItem = item.copy(
+        durationMinutes = duration,
+        scheduledAt = null,
+        windowStartAt = if (mode == "大致时间") selectedWindow?.startsAt else null,
+        windowEndAt = if (mode == "大致时间") selectedWindow?.endsAt else null
+    )
+    val suggestions = FlexiblePlanner.suggestions(planningItem, items, courses, energyLevel)
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (item.kind == "收集箱") "安排收集箱任务" else "调整弹性安排") },
+        text = {
+            Column(Modifier.heightIn(max = 520.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(item.title.removePrefix("重新安排："), fontWeight = FontWeight.SemiBold)
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    listOf("推荐空档", "大致时间", "精确时间").forEach { option ->
+                        FilterChip(selected = mode == option, onClick = { mode = option }, label = { Text(option) })
+                    }
+                }
+                Text("预计用时", fontWeight = FontWeight.SemiBold)
+                Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                    listOf(15, 30, 60, 90).forEach { minutes ->
+                        FilterChip(selected = duration == minutes, onClick = { duration = minutes }, label = { Text("$minutes 分") })
+                    }
+                }
+                when (mode) {
+                    "推荐空档" -> {
+                        Text("参考已确认课程、未完成的定时任务和当前精力，并保留 15 分钟缓冲。", style = MaterialTheme.typography.bodySmall)
+                        if (suggestions.isEmpty()) Text("未来七天没有足够连续的空档；可以改用大致时间继续保持弹性。")
+                        suggestions.forEach { suggestion ->
+                            ElevatedCard(Modifier.fillMaxWidth().clickable { onSchedule(suggestion.startsAt, duration, formatDateTime(suggestion.startsAt)) }) {
+                                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                    Text(formatDateTime(suggestion.startsAt), fontWeight = FontWeight.Bold)
+                                    Text(suggestion.reason, style = MaterialTheme.typography.bodySmall)
+                                }
+                            }
+                        }
+                    }
+                    "大致时间" -> {
+                        Text("只保存可接受的时间范围，不创建提醒，也不会在时间轴上伪装成固定日程。", style = MaterialTheme.typography.bodySmall)
+                        windowOptions.forEach { option ->
+                            FilterChip(
+                                selected = selectedWindow == option,
+                                onClick = { selectedWindow = option },
+                                label = { Text("${option.label} · ${formatDateTime(option.startsAt)}–${formatTime(option.endsAt)}") }
+                            )
+                        }
+                        selectedWindow?.let { window ->
+                            val first = suggestions.firstOrNull()
+                            Text(first?.let { "该范围内目前可优先考虑 ${formatDateTime(it.startsAt)}；保存范围后仍可稍后确认。" } ?: "该范围内暂时没有完整空档；可以先保存范围，日程变化后再尝试。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                        }
+                    }
+                    else -> {
+                        Text("选择一个明确时间后，任务会写入日程并创建提醒。", style = MaterialTheme.typography.bodySmall)
+                        Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                            listOf("明早 9:00" to dateAt(1, 9), "明晚 18:00" to dateAt(1, 18)).forEach { option ->
+                                FilterChip(selected = exactTime == option.second, onClick = { exactTime = option.second }, label = { Text(option.first) })
+                            }
+                        }
+                        OutlinedButton(onClick = {
+                            val calendar = java.util.Calendar.getInstance()
+                            DatePickerDialog(context, { _, year, month, day ->
+                                TimePickerDialog(context, { _, hour, minute ->
+                                    exactTime = java.util.Calendar.getInstance().apply {
+                                        set(year, month, day, hour, minute, 0)
+                                        set(java.util.Calendar.MILLISECOND, 0)
+                                    }.timeInMillis
+                                }, calendar.get(java.util.Calendar.HOUR_OF_DAY), calendar.get(java.util.Calendar.MINUTE), true).show()
+                            }, calendar.get(java.util.Calendar.YEAR), calendar.get(java.util.Calendar.MONTH), calendar.get(java.util.Calendar.DAY_OF_MONTH)).show()
+                        }) { Text(exactTime?.let { "已选：${formatDateTime(it)}" } ?: "自选日期与时间") }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            when (mode) {
+                "大致时间" -> Button(enabled = selectedWindow != null, onClick = { selectedWindow?.let { onKeepWindow(it.startsAt, it.endsAt, duration, it.label) } }) { Text("保存范围") }
+                "精确时间" -> Button(enabled = exactTime?.let { it > System.currentTimeMillis() } == true, onClick = { exactTime?.let { onSchedule(it, duration, formatDateTime(it)) } }) { Text("确认安排") }
+                else -> {}
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }
     )
 }
 
@@ -1065,6 +1242,10 @@ private fun recommendNextAction(items: List<Item>, nextCommitment: ActivityCommi
     if (overdue != null) {
         return recommendation(overdue, "原定 ${formatDateTime(overdue.scheduledAt ?: now)}，尚未确认完成；现在不合适时可以重新安排。")
     }
+    val expiredWindow = candidates.filter { it.scheduledAt == null && (it.windowEndAt ?: Long.MAX_VALUE) < now }.maxByOrNull { it.windowEndAt ?: Long.MIN_VALUE }
+    if (expiredWindow != null) {
+        return recommendation(expiredWindow, "原先保留到 ${formatDateTime(expiredWindow.windowEndAt ?: now)} 的弹性范围已经过去；可以重新选择范围或直接开始。")
+    }
 
     val upcoming = scheduled.filter { (it.scheduledAt ?: Long.MIN_VALUE) >= now }.minByOrNull { it.scheduledAt ?: Long.MAX_VALUE }
     val minutesUntilUpcoming = upcoming?.scheduledAt?.let { ((it - now) / 60_000L).toInt().coerceAtLeast(0) }
@@ -1072,7 +1253,9 @@ private fun recommendNextAction(items: List<Item>, nextCommitment: ActivityCommi
         return recommendation(upcoming, "${formatTime(upcoming.scheduledAt ?: now)} 开始，是最近的固定安排（约 $minutesUntilUpcoming 分钟后）。")
     }
 
-    val flexible = candidates.filter { it.scheduledAt == null }
+    val flexible = candidates.filter {
+        it.scheduledAt == null && (it.windowStartAt == null || it.windowStartAt <= now) && (it.windowEndAt == null || it.windowEndAt >= now)
+    }
     val minutesBeforeCommitment = nextCommitment?.let { ((it.startsAt - now) / 60_000L).toInt().coerceAtLeast(0) }
     val usableMinutes = minutesBeforeCommitment?.minus(15)?.coerceAtLeast(0)
     val fittingCandidates = flexible.filter { usableMinutes == null || it.durationMinutes <= usableMinutes }
