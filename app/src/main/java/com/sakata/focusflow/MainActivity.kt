@@ -9,6 +9,8 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -227,9 +229,13 @@ private fun FocusFlowApp() {
 }
 
 @Composable private fun TodayScreen(modifier: Modifier, items: List<Item>, onTaskDone: (Item) -> Unit, activeSession: ActivitySession?, onStartActivity: () -> Unit) {
-    Column(modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        Text("现在", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
-        Text("不必安排完一天。先选择下一件合适的事。", style = MaterialTheme.typography.bodyLarge)
+    val now = System.currentTimeMillis()
+    val todaySchedule = items.filter { !it.done && it.scheduledAt?.let(::isToday) == true }.sortedBy { it.scheduledAt }
+    val flexibleItems = items.filter { !it.done && it.kind != "暂停" && it.kind != "收集箱" && it.scheduledAt == null }
+    val nextItem = todaySchedule.firstOrNull { (it.scheduledAt ?: Long.MAX_VALUE) >= now } ?: flexibleItems.firstOrNull()
+    Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Text("今日概览", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
+        Text("不必安排完一天。先看清今天，再选择下一件合适的事。", style = MaterialTheme.typography.bodyLarge)
         Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
             Row(Modifier.fillMaxWidth().padding(18.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                 Column {
@@ -239,21 +245,32 @@ private fun FocusFlowApp() {
                 Button(onClick = onStartActivity) { Text("开始活动") }
             }
         }
-        Text("今天可以做", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-        items.filter { !it.done && it.kind != "暂停" && (it.scheduledAt == null || it.scheduledAt <= System.currentTimeMillis()) }.take(4).forEach { item ->
+        Text("今日日程", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        if (todaySchedule.isEmpty()) {
+            ElevatedCard { Text("今天还没有固定时间日程。想到事情时先点右下角 ＋ 记下即可。", Modifier.padding(16.dp)) }
+        } else todaySchedule.forEach { item ->
+            ElevatedCard {
+                Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(item.scheduledAt?.let(::formatTime) ?: "待定", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    Column(Modifier.weight(1f)) { Text(item.title, fontWeight = FontWeight.SemiBold); Text(item.detail, style = MaterialTheme.typography.bodySmall) }
+                }
+            }
+        }
+        Text("下一件合适的事", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        nextItem?.let { item ->
             ElevatedCard {
                 Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                     Column(Modifier.weight(1f)) { Text(item.title, fontWeight = FontWeight.SemiBold); Text(item.detail) }
                     TextButton(onClick = { onTaskDone(item) }) { Text("完成") }
                 }
             }
-        }
+        } ?: Text("没有必须现在做的事。你可以休息、开始活动，或随手记录一个想法。")
         Text("错过不等于失败；未完成的任务会在合适时机重新出现。", style = MaterialTheme.typography.bodyMedium)
     }
 }
 
 @Composable private fun InboxScreen(modifier: Modifier, items: List<Item>, onPickTime: (Item) -> Unit, onShrink: (Item) -> Unit, onPause: (Item) -> Unit, onAbandon: (Item) -> Unit) {
-    Column(modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("收集箱", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
         Text("先记下，不必现在决定。")
         items.filter { it.kind == "收集箱" }.ifEmpty { listOf(Item(title = "暂时没有新想法", detail = "想到事情时点右下角 ＋", kind = "提示")) }.forEach { item ->
@@ -316,9 +333,15 @@ private fun dateAt(dayOffset: Int, hour: Int): Long {
 }
 
 private fun formatDateTime(time: Long): String = java.text.SimpleDateFormat("M月d日 HH:mm", java.util.Locale.CHINA).format(java.util.Date(time))
+private fun formatTime(time: Long): String = java.text.SimpleDateFormat("HH:mm", java.util.Locale.CHINA).format(java.util.Date(time))
+private fun isToday(time: Long): Boolean {
+    val target = java.util.Calendar.getInstance().apply { timeInMillis = time }
+    val today = java.util.Calendar.getInstance()
+    return target.get(java.util.Calendar.YEAR) == today.get(java.util.Calendar.YEAR) && target.get(java.util.Calendar.DAY_OF_YEAR) == today.get(java.util.Calendar.DAY_OF_YEAR)
+}
 
 @Composable private fun PlansScreen(modifier: Modifier, items: List<Item>, courses: List<Course>, profile: CommuteProfile, onResume: (Item) -> Unit, onConfirmCourse: (Course) -> Unit, onIgnoreCourse: (Course) -> Unit, onAddCourse: () -> Unit, onEditCourse: (Course) -> Unit, goals: List<Goal>, onAddGoal: () -> Unit, onScheduleGoal: (Goal, GoalSuggestion) -> Unit, resources: List<LearningResource>, onAddResource: () -> Unit, onSelectResource: (LearningResource) -> Unit, feedback: List<TaskFeedback>) {
-    Column(modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("计划", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
         Text("长期目标会随着上学后的课表动态安排。")
         Text("课表识别预览", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
@@ -490,7 +513,7 @@ private fun weekdayName(day: Int) = listOf("", "周一", "周二", "周三", "�
 }
 
 @Composable private fun CampusPlacesScreen(modifier: Modifier, profile: CommuteProfile) {
-    Column(modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("紫金港地点", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
         Text("只按教学楼与区域估计，不要求精确到教室。初始数值会在你实际使用后校正。")
         val sample = ZijingangTravel.estimateMinutes(CampusZone.WEST_TEACHING, CampusZone.LIBRARY, profile)
@@ -506,7 +529,7 @@ private fun weekdayName(day: Int) = listOf("", "周一", "周二", "周三", "�
 }
 
 @Composable private fun SettingsScreen(modifier: Modifier, commuteProfile: CommuteProfile, improvementNotes: List<ImprovementNote>, roadmapSelections: Set<String>, onCommuteChange: (CommuteProfile) -> Unit, onAddImprovement: () -> Unit, onToggleRoadmap: (RoadmapFeature) -> Unit) {
-    Column(modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+    Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Text("设置", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
         var persistent by remember { mutableStateOf(false) }
         var preview by remember { mutableStateOf(true) }
