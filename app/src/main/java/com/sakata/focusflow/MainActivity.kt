@@ -769,7 +769,7 @@ private enum class PlanPage(val title: String) {
         ) {
             val currentPage = page
             if (currentPage != null) {
-                PlanSubpageFrame(Modifier.fillMaxSize(), currentPage.title, onBack = { onPageChange(null) }) {
+                PlanSubpageFrame(Modifier.fillMaxSize(), currentPage.title) {
                     when (currentPage) {
             PlanPage.COURSES -> {
                 TextButton(onClick = onAddCourse) { Text("＋ 手动新增课程") }
@@ -913,16 +913,9 @@ private enum class PlanPage(val title: String) {
     }
 }
 
-@Composable private fun PlanSubpageFrame(modifier: Modifier, title: String, onBack: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
+@Composable private fun PlanSubpageFrame(modifier: Modifier, title: String, content: @Composable ColumnScope.() -> Unit) {
     Column(modifier.fillMaxSize().padding(20.dp)) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = onBack, contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)) {
-                Text("‹", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.width(4.dp))
-                Text("返回", style = MaterialTheme.typography.titleMedium)
-            }
-            Text(title, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-        }
+        Text(title, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
         Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(top = 12.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(10.dp), content = content)
     }
 }
@@ -1097,4 +1090,3 @@ private fun weekdayName(day: Int) = listOf("", "周一", "周二", "周三", "�
 @Composable private fun QuickCaptureDialog(onDismiss: () -> Unit, onSave: (String, Boolean) -> Unit) { var text by remember { mutableStateOf("") }; var tomorrow by remember { mutableStateOf(false) }; AlertDialog(onDismissRequest = onDismiss, title = { Text("快速记录") }, text = { Column(verticalArrangement = Arrangement.spacedBy(10.dp)) { Text("先保存想法，安排可以以后再说。"); OutlinedTextField(value = text, onValueChange = { text = it }, placeholder = { Text("例如：购买教材") }, singleLine = false); FilterChip(selected = tomorrow, onClick = { tomorrow = !tomorrow }, label = { Text("明天要做（不定时间）") }); if (tomorrow) Text("明天上午会温和提醒；你再决定具体什么时候做。", style = MaterialTheme.typography.bodySmall) } }, confirmButton = { Button(enabled = text.isNotBlank(), onClick = { onSave(text.trim(), tomorrow) }) { Text("保存") } }, dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }) }
 
 @Composable private fun ActivityDialog(onDismiss: () -> Unit, onStart: (String, Int) -> Unit) { var selected by remember { mutableStateOf("游戏／娱乐") }; var minutes by remember { mutableStateOf("60") }; AlertDialog(onDismissRequest = onDismiss, title = { Text("开始活动") }, text = { Column(verticalArrangement = Arrangement.spacedBy(10.dp)) { listOf("游戏／娱乐", "学习", "休息", "其他").forEach { label -> FilterChip(selected = selected == label, onClick = { selected = label }, label = { Text(label) }) }; OutlinedTextField(value = minutes, onValueChange = { minutes = it.filter(Char::isDigit) }, label = { Text("预计分钟") }, singleLine = true); Text("结束前 10 分钟会温和提醒；到点后再决定开始下一项、延长或改期。") } }, confirmButton = { Button(onClick = { onStart(selected, minutes.toIntOrNull()?.coerceIn(1, 600) ?: 60) }) { Text("开始计时") } }, dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }) }
-
