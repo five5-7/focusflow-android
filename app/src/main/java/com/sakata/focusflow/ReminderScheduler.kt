@@ -29,7 +29,19 @@ object ReminderScheduler {
 
     fun restoreActivityReminders(context: Context) {
         val store = PrototypeStore(context)
-        store.loadLatestActiveSession()?.let { scheduleActivityReminders(context, it, store.loadActivityReminderSettings()) }
+        store.loadLatestActiveSession()?.let { session ->
+            if (session.endsAt <= System.currentTimeMillis()) {
+                if (session.status != ActivitySession.STATUS_AWAITING_CONFIRMATION) {
+                    store.markSessionAwaitingConfirmation(session.id)
+                    context.sendBroadcast(Intent(context, ReminderReceiver::class.java).apply {
+                        action = ReminderReceiver.ACTION_ACTIVITY_END
+                        putExtra(ReminderReceiver.EXTRA_ACTIVITY_NAME, session.name)
+                        putExtra(ReminderReceiver.EXTRA_SESSION_ID, session.id)
+                        putExtra(ReminderReceiver.EXTRA_NEXT_STEP, session.nextStep)
+                    })
+                }
+            } else scheduleActivityReminders(context, session, store.loadActivityReminderSettings())
+        }
     }
 
     fun cancelActivityReminders(context: Context, sessionId: Long) {
