@@ -111,6 +111,7 @@ private fun FocusFlowApp() {
     var activitySettings by remember { mutableStateOf(store.loadActivityReminderSettings()) }
     var themeOption by remember { mutableStateOf(store.loadTheme()) }
     var commuteProfile by remember { mutableStateOf(store.loadCommuteProfile()) }
+    var campusLifeEnabled by remember { mutableStateOf(store.loadCampusLifeEnabled()) }
     var campusMapPackage by remember { mutableStateOf(store.loadCampusMapPackage()) }
     var currentCampusPlace by remember { mutableStateOf(store.loadCurrentCampusPlace()) }
     var courses by remember { mutableStateOf(if (store.hasCourseSetup()) store.loadCourses() else ScreenshotCoursePreview.courses) }
@@ -133,7 +134,7 @@ private fun FocusFlowApp() {
         .firstOrNull()
     val upcomingCommitment = nextActivityCommitment(items, courses)
     val suggestedNextStepName = upcomingCommitment?.title ?: suggestedNextStep?.title.orEmpty()
-    val campusPlaces = campusMapPackage?.places?.takeIf { it.isNotEmpty() } ?: ZijingangTravel.places
+    val campusPlaces = if (campusLifeEnabled) campusMapPackage?.places?.takeIf { it.isNotEmpty() } ?: ZijingangTravel.places else ZijingangTravel.places
     fun saveItems(updated: List<Item>) { items = updated; store.saveItems(updated) }
     fun selectTab(index: Int) {
         if (index == 2) planPage = null
@@ -238,12 +239,15 @@ private fun FocusFlowApp() {
                     },
                     feedback = feedback
                 )
-                else -> SettingsScreen(Modifier.padding(padding), themeOption, commuteProfile, campusMapPackage, currentCampusPlace, improvementNotes, roadmapSelections, activitySettings, onThemeChange = { updated ->
+                else -> SettingsScreen(Modifier.padding(padding), themeOption, commuteProfile, campusLifeEnabled, campusMapPackage, currentCampusPlace, improvementNotes, roadmapSelections, activitySettings, onThemeChange = { updated ->
                     themeOption = updated
                     store.saveTheme(updated)
                 }, onCommuteChange = { updated ->
                     commuteProfile = updated
                     store.saveCommuteProfile(updated)
+                }, onCampusLifeEnabledChange = { enabled ->
+                    campusLifeEnabled = enabled
+                    store.saveCampusLifeEnabled(enabled)
                 }, onCampusMapPackageChange = { updated ->
                     campusMapPackage = updated
                     store.saveCampusMapPackage(updated)
@@ -1242,7 +1246,7 @@ private fun weekdayName(day: Int) = listOf("", "周一", "周二", "周三", "�
     }
 }
 
-@Composable private fun SettingsScreen(modifier: Modifier, themeOption: FocusFlowThemeOption, commuteProfile: CommuteProfile, campusMapPackage: CampusMapPackage?, currentCampusPlace: String?, improvementNotes: List<ImprovementNote>, roadmapSelections: Set<String>, activitySettings: ActivityReminderSettings, onThemeChange: (FocusFlowThemeOption) -> Unit, onCommuteChange: (CommuteProfile) -> Unit, onCampusMapPackageChange: (CampusMapPackage?) -> Unit, onCurrentCampusPlaceChange: (String?) -> Unit, onActivitySettingsChange: (ActivityReminderSettings) -> Unit, onAddImprovement: () -> Unit, onToggleRoadmap: (RoadmapFeature) -> Unit) {
+@Composable private fun SettingsScreen(modifier: Modifier, themeOption: FocusFlowThemeOption, commuteProfile: CommuteProfile, campusLifeEnabled: Boolean, campusMapPackage: CampusMapPackage?, currentCampusPlace: String?, improvementNotes: List<ImprovementNote>, roadmapSelections: Set<String>, activitySettings: ActivityReminderSettings, onThemeChange: (FocusFlowThemeOption) -> Unit, onCommuteChange: (CommuteProfile) -> Unit, onCampusLifeEnabledChange: (Boolean) -> Unit, onCampusMapPackageChange: (CampusMapPackage?) -> Unit, onCurrentCampusPlaceChange: (String?) -> Unit, onActivitySettingsChange: (ActivityReminderSettings) -> Unit, onAddImprovement: () -> Unit, onToggleRoadmap: (RoadmapFeature) -> Unit) {
     val context = LocalContext.current
     val campusPlaces = campusMapPackage?.places?.takeIf { it.isNotEmpty() } ?: ZijingangTravel.places
     var importStatus by remember { mutableStateOf<String?>(null) }
@@ -1318,6 +1322,8 @@ private fun weekdayName(day: Int) = listOf("", "周一", "周二", "周三", "�
         }
         HorizontalDivider()
         Text("通勤与地点", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        SettingSwitch("校园生活", "控制校内出行、地点包和手动位置工具；关闭不会删除已有数据", campusLifeEnabled, onCampusLifeEnabledChange)
+        if (campusLifeEnabled) {
         Text("地点不再单独占一个页面；它只在安排课程空档时用于估计去图书馆、操场或下一栋教学楼是否来得及。", style = MaterialTheme.typography.bodySmall)
         SettingSwitch("为通勤预留时间", "只保存大致时长，不读取定位", commuteProfile.enabled) { onCommuteChange(commuteProfile.copy(enabled = it)) }
         if (commuteProfile.enabled) {
@@ -1371,6 +1377,9 @@ private fun weekdayName(day: Int) = listOf("", "周一", "周二", "周三", "�
                 Text("${from.name} → ${to.name}：按${commuteProfile.campusMode}估计约 $minutes 分钟（含楼内缓冲）。", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
             }
             TextButton(onClick = { onCurrentCampusPlaceChange(null) }) { Text("清除当前位置") }
+        }
+        } else {
+            Text("校园工具已暂停。课程、已导入地点和通勤参数仍保存在本机，重新开启后恢复。", style = MaterialTheme.typography.bodySmall)
         }
         HorizontalDivider()
         Text("改进清单", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
