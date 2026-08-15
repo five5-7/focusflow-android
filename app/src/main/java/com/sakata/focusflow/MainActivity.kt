@@ -7,8 +7,15 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
@@ -112,12 +119,13 @@ private fun FocusFlowApp() {
     var improvementNotes by remember { mutableStateOf(store.loadImprovementNotes()) }
     var improvementOpen by remember { mutableStateOf(false) }
     var roadmapSelections by remember { mutableStateOf(store.loadRoadmapSelections()) }
-    var planOpenGeneration by remember { mutableIntStateOf(0) }
+    var planPage by remember { mutableStateOf<PlanPage?>(null) }
     fun saveItems(updated: List<Item>) { items = updated; store.saveItems(updated) }
     fun selectTab(index: Int) {
-        if (index == 2 && tab != 2) planOpenGeneration++
+        if (index == 2) planPage = null
         tab = index
     }
+    BackHandler(enabled = tab == 2 && planPage != null) { planPage = null }
 
     MaterialTheme(colorScheme = lightColorScheme(
         primary = androidx.compose.ui.graphics.Color(0xFF155E75),
@@ -139,7 +147,13 @@ private fun FocusFlowApp() {
                     Box(Modifier.weight(0.82f), contentAlignment = Alignment.Center) {
                         FloatingActionButton(modifier = Modifier.size(50.dp), onClick = { addOpen = true }) { Text("＋", style = MaterialTheme.typography.headlineSmall) }
                     }
-                    NavigationBarItem(selected = tab == 2, onClick = { selectTab(2) }, icon = { Text(if (tab == 2) "●" else "○") }, modifier = Modifier.weight(1f), label = { Text("计划") })
+                    NavigationBarItem(
+                        selected = tab == 2,
+                        onClick = { selectTab(2) },
+                        icon = { Text(if (tab != 2) "○" else if (planPage == null) "●" else "◉") },
+                        modifier = Modifier.weight(1f),
+                        label = { Text(planPage?.let { "计划·${it.title.take(2)}" } ?: "计划") }
+                    )
                     NavigationBarItem(selected = tab == 3, onClick = { selectTab(3) }, icon = { Text(if (tab == 3) "●" else "○") }, modifier = Modifier.weight(1f), label = { Text("设置") })
                 }
             }
@@ -164,8 +178,10 @@ private fun FocusFlowApp() {
                         if (item.goalId == null) saveItems(items.map { if (it.id == item.id) it.copy(done = true, completionLevel = "完成", completedAt = System.currentTimeMillis()) else it }) else completionTarget = item
                     }
                 )
-                2 -> key(planOpenGeneration) { PlansScreen(
+                2 -> PlansScreen(
                     Modifier.padding(padding), items, courses, commuteProfile,
+                    page = planPage,
+                    onPageChange = { planPage = it },
                     onResume = { item -> saveItems(items.map { if (it.id == item.id) it.copy(kind = "任务", detail = "已恢复；今天有空时再做", scheduledAt = null) else it }) },
                     onConfirmCourse = { course ->
                         courses = courses.map { if (it == course) it.copy(needsConfirmation = false) else it }
@@ -191,7 +207,7 @@ private fun FocusFlowApp() {
                         store.saveResources(resources)
                     },
                     feedback = feedback
-                ) }
+                )
                 else -> SettingsScreen(Modifier.padding(padding), commuteProfile, improvementNotes, roadmapSelections, onCommuteChange = { updated ->
                     commuteProfile = updated
                     store.saveCommuteProfile(updated)
@@ -484,7 +500,7 @@ private fun layoutTimelineEvents(events: List<TimelineEvent>): List<TimelineEven
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 10.dp)) {
             TimelineTimeAxis()
-            TimelineDayLane(events, Modifier.weight(1f), showCurrentTime = true, showLabels = true, compactBlocks = false, onSelect = { selected = it })
+            TimelineDayLane(events, Modifier.weight(1f), showLabels = true, compactBlocks = false, onSelect = { selected = it })
         }
     }
     TimelineLegend()
@@ -518,7 +534,7 @@ private fun layoutTimelineEvents(events: List<TimelineEvent>): List<TimelineEven
             Row(Modifier.fillMaxWidth()) {
                 TimelineTimeAxis(40.dp)
                 (1..7).forEach { day ->
-                    TimelineDayLane((courseEvents + taskEvents).filter { it.weekday == day }, Modifier.weight(1f), showCurrentTime = day == todayWeekday(), showLabels = false, compactBlocks = true, onSelect = { selected = it })
+                    TimelineDayLane((courseEvents + taskEvents).filter { it.weekday == day }, Modifier.weight(1f), showLabels = false, compactBlocks = true, onSelect = { selected = it })
                 }
             }
         }
@@ -546,7 +562,7 @@ private fun layoutTimelineEvents(events: List<TimelineEvent>): List<TimelineEven
     }
 }
 
-@Composable private fun TimelineDayLane(events: List<TimelineEvent>, modifier: Modifier, showCurrentTime: Boolean, showLabels: Boolean, compactBlocks: Boolean, onSelect: (TimelineEvent) -> Unit) {
+@Composable private fun TimelineDayLane(events: List<TimelineEvent>, modifier: Modifier, showLabels: Boolean, compactBlocks: Boolean, onSelect: (TimelineEvent) -> Unit) {
     val totalHours = (TIMELINE_END_MINUTE - TIMELINE_START_MINUTE) / 60
     val totalHeight = timelineHourHeight * totalHours.toFloat()
     val layouts = layoutTimelineEvents(events)
@@ -576,13 +592,6 @@ private fun layoutTimelineEvents(events: List<TimelineEvent>): List<TimelineEven
                     Text(event.title, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     if (height >= 34.dp) Text("${formatMinute(event.startMinute)}–${formatMinute(event.endMinute)}", style = MaterialTheme.typography.labelSmall, maxLines = 1)
                 } else Box(Modifier.fillMaxSize())
-            }
-        }
-        if (showCurrentTime) {
-            val current = minuteOfDay(System.currentTimeMillis())
-            if (current in TIMELINE_START_MINUTE..TIMELINE_END_MINUTE) {
-                val y = timelineHourHeight * ((current - TIMELINE_START_MINUTE) / 60f)
-                Canvas(Modifier.fillMaxWidth().height(2.dp).offset(y = y)) { drawLine(Color(0xFFDC2626), Offset.Zero, Offset(size.width, 0f), strokeWidth = 4f) }
             }
         }
     }
@@ -728,16 +737,20 @@ private enum class PlanPage(val title: String) {
     COURSES("课程"), GAPS("空挡建议"), GOALS("目标与执行"), REVIEW("本周回顾"), PAUSED("暂停项目")
 }
 
-@Composable private fun PlansScreen(modifier: Modifier, items: List<Item>, courses: List<Course>, profile: CommuteProfile, onResume: (Item) -> Unit, onConfirmCourse: (Course) -> Unit, onIgnoreCourse: (Course) -> Unit, onAddCourse: () -> Unit, onEditCourse: (Course) -> Unit, goals: List<Goal>, onAddGoal: () -> Unit, onScheduleGoal: (Goal, GoalSuggestion) -> Unit, resources: List<LearningResource>, onAddResource: () -> Unit, onSelectResource: (LearningResource) -> Unit, feedback: List<TaskFeedback>) {
+@Composable private fun PlansScreen(modifier: Modifier, items: List<Item>, courses: List<Course>, profile: CommuteProfile, page: PlanPage?, onPageChange: (PlanPage?) -> Unit, onResume: (Item) -> Unit, onConfirmCourse: (Course) -> Unit, onIgnoreCourse: (Course) -> Unit, onAddCourse: () -> Unit, onEditCourse: (Course) -> Unit, goals: List<Goal>, onAddGoal: () -> Unit, onScheduleGoal: (Goal, GoalSuggestion) -> Unit, resources: List<LearningResource>, onAddResource: () -> Unit, onSelectResource: (LearningResource) -> Unit, feedback: List<TaskFeedback>) {
     val awaitingCourses = courses.filter { it.needsConfirmation }
     val confirmedCourses = courses.filter { !it.needsConfirmation }
     val gaps = CourseGapPlanner.gaps(confirmedCourses, profile)
     val paused = items.filter { it.kind == "暂停" }
-    var page by remember { mutableStateOf<PlanPage?>(null) }
 
-    if (page == null) {
+    Box(modifier.fillMaxSize()) {
+        AnimatedVisibility(
+            visible = page == null,
+            enter = slideInHorizontally(animationSpec = tween(260), initialOffsetX = { -it / 4 }) + fadeIn(tween(180)),
+            exit = slideOutHorizontally(animationSpec = tween(220), targetOffsetX = { -it / 4 }) + fadeOut(tween(150))
+        ) {
         PlanHubScreen(
-            modifier = modifier,
+            modifier = Modifier.fillMaxSize(),
             entries = listOf(
                 PlanPage.COURSES to "${confirmedCourses.size} 门已确认 · ${awaitingCourses.size} 门待确认",
                 PlanPage.GAPS to if (gaps.isEmpty()) "暂无可用空挡" else "${gaps.size} 段可用空挡",
@@ -745,14 +758,19 @@ private enum class PlanPage(val title: String) {
                 PlanPage.REVIEW to if (goals.isEmpty()) "有目标后生成建议" else "${goals.size} 项低压力建议",
                 PlanPage.PAUSED to if (paused.isEmpty()) "暂无" else "${paused.size} 项"
             ),
-            onOpen = { page = it },
+            onOpen = { onPageChange(it) },
             onAddGoal = onAddGoal
         )
-        return
-    }
-
-    PlanSubpageFrame(modifier, page!!.title, onBack = { page = null }) {
-        when (page) {
+        }
+        AnimatedVisibility(
+            visible = page != null,
+            enter = slideInHorizontally(animationSpec = tween(280), initialOffsetX = { it / 3 }) + fadeIn(tween(190)),
+            exit = slideOutHorizontally(animationSpec = tween(230), targetOffsetX = { it / 3 }) + fadeOut(tween(150))
+        ) {
+            val currentPage = page
+            if (currentPage != null) {
+                PlanSubpageFrame(Modifier.fillMaxSize(), currentPage.title, onBack = { onPageChange(null) }) {
+                    when (currentPage) {
             PlanPage.COURSES -> {
                 TextButton(onClick = onAddCourse) { Text("＋ 手动新增课程") }
                 if (awaitingCourses.isNotEmpty()) {
@@ -859,7 +877,9 @@ private enum class PlanPage(val title: String) {
                     }
                 }
             }
-            null -> Unit
+                    }
+                }
+            }
         }
     }
 }
@@ -896,7 +916,11 @@ private enum class PlanPage(val title: String) {
 @Composable private fun PlanSubpageFrame(modifier: Modifier, title: String, onBack: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
     Column(modifier.fillMaxSize().padding(20.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = onBack) { Text("‹ 返回") }
+            TextButton(onClick = onBack, contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)) {
+                Text("‹", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.width(4.dp))
+                Text("返回", style = MaterialTheme.typography.titleMedium)
+            }
             Text(title, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
         }
         Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(top = 12.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(10.dp), content = content)
@@ -1073,3 +1097,4 @@ private fun weekdayName(day: Int) = listOf("", "周一", "周二", "周三", "�
 @Composable private fun QuickCaptureDialog(onDismiss: () -> Unit, onSave: (String, Boolean) -> Unit) { var text by remember { mutableStateOf("") }; var tomorrow by remember { mutableStateOf(false) }; AlertDialog(onDismissRequest = onDismiss, title = { Text("快速记录") }, text = { Column(verticalArrangement = Arrangement.spacedBy(10.dp)) { Text("先保存想法，安排可以以后再说。"); OutlinedTextField(value = text, onValueChange = { text = it }, placeholder = { Text("例如：购买教材") }, singleLine = false); FilterChip(selected = tomorrow, onClick = { tomorrow = !tomorrow }, label = { Text("明天要做（不定时间）") }); if (tomorrow) Text("明天上午会温和提醒；你再决定具体什么时候做。", style = MaterialTheme.typography.bodySmall) } }, confirmButton = { Button(enabled = text.isNotBlank(), onClick = { onSave(text.trim(), tomorrow) }) { Text("保存") } }, dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }) }
 
 @Composable private fun ActivityDialog(onDismiss: () -> Unit, onStart: (String, Int) -> Unit) { var selected by remember { mutableStateOf("游戏／娱乐") }; var minutes by remember { mutableStateOf("60") }; AlertDialog(onDismissRequest = onDismiss, title = { Text("开始活动") }, text = { Column(verticalArrangement = Arrangement.spacedBy(10.dp)) { listOf("游戏／娱乐", "学习", "休息", "其他").forEach { label -> FilterChip(selected = selected == label, onClick = { selected = label }, label = { Text(label) }) }; OutlinedTextField(value = minutes, onValueChange = { minutes = it.filter(Char::isDigit) }, label = { Text("预计分钟") }, singleLine = true); Text("结束前 10 分钟会温和提醒；到点后再决定开始下一项、延长或改期。") } }, confirmButton = { Button(onClick = { onStart(selected, minutes.toIntOrNull()?.coerceIn(1, 600) ?: 60) }) { Text("开始计时") } }, dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }) }
+
