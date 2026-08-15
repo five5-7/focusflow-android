@@ -78,6 +78,7 @@ class PrototypeStore(context: Context) {
 
     fun extendSession(id: Long, minutes: Int, reason: String = ""): ActivitySession? {
         val current = loadSessions().firstOrNull { it.id == id } ?: return null
+        if (current.extensionCount >= loadActivityReminderSettings().maxExtensions) return null
         val extended = current.copy(
             endsAt = System.currentTimeMillis() + minutes.coerceIn(1, 180) * 60_000L,
             status = ActivitySession.STATUS_EXTENDED,
@@ -99,6 +100,8 @@ class PrototypeStore(context: Context) {
     }
 
     fun loadLatestActiveSession(): ActivitySession? = loadSessions().lastOrNull(ActivitySession::isOpen)
+
+    fun findActivitySession(id: Long): ActivitySession? = loadSessions().firstOrNull { it.id == id }
 
     fun loadRecentActivitySessions(limit: Int = 20): List<ActivitySession> = loadSessions().takeLast(limit.coerceIn(1, 50)).reversed()
 
