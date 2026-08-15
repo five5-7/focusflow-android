@@ -52,3 +52,4 @@
 - [ ] 真机验证 ColorOS 后台提醒可靠性，并按反馈调整通知与省电设置引导。
 
 真机验证步骤见 [V2 活动模式测试清单](v2-activity-test-plan.md)。
+状态迁移和组件职责见 [V2 活动模式实现边界](v2-activity-architecture.md)。
