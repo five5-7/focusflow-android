@@ -1,6 +1,6 @@
 # FocusFlow Android prototype
 
-当前应用版本：**2.1**。功能更新记录见 [CHANGELOG.md](CHANGELOG.md)。
+当前应用版本：**2.2**。功能更新记录见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## First open in Android Studio
 
@@ -16,7 +16,7 @@ dependencies used by this prototype.
 
 The included GitHub Actions workflow builds a debug APK on a GitHub runner.
 Push this folder to a GitHub repository, then open **Actions** and run
-**Build FocusFlow APK**. Download the `FocusFlow-2.1-apk` artifact after the
+**Build FocusFlow APK**. Download the `FocusFlow-2.2-apk` artifact after the
 workflow succeeds.
 
 本项目是一个面向 Android 的本地优先日程与执行辅助原型。核心目标不是维护一张完整日历，而是降低记录压力、按当前状态调整提醒，并在错过计划后帮助恢复。
@@ -41,6 +41,9 @@ workflow succeeds.
 - 快速记录支持“明天要做（不定时间）”：翌日上午温和提醒，但不把它伪装成固定预约
 - 设置页可保存单程通勤时长、校内出行方式、楼内缓冲与电动车电量；不需位置权限，初始值可随实际体验校正
 - 内置紫金港教学区、实验中心、图书馆与东田径场的区域级目录；路线为保守的初始估计，支持后续校正
+- 设置页可导入经过校验的 JSON 校园地点包；导入地点会用于课程编辑、空挡判断与路线估算，也可手动选择当前位置进行路线预览
+- “校园生活”总开关可暂停校内地点辅助而不删除课程、地点包或通勤参数
+- 地点功能不申请系统定位权限，不后台追踪；V3 再基于用户确认的实际记录学习通勤时间
 - 根据已上传的课表截图生成待确认的课程预览；只有用户确认的课程才会保存并用于计算课程间空档
 - 可手动新增和编辑课程，以处理截图地点不完整、临时调课与课表变化
 - 可在应用内创建每周目标；依据已确认课程、区域通行与缓冲推荐候选空档，并一键安排下一次本地提醒
@@ -61,6 +64,8 @@ workflow succeeds.
 1. 为设置开关与长期计划接入持久化。
 2. 让用户调整“未回应”的宽限时长，并为长期计划设置最低版本（如先做十分钟）。
 4. 在 OPPO ColorOS 设备上验证通知、后台限制和重启恢复。
+
+V3 计划：开始活动时根据已确认的历史活动与下一项日程建议预计时长／结束时间；只有用户确认实际通勤耗时后才逐步学习路线，不静默追踪位置。
 
 ## 构建
 

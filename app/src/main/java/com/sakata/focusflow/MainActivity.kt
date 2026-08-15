@@ -12,8 +12,10 @@ import android.os.Bundle
 import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -109,6 +111,9 @@ private fun FocusFlowApp() {
     var activitySettings by remember { mutableStateOf(store.loadActivityReminderSettings()) }
     var themeOption by remember { mutableStateOf(store.loadTheme()) }
     var commuteProfile by remember { mutableStateOf(store.loadCommuteProfile()) }
+    var campusLifeEnabled by remember { mutableStateOf(store.loadCampusLifeEnabled()) }
+    var campusMapPackage by remember { mutableStateOf(store.loadCampusMapPackage()) }
+    var currentCampusPlace by remember { mutableStateOf(store.loadCurrentCampusPlace()) }
     var courses by remember { mutableStateOf(if (store.hasCourseSetup()) store.loadCourses() else ScreenshotCoursePreview.courses) }
     var courseEditor by remember { mutableStateOf<Course?>(null) }
     var addCourseOpen by remember { mutableStateOf(false) }
@@ -129,6 +134,7 @@ private fun FocusFlowApp() {
         .firstOrNull()
     val upcomingCommitment = nextActivityCommitment(items, courses)
     val suggestedNextStepName = upcomingCommitment?.title ?: suggestedNextStep?.title.orEmpty()
+    val campusPlaces = if (campusLifeEnabled) campusMapPackage?.places?.takeIf { it.isNotEmpty() } ?: ZijingangTravel.places else ZijingangTravel.places
     fun saveItems(updated: List<Item>) { items = updated; store.saveItems(updated) }
     fun selectTab(index: Int) {
         if (index == 2) planPage = null
@@ -233,12 +239,25 @@ private fun FocusFlowApp() {
                     },
                     feedback = feedback
                 )
-                else -> SettingsScreen(Modifier.padding(padding), themeOption, commuteProfile, improvementNotes, roadmapSelections, activitySettings, onThemeChange = { updated ->
+                else -> SettingsScreen(Modifier.padding(padding), themeOption, commuteProfile, campusLifeEnabled, campusMapPackage, currentCampusPlace, improvementNotes, roadmapSelections, activitySettings, onThemeChange = { updated ->
                     themeOption = updated
                     store.saveTheme(updated)
                 }, onCommuteChange = { updated ->
                     commuteProfile = updated
                     store.saveCommuteProfile(updated)
+                }, onCampusLifeEnabledChange = { enabled ->
+                    campusLifeEnabled = enabled
+                    store.saveCampusLifeEnabled(enabled)
+                }, onCampusMapPackageChange = { updated ->
+                    campusMapPackage = updated
+                    store.saveCampusMapPackage(updated)
+                    if (currentCampusPlace !in (updated?.places ?: ZijingangTravel.places).map { it.name }) {
+                        currentCampusPlace = null
+                        store.saveCurrentCampusPlace(null)
+                    }
+                }, onCurrentCampusPlaceChange = { updated ->
+                    currentCampusPlace = updated
+                    store.saveCurrentCampusPlace(updated)
                 }, onActivitySettingsChange = { updated ->
                     activitySettings = updated
                     store.saveActivityReminderSettings(updated)
@@ -317,12 +336,12 @@ private fun FocusFlowApp() {
             saveItems(items.map { if (it.id == item.id) it.copy(title = title, detail = detail) else it })
             inboxEditTarget = null
         } }
-        if (addCourseOpen) CourseEditorDialog(null, onDismiss = { addCourseOpen = false }) { course ->
+        if (addCourseOpen) CourseEditorDialog(null, campusPlaces, onDismiss = { addCourseOpen = false }) { course ->
             courses = courses + course.copy(needsConfirmation = false)
             store.saveCourses(courses)
             addCourseOpen = false
         }
-        courseEditor?.let { original -> CourseEditorDialog(original, onDismiss = { courseEditor = null }) { edited ->
+        courseEditor?.let { original -> CourseEditorDialog(original, campusPlaces, onDismiss = { courseEditor = null }) { edited ->
             courses = courses.map { if (it == original) edited.copy(needsConfirmation = false) else it }
             store.saveCourses(courses)
             courseEditor = null
@@ -1108,12 +1127,13 @@ private enum class PlanPage(val title: String) {
 
 private fun weekdayName(day: Int) = listOf("", "周一", "周二", "周三", "周四", "周五", "周六", "周日")[day]
 
-@Composable private fun CourseEditorDialog(existing: Course?, onDismiss: () -> Unit, onSave: (Course) -> Unit) {
+@Composable private fun CourseEditorDialog(existing: Course?, places: List<CampusPlace>, onDismiss: () -> Unit, onSave: (Course) -> Unit) {
     var title by remember { mutableStateOf(existing?.title ?: "") }
     var weekday by remember { mutableIntStateOf(existing?.weekday ?: 1) }
     var startPeriod by remember { mutableStateOf(existing?.startPeriod?.toString() ?: "1") }
     var endPeriod by remember { mutableStateOf(existing?.endPeriod?.toString() ?: "1") }
-    var place by remember { mutableStateOf(ZijingangTravel.places.firstOrNull { it.name == existing?.building } ?: ZijingangTravel.places.first()) }
+    val availablePlaces = places.ifEmpty { ZijingangTravel.places }
+    var place by remember(availablePlaces, existing?.building) { mutableStateOf(availablePlaces.firstOrNull { it.name == existing?.building } ?: availablePlaces.first()) }
     val parsedStart = startPeriod.toIntOrNull()
     val parsedEnd = endPeriod.toIntOrNull()
     AlertDialog(
@@ -1127,7 +1147,7 @@ private fun weekdayName(day: Int) = listOf("", "周一", "周二", "周三", "�
                 OutlinedTextField(modifier = Modifier.weight(1f), value = endPeriod, onValueChange = { endPeriod = it.filter(Char::isDigit) }, label = { Text("结束节次") }, singleLine = true)
             }
             Text("教学楼")
-            ZijingangTravel.places.chunked(3).forEach { row -> Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) { row.forEach { candidate -> FilterChip(selected = place == candidate, onClick = { place = candidate }, label = { Text(candidate.name.removeSuffix("教学楼")) }) } } }
+            availablePlaces.chunked(3).forEach { row -> Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) { row.forEach { candidate -> FilterChip(selected = place == candidate, onClick = { place = candidate }, label = { Text(candidate.name.removeSuffix("教学楼")) }) } } }
         } },
         confirmButton = { Button(enabled = title.isNotBlank() && parsedStart != null && parsedEnd != null && parsedStart in 1..13 && parsedEnd in parsedStart..13, onClick = { onSave(Course(title, weekday, parsedStart ?: 1, parsedEnd ?: 1, place.name, place.zone, false)) }) { Text("保存") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }
@@ -1226,8 +1246,29 @@ private fun weekdayName(day: Int) = listOf("", "周一", "周二", "周三", "�
     }
 }
 
-@Composable private fun SettingsScreen(modifier: Modifier, themeOption: FocusFlowThemeOption, commuteProfile: CommuteProfile, improvementNotes: List<ImprovementNote>, roadmapSelections: Set<String>, activitySettings: ActivityReminderSettings, onThemeChange: (FocusFlowThemeOption) -> Unit, onCommuteChange: (CommuteProfile) -> Unit, onActivitySettingsChange: (ActivityReminderSettings) -> Unit, onAddImprovement: () -> Unit, onToggleRoadmap: (RoadmapFeature) -> Unit) {
+@Composable private fun SettingsScreen(modifier: Modifier, themeOption: FocusFlowThemeOption, commuteProfile: CommuteProfile, campusLifeEnabled: Boolean, campusMapPackage: CampusMapPackage?, currentCampusPlace: String?, improvementNotes: List<ImprovementNote>, roadmapSelections: Set<String>, activitySettings: ActivityReminderSettings, onThemeChange: (FocusFlowThemeOption) -> Unit, onCommuteChange: (CommuteProfile) -> Unit, onCampusLifeEnabledChange: (Boolean) -> Unit, onCampusMapPackageChange: (CampusMapPackage?) -> Unit, onCurrentCampusPlaceChange: (String?) -> Unit, onActivitySettingsChange: (ActivityReminderSettings) -> Unit, onAddImprovement: () -> Unit, onToggleRoadmap: (RoadmapFeature) -> Unit) {
     val context = LocalContext.current
+    val campusPlaces = campusMapPackage?.places?.takeIf { it.isNotEmpty() } ?: ZijingangTravel.places
+    var importStatus by remember { mutableStateOf<String?>(null) }
+    var choosingCurrentPlace by remember { mutableStateOf(false) }
+    var choosingDestination by remember { mutableStateOf(false) }
+    var previewDestination by remember(campusPlaces, currentCampusPlace) {
+        mutableStateOf(campusPlaces.firstOrNull { it.name != currentCampusPlace }?.name)
+    }
+    val importCampusMap = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            runCatching {
+                val text = context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+                    ?: throw IllegalArgumentException("无法读取文件")
+                CampusMapPackageCodec.parse(text)
+            }.onSuccess { imported ->
+                onCampusMapPackageChange(imported)
+                importStatus = "已导入 ${imported.name}，共 ${imported.places.size} 个地点"
+            }.onFailure { error ->
+                importStatus = "导入失败：${error.message ?: "文件格式不正确"}"
+            }
+        }
+    }
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Text("设置", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
         Text("外观", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
@@ -1281,6 +1322,8 @@ private fun weekdayName(day: Int) = listOf("", "周一", "周二", "周三", "�
         }
         HorizontalDivider()
         Text("通勤与地点", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        SettingSwitch("校园生活", "控制校内出行、地点包和手动位置工具；关闭不会删除已有数据", campusLifeEnabled, onCampusLifeEnabledChange)
+        if (campusLifeEnabled) {
         Text("地点不再单独占一个页面；它只在安排课程空档时用于估计去图书馆、操场或下一栋教学楼是否来得及。", style = MaterialTheme.typography.bodySmall)
         SettingSwitch("为通勤预留时间", "只保存大致时长，不读取定位", commuteProfile.enabled) { onCommuteChange(commuteProfile.copy(enabled = it)) }
         if (commuteProfile.enabled) {
@@ -1301,6 +1344,43 @@ private fun weekdayName(day: Int) = listOf("", "周一", "周二", "周三", "�
             }
             Text("这些都是初始估计；以后可按实际体验随时改，不需要一开始就准确。", style = MaterialTheme.typography.bodySmall)
         } else Text("开始上学后再设置即可。软件不会默认追踪你的位置。", style = MaterialTheme.typography.bodySmall)
+        ElevatedCard(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("校园地点包", fontWeight = FontWeight.SemiBold)
+                Text(
+                    campusMapPackage?.let { "${it.name} · ${it.places.size} 个地点" } ?: "内置紫金港基础地点 · ${ZijingangTravel.places.size} 个地点",
+                    style = MaterialTheme.typography.bodySmall
+                )
+                Text("导入后，地点会出现在课程编辑器中；所属分区会直接用于课程空挡与校内路程估算。", style = MaterialTheme.typography.bodySmall)
+                OutlinedButton(onClick = { importCampusMap.launch(arrayOf("application/json", "text/plain")) }) { Text("导入地点包（JSON）") }
+                if (campusMapPackage != null) TextButton(onClick = {
+                    onCampusMapPackageChange(null)
+                    importStatus = "已恢复内置紫金港地点"
+                }) { Text("恢复内置地点") }
+                importStatus?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = if (it.startsWith("导入失败")) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary) }
+                Text("格式：name、version=1、places；每个地点包含 name、zone、kind。可用分区：${CampusZone.entries.joinToString { it.name }}。", style = MaterialTheme.typography.labelSmall)
+            }
+        }
+        Text("手动当前位置", fontWeight = FontWeight.SemiBold)
+        Text("仅在你选择时更新，不申请定位权限，也不会后台追踪。", style = MaterialTheme.typography.bodySmall)
+        OutlinedButton(onClick = { choosingCurrentPlace = true }, modifier = Modifier.fillMaxWidth()) {
+            Text(currentCampusPlace?.let { "当前位置：$it" } ?: "选择当前位置")
+        }
+        if (currentCampusPlace != null) {
+            OutlinedButton(onClick = { choosingDestination = true }, modifier = Modifier.fillMaxWidth()) {
+                Text(previewDestination?.let { "预览目的地：$it" } ?: "选择预览目的地")
+            }
+            val from = campusPlaces.firstOrNull { it.name == currentCampusPlace }
+            val to = campusPlaces.firstOrNull { it.name == previewDestination }
+            if (from != null && to != null) {
+                val minutes = ZijingangTravel.estimateMinutes(from.zone, to.zone, commuteProfile)
+                Text("${from.name} → ${to.name}：按${commuteProfile.campusMode}估计约 $minutes 分钟（含楼内缓冲）。", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
+            }
+            TextButton(onClick = { onCurrentCampusPlaceChange(null) }) { Text("清除当前位置") }
+        }
+        } else {
+            Text("校园工具已暂停。课程、已导入地点和通勤参数仍保存在本机，重新开启后恢复。", style = MaterialTheme.typography.bodySmall)
+        }
         HorizontalDivider()
         Text("改进清单", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
         Text("记录希望深化或修改的功能；之后把条目发给我即可继续开发。", style = MaterialTheme.typography.bodySmall)
@@ -1315,6 +1395,41 @@ private fun weekdayName(day: Int) = listOf("", "周一", "周二", "周三", "�
         }
         Text("更多权限会在真正需要时单独请求。")
     }
+    if (choosingCurrentPlace) CampusPlacePickerDialog(
+        title = "选择当前位置",
+        places = campusPlaces,
+        selectedName = currentCampusPlace,
+        onDismiss = { choosingCurrentPlace = false },
+        onSelect = { selected -> onCurrentCampusPlaceChange(selected.name); choosingCurrentPlace = false }
+    )
+    if (choosingDestination) CampusPlacePickerDialog(
+        title = "选择预览目的地",
+        places = campusPlaces,
+        selectedName = previewDestination,
+        onDismiss = { choosingDestination = false },
+        onSelect = { selected -> previewDestination = selected.name; choosingDestination = false }
+    )
+}
+
+@Composable private fun CampusPlacePickerDialog(title: String, places: List<CampusPlace>, selectedName: String?, onDismiss: () -> Unit, onSelect: (CampusPlace) -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                places.groupBy(CampusPlace::kind).forEach { (kind, groupedPlaces) ->
+                    Text(kind, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                    groupedPlaces.forEach { place ->
+                        OutlinedButton(onClick = { onSelect(place) }, modifier = Modifier.fillMaxWidth()) {
+                            Text(if (place.name == selectedName) "✓ ${place.name}" else place.name)
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }
+    )
 }
 
 @Composable private fun SettingSwitch(title: String, detail: String, checked: Boolean, onChange: (Boolean) -> Unit) { Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) { Column(Modifier.weight(1f)) { Text(title, fontWeight = FontWeight.SemiBold); Text(detail) }; Switch(checked = checked, onCheckedChange = onChange) } }

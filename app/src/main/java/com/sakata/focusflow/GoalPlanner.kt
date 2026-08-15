@@ -50,7 +50,8 @@ object RoadmapCatalog {
         RoadmapFeature("v2_route_calibration", "V2", "紫金港路线耗时的实际校正"),
         RoadmapFeature("v2_goal_review", "V2", "每周目标回顾与低压力调整建议"),
         RoadmapFeature("v3_resource_search", "V3", "可选联网搜集教程并比较候选来源"),
-        RoadmapFeature("v3_context_learning", "V3", "可选地学习通勤、地点与常用时段"),
+        RoadmapFeature("v3_activity_time_suggestion", "V3", "开始活动时按历史与下一项日程建议预计时长或结束时间"),
+        RoadmapFeature("v3_context_learning", "V3", "经用户确认后学习实际通勤耗时、常用地点与时段"),
         RoadmapFeature("v3_sleep_protection", "V3", "睡前减速、娱乐延长与恢复机制"),
         RoadmapFeature("v3_ebike", "V3", "电动车充电与远距离出行联动"),
         RoadmapFeature("v3_feedback_analysis", "V3", "基于反馈的长期方法与心态调整建议")
