@@ -48,6 +48,7 @@ object RoadmapCatalog {
         RoadmapFeature("v2_custom_time", "V2", "任意日期与时间的改期选择"),
         RoadmapFeature("v2_course_ocr", "V2", "课表截图 OCR 识别与逐项确认"),
         RoadmapFeature("v2_route_calibration", "V2", "紫金港路线耗时的实际校正"),
+        RoadmapFeature("v2_flexible_initial_plan", "V2", "为弹性任务提供可确认的初步规划时间"),
         RoadmapFeature("v2_goal_review", "V2", "每周目标回顾与低压力调整建议"),
         RoadmapFeature("v3_resource_search", "V3", "可选联网搜集教程并比较候选来源"),
         RoadmapFeature("v3_activity_time_suggestion", "V3", "开始活动时按历史与下一项日程建议预计时长或结束时间"),
