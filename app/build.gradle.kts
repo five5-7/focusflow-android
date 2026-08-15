@@ -4,6 +4,8 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
+val focusFlowSigningStore = System.getenv("FOCUSFLOW_SIGNING_STORE_FILE")
+
 android {
     namespace = "com.sakata.focusflow"
     compileSdk = 35
@@ -12,8 +14,8 @@ android {
         applicationId = "com.sakata.focusflow"
         minSdk = 26
         targetSdk = 35
-        versionCode = 102
-        versionName = "1.2"
+        versionCode = 103
+        versionName = "1.3"
     }
 
     compileOptions {
@@ -26,6 +28,23 @@ android {
     }
 
     buildFeatures { compose = true; buildConfig = true }
+
+    signingConfigs {
+        if (!focusFlowSigningStore.isNullOrBlank()) {
+            create("focusFlowStable") {
+                storeFile = file(requireNotNull(focusFlowSigningStore))
+                storePassword = System.getenv("FOCUSFLOW_SIGNING_STORE_PASSWORD")
+                keyAlias = System.getenv("FOCUSFLOW_SIGNING_KEY_ALIAS")
+                keyPassword = System.getenv("FOCUSFLOW_SIGNING_KEY_PASSWORD")
+            }
+        }
+    }
+
+    buildTypes {
+        getByName("debug") {
+            if (!focusFlowSigningStore.isNullOrBlank()) signingConfig = signingConfigs.getByName("focusFlowStable")
+        }
+    }
 }
 
 dependencies {
