@@ -122,6 +122,8 @@ private fun FocusFlowApp() {
     var courses by remember { mutableStateOf(if (store.hasCourseSetup()) store.loadCourses() else ScreenshotCoursePreview.courses) }
     var courseEditor by remember { mutableStateOf<Course?>(null) }
     var addCourseOpen by remember { mutableStateOf(false) }
+    var courseImportRunning by remember { mutableStateOf(false) }
+    var courseImportMessage by remember { mutableStateOf<String?>(null) }
     var goals by remember { mutableStateOf(store.loadGoals()) }
     var addGoalOpen by remember { mutableStateOf(false) }
     var resources by remember { mutableStateOf(store.loadResources()) }
@@ -140,6 +142,30 @@ private fun FocusFlowApp() {
     val upcomingCommitment = nextActivityCommitment(items, courses)
     val suggestedNextStepName = upcomingCommitment?.title ?: suggestedNextStep?.title.orEmpty()
     val campusPlaces = if (campusLifeEnabled) campusMapPackage?.places?.takeIf { it.isNotEmpty() } ?: ZijingangTravel.places else ZijingangTravel.places
+    val courseScreenshotLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            courseImportRunning = true
+            courseImportMessage = "正在本机识别课程文字…"
+            CourseScreenshotRecognizer.recognize(context, uri, campusPlaces, onSuccess = { recognized ->
+                val existing = courses.map { listOf(it.weekday, it.startPeriod, it.endPeriod, it.title.trim()) }.toSet()
+                val added = recognized.filterNot { listOf(it.weekday, it.startPeriod, it.endPeriod, it.title.trim()) in existing }
+                if (added.isNotEmpty()) {
+                    val updated = courses + added
+                    courses = updated
+                    store.saveCourses(updated)
+                }
+                courseImportMessage = when {
+                    recognized.isEmpty() -> "没有找到可解析的课程。请使用能看到课程名称、星期和节次的截图。"
+                    added.isEmpty() -> "识别到的课程都已存在，没有重复添加。"
+                    else -> "已生成 ${added.size} 门待确认课程。请逐项编辑、确认或忽略。"
+                }
+                courseImportRunning = false
+            }, onFailure = { message ->
+                courseImportMessage = message
+                courseImportRunning = false
+            })
+        }
+    }
     fun saveItems(updated: List<Item>) { items = updated; store.saveItems(updated) }
     fun selectTab(index: Int) {
         if (index == 0) todayInboxOpen = false
@@ -242,6 +268,9 @@ private fun FocusFlowApp() {
                         store.saveCourses(courses)
                     },
                     onAddCourse = { addCourseOpen = true },
+                    courseImportRunning = courseImportRunning,
+                    courseImportMessage = courseImportMessage,
+                    onImportCourses = { courseScreenshotLauncher.launch(arrayOf("image/*")) },
                     onEditCourse = { courseEditor = it },
                     goals = goals,
                     onAddGoal = { addGoalOpen = true },
@@ -1064,7 +1093,7 @@ private enum class PlanPage(val title: String) {
     COURSES("课程"), GAPS("空挡建议"), GOALS("目标与执行"), REVIEW("本周回顾"), PAUSED("暂停项目")
 }
 
-@Composable private fun PlansScreen(modifier: Modifier, items: List<Item>, courses: List<Course>, profile: CommuteProfile, page: PlanPage?, onPageChange: (PlanPage?) -> Unit, onResume: (Item) -> Unit, onConfirmCourse: (Course) -> Unit, onIgnoreCourse: (Course) -> Unit, onAddCourse: () -> Unit, onEditCourse: (Course) -> Unit, goals: List<Goal>, onAddGoal: () -> Unit, onScheduleGoal: (Goal, GoalSuggestion) -> Unit, resources: List<LearningResource>, onAddResource: () -> Unit, onSelectResource: (LearningResource) -> Unit, feedback: List<TaskFeedback>) {
+@Composable private fun PlansScreen(modifier: Modifier, items: List<Item>, courses: List<Course>, profile: CommuteProfile, page: PlanPage?, onPageChange: (PlanPage?) -> Unit, onResume: (Item) -> Unit, onConfirmCourse: (Course) -> Unit, onIgnoreCourse: (Course) -> Unit, onAddCourse: () -> Unit, courseImportRunning: Boolean, courseImportMessage: String?, onImportCourses: () -> Unit, onEditCourse: (Course) -> Unit, goals: List<Goal>, onAddGoal: () -> Unit, onScheduleGoal: (Goal, GoalSuggestion) -> Unit, resources: List<LearningResource>, onAddResource: () -> Unit, onSelectResource: (LearningResource) -> Unit, feedback: List<TaskFeedback>) {
     val awaitingCourses = courses.filter { it.needsConfirmation }
     val confirmedCourses = courses.filter { !it.needsConfirmation }
     val gaps = CourseGapPlanner.gaps(confirmedCourses, profile)
@@ -1099,7 +1128,18 @@ private enum class PlanPage(val title: String) {
                 PlanSubpageFrame(Modifier.fillMaxSize(), currentPage.title) {
                     when (currentPage) {
             PlanPage.COURSES -> {
-                TextButton(onClick = onAddCourse) { Text("＋ 手动新增课程") }
+                Text("从课表截图开始", fontWeight = FontWeight.Bold)
+                Text("图片仅在本机识别；结果先进入待确认区，不会直接加入日程。截图中需要显示课程名称、星期和节次。", style = MaterialTheme.typography.bodySmall)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilledTonalButton(enabled = !courseImportRunning, onClick = onImportCourses) { Text(if (courseImportRunning) "正在识别…" else "选择课表截图") }
+                    TextButton(onClick = onAddCourse) { Text("手动新增") }
+                }
+                courseImportMessage?.let { message ->
+                    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f))) {
+                        Text(message, Modifier.fillMaxWidth().padding(10.dp), style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+                HorizontalDivider()
                 if (awaitingCourses.isNotEmpty()) {
                     Text("待确认课程", fontWeight = FontWeight.Bold)
                     awaitingCourses.forEach { course ->
@@ -1109,6 +1149,7 @@ private enum class PlanPage(val title: String) {
                                 Text("第 ${course.startPeriod}–${course.endPeriod} 节 · ${course.building}", style = MaterialTheme.typography.bodySmall)
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     TextButton(onClick = { onConfirmCourse(course) }) { Text("确认") }
+                                    TextButton(onClick = { onEditCourse(course) }) { Text("编辑并确认") }
                                     TextButton(onClick = { onIgnoreCourse(course) }) { Text("忽略") }
                                 }
                             }
