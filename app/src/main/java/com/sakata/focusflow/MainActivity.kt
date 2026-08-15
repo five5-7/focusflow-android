@@ -113,6 +113,7 @@ private fun FocusFlowApp() {
     var activityHistory by remember { mutableStateOf(store.loadRecentActivitySessions()) }
     var activitySettings by remember { mutableStateOf(store.loadActivityReminderSettings()) }
     var themeOption by remember { mutableStateOf(store.loadTheme()) }
+    var energyLevel by remember { mutableStateOf(store.loadEnergyLevel()) }
     var commuteProfile by remember { mutableStateOf(store.loadCommuteProfile()) }
     var campusLifeEnabled by remember { mutableStateOf(store.loadCampusLifeEnabled()) }
     var campusMapPackage by remember { mutableStateOf(store.loadCampusMapPackage()) }
@@ -202,6 +203,8 @@ private fun FocusFlowApp() {
                     Modifier.padding(padding), items,
                     inboxOpen = todayInboxOpen,
                     onInboxOpenChange = { todayInboxOpen = it },
+                    energyLevel = energyLevel,
+                    onEnergyLevelChange = { updated -> energyLevel = updated; store.saveEnergyLevel(updated) },
                     onTaskDone = { item ->
                         if (item.goalId == null) saveItems(items.map { if (it.id == item.id) it.copy(done = true, completionLevel = "完成", completedAt = System.currentTimeMillis()) else it }) else completionTarget = item
                     },
@@ -403,6 +406,8 @@ private fun FocusFlowApp() {
     items: List<Item>,
     inboxOpen: Boolean,
     onInboxOpenChange: (Boolean) -> Unit,
+    energyLevel: String,
+    onEnergyLevelChange: (String) -> Unit,
     onTaskDone: (Item) -> Unit,
     activeSession: ActivitySession?,
     activityHistory: List<ActivitySession>,
@@ -423,7 +428,7 @@ private fun FocusFlowApp() {
         }
     }
     val inboxItems = items.filter { !it.done && it.kind == "收集箱" }
-    val nextSuggestion = recommendNextAction(items, nextCommitment, now)
+    val nextSuggestion = recommendNextAction(items, nextCommitment, energyLevel, now)
     val completedToday = items.count { it.done && it.completedAt?.let(::isToday) == true }
     val completedThisWeek = items.count { it.done && it.completedAt?.let(::isInCurrentWeek) == true }
     Box(modifier.fillMaxSize()) {
@@ -469,6 +474,17 @@ private fun FocusFlowApp() {
             Column(horizontalAlignment = Alignment.CenterHorizontally) { Text("$completedThisWeek", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold); Text("本周完成", style = MaterialTheme.typography.labelMedium) }
             Column(horizontalAlignment = Alignment.CenterHorizontally) { Text("${inboxItems.size}", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold); Text("待整理", style = MaterialTheme.typography.labelMedium) }
         } }
+        ElevatedCard {
+            Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("当前精力", fontWeight = FontWeight.Bold)
+                Text("只影响弹性任务的推荐顺序，不会移动固定日程。", style = MaterialTheme.typography.bodySmall)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf("偏低", "正常", "充足").forEach { level ->
+                        FilterChip(selected = energyLevel == level, onClick = { onEnergyLevelChange(level) }, label = { Text(level) })
+                    }
+                }
+            }
+        }
         Text("下一件合适的事", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
         Text("从临近日程和未定时任务中给出低压力建议，不会自动修改你的安排。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         nextSuggestion?.let { suggestion ->
@@ -900,7 +916,7 @@ private fun formatActivityRemaining(milliseconds: Long): String {
 
 private data class NextActionSuggestion(val item: Item, val reason: String)
 
-private fun recommendNextAction(items: List<Item>, nextCommitment: ActivityCommitment?, now: Long = System.currentTimeMillis()): NextActionSuggestion? {
+private fun recommendNextAction(items: List<Item>, nextCommitment: ActivityCommitment?, energyLevel: String = "正常", now: Long = System.currentTimeMillis()): NextActionSuggestion? {
     val candidates = items.filter { !it.done && it.kind !in setOf("收集箱", "暂停", "计划") }
     val scheduled = candidates.filter { it.scheduledAt != null }
     val overdue = scheduled.filter { (it.scheduledAt ?: Long.MAX_VALUE) < now }.maxByOrNull { it.scheduledAt ?: Long.MIN_VALUE }
@@ -917,15 +933,21 @@ private fun recommendNextAction(items: List<Item>, nextCommitment: ActivityCommi
     val flexible = candidates.filter { it.scheduledAt == null }
     val minutesBeforeCommitment = nextCommitment?.let { ((it.startsAt - now) / 60_000L).toInt().coerceAtLeast(0) }
     val usableMinutes = minutesBeforeCommitment?.minus(15)?.coerceAtLeast(0)
-    val fitting = flexible
-        .filter { usableMinutes == null || it.durationMinutes <= usableMinutes }
-        .sortedWith(compareByDescending<Item> { it.goalId != null }.thenBy { it.durationMinutes })
-        .firstOrNull()
+    val fittingCandidates = flexible.filter { usableMinutes == null || it.durationMinutes <= usableMinutes }
+    val fitting = when (energyLevel) {
+        "偏低" -> fittingCandidates.sortedWith(compareBy<Item> { if (it.durationMinutes <= 30) 0 else 1 }.thenBy { it.durationMinutes }).firstOrNull()
+        "充足" -> fittingCandidates.sortedWith(compareByDescending<Item> { it.goalId != null }.thenByDescending { it.durationMinutes }).firstOrNull()
+        else -> fittingCandidates.sortedWith(compareByDescending<Item> { it.goalId != null }.thenBy { it.durationMinutes }).firstOrNull()
+    }
     if (fitting != null) {
         val reason = if (minutesBeforeCommitment == null) {
-            "当前没有临近的固定安排；这项任务可以直接开始。"
+            when (energyLevel) {
+                "偏低" -> "当前精力偏低；优先选择预计 ${fitting.durationMinutes} 分钟、较容易启动的一项。"
+                "充足" -> "当前精力充足；优先推进较完整或与目标相关的一项。"
+                else -> "当前没有临近的固定安排；这项任务可以直接开始。"
+            }
         } else {
-            "距离 ${nextCommitment.title} 约 $minutesBeforeCommitment 分钟；本项预计 ${fitting.durationMinutes} 分钟，并保留 15 分钟缓冲。"
+            "距离 ${nextCommitment.title} 约 $minutesBeforeCommitment 分钟；按当前精力选择本项，预计 ${fitting.durationMinutes} 分钟并保留 15 分钟缓冲。"
         }
         return NextActionSuggestion(fitting, reason)
     }
@@ -1291,6 +1313,7 @@ private fun weekdayName(day: Int) = listOf("", "周一", "周二", "周三", "�
     val campusPlaces = campusMapPackage?.places?.takeIf { it.isNotEmpty() } ?: ZijingangTravel.places
     var importStatus by remember { mutableStateOf<String?>(null) }
     var campusMapHelpOpen by remember { mutableStateOf(false) }
+    var advancedCampusImportOpen by remember { mutableStateOf(false) }
     var routeCalibrationTarget by remember { mutableStateOf<Pair<CampusPlace, CampusPlace>?>(null) }
     var choosingCurrentPlace by remember { mutableStateOf(false) }
     var choosingDestination by remember { mutableStateOf(false) }
@@ -1389,7 +1412,7 @@ private fun weekdayName(day: Int) = listOf("", "周一", "周二", "周三", "�
         ElevatedCard(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Text("校园地点包", fontWeight = FontWeight.SemiBold)
+                    Text("校园地点来源", fontWeight = FontWeight.SemiBold)
                     OutlinedButton(
                         onClick = { campusMapHelpOpen = true },
                         modifier = Modifier.size(30.dp),
@@ -1398,17 +1421,20 @@ private fun weekdayName(day: Int) = listOf("", "周一", "周二", "周三", "�
                     ) { Text("?", fontWeight = FontWeight.Bold) }
                 }
                 Text(
-                    campusMapPackage?.let { "${it.name} · ${it.places.size} 个地点" } ?: "内置紫金港基础地点 · ${ZijingangTravel.places.size} 个地点",
+                    campusMapPackage?.let { "高级地点包：${it.name} · ${it.places.size} 个地点" } ?: "已自动使用内置紫金港目录 · ${ZijingangTravel.places.size} 个地点",
                     style = MaterialTheme.typography.bodySmall
                 )
-                Text("导入后，地点会出现在课程编辑器中；所属分区会直接用于课程空挡与校内路程估算。", style = MaterialTheme.typography.bodySmall)
-                OutlinedButton(onClick = { importCampusMap.launch(arrayOf("application/json", "text/plain")) }) { Text("导入地点包（JSON）") }
-                if (campusMapPackage != null) TextButton(onClick = {
-                    onCampusMapPackageChange(null)
-                    importStatus = "已恢复内置紫金港地点"
-                }) { Text("恢复内置地点") }
-                importStatus?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = if (it.startsWith("导入失败")) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary) }
-                Text("不清楚如何制作文件时，点击右上角的圆形问号查看示例和导入步骤。", style = MaterialTheme.typography.labelSmall)
+                Text("普通使用不需要制作或提交地点文件。后续将优先自动搜索校园 POI；找不到时再允许在地图上点选，并自动建议地名和用途。", style = MaterialTheme.typography.bodySmall)
+                TextButton(onClick = { advancedCampusImportOpen = !advancedCampusImportOpen }) { Text(if (advancedCampusImportOpen) "收起高级导入" else "高级：导入已有地点数据") }
+                if (advancedCampusImportOpen) {
+                    OutlinedButton(onClick = { importCampusMap.launch(arrayOf("application/json", "text/plain")) }) { Text("导入地点包（JSON）") }
+                    if (campusMapPackage != null) TextButton(onClick = {
+                        onCampusMapPackageChange(null)
+                        importStatus = "已恢复内置紫金港地点"
+                    }) { Text("恢复内置地点") }
+                    importStatus?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = if (it.startsWith("导入失败")) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary) }
+                    Text("圆形问号中保留完整格式示例，供迁移或批量维护时使用。", style = MaterialTheme.typography.labelSmall)
+                }
             }
         }
         Text("手动当前位置", fontWeight = FontWeight.SemiBold)
@@ -1490,6 +1516,8 @@ private fun weekdayName(day: Int) = listOf("", "周一", "周二", "周三", "�
         title = { Text("如何制作地点包") },
         text = {
             Column(Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("一般情况下不需要自己制作地点包。紫金港目录由应用提供；自动地图搜索和地图点选接入后，它们会成为默认方式。", color = MaterialTheme.colorScheme.primary)
+                Text("以下格式只用于迁移、备份或批量维护：", fontWeight = FontWeight.SemiBold)
                 Text("1. 用任意文本编辑器新建 UTF-8 文件，并保存为 .json。")
                 Text("2. 填写地点包名称和地点列表。每个地点需要名称、所属分区和类型。")
                 Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))) {
@@ -1503,6 +1531,9 @@ private fun weekdayName(day: Int) = listOf("", "周一", "周二", "周三", "�
                 CampusZone.entries.forEach { zone -> Text("${zone.name}：${zone.label}", style = MaterialTheme.typography.bodySmall) }
                 Text("3. 回到这里点击“导入地点包（JSON）”，从系统文件选择器选中该文件。")
                 Text("导入前会检查版本、地点数量、重复名称和分区代码；失败时不会覆盖当前地点包。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                HorizontalDivider()
+                Text("后续地图流程", fontWeight = FontWeight.Bold)
+                Text("自动搜索会围绕所选校区获取教学楼、图书馆、运动、餐饮、宿舍与交通 POI，并根据地图类型推断用途。若结果缺失，用户只需在地图上点一下；逆地理编码会建议名称，用户确认即可。", style = MaterialTheme.typography.bodySmall)
             }
         },
         confirmButton = { Button(onClick = onDismiss) { Text("知道了") } }
