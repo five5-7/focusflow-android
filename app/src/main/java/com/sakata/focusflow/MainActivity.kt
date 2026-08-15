@@ -93,6 +93,7 @@ private fun FocusFlowApp() {
         })
     }
     var activeSession by remember { mutableStateOf(store.loadLatestActiveSession()) }
+    var activityHistory by remember { mutableStateOf(store.loadRecentActivitySessions()) }
     var activitySettings by remember { mutableStateOf(store.loadActivityReminderSettings()) }
     var commuteProfile by remember { mutableStateOf(store.loadCommuteProfile()) }
     var courses by remember { mutableStateOf(if (store.hasCourseSetup()) store.loadCourses() else ScreenshotCoursePreview.courses) }
@@ -125,6 +126,7 @@ private fun FocusFlowApp() {
         while (true) {
             delay(1_000)
             activeSession = store.loadLatestActiveSession()
+            activityHistory = store.loadRecentActivitySessions()
         }
     }
 
@@ -160,6 +162,7 @@ private fun FocusFlowApp() {
                         if (item.goalId == null) saveItems(items.map { if (it.id == item.id) it.copy(done = true, completionLevel = "完成", completedAt = System.currentTimeMillis()) else it }) else completionTarget = item
                     },
                     activeSession = activeSession,
+                    activityHistory = activityHistory,
                     onStartActivity = { activityOpen = true },
                     onReviewActivity = { activeSession?.let { transitionTarget = it } }
                 )
@@ -233,8 +236,8 @@ private fun FocusFlowApp() {
             maxExtensions = activitySettings.maxExtensions,
             upcomingCommitment = upcomingCommitment,
             onDismiss = { transitionTarget = null },
-            onFinish = {
-                store.finishSession(session.id, ActivitySession.STATUS_COMPLETED, "finished_now")
+            onFinish = { actualEndAt ->
+                store.finishSession(session.id, ActivitySession.STATUS_COMPLETED, "finished_now", actualEndAt)
                 ReminderScheduler.cancelActivityReminders(context, session.id)
                 activeSession = null
                 transitionTarget = null
@@ -333,6 +336,7 @@ private fun FocusFlowApp() {
     courses: List<Course>,
     onTaskDone: (Item) -> Unit,
     activeSession: ActivitySession?,
+    activityHistory: List<ActivitySession>,
     onStartActivity: () -> Unit,
     onReviewActivity: () -> Unit
 ) {
@@ -368,6 +372,19 @@ private fun FocusFlowApp() {
                     if (activeSession.nextStep.isNotBlank()) Text("下一步：${activeSession.nextStep}")
                     if (activeSession.extensionCount > 0) Text("已延长 ${activeSession.extensionCount} 次${activeSession.extensionReason.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty()}", style = MaterialTheme.typography.bodySmall)
                     Button(onClick = onReviewActivity) { Text(if (due) "处理到点" else "结束或调整") }
+                }
+            }
+        }
+        val completedActivities = activityHistory.filter { it.actualEndAt?.let(::isToday) == true }
+        if (completedActivities.isNotEmpty()) {
+            ElevatedCard {
+                Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                    Text("今日活动记录 · ${completedActivities.size} 次", fontWeight = FontWeight.Bold)
+                    completedActivities.take(3).forEach { session ->
+                        val minutes = (((session.actualEndAt ?: session.endsAt) - session.actualStartAt).coerceAtLeast(0) / 60_000L).toInt()
+                        Text("${session.name} · $minutes 分钟 · ${if (session.status == ActivitySession.STATUS_COMPLETED) "已结束" else "已重新安排"}", style = MaterialTheme.typography.bodySmall)
+                    }
+                    Text("休息和娱乐只作为时间记录，不会被简单判定为负面。", style = MaterialTheme.typography.labelSmall)
                 }
             }
         }
@@ -1193,13 +1210,14 @@ private fun weekdayName(day: Int) = listOf("", "周一", "周二", "周三", "�
     maxExtensions: Int,
     upcomingCommitment: ActivityCommitment?,
     onDismiss: () -> Unit,
-    onFinish: () -> Unit,
+    onFinish: (actualEndAt: Long) -> Unit,
     onStartNext: () -> Unit,
     onExtend: (minutes: Int, reason: String) -> Unit,
     onReplan: () -> Unit
 ) {
     var extensionMinutes by remember { mutableIntStateOf(10) }
     var reason by remember { mutableStateOf("") }
+    var endTimeChoice by remember { mutableStateOf("现在") }
     val canExtend = session.extensionCount < maxExtensions
     val extensionEnd = System.currentTimeMillis() + extensionMinutes * 60_000L
     val conflict = upcomingCommitment?.takeIf { it.startsAt < extensionEnd }
@@ -1209,6 +1227,13 @@ private fun weekdayName(day: Int) = listOf("", "周一", "周二", "周三", "�
         text = {
             Column(Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("${session.name} · 原定 ${formatTime(session.endsAt)} 结束", fontWeight = FontWeight.SemiBold)
+                if (System.currentTimeMillis() > session.endsAt + 60_000L) {
+                    Text("实际什么时候结束？")
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        FilterChip(selected = endTimeChoice == "现在", onClick = { endTimeChoice = "现在" }, label = { Text("刚刚") })
+                        FilterChip(selected = endTimeChoice == "预计", onClick = { endTimeChoice = "预计" }, label = { Text("按预计时间") })
+                    }
+                }
                 if (session.nextStep.isNotBlank()) {
                     Text("下一步：${session.nextStep}")
                     Button(onClick = onStartNext, modifier = Modifier.fillMaxWidth()) { Text("结束并开始下一步") }
@@ -1227,7 +1252,7 @@ private fun weekdayName(day: Int) = listOf("", "周一", "周二", "周三", "�
                 TextButton(onClick = onReplan, modifier = Modifier.fillMaxWidth()) { Text("现在结束，但把下一步放回收集箱") }
             }
         },
-        confirmButton = { Button(onClick = onFinish) { Text("现在结束") } },
+        confirmButton = { Button(onClick = { onFinish(if (endTimeChoice == "预计") session.endsAt else System.currentTimeMillis()) }) { Text("确认结束") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("继续当前活动") } }
     )
 }
