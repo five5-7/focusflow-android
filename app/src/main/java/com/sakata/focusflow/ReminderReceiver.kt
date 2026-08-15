@@ -89,6 +89,7 @@ class ReminderReceiver : BroadcastReceiver() {
             }
             else -> return
         }
+        if (!store.loadActivityReminderSettings().notificationsEnabled) return
         if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
         val stronger = store.loadActivityReminderSettings().strongerEndReminder
         val endChannel = if (stronger) CHANNEL_ACTIVITY_END else CHANNEL_ACTIVITY_END_GENTLE
@@ -103,12 +104,14 @@ class ReminderReceiver : BroadcastReceiver() {
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))
             .setContentIntent(openApp)
             .addAction(0, "结束活动", actionIntent(context, ACTION_COMPLETE, activityName, nextStep, sessionId, id, 1))
-            .addAction(0, "延长 10 分钟", actionIntent(context, ACTION_SNOOZE, activityName, nextStep, sessionId, id, 2))
-            .addAction(0, "打开转场", openApp)
             .setAutoCancel(true)
             .setOnlyAlertOnce(true)
-            .build()
-        manager.notify(id, notification)
+        val current = store.findActivitySession(sessionId)
+        if (current != null && current.extensionCount < store.loadActivityReminderSettings().maxExtensions) {
+            notification.addAction(0, "延长 10 分钟", actionIntent(context, ACTION_SNOOZE, activityName, nextStep, sessionId, id, 2))
+        }
+        notification.addAction(0, "打开转场", openApp)
+        manager.notify(id, notification.build())
     }
 
     private fun showActivityPreview(context: Context, manager: NotificationManager, activityName: String, nextStep: String, sessionId: Long) {
