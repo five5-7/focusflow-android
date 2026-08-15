@@ -1,6 +1,6 @@
 # FocusFlow Android prototype
 
-当前应用版本：**2.9**。功能更新记录见 [CHANGELOG.md](CHANGELOG.md)。
+当前应用版本：**3.0**。功能更新记录见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## First open in Android Studio
 
@@ -16,7 +16,7 @@ dependencies used by this prototype.
 
 The included GitHub Actions workflow builds a debug APK on a GitHub runner.
 Push this folder to a GitHub repository, then open **Actions** and run
-**Build FocusFlow APK**. Download the `FocusFlow-2.9-apk` artifact after the
+**Build FocusFlow APK**. Download the `FocusFlow-3.0-apk` artifact after the
 workflow succeeds.
 
 本项目是一个面向 Android 的本地优先日程与执行辅助原型。核心目标不是维护一张完整日历，而是降低记录压力、按当前状态调整提醒，并在错过计划后帮助恢复。
@@ -40,6 +40,7 @@ workflow succeeds.
 - 活动状态、历史与提醒设置保存在本地；应用重启或设备重启后自动恢复未结束活动的提醒
 - 无需分类或定时的快速捕捉，内容保存在设备本地
 - “开始活动”对话框：游戏／娱乐、学习、休息或自定义情境与预计时长
+- “开始活动”会根据已确认的同名／同类历史、当前精力和下一项固定安排给出可解释的建议时长；只在用户点击采用后写入
 - 活动结束后使用 Android 通知提示下一步；可直接完成、稍后 10 分钟或跳过本次
 - 完成、推迟与跳过会写入本地活动记录；跳过后自动进入收集箱，供之后改期、缩短或暂停
 - 收集箱中的重新安排项目可选择改期时间、缩短为十分钟、暂停或放弃
@@ -75,7 +76,7 @@ workflow succeeds.
 2. 为长期计划补充更细的最低版本与中断恢复策略。
 3. 在 OPPO ColorOS 设备上验证通知、后台限制和重启恢复。
 
-V3 计划：开始活动时根据已确认的历史活动与下一项日程建议预计时长／结束时间；只有用户确认实际通勤耗时后才逐步学习路线，不静默追踪位置。
+V3 下一步：只有用户确认实际通勤耗时后才逐步学习路线，并允许撤销异常记录；不静默追踪位置。
 
 ## 构建
 

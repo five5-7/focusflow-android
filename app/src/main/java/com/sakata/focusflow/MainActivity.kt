@@ -372,7 +372,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, onStatusCheckInRequest
             if (tomorrow) ReminderScheduler.scheduleTaskReminder(context, captured)
             addOpen = false
         }
-        if (activityOpen) ActivityDialog(suggestedNextStepName, activityPreset, onDismiss = { activityOpen = false; activityPreset = null }) { category, name, endsAt, nextStep ->
+        if (activityOpen) ActivityDialog(suggestedNextStepName, activityPreset, activityHistory, upcomingCommitment, energyLevel, onDismiss = { activityOpen = false; activityPreset = null }) { category, name, endsAt, nextStep ->
             val now = System.currentTimeMillis()
             val session = ActivitySession(name = name, category = category, plannedStartAt = now, actualStartAt = now, endsAt = endsAt, nextStep = nextStep)
             store.saveSession(session)
@@ -2033,6 +2033,9 @@ private fun weekdayName(day: Int) = listOf("", "周一", "周二", "周三", "�
 @Composable private fun ActivityDialog(
     suggestedNextStep: String,
     preset: ActivityLaunchPreset?,
+    activityHistory: List<ActivitySession>,
+    nextCommitment: ActivityCommitment?,
+    energyLevel: String,
     onDismiss: () -> Unit,
     onStart: (category: String, name: String, endsAt: Long, nextStep: String) -> Unit
 ) {
@@ -2048,6 +2051,14 @@ private fun weekdayName(day: Int) = listOf("", "周一", "周二", "周三", "�
         category == "自定义" -> customName.trim()
         else -> category
     }
+    val timeSuggestion = ActivityTimeAdvisor.suggest(
+        category = category,
+        name = activityName,
+        history = activityHistory,
+        nextCommitment = nextCommitment,
+        energyLevel = energyLevel,
+        plannedMinutes = preset?.minutes
+    )
     val calculatedEnd = if (timeMode == "时长") System.currentTimeMillis() + (minutes.toIntOrNull()?.coerceIn(1, 600) ?: 60) * 60_000L else untilAt
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -2067,6 +2078,13 @@ private fun weekdayName(day: Int) = listOf("", "周一", "周二", "周三", "�
                     FilterChip(selected = timeMode == "截至", onClick = { timeMode = "截至" }, label = { Text("直到时间") })
                 }
                 if (timeMode == "时长") {
+                    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f))) {
+                        Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                            Text("建议 ${timeSuggestion.minutes} 分钟 · 约 ${formatTime(System.currentTimeMillis() + timeSuggestion.minutes * 60_000L)} 结束", fontWeight = FontWeight.SemiBold)
+                            Text(timeSuggestion.reason, style = MaterialTheme.typography.bodySmall)
+                            TextButton(onClick = { minutes = timeSuggestion.minutes.toString() }) { Text(if (minutes == timeSuggestion.minutes.toString()) "已采用建议" else "采用建议时间") }
+                        }
+                    }
                     OutlinedTextField(value = minutes, onValueChange = { minutes = it.filter(Char::isDigit).take(3) }, label = { Text("分钟") }, singleLine = true)
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         listOf(15, 30, 60).forEach { value -> FilterChip(selected = minutes == value.toString(), onClick = { minutes = value.toString() }, label = { Text("$value 分") }) }
