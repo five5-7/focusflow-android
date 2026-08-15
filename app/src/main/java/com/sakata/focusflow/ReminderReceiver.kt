@@ -16,27 +16,39 @@ class ReminderReceiver : BroadcastReceiver() {
         val notificationId = intent.getIntExtra(EXTRA_NOTIFICATION_ID, -1)
         val sessionId = intent.getLongExtra(EXTRA_SESSION_ID, -1L)
         val activityName = intent.getStringExtra(EXTRA_ACTIVITY_NAME) ?: "当前活动"
+        val nextStep = intent.getStringExtra(EXTRA_NEXT_STEP).orEmpty()
         val store = PrototypeStore(context)
         when (intent.action) {
             ACTION_COMPLETE -> {
                 if (notificationId >= 0) manager.cancel(notificationId)
-                if (sessionId >= 0) store.updateSession(sessionId, "completed")
+                if (sessionId >= 0) {
+                    store.finishSession(sessionId, ActivitySession.STATUS_COMPLETED, "notification_finish")
+                    ReminderScheduler.cancelActivityReminders(context, sessionId)
+                }
                 return
             }
             ACTION_SKIP -> {
                 if (notificationId >= 0) manager.cancel(notificationId)
-                if (sessionId >= 0) store.updateSession(sessionId, "skipped")
-                store.addReplanItem(activityName)
+                if (sessionId >= 0) {
+                    store.finishSession(sessionId, ActivitySession.STATUS_SKIPPED, "replan")
+                    ReminderScheduler.cancelActivityReminders(context, sessionId)
+                }
+                store.addReplanItem(nextStep.ifBlank { activityName })
                 return
             }
             ACTION_SNOOZE -> {
                 if (notificationId >= 0) manager.cancel(notificationId)
-                val delayed = ActivitySession(id = sessionId.takeIf { it >= 0 } ?: System.currentTimeMillis(), name = activityName, endsAt = System.currentTimeMillis() + 10 * 60_000L)
-                store.saveSession(delayed)
-                ReminderScheduler.scheduleActivityEnd(context, delayed)
+                val delayed = sessionId.takeIf { it >= 0 }?.let { store.extendSession(it, 10, "通知中延长") }
+                delayed?.let { ReminderScheduler.scheduleActivityReminders(context, it) }
                 return
             }
-            ACTION_ACTIVITY_END -> Unit
+            ACTION_ACTIVITY_PREVIEW -> {
+                showActivityPreview(context, manager, activityName, nextStep, sessionId)
+                return
+            }
+            ACTION_ACTIVITY_END -> {
+                if (sessionId >= 0) store.markSessionAwaitingConfirmation(sessionId)
+            }
             ACTION_TASK_DUE -> {
                 showTaskNotification(context, manager, intent.getStringExtra(EXTRA_TASK_TITLE) ?: "已改期任务", intent.getLongExtra(EXTRA_TASK_ID, -1L))
                 return
@@ -77,30 +89,54 @@ class ReminderReceiver : BroadcastReceiver() {
             }
             else -> return
         }
+        if (!store.loadActivityReminderSettings().notificationsEnabled) return
         if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
-        manager.createNotificationChannel(NotificationChannel(CHANNEL_ID, "FocusFlow 提醒", NotificationManager.IMPORTANCE_HIGH))
+        val stronger = store.loadActivityReminderSettings().strongerEndReminder
+        val endChannel = if (stronger) CHANNEL_ACTIVITY_END else CHANNEL_ACTIVITY_END_GENTLE
+        manager.createNotificationChannel(NotificationChannel(endChannel, "活动结束提醒", if (stronger) NotificationManager.IMPORTANCE_HIGH else NotificationManager.IMPORTANCE_DEFAULT))
         val id = (System.currentTimeMillis() % Int.MAX_VALUE).toInt()
-        val text = "现在结束，开始下一件事；也可以明确选择稍后再处理。"
-        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+        val text = if (nextStep.isBlank()) "预计时间已到。现在结束、延长，或打开 FocusFlow 决定下一步。" else "预计时间已到。下一步：$nextStep"
+        val openApp = PendingIntent.getActivity(context, id + 9, Intent(context, MainActivity::class.java), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val notification = NotificationCompat.Builder(context, endChannel)
             .setSmallIcon(android.R.drawable.ic_popup_reminder)
             .setContentTitle("$activityName 时间到了")
             .setContentText(text)
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))
-            .addAction(0, "完成", actionIntent(context, ACTION_COMPLETE, activityName, sessionId, id, 1))
-            .addAction(0, "稍后 10 分钟", actionIntent(context, ACTION_SNOOZE, activityName, sessionId, id, 2))
-            .addAction(0, "跳过本次", actionIntent(context, ACTION_SKIP, activityName, sessionId, id, 3))
+            .setContentIntent(openApp)
+            .addAction(0, "结束活动", actionIntent(context, ACTION_COMPLETE, activityName, nextStep, sessionId, id, 1))
             .setAutoCancel(true)
-            .build()
-        manager.notify(id, notification)
+            .setOnlyAlertOnce(true)
+        val current = store.findActivitySession(sessionId)
+        if (current != null && current.extensionCount < store.loadActivityReminderSettings().maxExtensions) {
+            notification.addAction(0, "延长 10 分钟", actionIntent(context, ACTION_SNOOZE, activityName, nextStep, sessionId, id, 2))
+        }
+        notification.addAction(0, "打开转场", openApp)
+        manager.notify(id, notification.build())
+    }
+
+    private fun showActivityPreview(context: Context, manager: NotificationManager, activityName: String, nextStep: String, sessionId: Long) {
+        if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
+        manager.createNotificationChannel(NotificationChannel(CHANNEL_ACTIVITY_PREVIEW, "活动结束预告", NotificationManager.IMPORTANCE_DEFAULT))
+        val id = ((sessionId % Int.MAX_VALUE) + 700).toInt()
+        val openApp = PendingIntent.getActivity(context, id, Intent(context, MainActivity::class.java), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val text = if (nextStep.isBlank()) "$activityName 即将到达预计结束时间，可以开始收尾。" else "$activityName 即将结束；接下来准备：$nextStep"
+        manager.notify(id, NotificationCompat.Builder(context, CHANNEL_ACTIVITY_PREVIEW)
+            .setSmallIcon(android.R.drawable.ic_popup_reminder)
+            .setContentTitle("还有一点时间，准备收尾")
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setContentIntent(openApp)
+            .setAutoCancel(true)
+            .build())
     }
 
     private fun showTaskNotification(context: Context, manager: NotificationManager, title: String, taskId: Long) {
         if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
-        manager.createNotificationChannel(NotificationChannel(CHANNEL_ID, "FocusFlow 提醒", NotificationManager.IMPORTANCE_HIGH))
+        manager.createNotificationChannel(NotificationChannel(CHANNEL_TASK, "FocusFlow 任务提醒", NotificationManager.IMPORTANCE_HIGH))
         val openApp = PendingIntent.getActivity(context, 0, Intent(context, MainActivity::class.java), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val id = (System.currentTimeMillis() % Int.MAX_VALUE).toInt()
         val task = PrototypeStore(context).findItem(taskId)
-        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+        val notification = NotificationCompat.Builder(context, CHANNEL_TASK)
             .setSmallIcon(android.R.drawable.ic_popup_reminder)
             .setContentTitle("现在适合处理：$title")
             .setContentText("这是之前改期的项目。打开 FocusFlow 可以完成、再次调整或暂停。")
@@ -121,11 +157,12 @@ class ReminderReceiver : BroadcastReceiver() {
         return PendingIntent.getBroadcast(context, notificationId + actionOffset, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
     }
 
-    private fun actionIntent(context: Context, action: String, activityName: String, sessionId: Long, notificationId: Int, actionOffset: Int): PendingIntent {
+    private fun actionIntent(context: Context, action: String, activityName: String, nextStep: String, sessionId: Long, notificationId: Int, actionOffset: Int): PendingIntent {
         val requestCode = notificationId + actionOffset
         val intent = Intent(context, ReminderReceiver::class.java).apply {
             this.action = action
             putExtra(EXTRA_ACTIVITY_NAME, activityName)
+            putExtra(EXTRA_NEXT_STEP, nextStep)
             putExtra(EXTRA_SESSION_ID, sessionId)
             putExtra(EXTRA_NOTIFICATION_ID, notificationId)
         }
@@ -134,6 +171,7 @@ class ReminderReceiver : BroadcastReceiver() {
 
     companion object {
         const val ACTION_ACTIVITY_END = "com.sakata.focusflow.ACTIVITY_END"
+        const val ACTION_ACTIVITY_PREVIEW = "com.sakata.focusflow.ACTIVITY_PREVIEW"
         const val ACTION_COMPLETE = "com.sakata.focusflow.COMPLETE_ACTIVITY"
         const val ACTION_SNOOZE = "com.sakata.focusflow.SNOOZE_ACTIVITY"
         const val ACTION_SKIP = "com.sakata.focusflow.SKIP_ACTIVITY"
@@ -143,10 +181,15 @@ class ReminderReceiver : BroadcastReceiver() {
         const val ACTION_TASK_SKIP = "com.sakata.focusflow.TASK_SKIP"
         const val ACTION_TASK_MINIMUM = "com.sakata.focusflow.TASK_MINIMUM"
         const val EXTRA_ACTIVITY_NAME = "activity_name"
+        const val EXTRA_NEXT_STEP = "next_step"
         const val EXTRA_SESSION_ID = "session_id"
         const val EXTRA_TASK_ID = "task_id"
         const val EXTRA_TASK_TITLE = "task_title"
         const val EXTRA_NOTIFICATION_ID = "notification_id"
-        private const val CHANNEL_ID = "focusflow_reminders"
+        private const val CHANNEL_ACTIVITY_PREVIEW = "focusflow_activity_preview"
+        private const val CHANNEL_ACTIVITY_END = "focusflow_activity_end_v2"
+        private const val CHANNEL_ACTIVITY_END_GENTLE = "focusflow_activity_end_gentle_v2"
+        private const val CHANNEL_TASK = "focusflow_task_reminders"
     }
 }
+
