@@ -81,6 +81,7 @@ private fun FocusFlowApp() {
     var addOpen by remember { mutableStateOf(false) }
     var activityOpen by remember { mutableStateOf(false) }
     var transitionTarget by remember { mutableStateOf<ActivitySession?>(null) }
+    var autoPromptedSessionId by remember { mutableStateOf<Long?>(null) }
     var rescheduleTarget by remember { mutableStateOf<Item?>(null) }
     var inboxEditTarget by remember { mutableStateOf<Item?>(null) }
     var items by remember {
@@ -124,9 +125,16 @@ private fun FocusFlowApp() {
     LaunchedEffect(Unit) {
         ReminderScheduler.restoreActivityReminders(context)
         while (true) {
-            delay(1_000)
-            activeSession = store.loadLatestActiveSession()
+            val restored = store.loadLatestActiveSession()
+            activeSession = restored
             activityHistory = store.loadRecentActivitySessions()
+            if (restored?.status == ActivitySession.STATUS_AWAITING_CONFIRMATION && autoPromptedSessionId != restored.id) {
+                transitionTarget = restored
+                autoPromptedSessionId = restored.id
+            } else if (restored?.status != ActivitySession.STATUS_AWAITING_CONFIRMATION) {
+                autoPromptedSessionId = null
+            }
+            delay(1_000)
         }
     }
 
