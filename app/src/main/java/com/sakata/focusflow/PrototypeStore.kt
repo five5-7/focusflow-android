@@ -50,7 +50,18 @@ class PrototypeStore(context: Context) {
         val sessions = loadSessions().filterNot { it.id == session.id } + session
         val values = JSONArray()
         sessions.takeLast(50).forEach { value -> values.put(JSONObject().apply {
-            put("id", value.id); put("name", value.name); put("endsAt", value.endsAt); put("status", value.status)
+            put("id", value.id)
+            put("name", value.name)
+            put("category", value.category)
+            put("plannedStartAt", value.plannedStartAt)
+            put("actualStartAt", value.actualStartAt)
+            put("endsAt", value.endsAt)
+            put("nextStep", value.nextStep)
+            put("status", value.status)
+            put("extensionCount", value.extensionCount)
+            put("extensionReason", value.extensionReason)
+            put("actualEndAt", value.actualEndAt ?: 0)
+            put("endChoice", value.endChoice)
         }) }
         preferences.edit().putString("sessions", values.toString()).apply()
     }
@@ -60,7 +71,50 @@ class PrototypeStore(context: Context) {
         saveSession(current.copy(status = status, endsAt = endsAt ?: current.endsAt))
     }
 
-    fun loadLatestActiveSession(): ActivitySession? = loadSessions().lastOrNull { it.status == "active" }
+    fun finishSession(id: Long, status: String, choice: String, endedAt: Long = System.currentTimeMillis()) {
+        val current = loadSessions().firstOrNull { it.id == id } ?: return
+        saveSession(current.copy(status = status, actualEndAt = endedAt, endChoice = choice))
+    }
+
+    fun extendSession(id: Long, minutes: Int, reason: String = ""): ActivitySession? {
+        val current = loadSessions().firstOrNull { it.id == id } ?: return null
+        val extended = current.copy(
+            endsAt = System.currentTimeMillis() + minutes.coerceIn(1, 180) * 60_000L,
+            status = ActivitySession.STATUS_EXTENDED,
+            extensionCount = current.extensionCount + 1,
+            extensionReason = reason,
+            actualEndAt = null,
+            endChoice = ""
+        )
+        saveSession(extended)
+        return extended
+    }
+
+    fun markSessionAwaitingConfirmation(id: Long): ActivitySession? {
+        val current = loadSessions().firstOrNull { it.id == id } ?: return null
+        if (!current.isOpen()) return current
+        val pending = current.copy(status = ActivitySession.STATUS_AWAITING_CONFIRMATION)
+        saveSession(pending)
+        return pending
+    }
+
+    fun loadLatestActiveSession(): ActivitySession? = loadSessions().lastOrNull(ActivitySession::isOpen)
+
+    fun loadActivityReminderSettings(): ActivityReminderSettings = ActivityReminderSettings(
+        notificationsEnabled = preferences.getBoolean("activity_notifications", true),
+        previewMinutes = preferences.getInt("activity_preview_minutes", 10).coerceIn(0, 60),
+        maxExtensions = preferences.getInt("activity_max_extensions", 3).coerceIn(0, 10),
+        strongerEndReminder = preferences.getBoolean("activity_stronger_end_reminder", true)
+    )
+
+    fun saveActivityReminderSettings(settings: ActivityReminderSettings) {
+        preferences.edit()
+            .putBoolean("activity_notifications", settings.notificationsEnabled)
+            .putInt("activity_preview_minutes", settings.previewMinutes)
+            .putInt("activity_max_extensions", settings.maxExtensions)
+            .putBoolean("activity_stronger_end_reminder", settings.strongerEndReminder)
+            .apply()
+    }
 
     fun addReplanItem(activityName: String) {
         val updated = listOf(Item(title = "重新安排：$activityName", detail = "刚才跳过了本次活动；可以改期、缩短或暂停", kind = "收集箱")) + loadItems()
@@ -203,7 +257,22 @@ class PrototypeStore(context: Context) {
         val values = JSONArray(preferences.getString("sessions", "[]") ?: "[]")
         List(values.length()) { index ->
             val item = values.getJSONObject(index)
-            ActivitySession(item.getLong("id"), item.getString("name"), item.getLong("endsAt"), item.getString("status"))
+            val name = item.getString("name")
+            val id = item.getLong("id")
+            ActivitySession(
+                id = id,
+                name = name,
+                category = item.optString("category", name),
+                plannedStartAt = item.optLong("plannedStartAt", id),
+                actualStartAt = item.optLong("actualStartAt", id),
+                endsAt = item.getLong("endsAt"),
+                nextStep = item.optString("nextStep"),
+                status = item.optString("status", ActivitySession.STATUS_ACTIVE),
+                extensionCount = item.optInt("extensionCount"),
+                extensionReason = item.optString("extensionReason"),
+                actualEndAt = item.optLong("actualEndAt").takeIf { it > 0 },
+                endChoice = item.optString("endChoice")
+            )
         }
     }.getOrDefault(emptyList())
 }
