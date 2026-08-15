@@ -32,6 +32,9 @@ object CourseGapPlanner {
     // Each teaching period is modeled as 45 minutes; longer breaks are retained in the timetable start times.
     private val periodStarts = listOf(480, 530, 600, 650, 700, 805, 855, 905, 975, 1025, 1130, 1180, 1230)
 
+    fun periodStart(period: Int): Int = periodStarts[period.coerceIn(1, periodStarts.size) - 1]
+    fun periodEnd(period: Int): Int = periodStart(period) + 45
+
     fun gaps(courses: List<Course>, profile: CommuteProfile): List<CourseGap> = courses
         .groupBy { it.weekday }
         .values

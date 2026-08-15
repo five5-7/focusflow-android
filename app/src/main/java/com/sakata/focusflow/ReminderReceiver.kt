@@ -81,7 +81,6 @@ class ReminderReceiver : BroadcastReceiver() {
         manager.createNotificationChannel(NotificationChannel(CHANNEL_ID, "FocusFlow 提醒", NotificationManager.IMPORTANCE_HIGH))
         val id = (System.currentTimeMillis() % Int.MAX_VALUE).toInt()
         val text = "现在结束，开始下一件事；也可以明确选择稍后再处理。"
-       
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_popup_reminder)
             .setContentTitle("$activityName 时间到了")

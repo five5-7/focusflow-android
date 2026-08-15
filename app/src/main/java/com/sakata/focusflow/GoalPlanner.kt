@@ -14,7 +14,8 @@ data class Goal(
     val resourceUnit: String = "",
     val completedThisWeek: Int = 0,
     val minimumCompletionsThisWeek: Int = 0,
-    val completionWeekKey: Long = GoalPlanner.currentWeekKey()
+    val completionWeekKey: Long = GoalPlanner.currentWeekKey(),
+    val desiredOutcome: String = ""
 )
 
 data class LearningResource(
@@ -58,6 +59,12 @@ object RoadmapCatalog {
 data class GoalSuggestion(val weekday: Int, val startMinute: Int, val freeMinutes: Int)
 
 object GoalPlanner {
+    fun suggestedMinimum(metricType: String, metricTarget: String, durationMinutes: Int): String = when (metricType) {
+        "时长" -> "先投入 ${(durationMinutes / 3).coerceIn(5, 15)} 分钟"
+        "次数" -> "先完成 1 次"
+        else -> "先完成成果的最小一步"
+    }
+
     fun currentWeekKey(): Long {
         val calendar = Calendar.getInstance()
         val day = when (calendar.get(Calendar.DAY_OF_WEEK)) { Calendar.SUNDAY -> 7 else -> calendar.get(Calendar.DAY_OF_WEEK) - 1 }

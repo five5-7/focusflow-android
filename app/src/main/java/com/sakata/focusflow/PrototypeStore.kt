@@ -106,14 +106,14 @@ class PrototypeStore(context: Context) {
         val values = JSONArray(preferences.getString("goals", "[]") ?: "[]")
         List(values.length()) { index ->
             val goal = values.getJSONObject(index)
-            Goal(goal.getLong("id"), goal.getString("title"), goal.getInt("weeklyTarget"), goal.getInt("durationMinutes"), goal.optString("metricType", "时长"), goal.optString("metricTarget"), goal.optString("minimumVersion"), goal.optString("resourceTitle"), goal.optString("resourceUnit"), goal.optInt("completedThisWeek"), goal.optInt("minimumCompletionsThisWeek"), goal.optLong("completionWeekKey", GoalPlanner.currentWeekKey()))
+            Goal(goal.getLong("id"), goal.getString("title"), goal.getInt("weeklyTarget"), goal.getInt("durationMinutes"), goal.optString("metricType", "时长"), goal.optString("metricTarget"), goal.optString("minimumVersion"), goal.optString("resourceTitle"), goal.optString("resourceUnit"), goal.optInt("completedThisWeek"), goal.optInt("minimumCompletionsThisWeek"), goal.optLong("completionWeekKey", GoalPlanner.currentWeekKey()), goal.optString("desiredOutcome"))
         }
     }.getOrDefault(emptyList())
 
     fun saveGoals(goals: List<Goal>) {
         val values = JSONArray()
         goals.forEach { goal -> values.put(JSONObject().apply {
-            put("id", goal.id); put("title", goal.title); put("weeklyTarget", goal.weeklyTarget); put("durationMinutes", goal.durationMinutes); put("metricType", goal.metricType); put("metricTarget", goal.metricTarget); put("minimumVersion", goal.minimumVersion); put("resourceTitle", goal.resourceTitle); put("resourceUnit", goal.resourceUnit); put("completedThisWeek", goal.completedThisWeek); put("minimumCompletionsThisWeek", goal.minimumCompletionsThisWeek); put("completionWeekKey", goal.completionWeekKey)
+            put("id", goal.id); put("title", goal.title); put("weeklyTarget", goal.weeklyTarget); put("durationMinutes", goal.durationMinutes); put("metricType", goal.metricType); put("metricTarget", goal.metricTarget); put("minimumVersion", goal.minimumVersion); put("resourceTitle", goal.resourceTitle); put("resourceUnit", goal.resourceUnit); put("completedThisWeek", goal.completedThisWeek); put("minimumCompletionsThisWeek", goal.minimumCompletionsThisWeek); put("completionWeekKey", goal.completionWeekKey); put("desiredOutcome", goal.desiredOutcome)
         }) }
         preferences.edit().putString("goals", values.toString()).apply()
     }
