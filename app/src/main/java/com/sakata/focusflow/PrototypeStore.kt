@@ -10,10 +10,32 @@ class PrototypeStore(context: Context) {
 
     fun loadItems(): List<Item> = runCatching {
         val values = JSONArray(preferences.getString("items", "[]") ?: "[]")
-        List(values.length()) { index ->
+        val parsed = List(values.length()) { index ->
             val item = values.getJSONObject(index)
             Item(item.getLong("id"), item.getString("title"), item.getString("detail"), item.getString("kind"), item.optBoolean("done"), item.optLong("scheduledAt").takeIf { it > 0 }, item.optBoolean("dayOnly"), item.optLong("goalId").takeIf { it > 0 }, item.optString("completionLevel"), item.optLong("completedAt").takeIf { it > 0 })
         }
+        val firstByOriginalId = mutableMapOf<Long, Item>()
+        val assignedIds = mutableSetOf<Long>()
+        val normalized = parsed.map { item ->
+            val first = firstByOriginalId.putIfAbsent(item.id, item)
+            if (first == null && item.id > 0 && assignedIds.add(item.id)) {
+                item
+            } else {
+                var replacementId = newItemId()
+                while (!assignedIds.add(replacementId)) replacementId = newItemId()
+                val accidentallyCompletedTogether = first?.let {
+                    it.done && item.done && it.completedAt != null && it.completedAt == item.completedAt
+                } == true
+                item.copy(
+                    id = replacementId,
+                    done = if (accidentallyCompletedTogether) false else item.done,
+                    completionLevel = if (accidentallyCompletedTogether) "" else item.completionLevel,
+                    completedAt = if (accidentallyCompletedTogether) null else item.completedAt
+                )
+            }
+        }
+        if (normalized != parsed) saveItems(normalized)
+        normalized
     }.getOrDefault(emptyList())
 
     fun saveItems(items: List<Item>) {

@@ -9,6 +9,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.background
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.verticalScroll
@@ -20,6 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import java.util.UUID
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -32,8 +34,17 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+internal fun newItemId(): Long {
+    var id: Long
+    do {
+        val uuid = UUID.randomUUID()
+        id = (uuid.mostSignificantBits xor uuid.leastSignificantBits) and Long.MAX_VALUE
+    } while (id == 0L)
+    return id
+}
+
 data class Item(
-    val id: Long = System.currentTimeMillis(),
+    val id: Long = newItemId(),
     val title: String,
     val detail: String,
     val kind: String,
@@ -276,9 +287,9 @@ private fun FocusFlowApp() {
         Text("这是按时间排布的主表：即使今天没有事件，也会保留时间格，方便看出空档。", style = MaterialTheme.typography.bodySmall)
         DailyTimelineTable(todayCourses, todaySchedule)
         if (flexibleItems.isNotEmpty()) {
-            Text("弹性任务", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text("弹性安排", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             flexibleItems.take(4).forEach { item ->
-                ScheduleTableRow("弹性", item.title, item.detail, item.scheduleType())
+                ScheduleTableRow(item.title, item.detail, item.scheduleType())
             }
         }
         Text("下一件合适的事", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
@@ -311,13 +322,17 @@ private fun Item.scheduleType(): ScheduleType = when {
     else -> ScheduleType.TASK
 }
 
-@Composable private fun ScheduleTableRow(time: String, title: String, detail: String, type: ScheduleType) {
-    ElevatedCard(colors = CardDefaults.elevatedCardColors(containerColor = type.color.copy(alpha = 0.12f))) {
+@Composable private fun ScheduleTableRow(title: String, detail: String, type: ScheduleType) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = type.color.copy(alpha = 0.07f)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
         Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(time, Modifier.width(52.dp), fontWeight = FontWeight.Bold, color = type.color)
+            Box(Modifier.width(5.dp).height(48.dp).background(type.color, MaterialTheme.shapes.small))
+            Text(type.label, Modifier.width(88.dp), fontWeight = FontWeight.Bold, color = type.color)
             Column(Modifier.weight(1f)) {
                 Text(title, fontWeight = FontWeight.SemiBold)
-                Text("${type.label} · $detail", style = MaterialTheme.typography.bodySmall)
+                Text(detail, style = MaterialTheme.typography.bodySmall)
             }
         }
     }
