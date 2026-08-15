@@ -10,16 +10,23 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import java.util.UUID
 
@@ -53,7 +60,8 @@ data class Item(
     val dayOnly: Boolean = false,
     val goalId: Long? = null,
     val completionLevel: String = "",
-    val completedAt: Long? = null
+    val completedAt: Long? = null,
+    val durationMinutes: Int = 60
 )
 
 data class ActivitySession(
@@ -163,7 +171,7 @@ private fun FocusFlowApp() {
                     goals = goals,
                     onAddGoal = { addGoalOpen = true },
                     onScheduleGoal = { goal, suggestion ->
-                        val scheduled = Item(title = goal.title, detail = "${goal.metricType}：${goal.metricTarget.ifBlank { "本次完成" }} · ${weekdayName(suggestion.weekday)} ${GoalPlanner.displayTime(suggestion.startMinute)}", kind = "任务", scheduledAt = GoalPlanner.nextOccurrence(suggestion.weekday, suggestion.startMinute), goalId = goal.id)
+                        val scheduled = Item(title = goal.title, detail = "${goal.metricType}：${goal.metricTarget.ifBlank { "本次完成" }} · ${weekdayName(suggestion.weekday)} ${GoalPlanner.displayTime(suggestion.startMinute)}", kind = "任务", scheduledAt = GoalPlanner.nextOccurrence(suggestion.weekday, suggestion.startMinute), goalId = goal.id, durationMinutes = goal.durationMinutes)
                         saveItems(listOf(scheduled) + items)
                         ReminderScheduler.scheduleTaskReminder(context, scheduled)
                     },
@@ -199,8 +207,8 @@ private fun FocusFlowApp() {
             ReminderScheduler.scheduleActivityEnd(context, session)
             activityOpen = false
         }
-        rescheduleTarget?.let { item -> RescheduleTimeDialog(item, onDismiss = { rescheduleTarget = null }) { scheduledAt, label ->
-            val delayed = item.copy(kind = "任务", detail = "已改期至$label；届时会再次出现", scheduledAt = scheduledAt)
+        rescheduleTarget?.let { item -> RescheduleTimeDialog(item, onDismiss = { rescheduleTarget = null }) { scheduledAt, duration, label ->
+            val delayed = item.copy(kind = "任务", detail = "已改期至$label；届时会再次出现", scheduledAt = scheduledAt, durationMinutes = duration, dayOnly = false)
             saveItems(items.map { if (it.id == item.id) delayed else it })
             ReminderScheduler.scheduleTaskReminder(context, delayed)
             rescheduleTarget = null
@@ -260,12 +268,14 @@ private fun FocusFlowApp() {
 @Composable private fun TodayScreen(modifier: Modifier, items: List<Item>, courses: List<Course>, onTaskDone: (Item) -> Unit, activeSession: ActivitySession?, onStartActivity: () -> Unit) {
     val now = System.currentTimeMillis()
     val weekday = todayWeekday()
-    val todaySchedule = items.filter { !it.done && it.scheduledAt?.let(::isToday) == true }.sortedBy { it.scheduledAt }
+    val todaySchedule = items.filter { !it.done && !it.dayOnly && it.scheduledAt?.let(::isToday) == true }.sortedBy { it.scheduledAt }
+    val todayUnslotted = items.filter { !it.done && it.dayOnly && it.scheduledAt?.let(::isToday) == true }
     val todayCourses = courses.filter { !it.needsConfirmation && it.weekday == weekday }.sortedBy { it.startPeriod }
     val flexibleItems = items.filter { !it.done && it.kind != "暂停" && it.kind != "收集箱" && it.scheduledAt == null }
-    val nextItem = todaySchedule.firstOrNull { (it.scheduledAt ?: Long.MAX_VALUE) >= now } ?: flexibleItems.firstOrNull()
+    val nextItem = todaySchedule.firstOrNull { (it.scheduledAt ?: Long.MAX_VALUE) >= now } ?: todayUnslotted.firstOrNull() ?: flexibleItems.firstOrNull()
     val completedToday = items.count { it.done && it.completedAt?.let(::isToday) == true }
     val completedThisWeek = items.count { it.done && it.completedAt?.let(::isInCurrentWeek) == true }
+    var scheduleMode by remember { mutableStateOf("日") }
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Text("今日概览", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
         Text("用表格看清今天；弹性任务不会伪装成必须完成的固定日程。", style = MaterialTheme.typography.bodyLarge)
@@ -283,9 +293,27 @@ private fun FocusFlowApp() {
             Column(horizontalAlignment = Alignment.CenterHorizontally) { Text("$completedThisWeek", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold); Text("本周完成", style = MaterialTheme.typography.labelMedium) }
             Column(horizontalAlignment = Alignment.CenterHorizontally) { Text("${items.count { !it.done && it.kind == "收集箱" }}", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold); Text("待安排", style = MaterialTheme.typography.labelMedium) }
         } }
-        Text("今日日程表", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-        Text("这是按时间排布的主表：即使今天没有事件，也会保留时间格，方便看出空档。", style = MaterialTheme.typography.bodySmall)
-        DailyTimelineTable(todayCourses, todaySchedule)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Text(if (scheduleMode == "日") "今日日程" else "本周日程", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                FilterChip(selected = scheduleMode == "日", onClick = { scheduleMode = "日" }, label = { Text("日") })
+                FilterChip(selected = scheduleMode == "周", onClick = { scheduleMode = "周" }, label = { Text("周") })
+            }
+        }
+        Text(if (scheduleMode == "日") "按真实时间连续排布；点击色块查看起止时间。" else "横向查看周一至周日；色块上下界就是开始和结束时间。", style = MaterialTheme.typography.bodySmall)
+        if (scheduleMode == "日") {
+            if (todayUnslotted.isNotEmpty()) {
+                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))) {
+                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("今日待办（尚未指定时段）", fontWeight = FontWeight.SemiBold)
+                        todayUnslotted.forEach { Text("• ${it.title}", style = MaterialTheme.typography.bodySmall) }
+                    }
+                }
+            }
+            DailyScheduleTimeline(todayCourses, todaySchedule, onTaskDone)
+        } else {
+            WeeklyScheduleTimeline(courses.filter { !it.needsConfirmation }, items, onTaskDone)
+        }
         if (flexibleItems.isNotEmpty()) {
             Text("弹性安排", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             flexibleItems.take(4).forEach { item ->
@@ -315,10 +343,10 @@ private enum class ScheduleType(val label: String, val color: androidx.compose.u
 }
 
 private fun Item.scheduleType(): ScheduleType = when {
-    goalId != null -> ScheduleType.LEARNING
     title.contains("锻炼") || title.contains("拉伸") -> ScheduleType.EXERCISE
     title.contains("游戏") || title.contains("娱乐") -> ScheduleType.ENTERTAINMENT
     title.contains("睡前") || kind == "习惯" -> ScheduleType.REST
+    goalId != null -> ScheduleType.LEARNING
     else -> ScheduleType.TASK
 }
 
@@ -338,95 +366,187 @@ private fun Item.scheduleType(): ScheduleType = when {
     }
 }
 
-@Composable private fun DailyTimelineTable(courses: List<Course>, tasks: List<Item>) {
-    val rows = (8..22).map { hour ->
-        val start = hour * 60
-        val course = courses.firstOrNull { CourseGapPlanner.periodStart(it.startPeriod) in start until start + 60 }
-        val task = tasks.firstOrNull { minuteOfDay(it.scheduledAt ?: 0L) in start until start + 60 }
-        Triple(hour, course, task)
+private const val TIMELINE_START_MINUTE = 8 * 60
+private const val TIMELINE_END_MINUTE = 22 * 60
+private val timelineHourHeight = 64.dp
+
+private data class TimelineEvent(
+    val key: String,
+    val title: String,
+    val detail: String,
+    val weekday: Int,
+    val startMinute: Int,
+    val endMinute: Int,
+    val type: ScheduleType,
+    val item: Item? = null
+)
+
+private data class TimelineEventLayout(val event: TimelineEvent, val lane: Int, val laneCount: Int)
+
+private fun Course.asTimelineEvent(index: Int = 0) = TimelineEvent(
+    key = "course-$weekday-$startPeriod-$title-$index",
+    title = title,
+    detail = "课程 · $building",
+    weekday = weekday,
+    startMinute = CourseGapPlanner.periodStart(startPeriod),
+    endMinute = CourseGapPlanner.periodEnd(endPeriod),
+    type = ScheduleType.COURSE
+)
+
+private fun Item.asTimelineEvent(): TimelineEvent? {
+    val time = scheduledAt ?: return null
+    val start = minuteOfDay(time)
+    return TimelineEvent(
+        key = "task-$id",
+        title = title,
+        detail = detail,
+        weekday = todayWeekday(time),
+        startMinute = start,
+        endMinute = (start + durationMinutes.coerceIn(5, 360)).coerceAtMost(24 * 60),
+        type = scheduleType(),
+        item = this
+    )
+}
+
+private fun layoutTimelineEvents(events: List<TimelineEvent>): List<TimelineEventLayout> {
+    val visible = events.filter { it.endMinute > TIMELINE_START_MINUTE && it.startMinute < TIMELINE_END_MINUTE }.sortedWith(compareBy<TimelineEvent> { it.startMinute }.thenByDescending { it.endMinute })
+    val result = mutableListOf<TimelineEventLayout>()
+    var index = 0
+    while (index < visible.size) {
+        val group = mutableListOf(visible[index])
+        var groupEnd = visible[index].endMinute
+        var next = index + 1
+        while (next < visible.size && visible[next].startMinute < groupEnd) {
+            group += visible[next]
+            groupEnd = maxOf(groupEnd, visible[next].endMinute)
+            next++
+        }
+        val laneEnds = mutableListOf<Int>()
+        val assigned = group.map { event ->
+            val freeLane = laneEnds.indexOfFirst { it <= event.startMinute }
+            val lane = if (freeLane >= 0) freeLane else {
+                laneEnds.add(event.endMinute)
+                laneEnds.lastIndex
+            }
+            laneEnds[lane] = event.endMinute
+            event to lane
+        }
+        val laneCount = laneEnds.size.coerceAtLeast(1)
+        result += assigned.map { (event, lane) -> TimelineEventLayout(event, lane, laneCount) }
+        index = next
     }
+    return result
+}
+
+@Composable private fun DailyScheduleTimeline(courses: List<Course>, tasks: List<Item>, onTaskDone: (Item) -> Unit) {
+    val events = courses.mapIndexed { index, course -> course.asTimelineEvent(index) } + tasks.mapNotNull { it.asTimelineEvent() }
+    var selected by remember { mutableStateOf<TimelineEvent?>(null) }
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
-        Column(Modifier.fillMaxWidth().padding(8.dp)) {
-            Row(Modifier.fillMaxWidth().padding(bottom = 6.dp)) {
-                Text("时间", Modifier.width(62.dp), style = MaterialTheme.typography.labelLarge)
-                Text("固定日程 / 已安排任务", style = MaterialTheme.typography.labelLarge)
-            }
-            rows.forEach { (hour, course, task) ->
-                Row(Modifier.fillMaxWidth().heightIn(min = 54.dp)) {
-                    Text("%02d:00".format(hour), Modifier.width(62.dp).padding(top = 10.dp), style = MaterialTheme.typography.labelMedium)
-                    val type = if (course != null) ScheduleType.COURSE else task?.scheduleType()
-                    Surface(
-                        modifier = Modifier.weight(1f).padding(vertical = 2.dp),
-                        color = type?.color?.copy(alpha = 0.18f) ?: MaterialTheme.colorScheme.surfaceVariant,
-                        shape = MaterialTheme.shapes.small
-                    ) {
-                        when {
-                            course != null -> Column(Modifier.padding(8.dp)) {
-                                Text(course.title, fontWeight = FontWeight.SemiBold, color = ScheduleType.COURSE.color)
-                                Text("课程 · ${course.building}", style = MaterialTheme.typography.labelSmall)
-                            }
-                            task != null -> Column(Modifier.padding(8.dp)) {
-                                Text(task.title, fontWeight = FontWeight.SemiBold, color = type?.color ?: MaterialTheme.colorScheme.onSurface)
-                                Text(type?.label ?: "任务", style = MaterialTheme.typography.labelSmall)
-                            }
-                            else -> Text("空档", Modifier.padding(8.dp), color = MaterialTheme.colorScheme.outline, style = MaterialTheme.typography.labelSmall)
-                        }
-                    }
-                }
-            }
+        Row(Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 10.dp)) {
+            TimelineTimeAxis()
+            TimelineDayLane(events, Modifier.weight(1f), showCurrentTime = true, onSelect = { selected = it })
         }
     }
-    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
-        listOf(ScheduleType.COURSE, ScheduleType.LEARNING, ScheduleType.EXERCISE, ScheduleType.TASK).forEach { type ->
-            Text("● ${type.label}", color = type.color, style = MaterialTheme.typography.labelSmall)
-        }
-    }
+    TimelineLegend()
+    selected?.let { TimelineEventDialog(it, onDismiss = { selected = null }, onTaskDone = { item -> selected = null; onTaskDone(item) }) }
 }
 
-@Composable private fun WeeklyScheduleGrid(courses: List<Course>, items: List<Item>) {
-    val weekScroll = rememberScrollState()
-    Column(Modifier.fillMaxWidth().horizontalScroll(weekScroll)) {
-        Row {
-            Text("时间", Modifier.width(58.dp).padding(6.dp), style = MaterialTheme.typography.labelLarge)
-            (1..7).forEach { day -> Text(weekdayName(day), Modifier.width(92.dp).padding(6.dp), style = MaterialTheme.typography.labelLarge) }
-        }
-        (1..13).forEach { period ->
-            Row(Modifier.heightIn(min = 54.dp)) {
-                Text("${formatMinute(CourseGapPlanner.periodStart(period))}\n第${period}节", Modifier.width(58.dp).padding(6.dp), style = MaterialTheme.typography.labelSmall)
+@Composable private fun WeeklyScheduleTimeline(courses: List<Course>, items: List<Item>, onTaskDone: (Item) -> Unit) {
+    val scroll = rememberScrollState()
+    val courseEvents = courses.mapIndexed { index, course -> course.asTimelineEvent(index) }
+    val taskEvents = items.filter { !it.done && !it.dayOnly && it.scheduledAt?.let(::isInCurrentWeek) == true }.mapNotNull { it.asTimelineEvent() }
+    var selected by remember { mutableStateOf<TimelineEvent?>(null) }
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+        Column(Modifier.fillMaxWidth().horizontalScroll(scroll).padding(horizontal = 6.dp, vertical = 10.dp)) {
+            Row {
+                Spacer(Modifier.width(50.dp))
                 (1..7).forEach { day ->
-                    val course = courses.firstOrNull { it.weekday == day && it.startPeriod == period }
-                    val task = items.firstOrNull { !it.done && it.scheduledAt?.let { isInCurrentWeek(it) && todayWeekday(it) == day && periodForMinute(minuteOfDay(it)) == period } == true }
-                    WeekGridCell(course, task)
+                    Surface(
+                        modifier = Modifier.width(96.dp).padding(horizontal = 2.dp),
+                        color = if (day == todayWeekday()) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+                        shape = RoundedCornerShape(10.dp)
+                    ) { Text(weekdayName(day), Modifier.padding(vertical = 8.dp), textAlign = androidx.compose.ui.text.style.TextAlign.Center, fontWeight = FontWeight.SemiBold) }
                 }
+            }
+            Row {
+                TimelineTimeAxis()
+                (1..7).forEach { day ->
+                    TimelineDayLane((courseEvents + taskEvents).filter { it.weekday == day }, Modifier.width(96.dp), showCurrentTime = day == todayWeekday(), onSelect = { selected = it })
+                }
+            }
+        }
+    }
+    TimelineLegend()
+    selected?.let { TimelineEventDialog(it, onDismiss = { selected = null }, onTaskDone = { item -> selected = null; onTaskDone(item) }) }
+}
+
+@Composable private fun TimelineTimeAxis() {
+    val totalHeight = timelineHourHeight * ((TIMELINE_END_MINUTE - TIMELINE_START_MINUTE) / 60).toFloat()
+    Box(Modifier.width(50.dp).height(totalHeight)) {
+        (TIMELINE_START_MINUTE / 60..TIMELINE_END_MINUTE / 60).forEach { hour ->
+            Text("%02d:00".format(hour), Modifier.offset(y = timelineHourHeight * (hour - TIMELINE_START_MINUTE / 60).toFloat() - 7.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+@Composable private fun TimelineDayLane(events: List<TimelineEvent>, modifier: Modifier, showCurrentTime: Boolean, onSelect: (TimelineEvent) -> Unit) {
+    val totalHours = (TIMELINE_END_MINUTE - TIMELINE_START_MINUTE) / 60
+    val totalHeight = timelineHourHeight * totalHours.toFloat()
+    val layouts = layoutTimelineEvents(events)
+    val gridColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)
+    BoxWithConstraints(modifier.height(totalHeight).clip(RoundedCornerShape(8.dp)).background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.28f))) {
+        Canvas(Modifier.matchParentSize()) {
+            val step = size.height / totalHours
+            for (hour in 0..totalHours) drawLine(gridColor, Offset(0f, hour * step), Offset(size.width, hour * step), strokeWidth = 1f)
+        }
+        layouts.forEach { layout ->
+            val event = layout.event
+            val topMinutes = event.startMinute.coerceAtLeast(TIMELINE_START_MINUTE) - TIMELINE_START_MINUTE
+            val bottomMinutes = event.endMinute.coerceAtMost(TIMELINE_END_MINUTE) - TIMELINE_START_MINUTE
+            val top = timelineHourHeight * (topMinutes / 60f)
+            val height = (timelineHourHeight * ((bottomMinutes - topMinutes) / 60f)).coerceAtLeast(18.dp)
+            val laneWidth = maxWidth / layout.laneCount.toFloat()
+            Surface(
+                modifier = Modifier.offset(x = laneWidth * layout.lane.toFloat(), y = top).width(laneWidth).height(height).padding(1.dp).clickable { onSelect(event) },
+                color = event.type.color.copy(alpha = 0.88f),
+                contentColor = Color.White,
+                shape = RoundedCornerShape(7.dp),
+                tonalElevation = 1.dp
+            ) {
+                Column(Modifier.padding(horizontal = 5.dp, vertical = 3.dp)) {
+                    Text(event.title, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    if (height >= 34.dp) Text("${formatMinute(event.startMinute)}–${formatMinute(event.endMinute)}", style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                }
+            }
+        }
+        if (showCurrentTime) {
+            val current = minuteOfDay(System.currentTimeMillis())
+            if (current in TIMELINE_START_MINUTE..TIMELINE_END_MINUTE) {
+                val y = timelineHourHeight * ((current - TIMELINE_START_MINUTE) / 60f)
+                Canvas(Modifier.fillMaxWidth().height(2.dp).offset(y = y)) { drawLine(Color(0xFFDC2626), Offset.Zero, Offset(size.width, 0f), strokeWidth = 4f) }
             }
         }
     }
 }
 
-@Composable private fun WeekGridCell(course: Course?, task: Item?) {
-    val type = when {
-        course != null -> ScheduleType.COURSE
-        task != null -> task.scheduleType()
-        else -> null
+@Composable private fun TimelineLegend() {
+    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
+        ScheduleType.entries.forEach { type -> Text("● ${type.label}", color = type.color, style = MaterialTheme.typography.labelSmall) }
     }
-    Surface(
-        modifier = Modifier.width(92.dp).padding(2.dp).heightIn(min = 50.dp),
-        color = type?.color?.copy(alpha = 0.14f) ?: MaterialTheme.colorScheme.surfaceVariant,
-        shape = MaterialTheme.shapes.small
-    ) {
-        Column(Modifier.padding(5.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            when {
-                course != null -> {
-                    Text(course.title, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold, maxLines = 2)
-                    Text("${course.startPeriod}–${course.endPeriod}节${if (course.needsConfirmation) " · 待确认" else ""}", style = MaterialTheme.typography.labelSmall)
-                }
-                task != null -> {
-                    Text(task.title, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold, maxLines = 2)
-                    Text(type?.label ?: "", style = MaterialTheme.typography.labelSmall)
-                }
-            }
-        }
-    }
+}
+
+@Composable private fun TimelineEventDialog(event: TimelineEvent, onDismiss: () -> Unit, onTaskDone: (Item) -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(event.title) },
+        text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("${weekdayName(event.weekday)}  ${formatMinute(event.startMinute)}–${formatMinute(event.endMinute)}", fontWeight = FontWeight.SemiBold)
+            Text(event.type.label, color = event.type.color)
+            Text(event.detail)
+        } },
+        confirmButton = { event.item?.let { item -> Button(onClick = { onTaskDone(item) }) { Text("完成") } } ?: TextButton(onClick = onDismiss) { Text("关闭") } },
+        dismissButton = { if (event.item != null) TextButton(onClick = onDismiss) { Text("关闭") } }
+    )
 }
 
 @Composable private fun InboxScreen(modifier: Modifier, items: List<Item>, onPickTime: (Item) -> Unit, onEdit: (Item) -> Unit, onShrink: (Item) -> Unit, onPause: (Item) -> Unit, onAbandon: (Item) -> Unit) {
@@ -483,10 +603,11 @@ private fun dateAt(dayOffset: Int, hour: Int): Long {
     return calendar.timeInMillis
 }
 
-@Composable private fun RescheduleTimeDialog(item: Item, onDismiss: () -> Unit, onSave: (Long, String) -> Unit) {
+@Composable private fun RescheduleTimeDialog(item: Item, onDismiss: () -> Unit, onSave: (Long, Int, String) -> Unit) {
     val context = LocalContext.current
     var selected by remember { mutableStateOf(1) }
     var customTime by remember { mutableStateOf<Long?>(null) }
+    var duration by remember { mutableIntStateOf(item.durationMinutes.coerceIn(15, 180)) }
     val options = listOf(
         Triple("明早 9:00", dateAt(1, 9), "明早 9:00"),
         Triple("明晚 18:00", dateAt(1, 18), "明晚 18:00"),
@@ -509,8 +630,12 @@ private fun dateAt(dayOffset: Int, hour: Int): Long {
                     }, calendar.get(java.util.Calendar.HOUR_OF_DAY), calendar.get(java.util.Calendar.MINUTE), true).show()
                 }, calendar.get(java.util.Calendar.YEAR), calendar.get(java.util.Calendar.MONTH), calendar.get(java.util.Calendar.DAY_OF_MONTH)).show()
             }) { Text(customTime?.let { "已选：${formatDateTime(it)}" } ?: "自选日期与时间") }
+            Text("预计用时", fontWeight = FontWeight.SemiBold)
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                listOf(15, 30, 60, 90).forEach { minutes -> FilterChip(selected = duration == minutes, onClick = { duration = minutes }, label = { Text("${minutes}分钟") }) }
+            }
         } },
-        confirmButton = { Button(onClick = { customTime?.let { onSave(it, formatDateTime(it)) } ?: onSave(options[selected].second, options[selected].third) }) { Text("确认改期") } },
+        confirmButton = { Button(onClick = { customTime?.let { onSave(it, duration, "${formatDateTime(it)} · ${duration}分钟") } ?: onSave(options[selected].second, duration, "${options[selected].third} · ${duration}分钟") }) { Text("确认安排") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }
     )
 }
@@ -595,18 +720,21 @@ private fun isToday(time: Long): Boolean {
             ElevatedCard { Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(goal.title, fontWeight = FontWeight.SemiBold)
                 val completed = GoalPlanner.completedThisWeek(goal)
-                val pending = items.any { it.goalId == goal.id && it.kind == "任务" && !it.done }
+                val pending = items.count { it.goalId == goal.id && it.kind == "任务" && !it.done }
+                val remaining = (goal.weeklyTarget - completed - pending).coerceAtLeast(0)
                 if (goal.desiredOutcome.isNotBlank()) Text("预期结果：${goal.desiredOutcome}")
-                Text("本周完整 $completed / ${goal.weeklyTarget} 次 · 最低版本 ${GoalPlanner.minimumCompletedThisWeek(goal)} 次")
+                Text("本周完整 $completed / ${goal.weeklyTarget} 次 · 已安排 $pending 次 · 还需安排 $remaining 次")
+                if (GoalPlanner.minimumCompletedThisWeek(goal) > 0) Text("另有最低版本 ${GoalPlanner.minimumCompletedThisWeek(goal)} 次", style = MaterialTheme.typography.bodySmall)
                 Text("完成标准：${goal.metricType} · ${goal.metricTarget.ifBlank { "完成本次" }}")
+                Text("每次预计 ${goal.durationMinutes} 分钟；每次单独出现在日程中并单独完成。", style = MaterialTheme.typography.bodySmall)
                 if (goal.resourceTitle.isNotBlank()) Text("依据：${goal.resourceTitle}${goal.resourceUnit.takeIf { it.isNotBlank() }?.let { " · $it" } ?: ""}", style = MaterialTheme.typography.bodySmall)
                 if (goal.minimumVersion.isNotBlank()) Text("最低版本：${goal.minimumVersion}", style = MaterialTheme.typography.bodySmall)
                 feedback.filter { it.goalId == goal.id && it.barrier != "无" }.groupingBy { it.barrier }.eachCount().maxByOrNull { it.value }?.let { (barrier, count) -> Text("最近常见阻碍：$barrier（$count 次）", style = MaterialTheme.typography.bodySmall) }
                 if (completed >= goal.weeklyTarget) Text("本周目标已达成。", color = MaterialTheme.colorScheme.primary)
-                else if (pending) Text("已有一次待执行安排；完成、改期或跳过后再推荐下一次。")
-                else suggestions.firstOrNull()?.let { suggestion ->
+                else if (remaining == 0) Text("本周剩余次数都已安排；可在日程中逐次完成或改期。")
+                else suggestions.firstOrNull { suggestion -> items.none { item -> item.goalId == goal.id && !item.done && item.scheduledAt?.let { todayWeekday(it) == suggestion.weekday && minuteOfDay(it) == suggestion.startMinute } == true } }?.let { suggestion ->
                     Text("建议：${weekdayName(suggestion.weekday)} ${GoalPlanner.displayTime(suggestion.startMinute)}，可用 ${suggestion.freeMinutes} 分钟")
-                    Button(onClick = { onScheduleGoal(goal, suggestion) }) { Text("安排下一次") }
+                    Button(onClick = { onScheduleGoal(goal, suggestion) }) { Text("安排第 ${completed + pending + 1} / ${goal.weeklyTarget} 次") }
                 } ?: Text("课表中暂未找到足够连续的空档。")
             } }
         }
