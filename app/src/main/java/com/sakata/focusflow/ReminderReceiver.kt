@@ -9,6 +9,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import androidx.core.app.NotificationCompat
+import java.util.Calendar
 
 class ReminderReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -19,6 +20,25 @@ class ReminderReceiver : BroadcastReceiver() {
         val nextStep = intent.getStringExtra(EXTRA_NEXT_STEP).orEmpty()
         val store = PrototypeStore(context)
         when (intent.action) {
+            ACTION_STATUS_CHECK_IN -> {
+                val settings = store.loadStatusCheckInSettings()
+                ReminderScheduler.scheduleDailyStatusCheckIn(context, settings)
+                if (!settings.enabled) return
+                val active = store.loadLatestActiveSession()
+                if (active != null) {
+                    val minutes = ((active.endsAt - System.currentTimeMillis()) / 60_000L + 10).toInt().coerceIn(30, 180)
+                    ReminderScheduler.snoozeStatusCheckIn(context, minutes)
+                    return
+                }
+                if (store.loadLatestStatusCheckIn()?.recordedAt?.let(::isSameDayAsNow) == true) return
+                showStatusCheckInNotification(context, manager, settings)
+                return
+            }
+            ACTION_STATUS_CHECK_IN_SNOOZE -> {
+                if (notificationId >= 0) manager.cancel(notificationId)
+                ReminderScheduler.snoozeStatusCheckIn(context, store.loadStatusCheckInSettings().snoozeMinutes)
+                return
+            }
             ACTION_COMPLETE -> {
                 if (notificationId >= 0) manager.cancel(notificationId)
                 if (sessionId >= 0) {
@@ -148,6 +168,53 @@ class ReminderReceiver : BroadcastReceiver() {
         manager.notify(id, notification.build())
     }
 
+    private fun showStatusCheckInNotification(
+        context: Context,
+        manager: NotificationManager,
+        settings: StatusCheckInSettings
+    ) {
+        if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
+        manager.createNotificationChannel(NotificationChannel(CHANNEL_STATUS_CHECK_IN, "低打扰状态询问", NotificationManager.IMPORTANCE_DEFAULT))
+        val id = STATUS_CHECK_IN_NOTIFICATION_ID
+        val openApp = PendingIntent.getActivity(
+            context,
+            id,
+            Intent(context, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                putExtra(EXTRA_OPEN_STATUS_CHECK_IN, true)
+            },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val snooze = PendingIntent.getBroadcast(
+            context,
+            id + 1,
+            Intent(context, ReminderReceiver::class.java).apply {
+                action = ACTION_STATUS_CHECK_IN_SNOOZE
+                putExtra(EXTRA_NOTIFICATION_ID, id)
+            },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        manager.notify(id, NotificationCompat.Builder(context, CHANNEL_STATUS_CHECK_IN)
+            .setSmallIcon(android.R.drawable.ic_popup_reminder)
+            .setContentTitle("现在状态怎么样？")
+            .setContentText("用几秒记录精力和正在做的事；不回应也不会连续追问。")
+            .setStyle(NotificationCompat.BigTextStyle().bigText("用几秒记录精力和正在做的事，帮助调整弹性任务。数据只保存在本机；不回应也不会连续追问。"))
+            .setContentIntent(openApp)
+            .addAction(0, "现在记录", openApp)
+            .addAction(0, "稍后 ${settings.snoozeMinutes} 分钟", snooze)
+            .setAutoCancel(true)
+            .setOnlyAlertOnce(true)
+            .build())
+    }
+
+    private fun isSameDayAsNow(timestamp: Long): Boolean {
+        val now = Calendar.getInstance()
+        val value = Calendar.getInstance().apply { timeInMillis = timestamp }
+        return now.get(Calendar.ERA) == value.get(Calendar.ERA) &&
+            now.get(Calendar.YEAR) == value.get(Calendar.YEAR) &&
+            now.get(Calendar.DAY_OF_YEAR) == value.get(Calendar.DAY_OF_YEAR)
+    }
+
     private fun taskActionIntent(context: Context, action: String, taskId: Long, notificationId: Int, actionOffset: Int): PendingIntent {
         val intent = Intent(context, ReminderReceiver::class.java).apply {
             this.action = action
@@ -180,16 +247,20 @@ class ReminderReceiver : BroadcastReceiver() {
         const val ACTION_TASK_SNOOZE = "com.sakata.focusflow.TASK_SNOOZE"
         const val ACTION_TASK_SKIP = "com.sakata.focusflow.TASK_SKIP"
         const val ACTION_TASK_MINIMUM = "com.sakata.focusflow.TASK_MINIMUM"
+        const val ACTION_STATUS_CHECK_IN = "com.sakata.focusflow.STATUS_CHECK_IN"
+        const val ACTION_STATUS_CHECK_IN_SNOOZE = "com.sakata.focusflow.STATUS_CHECK_IN_SNOOZE"
         const val EXTRA_ACTIVITY_NAME = "activity_name"
         const val EXTRA_NEXT_STEP = "next_step"
         const val EXTRA_SESSION_ID = "session_id"
         const val EXTRA_TASK_ID = "task_id"
         const val EXTRA_TASK_TITLE = "task_title"
         const val EXTRA_NOTIFICATION_ID = "notification_id"
+        const val EXTRA_OPEN_STATUS_CHECK_IN = "open_status_check_in"
         private const val CHANNEL_ACTIVITY_PREVIEW = "focusflow_activity_preview"
         private const val CHANNEL_ACTIVITY_END = "focusflow_activity_end_v2"
         private const val CHANNEL_ACTIVITY_END_GENTLE = "focusflow_activity_end_gentle_v2"
         private const val CHANNEL_TASK = "focusflow_task_reminders"
+        private const val CHANNEL_STATUS_CHECK_IN = "focusflow_status_check_in_v1"
+        private const val STATUS_CHECK_IN_NOTIFICATION_ID = 2_900_002
     }
 }
-

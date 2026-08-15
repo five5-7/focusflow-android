@@ -21,6 +21,48 @@ class PrototypeStore(context: Context) {
         preferences.edit().putString("energy_level", level).apply()
     }
 
+    fun loadStatusCheckInSettings(): StatusCheckInSettings = StatusCheckInSettings(
+        enabled = preferences.getBoolean("status_checkin_enabled", false),
+        promptHour = preferences.getInt("status_checkin_hour", 14).coerceIn(8, 22),
+        snoozeMinutes = preferences.getInt("status_checkin_snooze_minutes", 60).coerceIn(30, 180)
+    )
+
+    fun saveStatusCheckInSettings(settings: StatusCheckInSettings) {
+        preferences.edit()
+            .putBoolean("status_checkin_enabled", settings.enabled)
+            .putInt("status_checkin_hour", settings.promptHour)
+            .putInt("status_checkin_snooze_minutes", settings.snoozeMinutes)
+            .apply()
+    }
+
+    fun loadStatusCheckIns(limit: Int = 90): List<StatusCheckIn> = runCatching {
+        val values = JSONArray(preferences.getString("status_checkins", "[]") ?: "[]")
+        List(values.length()) { index ->
+            val value = values.getJSONObject(index)
+            StatusCheckIn(
+                energy = value.optString("energy", "正常").takeIf { it in StatusCheckInCatalog.energies } ?: "正常",
+                activity = value.optString("activity", "其他").takeIf { it in StatusCheckInCatalog.activities } ?: "其他",
+                recordedAt = value.optLong("recordedAt", System.currentTimeMillis())
+            )
+        }.takeLast(limit.coerceIn(1, 365))
+    }.getOrDefault(emptyList())
+
+    fun saveStatusCheckIn(checkIn: StatusCheckIn) {
+        val all = (loadStatusCheckIns(365) + checkIn).takeLast(365)
+        val values = JSONArray()
+        all.forEach { value -> values.put(JSONObject().apply {
+            put("energy", value.energy)
+            put("activity", value.activity)
+            put("recordedAt", value.recordedAt)
+        }) }
+        preferences.edit()
+            .putString("status_checkins", values.toString())
+            .putString("energy_level", checkIn.energy)
+            .apply()
+    }
+
+    fun loadLatestStatusCheckIn(): StatusCheckIn? = loadStatusCheckIns(1).lastOrNull()
+
     fun loadItems(): List<Item> = runCatching {
         val values = JSONArray(preferences.getString("items", "[]") ?: "[]")
         val parsed = List(values.length()) { index ->

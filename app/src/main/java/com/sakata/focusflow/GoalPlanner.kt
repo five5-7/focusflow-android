@@ -51,7 +51,7 @@ object RoadmapCatalog {
         RoadmapFeature("v2_flexible_initial_plan", "V2", "为弹性任务提供可确认的初步规划时间"),
         RoadmapFeature("v2_next_action_launch", "V2 · 2.7 已实现", "从下一件合适的事直接开始、缩短或改期"),
         RoadmapFeature("v2_inbox_flexible_schedule", "V2 · 2.8 已实现", "收集箱支持推荐空档、大致时间范围和精确时间"),
-        RoadmapFeature("v2_status_checkin", "V2 · 2.9 计划", "低打扰通知询问精力与当前活动，并在未回应时退避"),
+        RoadmapFeature("v2_status_checkin", "V2 · 2.9 已实现", "低打扰通知询问精力与当前活动，并在未回应时退避"),
         RoadmapFeature("v2_goal_review", "V2", "每周目标回顾与低压力调整建议"),
         RoadmapFeature("v3_resource_search", "V3", "可选联网搜集教程并比较候选来源"),
         RoadmapFeature("v3_activity_time_suggestion", "V3", "开始活动时按历史与下一项日程建议预计时长或结束时间"),
