@@ -10,6 +10,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
@@ -40,7 +41,8 @@ data class Item(
     val scheduledAt: Long? = null,
     val dayOnly: Boolean = false,
     val goalId: Long? = null,
-    val completionLevel: String = ""
+    val completionLevel: String = "",
+    val completedAt: Long? = null
 )
 
 data class ActivitySession(
@@ -109,7 +111,7 @@ private fun FocusFlowApp() {
                 0 -> TodayScreen(
                     Modifier.padding(padding), items, courses,
                     onTaskDone = { item ->
-                        if (item.goalId == null) saveItems(items.map { if (it.id == item.id) it.copy(done = true, completionLevel = "完成") else it }) else completionTarget = item
+                        if (item.goalId == null) saveItems(items.map { if (it.id == item.id) it.copy(done = true, completionLevel = "完成", completedAt = System.currentTimeMillis()) else it }) else completionTarget = item
                     },
                     activeSession = activeSession,
                     onStartActivity = { activityOpen = true }
@@ -200,7 +202,7 @@ private fun FocusFlowApp() {
             addResourceOpen = false
         }
         completionTarget?.let { item -> CompletionDialog(item, goals.firstOrNull { it.id == item.goalId }, onDismiss = { completionTarget = null }) { level ->
-            saveItems(items.map { if (it.id == item.id) it.copy(done = true, completionLevel = level) else it })
+            saveItems(items.map { if (it.id == item.id) it.copy(done = true, completionLevel = level, completedAt = System.currentTimeMillis()) else it })
             item.goalId?.let { goalId ->
                 val key = GoalPlanner.currentWeekKey()
                 goals = goals.map { goal -> if (goal.id != goalId) goal else if (goal.completionWeekKey == key) {
@@ -234,6 +236,8 @@ private fun FocusFlowApp() {
     val todayCourses = courses.filter { !it.needsConfirmation && it.weekday == weekday }.sortedBy { it.startPeriod }
     val flexibleItems = items.filter { !it.done && it.kind != "暂停" && it.kind != "收集箱" && it.scheduledAt == null }
     val nextItem = todaySchedule.firstOrNull { (it.scheduledAt ?: Long.MAX_VALUE) >= now } ?: flexibleItems.firstOrNull()
+    val completedToday = items.count { it.done && it.completedAt?.let(::isToday) == true }
+    val completedThisWeek = items.count { it.done && it.completedAt?.let(::isInCurrentWeek) == true }
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Text("今日概览", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
         Text("用表格看清今天；弹性任务不会伪装成必须完成的固定日程。", style = MaterialTheme.typography.bodyLarge)
@@ -246,7 +250,15 @@ private fun FocusFlowApp() {
                 Button(onClick = onStartActivity) { Text("开始活动") }
             }
         }
-        Text("今日日程", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        ElevatedCard { Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) { Text("$completedToday", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold); Text("今日完成", style = MaterialTheme.typography.labelMedium) }
+            Column(horizontalAlignment = Alignment.CenterHorizontally) { Text("$completedThisWeek", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold); Text("本周完成", style = MaterialTheme.typography.labelMedium) }
+            Column(horizontalAlignment = Alignment.CenterHorizontally) { Text("${items.count { !it.done && it.kind == "收集箱" }}", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold); Text("待安排", style = MaterialTheme.typography.labelMedium) }
+        } }
+        Text("本周日程", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        Text("横向滑动可查看完整一周；课程和已安排任务都按时间落在格子里。", style = MaterialTheme.typography.bodySmall)
+        WeeklyScheduleGrid(courses, items)
+        Text("今天的安排", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
         Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("时间", Modifier.width(52.dp), style = MaterialTheme.typography.labelLarge)
             Text("安排", style = MaterialTheme.typography.labelLarge)
@@ -318,6 +330,52 @@ private fun Item.scheduleType(): ScheduleType = when {
     }
 }
 
+@Composable private fun WeeklyScheduleGrid(courses: List<Course>, items: List<Item>) {
+    val weekScroll = rememberScrollState()
+    Column(Modifier.fillMaxWidth().horizontalScroll(weekScroll)) {
+        Row {
+            Text("时间", Modifier.width(58.dp).padding(6.dp), style = MaterialTheme.typography.labelLarge)
+            (1..7).forEach { day -> Text(weekdayName(day), Modifier.width(92.dp).padding(6.dp), style = MaterialTheme.typography.labelLarge) }
+        }
+        (1..13).forEach { period ->
+            Row(Modifier.heightIn(min = 54.dp)) {
+                Text("${formatMinute(CourseGapPlanner.periodStart(period))}\n第$period节", Modifier.width(58.dp).padding(6.dp), style = MaterialTheme.typography.labelSmall)
+                (1..7).forEach { day ->
+                    val course = courses.firstOrNull { it.weekday == day && it.startPeriod == period }
+                    val task = items.firstOrNull { !it.done && it.scheduledAt?.let { isInCurrentWeek(it) && todayWeekday(it) == day && periodForMinute(minuteOfDay(it)) == period } == true }
+                    WeekGridCell(course, task)
+                }
+            }
+        }
+    }
+}
+
+@Composable private fun WeekGridCell(course: Course?, task: Item?) {
+    val type = when {
+        course != null -> ScheduleType.COURSE
+        task != null -> task.scheduleType()
+        else -> null
+    }
+    Surface(
+        modifier = Modifier.width(92.dp).padding(2.dp).heightIn(min = 50.dp),
+        color = type?.color?.copy(alpha = 0.14f) ?: MaterialTheme.colorScheme.surfaceVariant,
+        shape = MaterialTheme.shapes.small
+    ) {
+        Column(Modifier.padding(5.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            when {
+                course != null -> {
+                    Text(course.title, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold, maxLines = 2)
+                    Text("${course.startPeriod}–${course.endPeriod}节${if (course.needsConfirmation) " · 待确认" else ""}", style = MaterialTheme.typography.labelSmall)
+                }
+                task != null -> {
+                    Text(task.title, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold, maxLines = 2)
+                    Text(type?.label ?: "", style = MaterialTheme.typography.labelSmall)
+                }
+            }
+        }
+    }
+}
+
 @Composable private fun InboxScreen(modifier: Modifier, items: List<Item>, onPickTime: (Item) -> Unit, onShrink: (Item) -> Unit, onPause: (Item) -> Unit, onAbandon: (Item) -> Unit) {
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("收集箱", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
@@ -325,6 +383,7 @@ private fun Item.scheduleType(): ScheduleType = when {
         items.filter { it.kind == "收集箱" }.ifEmpty { listOf(Item(title = "暂时没有新想法", detail = "想到事情时点右下角 ＋", kind = "提示")) }.forEach { item ->
             ElevatedCard { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(item.title, fontWeight = FontWeight.SemiBold); Text(item.detail)
+                if (item.kind == "收集箱" && !item.title.startsWith("重新安排：")) TextButton(onClick = { onPickTime(item) }) { Text("加入日程") }
                 if (item.title.startsWith("重新安排：")) {
                     Text("这次不做也没关系。请选择下一步：", style = MaterialTheme.typography.bodySmall)
                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -388,6 +447,19 @@ private fun todayWeekday(): Int = when (java.util.Calendar.getInstance().get(jav
     java.util.Calendar.SUNDAY -> 7
     else -> java.util.Calendar.getInstance().get(java.util.Calendar.DAY_OF_WEEK) - 1
 }
+private fun todayWeekday(time: Long): Int {
+    val calendar = java.util.Calendar.getInstance().apply { timeInMillis = time }
+    return when (calendar.get(java.util.Calendar.DAY_OF_WEEK)) {
+        java.util.Calendar.SUNDAY -> 7
+        else -> calendar.get(java.util.Calendar.DAY_OF_WEEK) - 1
+    }
+}
+private fun minuteOfDay(time: Long): Int {
+    val calendar = java.util.Calendar.getInstance().apply { timeInMillis = time }
+    return calendar.get(java.util.Calendar.HOUR_OF_DAY) * 60 + calendar.get(java.util.Calendar.MINUTE)
+}
+private fun periodForMinute(minute: Int): Int = (1..13).lastOrNull { CourseGapPlanner.periodStart(it) <= minute } ?: 1
+private fun isInCurrentWeek(time: Long): Boolean = time in GoalPlanner.currentWeekKey() until GoalPlanner.currentWeekKey() + 7 * 24 * 60 * 60_000L
 private fun isToday(time: Long): Boolean {
     val target = java.util.Calendar.getInstance().apply { timeInMillis = time }
     val today = java.util.Calendar.getInstance()

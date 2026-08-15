@@ -45,7 +45,7 @@ class ReminderReceiver : BroadcastReceiver() {
                 if (notificationId >= 0) manager.cancel(notificationId)
                 val taskId = intent.getLongExtra(EXTRA_TASK_ID, -1L)
                 if (taskId >= 0) store.findItem(taskId)?.let { task ->
-                    store.updateItem(taskId) { it.copy(done = true, completionLevel = "完整完成") }
+                    store.updateItem(taskId) { it.copy(done = true, completionLevel = "完整完成", completedAt = System.currentTimeMillis()) }
                     task.goalId?.let { store.markGoalCompleted(it) }
                 }
                 return
@@ -54,7 +54,7 @@ class ReminderReceiver : BroadcastReceiver() {
                 if (notificationId >= 0) manager.cancel(notificationId)
                 val taskId = intent.getLongExtra(EXTRA_TASK_ID, -1L)
                 if (taskId >= 0) store.findItem(taskId)?.let { task ->
-                    store.updateItem(taskId) { it.copy(done = true, completionLevel = "最低版本") }
+                    store.updateItem(taskId) { it.copy(done = true, completionLevel = "最低版本", completedAt = System.currentTimeMillis()) }
                     task.goalId?.let { store.markGoalCompleted(it, minimum = true) }
                 }
                 return

@@ -12,14 +12,14 @@ class PrototypeStore(context: Context) {
         val values = JSONArray(preferences.getString("items", "[]") ?: "[]")
         List(values.length()) { index ->
             val item = values.getJSONObject(index)
-            Item(item.getLong("id"), item.getString("title"), item.getString("detail"), item.getString("kind"), item.optBoolean("done"), item.optLong("scheduledAt").takeIf { it > 0 }, item.optBoolean("dayOnly"), item.optLong("goalId").takeIf { it > 0 }, item.optString("completionLevel"))
+            Item(item.getLong("id"), item.getString("title"), item.getString("detail"), item.getString("kind"), item.optBoolean("done"), item.optLong("scheduledAt").takeIf { it > 0 }, item.optBoolean("dayOnly"), item.optLong("goalId").takeIf { it > 0 }, item.optString("completionLevel"), item.optLong("completedAt").takeIf { it > 0 })
         }
     }.getOrDefault(emptyList())
 
     fun saveItems(items: List<Item>) {
         val values = JSONArray()
         items.forEach { item -> values.put(JSONObject().apply {
-            put("id", item.id); put("title", item.title); put("detail", item.detail); put("kind", item.kind); put("done", item.done); put("scheduledAt", item.scheduledAt ?: 0); put("dayOnly", item.dayOnly); put("goalId", item.goalId ?: 0); put("completionLevel", item.completionLevel)
+            put("id", item.id); put("title", item.title); put("detail", item.detail); put("kind", item.kind); put("done", item.done); put("scheduledAt", item.scheduledAt ?: 0); put("dayOnly", item.dayOnly); put("goalId", item.goalId ?: 0); put("completionLevel", item.completionLevel); put("completedAt", item.completedAt ?: 0)
         }) }
         preferences.edit().putString("items", values.toString()).apply()
     }
