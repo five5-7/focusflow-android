@@ -168,6 +168,26 @@ class PrototypeStore(context: Context) {
             .apply()
     }
 
+    fun loadCampusMapPackage(): CampusMapPackage? = runCatching {
+        preferences.getString("campus_map_package", null)?.let(CampusMapPackageCodec::parse)
+    }.getOrNull()
+
+    fun saveCampusMapPackage(mapPackage: CampusMapPackage?) {
+        preferences.edit().apply {
+            if (mapPackage == null) remove("campus_map_package")
+            else putString("campus_map_package", CampusMapPackageCodec.encode(mapPackage))
+        }.apply()
+    }
+
+    fun loadCurrentCampusPlace(): String? = preferences.getString("current_campus_place", null)
+
+    fun saveCurrentCampusPlace(placeName: String?) {
+        preferences.edit().apply {
+            if (placeName.isNullOrBlank()) remove("current_campus_place")
+            else putString("current_campus_place", placeName)
+        }.apply()
+    }
+
     fun hasCourseSetup(): Boolean = preferences.getBoolean("course_setup_done", false)
 
     fun loadCourses(): List<Course> = runCatching {
