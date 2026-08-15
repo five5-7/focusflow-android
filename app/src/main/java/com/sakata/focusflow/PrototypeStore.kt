@@ -155,7 +155,17 @@ class PrototypeStore(context: Context) {
         oneWayMinutes = preferences.getInt("commute_one_way_minutes", 30),
         campusMode = preferences.getString("campus_mode", "步行") ?: "步行",
         buildingBufferMinutes = preferences.getInt("building_buffer_minutes", 3),
-        eBikeBattery = preferences.getString("ebike_battery", "未知") ?: "未知"
+        eBikeBattery = preferences.getString("ebike_battery", "未知") ?: "未知",
+        routeCalibrations = runCatching {
+            val values = JSONObject(preferences.getString("route_calibrations", "{}") ?: "{}")
+            val parsed = mutableMapOf<String, Int>()
+            val keys = values.keys()
+            while (keys.hasNext()) {
+                val key = keys.next()
+                values.optInt(key).takeIf { it in 1..180 }?.let { parsed[key] = it }
+            }
+            parsed
+        }.getOrDefault(emptyMap())
     )
 
     fun saveCommuteProfile(profile: CommuteProfile) {
@@ -165,6 +175,7 @@ class PrototypeStore(context: Context) {
             .putString("campus_mode", profile.campusMode)
             .putInt("building_buffer_minutes", profile.buildingBufferMinutes)
             .putString("ebike_battery", profile.eBikeBattery)
+            .putString("route_calibrations", JSONObject(profile.routeCalibrations).toString())
             .apply()
     }
 
