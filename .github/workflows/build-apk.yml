@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 jobs:
-  build-debug-apk:
+  build-apk:
     runs-on: ubuntu-latest
     steps:
       - name: Check out source
@@ -27,13 +27,28 @@ jobs:
         with:
           gradle-version: "8.7"
 
-      - name: Build debug APK
+      - name: Prepare stable prototype signing key
+        env:
+          FOCUSFLOW_KEYSTORE_BASE64: ${{ secrets.FOCUSFLOW_KEYSTORE_BASE64 }}
+        run: |
+          test -n "$FOCUSFLOW_KEYSTORE_BASE64" || (echo "Missing FOCUSFLOW_KEYSTORE_BASE64 repository secret" && exit 1)
+          printf '%s' "$FOCUSFLOW_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/focusflow-debug.jks"
+
+      - name: Build signed APK
+        env:
+          FOCUSFLOW_SIGNING_STORE_FILE: ${{ runner.temp }}/focusflow-debug.jks
+          FOCUSFLOW_SIGNING_STORE_PASSWORD: ${{ secrets.FOCUSFLOW_SIGNING_STORE_PASSWORD }}
+          FOCUSFLOW_SIGNING_KEY_ALIAS: ${{ secrets.FOCUSFLOW_SIGNING_KEY_ALIAS }}
+          FOCUSFLOW_SIGNING_KEY_PASSWORD: ${{ secrets.FOCUSFLOW_SIGNING_KEY_PASSWORD }}
         run: gradle --no-daemon :app:assembleDebug
+
+      - name: Name APK with version
+        run: cp app/build/outputs/apk/debug/app-debug.apk FocusFlow-1.3.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: FocusFlow-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: FocusFlow-1.3-apk
+          path: FocusFlow-1.3.apk
           if-no-files-found: error
           retention-days: 7
