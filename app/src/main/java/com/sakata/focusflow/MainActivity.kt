@@ -1,11 +1,15 @@
 package com.sakata.focusflow
 
 import android.Manifest
+import android.app.AlarmManager
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -129,6 +133,11 @@ private fun FocusFlowApp() {
             val restored = store.loadLatestActiveSession()
             activeSession = restored
             activityHistory = store.loadRecentActivitySessions()
+            if (restored == null) {
+                transitionTarget = null
+            } else if (transitionTarget?.id == restored.id && transitionTarget != restored) {
+                transitionTarget = restored
+            }
             if (restored?.status == ActivitySession.STATUS_AWAITING_CONFIRMATION && autoPromptedSessionId != restored.id) {
                 transitionTarget = restored
                 autoPromptedSessionId = restored.id
@@ -1097,6 +1106,7 @@ private fun weekdayName(day: Int) = listOf("", "周一", "周二", "周三", "�
     onAddImprovement: () -> Unit,
     onToggleRoadmap: (RoadmapFeature) -> Unit
 ) {
+    val context = LocalContext.current
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Text("设置", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
         Text("活动提醒", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
@@ -1117,6 +1127,12 @@ private fun weekdayName(day: Int) = listOf("", "周一", "周二", "周三", "�
             steps = 5
         )
         Text("如果 ColorOS 延迟到点提醒，可在系统的“闹钟和提醒”及电池设置中允许 FocusFlow；未授权精确提醒时仍会自动使用普通后台提醒。", style = MaterialTheme.typography.bodySmall)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val exactAllowed = context.getSystemService(AlarmManager::class.java).canScheduleExactAlarms()
+            OutlinedButton(onClick = {
+                context.startActivity(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, Uri.parse("package:${context.packageName}")))
+            }) { Text(if (exactAllowed) "管理精确提醒权限" else "允许精确提醒") }
+        }
         HorizontalDivider()
         Text("通勤与地点", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
         Text("地点不再单独占一个页面；它只在安排课程空档时用于估计去图书馆、操场或下一栋教学楼是否来得及。", style = MaterialTheme.typography.bodySmall)
@@ -1189,6 +1205,12 @@ private fun weekdayName(day: Int) = listOf("", "周一", "周二", "周三", "�
                 }
                 if (timeMode == "时长") {
                     OutlinedTextField(value = minutes, onValueChange = { minutes = it.filter(Char::isDigit).take(3) }, label = { Text("分钟") }, singleLine = true)
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf(15, 30, 60).forEach { value -> FilterChip(selected = minutes == value.toString(), onClick = { minutes = value.toString() }, label = { Text("$value 分") }) }
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf(90, 120).forEach { value -> FilterChip(selected = minutes == value.toString(), onClick = { minutes = value.toString() }, label = { Text("$value 分") }) }
+                    }
                 } else {
                     OutlinedButton(onClick = {
                         val calendar = java.util.Calendar.getInstance().apply { timeInMillis = untilAt }
@@ -1205,6 +1227,7 @@ private fun weekdayName(day: Int) = listOf("", "周一", "周二", "周三", "�
                     }) { Text("选择结束时间：${formatDateTime(untilAt)}") }
                 }
                 OutlinedTextField(value = nextStep, onValueChange = { nextStep = it }, label = { Text("结束后的下一步（可选）") }, placeholder = { Text("例如：洗漱，或开始复习") })
+                if (suggestedNextStep.isNotBlank() && nextStep == suggestedNextStep) Text("已根据最近的固定安排或待办预填，可直接修改。", style = MaterialTheme.typography.labelSmall)
                 Text("预计 ${formatDateTime(calculatedEnd)} 结束；到点不会自动判定失败，而是进入转场确认。", style = MaterialTheme.typography.bodySmall)
             }
         },
