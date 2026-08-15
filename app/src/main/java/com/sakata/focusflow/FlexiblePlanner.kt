@@ -44,7 +44,10 @@ object FlexiblePlanner {
             val earliest = if (dayOffset == 0) maxOf(DAY_START, roundUpToHalfHour(minuteOfDay(now) + 15)) else DAY_START
             val candidates = (earliest..(DAY_END - duration) step 30).filter { start ->
                 val end = start + duration
-                occupied.none { (busyStart, busyEnd) -> start < busyEnd + BUFFER && end > busyStart - BUFFER }
+                val candidateStart = atMinute(day, start)
+                val candidateEnd = candidateStart + duration * 60_000L
+                val insideWindow = (item.windowStartAt == null || candidateStart >= item.windowStartAt) && (item.windowEndAt == null || candidateEnd <= item.windowEndAt)
+                insideWindow && occupied.none { (busyStart, busyEnd) -> start < busyEnd + BUFFER && end > busyStart - BUFFER }
             }
             val best = candidates.minByOrNull { start -> preferredMinutes.minOf { preferred -> kotlin.math.abs(start - preferred) } } ?: return@mapNotNull null
             val startsAt = atMinute(day, best)
