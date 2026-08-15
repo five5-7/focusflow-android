@@ -8,6 +8,13 @@ import org.json.JSONObject
 class PrototypeStore(context: Context) {
     private val preferences = context.getSharedPreferences("focusflow", Context.MODE_PRIVATE)
 
+    fun loadTheme(): FocusFlowThemeOption =
+        FocusFlowThemeOption.fromStorageKey(preferences.getString("app_theme", null))
+
+    fun saveTheme(theme: FocusFlowThemeOption) {
+        preferences.edit().putString("app_theme", theme.storageKey).apply()
+    }
+
     fun loadItems(): List<Item> = runCatching {
         val values = JSONArray(preferences.getString("items", "[]") ?: "[]")
         val parsed = List(values.length()) { index ->
@@ -281,4 +288,3 @@ class PrototypeStore(context: Context) {
         }
     }.getOrDefault(emptyList())
 }
-

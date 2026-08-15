@@ -107,6 +107,7 @@ private fun FocusFlowApp() {
     var activeSession by remember { mutableStateOf(store.loadLatestActiveSession()) }
     var activityHistory by remember { mutableStateOf(store.loadRecentActivitySessions()) }
     var activitySettings by remember { mutableStateOf(store.loadActivityReminderSettings()) }
+    var themeOption by remember { mutableStateOf(store.loadTheme()) }
     var commuteProfile by remember { mutableStateOf(store.loadCommuteProfile()) }
     var courses by remember { mutableStateOf(if (store.hasCourseSetup()) store.loadCourses() else ScreenshotCoursePreview.courses) }
     var courseEditor by remember { mutableStateOf<Course?>(null) }
@@ -156,21 +157,13 @@ private fun FocusFlowApp() {
         }
     }
 
-    MaterialTheme(colorScheme = lightColorScheme(
-        primary = androidx.compose.ui.graphics.Color(0xFF155E75),
-        onPrimary = androidx.compose.ui.graphics.Color.White,
-        primaryContainer = androidx.compose.ui.graphics.Color(0xFFCFFAFE),
-        onPrimaryContainer = androidx.compose.ui.graphics.Color(0xFF164E63),
-        secondary = androidx.compose.ui.graphics.Color(0xFF6D28D9),
-        secondaryContainer = androidx.compose.ui.graphics.Color(0xFFEDE9FE),
-        background = androidx.compose.ui.graphics.Color(0xFFF8FAFC),
-        surface = androidx.compose.ui.graphics.Color.White,
-        surfaceVariant = androidx.compose.ui.graphics.Color(0xFFE2E8F0),
-        outline = androidx.compose.ui.graphics.Color(0xFF94A3B8)
-    )) {
+    val themeSpec = focusFlowThemeSpec(themeOption)
+    CompositionLocalProvider(LocalFocusFlowSchedulePalette provides themeSpec.schedulePalette) {
+    MaterialTheme(colorScheme = themeSpec.colorScheme) {
         Scaffold(
+            containerColor = MaterialTheme.colorScheme.background,
             bottomBar = {
-                NavigationBar {
+                NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
                     NavigationBarItem(selected = tab == 0, onClick = { selectTab(0) }, icon = { Text(if (tab == 0) "●" else "○") }, modifier = Modifier.weight(1f), label = { Text("今日") })
                     NavigationBarItem(selected = tab == 1, onClick = { selectTab(1) }, icon = { Text(if (tab == 1) "●" else "○") }, modifier = Modifier.weight(1f), label = { Text("日程") })
                     Box(Modifier.weight(0.82f), contentAlignment = Alignment.Center) {
@@ -239,7 +232,10 @@ private fun FocusFlowApp() {
                     },
                     feedback = feedback
                 )
-                else -> SettingsScreen(Modifier.padding(padding), commuteProfile, improvementNotes, roadmapSelections, activitySettings, onCommuteChange = { updated ->
+                else -> SettingsScreen(Modifier.padding(padding), themeOption, commuteProfile, improvementNotes, roadmapSelections, activitySettings, onThemeChange = { updated ->
+                    themeOption = updated
+                    store.saveTheme(updated)
+                }, onCommuteChange = { updated ->
                     commuteProfile = updated
                     store.saveCommuteProfile(updated)
                 }, onActivitySettingsChange = { updated ->
@@ -365,6 +361,7 @@ private fun FocusFlowApp() {
             store.saveImprovementNotes(improvementNotes)
             improvementOpen = false
         }
+    }
     }
 }
 
@@ -494,14 +491,27 @@ private fun FocusFlowApp() {
     }
 }
 
-private enum class ScheduleType(val label: String, val color: androidx.compose.ui.graphics.Color) {
-    COURSE("课程", androidx.compose.ui.graphics.Color(0xFF2474B5)),
-    LEARNING("学习／目标", androidx.compose.ui.graphics.Color(0xFF7654A8)),
-    EXERCISE("锻炼", androidx.compose.ui.graphics.Color(0xFF2F8F5B)),
-    ENTERTAINMENT("娱乐", androidx.compose.ui.graphics.Color(0xFFD65B7A)),
-    REST("休息", androidx.compose.ui.graphics.Color(0xFF6B7280)),
-    TASK("弹性任务", androidx.compose.ui.graphics.Color(0xFFBE6A18)),
-    COMPLETED("已完成", androidx.compose.ui.graphics.Color(0xFF94A3B8))
+private enum class ScheduleType(val label: String) {
+    COURSE("课程"),
+    LEARNING("学习／目标"),
+    EXERCISE("锻炼"),
+    ENTERTAINMENT("娱乐"),
+    REST("休息"),
+    TASK("弹性任务"),
+    COMPLETED("已完成")
+}
+
+@Composable private fun scheduleColor(type: ScheduleType): Color {
+    val palette = LocalFocusFlowSchedulePalette.current
+    return when (type) {
+        ScheduleType.COURSE -> palette.course
+        ScheduleType.LEARNING -> palette.learning
+        ScheduleType.EXERCISE -> palette.exercise
+        ScheduleType.ENTERTAINMENT -> palette.entertainment
+        ScheduleType.REST -> palette.rest
+        ScheduleType.TASK -> palette.task
+        ScheduleType.COMPLETED -> palette.completed
+    }
 }
 
 private fun Item.scheduleType(): ScheduleType = when {
@@ -513,13 +523,14 @@ private fun Item.scheduleType(): ScheduleType = when {
 }
 
 @Composable private fun ScheduleTableRow(title: String, detail: String, type: ScheduleType) {
+    val typeColor = scheduleColor(type)
     Card(
-        colors = CardDefaults.cardColors(containerColor = type.color.copy(alpha = 0.07f)),
+        colors = CardDefaults.cardColors(containerColor = typeColor.copy(alpha = 0.10f)),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
         Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Box(Modifier.width(5.dp).height(48.dp).background(type.color, MaterialTheme.shapes.small))
-            Text(type.label, Modifier.width(88.dp), fontWeight = FontWeight.Bold, color = type.color)
+            Box(Modifier.width(5.dp).height(48.dp).background(typeColor, MaterialTheme.shapes.small))
+            Text(type.label, Modifier.width(88.dp), fontWeight = FontWeight.Bold, color = typeColor)
             Column(Modifier.weight(1f)) {
                 Text(title, fontWeight = FontWeight.SemiBold)
                 Text(detail, style = MaterialTheme.typography.bodySmall)
@@ -680,6 +691,7 @@ private fun layoutTimelineEvents(events: List<TimelineEvent>): List<TimelineEven
         }
         layouts.forEach { layout ->
             val event = layout.event
+            val eventColor = scheduleColor(event.type)
             val topMinutes = event.startMinute.coerceAtLeast(TIMELINE_START_MINUTE) - TIMELINE_START_MINUTE
             val bottomMinutes = event.endMinute.coerceAtMost(TIMELINE_END_MINUTE) - TIMELINE_START_MINUTE
             val top = timelineHourHeight * (topMinutes / 60f)
@@ -689,7 +701,7 @@ private fun layoutTimelineEvents(events: List<TimelineEvent>): List<TimelineEven
             val blockOffset = (laneWidth - blockWidth) / 2f
             Surface(
                 modifier = Modifier.offset(x = laneWidth * layout.lane.toFloat() + blockOffset, y = top).width(blockWidth).height(height).padding(vertical = 1.dp).clickable { onSelect(event) },
-                color = event.type.color.copy(alpha = 0.88f),
+                color = eventColor.copy(alpha = 0.88f),
                 contentColor = Color.White,
                 shape = RoundedCornerShape(7.dp),
                 tonalElevation = 1.dp
@@ -705,19 +717,21 @@ private fun layoutTimelineEvents(events: List<TimelineEvent>): List<TimelineEven
 
 @Composable private fun TimelineLegend() {
     Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
-        ScheduleType.entries.forEach { type -> Text("● ${type.label}", color = type.color, style = MaterialTheme.typography.labelSmall) }
+        ScheduleType.entries.forEach { type -> Text("● ${type.label}", color = scheduleColor(type), style = MaterialTheme.typography.labelSmall) }
     }
 }
 
 @Composable private fun TimelineEventDialog(event: TimelineEvent, onDismiss: () -> Unit, onTaskDone: (Item) -> Unit) {
+    val eventColor = scheduleColor(event.type)
+    val completedColor = scheduleColor(ScheduleType.COMPLETED)
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(event.title) },
         text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("${weekdayName(event.weekday)}  ${formatMinute(event.startMinute)}–${formatMinute(event.endMinute)}", fontWeight = FontWeight.SemiBold)
-            Text(event.type.label, color = event.type.color)
+            Text(event.type.label, color = eventColor)
             Text(event.detail)
-            event.item?.takeIf { it.done }?.let { Text("已完成${it.completionLevel.takeIf { level -> level.isNotBlank() }?.let { level -> " · $level" } ?: ""}", color = ScheduleType.COMPLETED.color, fontWeight = FontWeight.SemiBold) }
+            event.item?.takeIf { it.done }?.let { Text("已完成${it.completionLevel.takeIf { level -> level.isNotBlank() }?.let { level -> " · $level" } ?: ""}", color = completedColor, fontWeight = FontWeight.SemiBold) }
         } },
         confirmButton = { event.item?.takeIf { !it.done }?.let { item -> Button(onClick = { onTaskDone(item) }) { Text("完成") } } ?: TextButton(onClick = onDismiss) { Text("关闭") } },
         dismissButton = { if (event.item?.done == false) TextButton(onClick = onDismiss) { Text("关闭") } }
@@ -1167,10 +1181,35 @@ private fun weekdayName(day: Int) = listOf("", "周一", "周二", "周三", "�
     }
 }
 
-@Composable private fun SettingsScreen(modifier: Modifier, commuteProfile: CommuteProfile, improvementNotes: List<ImprovementNote>, roadmapSelections: Set<String>, activitySettings: ActivityReminderSettings, onCommuteChange: (CommuteProfile) -> Unit, onActivitySettingsChange: (ActivityReminderSettings) -> Unit, onAddImprovement: () -> Unit, onToggleRoadmap: (RoadmapFeature) -> Unit) {
+@Composable private fun SettingsScreen(modifier: Modifier, themeOption: FocusFlowThemeOption, commuteProfile: CommuteProfile, improvementNotes: List<ImprovementNote>, roadmapSelections: Set<String>, activitySettings: ActivityReminderSettings, onThemeChange: (FocusFlowThemeOption) -> Unit, onCommuteChange: (CommuteProfile) -> Unit, onActivitySettingsChange: (ActivityReminderSettings) -> Unit, onAddImprovement: () -> Unit, onToggleRoadmap: (RoadmapFeature) -> Unit) {
     val context = LocalContext.current
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Text("设置", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
+        Text("外观", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        Text("选择后立即应用到页面、导航、卡片、控件与日程色块。", style = MaterialTheme.typography.bodySmall)
+        FocusFlowThemeOption.entries.forEach { option ->
+            val preview = focusFlowThemeSpec(option)
+            Card(
+                modifier = Modifier.fillMaxWidth().clickable { onThemeChange(option) },
+                colors = CardDefaults.cardColors(
+                    containerColor = if (themeOption == option) preview.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.38f)
+                )
+            ) {
+                Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                        listOf(preview.colorScheme.primary, preview.colorScheme.secondary, preview.schedulePalette.course).forEach { color ->
+                            Box(Modifier.size(18.dp).clip(RoundedCornerShape(9.dp)).background(color))
+                        }
+                    }
+                    Column(Modifier.weight(1f)) {
+                        Text(option.label, fontWeight = FontWeight.SemiBold)
+                        Text(option.description, style = MaterialTheme.typography.bodySmall)
+                    }
+                    Text(if (themeOption == option) "已选择" else "选择", color = if (themeOption == option) preview.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.SemiBold)
+                }
+            }
+        }
+        HorizontalDivider()
         Text("活动提醒", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
         SettingSwitch("活动提醒", "关闭后仍会保留活动记录和手动转场", activitySettings.notificationsEnabled) { onActivitySettingsChange(activitySettings.copy(notificationsEnabled = it)) }
         SettingSwitch("明确的到点提醒", "到达约定时间时使用更醒目的提醒", activitySettings.strongerEndReminder) { onActivitySettingsChange(activitySettings.copy(strongerEndReminder = it)) }
