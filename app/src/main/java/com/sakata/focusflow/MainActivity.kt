@@ -112,7 +112,12 @@ private fun FocusFlowApp() {
     var improvementNotes by remember { mutableStateOf(store.loadImprovementNotes()) }
     var improvementOpen by remember { mutableStateOf(false) }
     var roadmapSelections by remember { mutableStateOf(store.loadRoadmapSelections()) }
+    var planOpenGeneration by remember { mutableIntStateOf(0) }
     fun saveItems(updated: List<Item>) { items = updated; store.saveItems(updated) }
+    fun selectTab(index: Int) {
+        if (index == 2 && tab != 2) planOpenGeneration++
+        tab = index
+    }
 
     MaterialTheme(colorScheme = lightColorScheme(
         primary = androidx.compose.ui.graphics.Color(0xFF155E75),
@@ -127,14 +132,15 @@ private fun FocusFlowApp() {
         outline = androidx.compose.ui.graphics.Color(0xFF94A3B8)
     )) {
         Scaffold(
-            floatingActionButton = {
-                FloatingActionButton(onClick = { addOpen = true }) { Text("＋", style = MaterialTheme.typography.headlineMedium) }
-            },
             bottomBar = {
                 NavigationBar {
-                    listOf("今日", "收集箱", "计划", "设置").forEachIndexed { index, label ->
-                        NavigationBarItem(selected = tab == index, onClick = { tab = index }, icon = { Text(if (tab == index) "●" else "○") }, label = { Text(label) })
+                    NavigationBarItem(selected = tab == 0, onClick = { selectTab(0) }, icon = { Text(if (tab == 0) "●" else "○") }, modifier = Modifier.weight(1f), label = { Text("今日") })
+                    NavigationBarItem(selected = tab == 1, onClick = { selectTab(1) }, icon = { Text(if (tab == 1) "●" else "○") }, modifier = Modifier.weight(1f), label = { Text("收集箱") })
+                    Box(Modifier.weight(0.82f).fillMaxHeight(), contentAlignment = Alignment.Center) {
+                        FloatingActionButton(modifier = Modifier.size(50.dp), onClick = { addOpen = true }) { Text("＋", style = MaterialTheme.typography.headlineSmall) }
                     }
+                    NavigationBarItem(selected = tab == 2, onClick = { selectTab(2) }, icon = { Text(if (tab == 2) "●" else "○") }, modifier = Modifier.weight(1f), label = { Text("计划") })
+                    NavigationBarItem(selected = tab == 3, onClick = { selectTab(3) }, icon = { Text(if (tab == 3) "●" else "○") }, modifier = Modifier.weight(1f), label = { Text("设置") })
                 }
             }
         ) { padding ->
@@ -155,7 +161,7 @@ private fun FocusFlowApp() {
                     onPause = { item -> saveItems(items.map { if (it.id == item.id) it.copy(kind = "暂停", detail = "已暂停；随时可在计划中恢复") else it }) },
                     onAbandon = { item -> saveItems(items.filterNot { it.id == item.id }) }
                 )
-                2 -> PlansScreen(
+                2 -> key(planOpenGeneration) { PlansScreen(
                     Modifier.padding(padding), items, courses, commuteProfile,
                     onResume = { item -> saveItems(items.map { if (it.id == item.id) it.copy(kind = "任务", detail = "已恢复；今天有空时再做", scheduledAt = null) else it }) },
                     onConfirmCourse = { course ->
@@ -182,7 +188,7 @@ private fun FocusFlowApp() {
                         store.saveResources(resources)
                     },
                     feedback = feedback
-                )
+                ) }
                 else -> SettingsScreen(Modifier.padding(padding), commuteProfile, improvementNotes, roadmapSelections, onCommuteChange = { updated ->
                     commuteProfile = updated
                     store.saveCommuteProfile(updated)
@@ -367,8 +373,8 @@ private fun Item.scheduleType(): ScheduleType = when {
     }
 }
 
-private const val TIMELINE_START_MINUTE = 8 * 60
-private const val TIMELINE_END_MINUTE = 22 * 60
+private const val TIMELINE_START_MINUTE = 6 * 60
+private const val TIMELINE_END_MINUTE = 24 * 60
 private val timelineHourHeight = 64.dp
 
 private data class TimelineEvent(
@@ -453,7 +459,6 @@ private fun layoutTimelineEvents(events: List<TimelineEvent>): List<TimelineEven
 }
 
 @Composable private fun WeeklyScheduleTimeline(courses: List<Course>, items: List<Item>, onTaskDone: (Item) -> Unit) {
-    val scroll = rememberScrollState()
     val courseEvents = courses.mapIndexed { index, course -> course.asTimelineEvent(index) }
     val taskEvents = items.filter { !it.dayOnly && it.scheduledAt?.let(::isInCurrentWeek) == true }.mapNotNull { it.asTimelineEvent() }
     var selected by remember { mutableStateOf<TimelineEvent?>(null) }
@@ -466,21 +471,21 @@ private fun layoutTimelineEvents(events: List<TimelineEvent>): List<TimelineEven
         Switch(checked = showCourseInfo, onCheckedChange = { showCourseInfo = it })
     }
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
-        Column(Modifier.fillMaxWidth().horizontalScroll(scroll).padding(horizontal = 6.dp, vertical = 10.dp)) {
-            Row {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 10.dp)) {
+            Row(Modifier.fillMaxWidth()) {
                 Spacer(Modifier.width(50.dp))
                 (1..7).forEach { day ->
                     Surface(
-                        modifier = Modifier.width(80.dp).padding(horizontal = 2.dp),
+                        modifier = Modifier.weight(1f).padding(horizontal = 1.dp),
                         color = if (day == todayWeekday()) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
                         shape = RoundedCornerShape(10.dp)
                     ) { Text(weekdayName(day), Modifier.padding(vertical = 8.dp), textAlign = androidx.compose.ui.text.style.TextAlign.Center, fontWeight = FontWeight.SemiBold) }
                 }
             }
-            Row {
+            Row(Modifier.fillMaxWidth()) {
                 TimelineTimeAxis()
                 (1..7).forEach { day ->
-                    TimelineDayLane((courseEvents + taskEvents).filter { it.weekday == day }, Modifier.width(80.dp), showCurrentTime = day == todayWeekday(), showLabels = false, compactBlocks = true, onSelect = { selected = it })
+                    TimelineDayLane((courseEvents + taskEvents).filter { it.weekday == day }, Modifier.weight(1f), showCurrentTime = day == todayWeekday(), showLabels = false, compactBlocks = true, onSelect = { selected = it })
                 }
             }
         }
@@ -710,7 +715,7 @@ private fun isToday(time: Long): Boolean {
             }
         }
 
-        PlanSectionCard("课程与空档", "${confirmedCourses.size} 门已确认 · ${awaitingCourses.size} 门待确认", initiallyExpanded = true) {
+        PlanSectionCard("课程与空档", "${confirmedCourses.size} 门已确认 · ${awaitingCourses.size} 门待确认") {
             TextButton(onClick = onAddCourse) { Text("＋ 手动新增课程") }
             if (awaitingCourses.isNotEmpty()) {
                 Text("待确认课程", fontWeight = FontWeight.Bold)
@@ -765,7 +770,7 @@ private fun isToday(time: Long): Boolean {
             }
         }
 
-        PlanSectionCard("目标与执行", if (goals.isEmpty()) "尚未创建目标" else "${goals.size} 个目标", initiallyExpanded = true) {
+        PlanSectionCard("目标与执行", if (goals.isEmpty()) "尚未创建目标" else "${goals.size} 个目标") {
             TextButton(onClick = onAddGoal) { Text("＋ 新增目标") }
             goals.forEach { goal ->
                 val suggestions = GoalPlanner.suggestions(goal, courses, profile)
@@ -825,7 +830,7 @@ private fun isToday(time: Long): Boolean {
                     Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                     Text(summary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                Text(if (expanded) "收起" else "展开", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
+                Text(if (expanded) "︿" else "﹀", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
             }
             if (expanded) {
                 HorizontalDivider()
