@@ -8,10 +8,6 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: focusflow-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
   build-apk:
     runs-on: ubuntu-latest
