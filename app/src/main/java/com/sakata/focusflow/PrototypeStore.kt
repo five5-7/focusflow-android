@@ -100,6 +100,8 @@ class PrototypeStore(context: Context) {
 
     fun loadLatestActiveSession(): ActivitySession? = loadSessions().lastOrNull(ActivitySession::isOpen)
 
+    fun loadRecentActivitySessions(limit: Int = 20): List<ActivitySession> = loadSessions().takeLast(limit.coerceIn(1, 50)).reversed()
+
     fun loadActivityReminderSettings(): ActivityReminderSettings = ActivityReminderSettings(
         notificationsEnabled = preferences.getBoolean("activity_notifications", true),
         previewMinutes = preferences.getInt("activity_preview_minutes", 10).coerceIn(0, 60),
