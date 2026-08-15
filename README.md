@@ -1,6 +1,6 @@
 # FocusFlow Android prototype
 
-当前应用版本：**2.3**。功能更新记录见 [CHANGELOG.md](CHANGELOG.md)。
+当前应用版本：**2.4**。功能更新记录见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## First open in Android Studio
 
@@ -16,7 +16,7 @@ dependencies used by this prototype.
 
 The included GitHub Actions workflow builds a debug APK on a GitHub runner.
 Push this folder to a GitHub repository, then open **Actions** and run
-**Build FocusFlow APK**. Download the `FocusFlow-2.3-apk` artifact after the
+**Build FocusFlow APK**. Download the `FocusFlow-2.4-apk` artifact after the
 workflow succeeds.
 
 本项目是一个面向 Android 的本地优先日程与执行辅助原型。核心目标不是维护一张完整日历，而是降低记录压力、按当前状态调整提醒，并在错过计划后帮助恢复。
@@ -27,6 +27,7 @@ workflow succeeds.
 - 今日概览只显示最近的收集箱条目；完整收集箱使用与计划副页面一致的转场、系统返回和底栏反馈
 - 设置页提供四套可即时切换并本地保存的整体主题，日程分类色也会随主题协调变化
 - “下一件合适的事”会结合逾期、临近安排、可用空档和预计用时给出建议，并展示推荐原因
+- 今日页可手动选择精力偏低、正常或充足；弹性任务推荐会调整顺序，但固定日程不受影响
 - 计划主页使用固定入口目录，课程、空挡、目标与执行、本周回顾、暂停项目分别进入可滚动副页面
 - 教程资料并入“目标与执行”，空挡建议与课程管理分离
 - V2 活动模式：开始前约定结束时间和下一步，支持倒计时、提前预告与明确的到点转场
@@ -45,6 +46,7 @@ workflow succeeds.
 - 设置页可导入经过校验的 JSON 校园地点包；导入地点会用于课程编辑、空挡判断与路线估算，也可手动选择当前位置进行路线预览
 - “校园生活”总开关可暂停校内地点辅助而不删除课程、地点包或通勤参数
 - 地点包卡片提供圆形问号说明，包含 JSON 示例、分区代码、保存方式与导入步骤
+- 普通地点流程优先使用应用目录；JSON 导入已降为高级迁移入口，后续默认使用自动 POI 搜索和地图点选
 - 可在路线预览中记录实际总耗时；校正值按出行方式和分区组合保存，并用于课程空挡与目标候选时间
 - 地点功能不申请系统定位权限，不后台追踪；V3 再基于用户确认的实际记录学习通勤时间
 - 根据已上传的课表截图生成待确认的课程预览；只有用户确认的课程才会保存并用于计算课程间空档
