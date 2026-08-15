@@ -116,6 +116,7 @@ private fun FocusFlowApp() {
         .sortedWith(compareBy<Item> { it.scheduledAt ?: Long.MAX_VALUE }.thenBy { it.title })
         .firstOrNull()
     val upcomingCommitment = nextActivityCommitment(items, courses)
+    val suggestedNextStepName = upcomingCommitment?.title ?: suggestedNextStep?.title.orEmpty()
     fun saveItems(updated: List<Item>) { items = updated; store.saveItems(updated) }
     fun selectTab(index: Int) {
         if (index == 2 && tab != 2) planOpenGeneration++
@@ -231,7 +232,7 @@ private fun FocusFlowApp() {
             if (tomorrow) ReminderScheduler.scheduleTaskReminder(context, captured)
             addOpen = false
         }
-        if (activityOpen) ActivityDialog(suggestedNextStep?.title.orEmpty(), onDismiss = { activityOpen = false }) { category, name, endsAt, nextStep ->
+        if (activityOpen) ActivityDialog(suggestedNextStepName, onDismiss = { activityOpen = false }) { category, name, endsAt, nextStep ->
             val now = System.currentTimeMillis()
             val session = ActivitySession(name = name, category = category, plannedStartAt = now, actualStartAt = now, endsAt = endsAt, nextStep = nextStep)
             store.saveSession(session)
@@ -254,9 +255,10 @@ private fun FocusFlowApp() {
                 val now = System.currentTimeMillis()
                 store.finishSession(session.id, ActivitySession.STATUS_COMPLETED, "started_next", now)
                 ReminderScheduler.cancelActivityReminders(context, session.id)
-                val nextName = session.nextStep.ifBlank { suggestedNextStep?.title.orEmpty() }
+                val nextName = session.nextStep.ifBlank { suggestedNextStepName }
                 if (nextName.isNotBlank()) {
-                    val duration = items.firstOrNull { it.title == nextName }?.durationMinutes ?: 30
+                    val courseDuration = courses.firstOrNull { nextName.startsWith(it.title) }?.let { CourseGapPlanner.periodEnd(it.endPeriod) - CourseGapPlanner.periodStart(it.startPeriod) }
+                    val duration = items.firstOrNull { it.title == nextName }?.durationMinutes ?: courseDuration ?: 30
                     val nextSession = ActivitySession(name = nextName, category = "下一步", plannedStartAt = now, actualStartAt = now, endsAt = now + duration * 60_000L)
                     store.saveSession(nextSession)
                     activeSession = nextSession
@@ -1097,9 +1099,6 @@ private fun weekdayName(day: Int) = listOf("", "周一", "周二", "周三", "�
 ) {
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Text("设置", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
-        var persistent by remember { mutableStateOf(false) }
-        SettingSwitch("常驻快速记录通知", "在通知栏提供一键记录", persistent) { persistent = it }
-        HorizontalDivider()
         Text("活动提醒", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
         SettingSwitch("活动提醒", "关闭后仍会保留活动记录和手动转场", activitySettings.notificationsEnabled) { onActivitySettingsChange(activitySettings.copy(notificationsEnabled = it)) }
         SettingSwitch("明确的到点提醒", "到达约定时间时使用更醒目的提醒", activitySettings.strongerEndReminder) { onActivitySettingsChange(activitySettings.copy(strongerEndReminder = it)) }
@@ -1117,6 +1116,7 @@ private fun weekdayName(day: Int) = listOf("", "周一", "周二", "周三", "�
             valueRange = 0f..6f,
             steps = 5
         )
+        Text("如果 ColorOS 延迟到点提醒，可在系统的“闹钟和提醒”及电池设置中允许 FocusFlow；未授权精确提醒时仍会自动使用普通后台提醒。", style = MaterialTheme.typography.bodySmall)
         HorizontalDivider()
         Text("通勤与地点", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
         Text("地点不再单独占一个页面；它只在安排课程空档时用于估计去图书馆、操场或下一栋教学楼是否来得及。", style = MaterialTheme.typography.bodySmall)
@@ -1251,7 +1251,7 @@ private fun weekdayName(day: Int) = listOf("", "周一", "周二", "周三", "�
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     listOf(10, 20, 30).forEach { value -> FilterChip(selected = extensionMinutes == value, onClick = { extensionMinutes = value }, label = { Text("$value 分钟") }) }
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     listOf("还没结束", "不想停", "临时被打断").forEach { label -> FilterChip(selected = reason == label, onClick = { reason = label }, label = { Text(label) }) }
                 }
                 conflict?.let { Text("延长到 ${formatTime(extensionEnd)} 会碰到 ${formatTime(it.startsAt)} 的 ${it.title}；FocusFlow 不会自动改动它。", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
