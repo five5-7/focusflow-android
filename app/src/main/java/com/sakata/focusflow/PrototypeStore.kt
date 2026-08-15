@@ -218,10 +218,37 @@ class PrototypeStore(context: Context) {
                 values.optInt(key).takeIf { it in 1..180 }?.let { parsed[key] = it }
             }
             parsed
-        }.getOrDefault(emptyMap())
+        }.getOrDefault(emptyMap()),
+        routeObservations = runCatching {
+            val values = JSONObject(preferences.getString("route_observations", "{}") ?: "{}")
+            val parsed = mutableMapOf<String, List<Int>>()
+            val keys = values.keys()
+            while (keys.hasNext()) {
+                val key = keys.next()
+                val entries = values.optJSONArray(key) ?: continue
+                val minutes = List(entries.length()) { entries.optInt(it) }.filter { it in 1..180 }.takeLast(12)
+                if (minutes.isNotEmpty()) parsed[key] = minutes
+            }
+            parsed
+        }.getOrDefault(emptyMap()).ifEmpty {
+            runCatching {
+                val legacy = JSONObject(preferences.getString("route_calibrations", "{}") ?: "{}")
+                val parsed = mutableMapOf<String, List<Int>>()
+                val keys = legacy.keys()
+                while (keys.hasNext()) {
+                    val key = keys.next()
+                    legacy.optInt(key).takeIf { it in 1..180 }?.let { parsed[key] = listOf(it) }
+                }
+                parsed
+            }.getOrDefault(emptyMap())
+        }
     )
 
     fun saveCommuteProfile(profile: CommuteProfile) {
+        val observations = JSONObject()
+        profile.routeObservations.forEach { (key, values) ->
+            observations.put(key, JSONArray().apply { values.takeLast(12).forEach { put(it) } })
+        }
         preferences.edit()
             .putBoolean("commute_enabled", profile.enabled)
             .putInt("commute_one_way_minutes", profile.oneWayMinutes)
@@ -229,6 +256,7 @@ class PrototypeStore(context: Context) {
             .putInt("building_buffer_minutes", profile.buildingBufferMinutes)
             .putString("ebike_battery", profile.eBikeBattery)
             .putString("route_calibrations", JSONObject(profile.routeCalibrations).toString())
+            .putString("route_observations", observations.toString())
             .apply()
     }
 

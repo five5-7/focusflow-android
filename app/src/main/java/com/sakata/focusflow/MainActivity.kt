@@ -98,7 +98,8 @@ data class CommuteProfile(
     val campusMode: String = "步行",
     val buildingBufferMinutes: Int = 3,
     val eBikeBattery: String = "未知",
-    val routeCalibrations: Map<String, Int> = emptyMap()
+    val routeCalibrations: Map<String, Int> = emptyMap(),
+    val routeObservations: Map<String, List<Int>> = emptyMap()
 )
 
 @Composable
@@ -1895,16 +1896,17 @@ private fun weekdayName(day: Int) = listOf("", "周一", "周二", "周三", "�
             val from = campusPlaces.firstOrNull { it.name == currentCampusPlace }
             val to = campusPlaces.firstOrNull { it.name == previewDestination }
             if (from != null && to != null) {
+                val key = ZijingangTravel.routeKey(from.zone, to.zone, commuteProfile.campusMode)
                 val minutes = ZijingangTravel.estimateMinutes(from.zone, to.zone, commuteProfile)
                 val calibrated = ZijingangTravel.calibratedMinutes(from.zone, to.zone, commuteProfile)
-                Text("${from.name} → ${to.name}：按${commuteProfile.campusMode}${if (calibrated == null) "估计" else "校正后"}约 $minutes 分钟（含楼内缓冲）。", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
+                val observations = commuteProfile.routeObservations[key].orEmpty()
+                Text("${from.name} → ${to.name}：按${commuteProfile.campusMode}${if (calibrated == null) "估计" else "学习后"}约 $minutes 分钟（含楼内缓冲）。", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
+                if (observations.isNotEmpty()) Text("基于 ${observations.size} 次确认记录：${observations.takeLast(5).joinToString("、")} 分钟${if (observations.size > 5) "（显示最近 5 次）" else ""}。", style = MaterialTheme.typography.labelSmall)
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    TextButton(onClick = { routeCalibrationTarget = Pair(from, to) }) { Text(if (calibrated == null) "记录实际耗时" else "更新实际耗时") }
-                    if (calibrated != null) TextButton(onClick = {
-                        val key = ZijingangTravel.routeKey(from.zone, to.zone, commuteProfile.campusMode)
-                        onCommuteChange(commuteProfile.copy(routeCalibrations = commuteProfile.routeCalibrations - key))
-                    }) { Text("恢复初始估计") }
+                    TextButton(onClick = { routeCalibrationTarget = Pair(from, to) }) { Text("记录本次耗时") }
+                    if (observations.isNotEmpty()) TextButton(onClick = { onCommuteChange(CommuteLearning.undoLatest(commuteProfile, key)) }) { Text("撤销最近记录") }
                 }
+                if (calibrated != null) TextButton(onClick = { onCommuteChange(CommuteLearning.clear(commuteProfile, key)) }) { Text("清除该路线学习") }
             }
             TextButton(onClick = { onCurrentCampusPlaceChange(null) }) { Text("清除当前位置") }
         }
@@ -1946,10 +1948,11 @@ private fun weekdayName(day: Int) = listOf("", "周一", "周二", "周三", "�
             to = to,
             mode = commuteProfile.campusMode,
             currentMinutes = ZijingangTravel.estimateMinutes(from.zone, to.zone, commuteProfile),
+            history = commuteProfile.routeObservations[ZijingangTravel.routeKey(from.zone, to.zone, commuteProfile.campusMode)].orEmpty(),
             onDismiss = { routeCalibrationTarget = null },
             onSave = { minutes ->
                 val key = ZijingangTravel.routeKey(from.zone, to.zone, commuteProfile.campusMode)
-                onCommuteChange(commuteProfile.copy(routeCalibrations = commuteProfile.routeCalibrations + (key to minutes)))
+                onCommuteChange(CommuteLearning.record(commuteProfile, key, minutes))
                 routeCalibrationTarget = null
             }
         )
@@ -1986,21 +1989,22 @@ private fun weekdayName(day: Int) = listOf("", "周一", "周二", "周三", "�
     )
 }
 
-@Composable private fun RouteCalibrationDialog(from: CampusPlace, to: CampusPlace, mode: String, currentMinutes: Int, onDismiss: () -> Unit, onSave: (Int) -> Unit) {
+@Composable private fun RouteCalibrationDialog(from: CampusPlace, to: CampusPlace, mode: String, currentMinutes: Int, history: List<Int>, onDismiss: () -> Unit, onSave: (Int) -> Unit) {
     var minutes by remember(from, to, mode) { mutableStateOf(currentMinutes.toString()) }
     val parsed = minutes.toIntOrNull()
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("记录实际耗时") },
+        title = { Text("确认本次通勤耗时") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("${from.name} → ${to.name} · $mode")
-                Text("填写从出发到到达的实际总分钟数，包含进出楼和找教室时间。")
+                Text("填写从出发到到达的实际总分钟数，包含进出楼和找教室时间。不读取定位。")
+                if (history.isNotEmpty()) Text("已有 ${history.size} 次确认记录；学习值使用最近记录的中位数，单次异常不会直接覆盖结果。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                 OutlinedTextField(value = minutes, onValueChange = { minutes = it.filter(Char::isDigit).take(3) }, label = { Text("实际分钟数") }, singleLine = true)
-                Text("保存后，同一出行方式和分区组合的课程空挡、目标候选时间与路线预览都会使用该数值。", style = MaterialTheme.typography.bodySmall)
+                Text("保存后，同一出行方式和分区组合会新增一条确认记录；课程空挡、目标候选时间与路线预览会使用学习后的中位数。", style = MaterialTheme.typography.bodySmall)
             }
         },
-        confirmButton = { Button(enabled = parsed != null && parsed in 1..180, onClick = { parsed?.let(onSave) }) { Text("保存校正") } },
+        confirmButton = { Button(enabled = parsed != null && parsed in 1..180, onClick = { parsed?.let(onSave) }) { Text("保存本次记录") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }
     )
 }
