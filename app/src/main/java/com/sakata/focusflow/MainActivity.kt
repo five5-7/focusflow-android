@@ -339,7 +339,7 @@ private fun Item.scheduleType(): ScheduleType = when {
         }
         (1..13).forEach { period ->
             Row(Modifier.heightIn(min = 54.dp)) {
-                Text("${formatMinute(CourseGapPlanner.periodStart(period))}\n第$period节", Modifier.width(58.dp).padding(6.dp), style = MaterialTheme.typography.labelSmall)
+                Text("${formatMinute(CourseGapPlanner.periodStart(period))}\n第${period}节", Modifier.width(58.dp).padding(6.dp), style = MaterialTheme.typography.labelSmall)
                 (1..7).forEach { day ->
                     val course = courses.firstOrNull { it.weekday == day && it.startPeriod == period }
                     val task = items.firstOrNull { !it.done && it.scheduledAt?.let { isInCurrentWeek(it) && todayWeekday(it) == day && periodForMinute(minuteOfDay(it)) == period } == true }
@@ -459,7 +459,11 @@ private fun minuteOfDay(time: Long): Int {
     return calendar.get(java.util.Calendar.HOUR_OF_DAY) * 60 + calendar.get(java.util.Calendar.MINUTE)
 }
 private fun periodForMinute(minute: Int): Int = (1..13).lastOrNull { CourseGapPlanner.periodStart(it) <= minute } ?: 1
-private fun isInCurrentWeek(time: Long): Boolean = time in GoalPlanner.currentWeekKey() until GoalPlanner.currentWeekKey() + 7 * 24 * 60 * 60_000L
+private fun isInCurrentWeek(time: Long): Boolean {
+    val weekStart = GoalPlanner.currentWeekKey()
+    val weekEnd = weekStart + 7 * 24 * 60 * 60_000L
+    return time >= weekStart && time < weekEnd
+}
 private fun isToday(time: Long): Boolean {
     val target = java.util.Calendar.getInstance().apply { timeInMillis = time }
     val today = java.util.Calendar.getInstance()

@@ -1,11 +1,23 @@
 # FocusFlow Android prototype
 
+当前应用版本：**1.0**。功能更新记录见 [CHANGELOG.md](CHANGELOG.md)。
+
 ## First open in Android Studio
 
 The project uses Android Gradle Plugin 8.6.1 and its matching Gradle 8.7 wrapper.
 Open the `focusflow-android` folder itself in Android Studio and let it download
 `gradle-8.7-bin.zip` on the first sync. Do not upgrade Gradle or the Android
 Gradle Plugin before the first build.
+
+AndroidX is enabled in `gradle.properties`, which is required by the Compose
+dependencies used by this prototype.
+
+## Optional cloud APK build
+
+The included GitHub Actions workflow builds a debug APK on a GitHub runner.
+Push this folder to a GitHub repository, then open **Actions** and run
+**Build FocusFlow APK**. Download the `FocusFlow-debug-apk` artifact after the
+workflow succeeds.
 
 本项目是一个面向 Android 的本地优先日程与执行辅助原型。核心目标不是维护一张完整日历，而是降低记录压力、按当前状态调整提醒，并在错过计划后帮助恢复。
 
