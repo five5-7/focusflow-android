@@ -50,6 +50,9 @@ enum class BaselineEventType(val label: String, val storageKey: String) {
     TASK_COMPLETED("任务完成", "task_completed"),
     CHECK_IN_RECORDED("精力签到", "check_in_recorded"),
     COMMUTE_CONFIRMED("通勤确认", "commute_confirmed"),
+    MEAL_STARTED("开始吃饭", "meal_started"),
+    MEAL_ENDED("吃完确认", "meal_ended"),
+    MEAL_SKIPPED("跳过餐次", "meal_skipped"),
     BASELINE_REBUILT("基线重建", "baseline_rebuilt")
 }
 

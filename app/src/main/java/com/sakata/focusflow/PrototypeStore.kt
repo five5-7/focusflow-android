@@ -464,6 +464,109 @@ class PrototypeStore(context: Context) {
             .apply()
     }
 
+    fun loadMealRecords(limit: Int = 200): List<MealRecord> = runCatching {
+        val values = JSONArray(preferences.getString("meal_records", "[]") ?: "[]")
+        List(values.length()) { index ->
+            val value = values.getJSONObject(index)
+            MealRecord(
+                id = value.getLong("id"),
+                mealType = MealType.fromLabel(value.optString("mealType", "")) ?: MealType.LUNCH,
+                lifeStage = value.optString("lifeStage", ""),
+                startedAt = value.optLong("startedAt", 0),
+                endedAt = value.optLong("endedAt").takeIf { it > 0 },
+                location = value.optString("location", ""),
+                category = value.optString("category", ""),
+                merchant = value.optString("merchant", ""),
+                amount = value.optInt("amount", -1),
+                payMethod = value.optString("payMethod", ""),
+                rating = value.optInt("rating", 0).coerceIn(0, 5),
+                note = value.optString("note", ""),
+                recordedAt = value.optLong("recordedAt", value.optLong("startedAt", 0))
+            )
+        }.takeLast(limit.coerceIn(1, 500))
+    }.getOrDefault(emptyList())
+
+    fun appendMealRecord(record: MealRecord) {
+        val all = (loadMealRecords(500) + record).takeLast(500)
+        val values = JSONArray()
+        all.forEach { value -> values.put(JSONObject().apply {
+            put("id", value.id)
+            put("mealType", value.mealType.label)
+            put("lifeStage", value.lifeStage)
+            put("startedAt", value.startedAt)
+            put("endedAt", value.endedAt ?: 0)
+            put("location", value.location)
+            put("category", value.category)
+            put("merchant", value.merchant)
+            put("amount", value.amount)
+            put("payMethod", value.payMethod)
+            put("rating", value.rating)
+            put("note", value.note)
+            put("recordedAt", value.recordedAt)
+        }) }
+        preferences.edit().putString("meal_records", values.toString()).apply()
+    }
+
+    fun updateMealRecordEnd(id: Long, endedAt: Long) {
+        val updated = loadMealRecords(500).map { if (it.id == id) it.copy(endedAt = endedAt) else it }
+        val values = JSONArray()
+        updated.forEach { value -> values.put(JSONObject().apply {
+            put("id", value.id)
+            put("mealType", value.mealType.label)
+            put("lifeStage", value.lifeStage)
+            put("startedAt", value.startedAt)
+            put("endedAt", value.endedAt ?: 0)
+            put("location", value.location)
+            put("category", value.category)
+            put("merchant", value.merchant)
+            put("amount", value.amount)
+            put("payMethod", value.payMethod)
+            put("rating", value.rating)
+            put("note", value.note)
+            put("recordedAt", value.recordedAt)
+        }) }
+        preferences.edit().putString("meal_records", values.toString()).apply()
+    }
+
+    fun deleteMealRecord(id: Long) {
+        val remaining = loadMealRecords(500).filterNot { it.id == id }
+        val values = JSONArray()
+        remaining.forEach { value -> values.put(JSONObject().apply {
+            put("id", value.id)
+            put("mealType", value.mealType.label)
+            put("lifeStage", value.lifeStage)
+            put("startedAt", value.startedAt)
+            put("endedAt", value.endedAt ?: 0)
+            put("location", value.location)
+            put("category", value.category)
+            put("merchant", value.merchant)
+            put("amount", value.amount)
+            put("payMethod", value.payMethod)
+            put("rating", value.rating)
+            put("note", value.note)
+            put("recordedAt", value.recordedAt)
+        }) }
+        preferences.edit().putString("meal_records", values.toString()).apply()
+    }
+
+    fun loadMealReminderEnabled(): Boolean = preferences.getBoolean("meal_reminder_enabled", true)
+
+    fun saveMealReminderEnabled(enabled: Boolean) {
+        preferences.edit().putBoolean("meal_reminder_enabled", enabled).apply()
+    }
+
+    /** 当天标记“今天不需要”的餐次，格式为 “yyyy-MM-dd:类型标签”。 */
+    fun loadMealSkipDays(): Set<String> = runCatching {
+        val values = JSONArray(preferences.getString("meal_skip_days", "[]") ?: "[]")
+        List(values.length()) { index -> values.getString(index) }.toSet()
+    }.getOrDefault(emptySet())
+
+    fun saveMealSkipDays(skipDays: Set<String>) {
+        val values = JSONArray()
+        skipDays.forEach { values.put(it) }
+        preferences.edit().putString("meal_skip_days", values.toString()).apply()
+    }
+
     private fun loadSessions(): List<ActivitySession> = runCatching {
         val values = JSONArray(preferences.getString("sessions", "[]") ?: "[]")
         List(values.length()) { index ->

@@ -39,7 +39,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
@@ -47,15 +49,29 @@ import java.util.UUID
 
 class MainActivity : ComponentActivity() {
     private var statusCheckInRequested by mutableStateOf(false)
+    private var mealPromptRequested by mutableStateOf<MealType?>(null)
+    private var mealFinishRequested by mutableStateOf<MealType?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         statusCheckInRequested = intent.getBooleanExtra(ReminderReceiver.EXTRA_OPEN_STATUS_CHECK_IN, false)
+        mealPromptRequested = intent.getStringExtra(ReminderReceiver.EXTRA_MEAL_TYPE)
+            ?.takeIf { intent.getBooleanExtra(ReminderReceiver.EXTRA_OPEN_MEAL_PROMPT, false) }
+            ?.let { MealType.fromLabel(it) }
+        mealFinishRequested = intent.getStringExtra(ReminderReceiver.EXTRA_MEAL_TYPE)
+            ?.takeIf { intent.getBooleanExtra(ReminderReceiver.EXTRA_OPEN_MEAL_FINISH, false) }
+            ?.let { MealType.fromLabel(it) }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 100)
         }
         enableEdgeToEdge()
-        setContent { FocusFlowApp(statusCheckInRequested) { statusCheckInRequested = false } }
+        setContent {
+            FocusFlowApp(statusCheckInRequested, mealPromptRequested, mealFinishRequested) {
+                statusCheckInRequested = false
+                mealPromptRequested = null
+                mealFinishRequested = null
+            }
+        }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -63,6 +79,10 @@ class MainActivity : ComponentActivity() {
         setIntent(intent)
         if (intent.getBooleanExtra(ReminderReceiver.EXTRA_OPEN_STATUS_CHECK_IN, false)) {
             statusCheckInRequested = true
+        }
+        intent.getStringExtra(ReminderReceiver.EXTRA_MEAL_TYPE)?.let { label ->
+            if (intent.getBooleanExtra(ReminderReceiver.EXTRA_OPEN_MEAL_PROMPT, false)) mealPromptRequested = MealType.fromLabel(label)
+            if (intent.getBooleanExtra(ReminderReceiver.EXTRA_OPEN_MEAL_FINISH, false)) mealFinishRequested = MealType.fromLabel(label)
         }
     }
 }
@@ -103,7 +123,7 @@ data class CommuteProfile(
 )
 
 @Composable
-private fun FocusFlowApp(statusCheckInRequested: Boolean, onStatusCheckInRequestHandled: () -> Unit) {
+private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: MealType?, mealFinishRequested: MealType?, onRequestHandled: () -> Unit) {
     val context = LocalContext.current
     val store = remember(context) { PrototypeStore(context) }
     var tab by remember { mutableIntStateOf(0) }
@@ -157,6 +177,12 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, onStatusCheckInRequest
     var baselineOnboardingOpen by remember { mutableStateOf(!store.loadOnboardingDone()) }
     var baselineEventsOpen by remember { mutableStateOf(false) }
     var baselineResetConfirmOpen by remember { mutableStateOf(false) }
+    var mealRecords by remember { mutableStateOf(store.loadMealRecords()) }
+    var mealReminderEnabled by remember { mutableStateOf(store.loadMealReminderEnabled()) }
+    var mealSkipDays by remember { mutableStateOf(store.loadMealSkipDays()) }
+    var mealPromptOpen by remember { mutableStateOf<MealType?>(null) }
+    var mealFinishOpen by remember { mutableStateOf<MealType?>(null) }
+    var mealRecordsOpen by remember { mutableStateOf(false) }
     var planPage by remember { mutableStateOf<PlanPage?>(null) }
     val suggestedNextStep = items
         .filter { !it.done && it.kind != "收集箱" && it.kind != "暂停" }
@@ -203,7 +229,17 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, onStatusCheckInRequest
             tab = 0
             todayInboxOpen = false
             statusCheckInOpen = true
-            onStatusCheckInRequestHandled()
+            onRequestHandled()
+        }
+    }
+
+    LaunchedEffect(mealPromptRequested, mealFinishRequested) {
+        if (mealPromptRequested != null || mealFinishRequested != null) {
+            tab = 0
+            todayInboxOpen = false
+            mealPromptRequested?.let { mealPromptOpen = it }
+            mealFinishRequested?.let { mealFinishOpen = it }
+            onRequestHandled()
         }
     }
 
@@ -292,7 +328,12 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, onStatusCheckInRequest
                     onEdit = { item -> inboxEditTarget = item },
                     onShrink = { item -> saveItems(items.map { if (it.id == item.id) it.copy(title = item.title.removePrefix("重新安排："), kind = "任务", detail = "短版：先做 10 分钟 · 今天有空时") else it }) },
                     onPause = { item -> saveItems(items.map { if (it.id == item.id) it.copy(kind = "暂停", detail = "已暂停；随时可在计划中恢复") else it }) },
-                    onAbandon = { item -> saveItems(items.filterNot { it.id == item.id }) }
+                    onAbandon = { item -> saveItems(items.filterNot { it.id == item.id }) },
+                    mealRecords = mealRecords,
+                    baselineProfile = baselineProfile,
+                    mealSkipDays = mealSkipDays,
+                    onMealPrompt = { mealPromptOpen = it },
+                    onMealFinish = { mealFinishOpen = it }
                 )
                 1 -> ScheduleScreen(
                     Modifier.padding(padding), items, courses,
@@ -337,7 +378,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, onStatusCheckInRequest
                     },
                     feedback = feedback
                 )
-                else -> SettingsScreen(Modifier.padding(padding), themeOption, commuteProfile, campusLifeEnabled, campusMapPackage, currentCampusPlace, improvementNotes, roadmapSelections, activitySettings, statusCheckInSettings, baselineProfile, onThemeChange = { updated ->
+                else -> SettingsScreen(Modifier.padding(padding), themeOption, commuteProfile, campusLifeEnabled, campusMapPackage, currentCampusPlace, improvementNotes, roadmapSelections, activitySettings, statusCheckInSettings, baselineProfile, mealRecords, mealReminderEnabled, onThemeChange = { updated ->
                     themeOption = updated
                     store.saveTheme(updated)
                 }, onCommuteChange = { updated ->
@@ -369,7 +410,11 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, onStatusCheckInRequest
                     store.saveRoadmapSelections(roadmapSelections)
                 }, onOpenBaselineEditor = { baselineOnboardingOpen = true }, onOpenBaselineEvents = { baselineEventsOpen = true }, onResetBaseline = {
                     baselineResetConfirmOpen = true
-                }, recordBaselineEvent = { type, payload ->
+                }, onMealReminderEnabledChange = { enabled ->
+                    mealReminderEnabled = enabled
+                    store.saveMealReminderEnabled(enabled)
+                    if (enabled) ReminderScheduler.scheduleDailyMealReminders(context, baselineProfile) else ReminderScheduler.cancelAllMealReminders(context)
+                }, onOpenMealRecords = { mealRecordsOpen = true }, recordBaselineEvent = { type, payload ->
                     store.appendBaselineEvent(BaselineRecorder.event(type, payload))
                 })
             }
@@ -587,6 +632,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, onStatusCheckInRequest
                         store.appendBaselineEvent(BaselineRecorder.event(BaselineEventType.MEAL_TIMELINE_SET, "${meal.type.label} ${formatMinute(meal.typicalStartMinute)} · 约 ${meal.typicalMinutes} 分钟"))
                     }
                 }
+                ReminderScheduler.scheduleDailyMealReminders(context, profile)
                 baselineOnboardingOpen = false
             }
         )
@@ -611,6 +657,83 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, onStatusCheckInRequest
                 }) { Text("重建") }
             },
             dismissButton = { TextButton(onClick = { baselineResetConfirmOpen = false }) { Text("取消") } }
+        )
+        mealPromptOpen?.let { type ->
+            val weekday = java.util.Calendar.getInstance().get(java.util.Calendar.DAY_OF_WEEK)
+            val plan = MealLearning.todayPlan(mealRecords, baselineProfile, weekday, type)
+            MealPromptDialog(
+                type, plan,
+                onDismiss = { mealPromptOpen = null },
+                onStarted = {
+                    val now = System.currentTimeMillis()
+                    val record = MealRecord(mealType = type, lifeStage = baselineProfile.lifeStage?.storageKey.orEmpty(), startedAt = now)
+                    store.appendMealRecord(record)
+                    mealRecords = store.loadMealRecords()
+                    val minuteNow = java.util.Calendar.getInstance().apply { timeInMillis = now }.let { it.get(java.util.Calendar.HOUR_OF_DAY) * 60 + it.get(java.util.Calendar.MINUTE) }
+                    store.appendBaselineEvent(BaselineRecorder.event(BaselineEventType.MEAL_STARTED, "${type.label} ${formatMinute(minuteNow)}"))
+                    ReminderScheduler.cancelMealReminder(context, type)
+                    ReminderScheduler.scheduleMealEndReminder(context, record, plan.minutes)
+                    mealPromptOpen = null
+                },
+                onSnooze = {
+                    ReminderScheduler.snoozeMealReminder(context, type)
+                    mealPromptOpen = null
+                },
+                onSkip = {
+                    val key = "${MealLearning.dayKey(System.currentTimeMillis())}:${type.label}"
+                    mealSkipDays = mealSkipDays + key
+                    store.saveMealSkipDays(mealSkipDays)
+                    store.appendBaselineEvent(BaselineRecorder.event(BaselineEventType.MEAL_SKIPPED, "${type.label} 今天不需要"))
+                    ReminderScheduler.cancelMealReminder(context, type)
+                    mealPromptOpen = null
+                }
+            )
+        }
+        mealFinishOpen?.let { type ->
+            val record = MealLearning.latestOpen(mealRecords, type)
+            if (record != null) {
+                val weekday = java.util.Calendar.getInstance().get(java.util.Calendar.DAY_OF_WEEK)
+                val plan = MealLearning.todayPlan(mealRecords, baselineProfile, weekday, type)
+                MealFinishDialog(
+                    record, type,
+                    onDismiss = { mealFinishOpen = null },
+                    onFinished = { amount, rating, note ->
+                        val now = System.currentTimeMillis()
+                        store.updateMealRecordEnd(record.id, now)
+                        mealRecords = store.loadMealRecords()
+                        val minutes = ((now - record.startedAt) / 60_000L).toInt().coerceIn(1, 240)
+                        val payload = buildString {
+                            append(type.label).append(" · ").append(minutes).append(" 分钟")
+                            if (amount >= 0) append(" · ").append(amount).append(" 元")
+                            if (rating > 0) append(" · ").append(rating).append(" 星")
+                            if (note.isNotBlank()) append(" · ").append(note)
+                        }
+                        store.appendBaselineEvent(BaselineRecorder.event(BaselineEventType.MEAL_ENDED, payload))
+                        ReminderScheduler.cancelMealReminder(context, type)
+                        mealFinishOpen = null
+                    },
+                    onStillEating = {
+                        ReminderScheduler.scheduleMealEndReminder(context, record.copy(startedAt = System.currentTimeMillis()), plan.minutes)
+                        mealFinishOpen = null
+                    },
+                    onNoRecord = {
+                        val now = System.currentTimeMillis()
+                        store.updateMealRecordEnd(record.id, now)
+                        mealRecords = store.loadMealRecords()
+                        store.appendBaselineEvent(BaselineRecorder.event(BaselineEventType.MEAL_ENDED, "${type.label} · ${((now - record.startedAt) / 60_000L).toInt().coerceIn(1, 240)} 分钟 · 未记录消费"))
+                        ReminderScheduler.cancelMealReminder(context, type)
+                        mealFinishOpen = null
+                    }
+                )
+            } else mealFinishOpen = null
+        }
+        if (mealRecordsOpen) MealRecordsDialog(
+            records = mealRecords,
+            onDismiss = { mealRecordsOpen = false },
+            onDelete = { id ->
+                store.deleteMealRecord(id)
+                mealRecords = store.loadMealRecords()
+            }
         )
     }
     }
@@ -639,7 +762,12 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, onStatusCheckInRequest
     onEdit: (Item) -> Unit,
     onShrink: (Item) -> Unit,
     onPause: (Item) -> Unit,
-    onAbandon: (Item) -> Unit
+    onAbandon: (Item) -> Unit,
+    mealRecords: List<MealRecord>,
+    baselineProfile: BaselineProfile,
+    mealSkipDays: Set<String>,
+    onMealPrompt: (MealType) -> Unit,
+    onMealFinish: (MealType) -> Unit
 ) {
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(activeSession?.id, activeSession?.endsAt) {
@@ -690,6 +818,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, onStatusCheckInRequest
                 }
             }
         }
+        MealTodayCard(records = mealRecords, profile = baselineProfile, skipDays = mealSkipDays, now = now, onPrompt = onMealPrompt, onFinish = onMealFinish)
         ElevatedCard { Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) { Text("$completedToday", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold); Text("今日完成", style = MaterialTheme.typography.labelMedium) }
             Column(horizontalAlignment = Alignment.CenterHorizontally) { Text("$completedThisWeek", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold); Text("本周完成", style = MaterialTheme.typography.labelMedium) }
@@ -766,6 +895,54 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, onStatusCheckInRequest
                     inboxItems.forEach { item -> InboxItemCard(item, onPickTime, onEdit, onShrink, onPause, onAbandon) }
                 }
             }
+        }
+    }
+}
+
+@Composable private fun MealTodayCard(records: List<MealRecord>, profile: BaselineProfile, skipDays: Set<String>, now: Long, onPrompt: (MealType) -> Unit, onFinish: (MealType) -> Unit) {
+    val todayKey = MealLearning.dayKey(now)
+    val weekday = java.util.Calendar.getInstance().apply { timeInMillis = now }.get(java.util.Calendar.DAY_OF_WEEK)
+    val nowMinute = java.util.Calendar.getInstance().apply { timeInMillis = now }.let { it.get(java.util.Calendar.HOUR_OF_DAY) * 60 + it.get(java.util.Calendar.MINUTE) }
+    ElevatedCard {
+        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("今日餐点", fontWeight = FontWeight.Bold)
+            if (profile.lifeStage == null) {
+                Text("完成“习惯基线”引导后，这里会按你的饭点节奏给出提醒；现在只按你填写的餐点显示。", style = MaterialTheme.typography.bodySmall)
+            } else {
+                MealType.entries.forEach { type ->
+                    val plan = MealLearning.todayPlan(records, profile, weekday, type)
+                    val started = MealLearning.startedToday(records, now, type)
+                    val open = MealLearning.latestOpen(records, type)?.takeIf { MealLearning.sameDay(it.startedAt, now) && it.endedAt == null }
+                    val skipped = "$todayKey:${type.label}" in skipDays
+                    val due = !started && !skipped && nowMinute >= plan.startMinute - 5
+                    val learnedLabel = if (plan.learned) "最近 ${plan.sampleCount} 次 · 中位数" else "暂按你填写"
+                    if (open != null) {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Column(Modifier.weight(1f)) {
+                                Text("${type.label} 进行中", fontWeight = FontWeight.SemiBold)
+                                Text("预计 ${formatMinute(plan.startMinute + plan.minutes)} 吃完 · 开始于 ${formatMinute(plan.startMinute)}", style = MaterialTheme.typography.bodySmall)
+                            }
+                            OutlinedButton(onClick = { onFinish(type) }) { Text("吃完了吗？") }
+                        }
+                    } else {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Column(Modifier.weight(1f)) {
+                                Text(when {
+                                    started -> "${type.label} 已记录"
+                                    skipped -> "${type.label} 今天不需要"
+                                    else -> "${type.label} 预计 ${formatMinute(plan.startMinute)}"
+                                }, fontWeight = if (due) FontWeight.SemiBold else FontWeight.Normal)
+                                if (started || skipped) Text(if (started) "已确认的开始时间，会用于后续学习。" else "今天不提醒这一餐。", style = MaterialTheme.typography.bodySmall)
+                                else Text("$learnedLabel · 约 ${plan.minutes} 分钟", style = MaterialTheme.typography.bodySmall)
+                            }
+                            if (!started && !skipped) {
+                                Button(onClick = { onPrompt(type) }) { Text(if (due) "准备吃饭？" else "现在吃") }
+                            }
+                        }
+                    }
+                }
+            }
+            Text("只有你确认“已在吃”和“吃完了”的时间会用于学习；不回应不会记为没吃。", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -1797,7 +1974,7 @@ private fun weekdayName(day: Int) = listOf("", "周一", "周二", "周三", "�
     }
 }
 
-@Composable private fun SettingsScreen(modifier: Modifier, themeOption: FocusFlowThemeOption, commuteProfile: CommuteProfile, campusLifeEnabled: Boolean, campusMapPackage: CampusMapPackage?, currentCampusPlace: String?, improvementNotes: List<ImprovementNote>, roadmapSelections: Set<String>, activitySettings: ActivityReminderSettings, statusCheckInSettings: StatusCheckInSettings, baselineProfile: BaselineProfile, onThemeChange: (FocusFlowThemeOption) -> Unit, onCommuteChange: (CommuteProfile) -> Unit, onCampusLifeEnabledChange: (Boolean) -> Unit, onCampusMapPackageChange: (CampusMapPackage?) -> Unit, onCurrentCampusPlaceChange: (String?) -> Unit, onActivitySettingsChange: (ActivityReminderSettings) -> Unit, onStatusCheckInSettingsChange: (StatusCheckInSettings) -> Unit, onAddImprovement: () -> Unit, onToggleRoadmap: (RoadmapFeature) -> Unit, onOpenBaselineEditor: () -> Unit, onOpenBaselineEvents: () -> Unit, onResetBaseline: () -> Unit, recordBaselineEvent: (BaselineEventType, String) -> Unit) {
+@Composable private fun SettingsScreen(modifier: Modifier, themeOption: FocusFlowThemeOption, commuteProfile: CommuteProfile, campusLifeEnabled: Boolean, campusMapPackage: CampusMapPackage?, currentCampusPlace: String?, improvementNotes: List<ImprovementNote>, roadmapSelections: Set<String>, activitySettings: ActivityReminderSettings, statusCheckInSettings: StatusCheckInSettings, baselineProfile: BaselineProfile, mealRecords: List<MealRecord>, mealReminderEnabled: Boolean, onThemeChange: (FocusFlowThemeOption) -> Unit, onCommuteChange: (CommuteProfile) -> Unit, onCampusLifeEnabledChange: (Boolean) -> Unit, onCampusMapPackageChange: (CampusMapPackage?) -> Unit, onCurrentCampusPlaceChange: (String?) -> Unit, onActivitySettingsChange: (ActivityReminderSettings) -> Unit, onStatusCheckInSettingsChange: (StatusCheckInSettings) -> Unit, onAddImprovement: () -> Unit, onToggleRoadmap: (RoadmapFeature) -> Unit, onOpenBaselineEditor: () -> Unit, onOpenBaselineEvents: () -> Unit, onResetBaseline: () -> Unit, onMealReminderEnabledChange: (Boolean) -> Unit, onOpenMealRecords: () -> Unit, recordBaselineEvent: (BaselineEventType, String) -> Unit) {
     val context = LocalContext.current
     val campusPlaces = campusMapPackage?.places?.takeIf { it.isNotEmpty() } ?: ZijingangTravel.places
     var importStatus by remember { mutableStateOf<String?>(null) }
@@ -1919,6 +2096,25 @@ private fun weekdayName(day: Int) = listOf("", "周一", "周二", "周三", "�
                     TextButton(onClick = onResetBaseline) { Text("重建基线") }
                 }
             }
+        }
+        HorizontalDivider()
+        Text("饭点学习", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        SettingSwitch("饭点提醒", "接近预测饭点时询问是否开始吃饭；只有你确认的时间才会用于学习", mealReminderEnabled, onMealReminderEnabledChange)
+        if (baselineProfile.lifeStage == null) {
+            Text("完成习惯基线引导后，这里会按“生活阶段 × 星期 × 餐次”展示学到的饭点；数据不足时只用宽松提醒，不会假装精确预测。", style = MaterialTheme.typography.bodySmall)
+        } else {
+            val mealWeekday = java.util.Calendar.getInstance().get(java.util.Calendar.DAY_OF_WEEK)
+            MealType.entries.forEach { type ->
+                val plan = MealLearning.todayPlan(mealRecords, baselineProfile, mealWeekday, type)
+                val stageLabel = baselineProfile.lifeStage?.label.orEmpty()
+                Text(
+                    if (plan.learned) "${type.label} · $stageLabel 最近 ${plan.sampleCount} 次：${formatMinute(plan.startMinute)} 开始 · 约 ${plan.minutes} 分钟"
+                    else "${type.label} · $stageLabel 数据不足（${plan.sampleCount} 次），暂用你填写的 ${formatMinute(plan.startMinute)} · 约 ${plan.minutes} 分钟",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+            Text("提醒按星期分组学习；假期和上学分开，避免互相影响。", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            TextButton(onClick = onOpenMealRecords) { Text("就餐记录") }
         }
         HorizontalDivider()
         Text("通勤与地点", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
@@ -2190,6 +2386,94 @@ private fun weekdayName(day: Int) = listOf("", "周一", "周二", "周三", "�
             if (events.isNotEmpty()) OutlinedButton(onClick = onClear) { Text("清除全部记录") }
             TextButton(onClick = onDismiss) { Text("关闭") }
         }
+    )
+}
+
+@Composable private fun MealPromptDialog(type: MealType, plan: MealPlan, onDismiss: () -> Unit, onStarted: () -> Unit, onSnooze: () -> Unit, onSkip: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("准备${type.label}？") },
+        text = {
+            Text(if (plan.learned) "你最近 ${plan.sampleCount} 次${type.label}常在 ${formatMinute(plan.startMinute)} 左右开始，平均约 ${plan.minutes} 分钟。确认“已在吃”后，我会按这个时长在 ${formatMinute(plan.startMinute + plan.minutes)} 提醒你确认结束。" else "按你填写的大致时间，${formatMinute(plan.startMinute)} 附近是${type.label}时间。确认“已在吃”后，我会在 ${formatMinute(plan.startMinute + plan.minutes)} 提醒你确认结束。")
+        },
+        confirmButton = {
+            Button(onClick = onStarted) { Text("已在吃") }
+        },
+        dismissButton = {
+            Row {
+                TextButton(onClick = onSnooze) { Text("稍后 20 分钟") }
+                TextButton(onClick = onSkip) { Text("今天不需要") }
+            }
+        }
+    )
+}
+
+@Composable private fun MealFinishDialog(record: MealRecord, type: MealType, onDismiss: () -> Unit, onFinished: (amount: Int, rating: Int, note: String) -> Unit, onStillEating: () -> Unit, onNoRecord: () -> Unit) {
+    var amountText by remember(record.id) { mutableStateOf("") }
+    var rating by remember(record.id) { mutableIntStateOf(0) }
+    var note by remember(record.id) { mutableStateOf("") }
+    val amount = amountText.toIntOrNull()?.coerceIn(0, 9999) ?: -1
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("${type.label}吃完了吗？") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("结束并记录用餐时间；金额、评价和备注都是可选的消费草稿，不会自动生成账目。", style = MaterialTheme.typography.bodySmall)
+                OutlinedTextField(value = amountText, onValueChange = { amountText = it.filter(Char::isDigit).take(4) }, label = { Text("金额（元，可选）") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("评价", style = MaterialTheme.typography.bodySmall)
+                    listOf(1, 2, 3, 4, 5).forEach { star ->
+                        FilterChip(selected = rating == star, onClick = { rating = if (rating == star) 0 else star }, label = { Text("$star") })
+                    }
+                    if (rating == 0) Text("不评价", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                OutlinedTextField(value = note, onValueChange = { note = it.take(80) }, label = { Text("备注（可选）") }, singleLine = true)
+            }
+        },
+        confirmButton = {
+            Button(onClick = { onFinished(amount, rating, note.trim()) }) { Text("吃完了") }
+        },
+        dismissButton = {
+            Row {
+                TextButton(onClick = onStillEating) { Text("还在吃") }
+                TextButton(onClick = onNoRecord) { Text("不记录") }
+            }
+        }
+    )
+}
+
+@Composable private fun MealRecordsDialog(records: List<MealRecord>, onDismiss: () -> Unit, onDelete: (Long) -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("就餐记录") },
+        text = {
+            Column(Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("记录按时间追加保存，只有你确认的开始与结束时间会用于饭点学习；金额与评价只作为消费草稿保留。", style = MaterialTheme.typography.bodySmall)
+                if (records.isEmpty()) {
+                    Text("还没有记录。开始吃饭并确认吃完后会自动出现在这里。")
+                } else {
+                    records.takeLast(50).reversed().forEach { record ->
+                        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))) {
+                            Row(Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                val time = java.text.SimpleDateFormat("M月d日 HH:mm", java.util.Locale.CHINA)
+                                val detail = buildString {
+                                    append(record.mealType.label)
+                                    append(" · ").append(time.format(java.util.Date(record.startedAt)))
+                                    record.endedAt?.let { append("–").append(time.format(java.util.Date(it))) }
+                                    if (record.amount > 0) append(" · ").append(record.amount).append(" 元")
+                                    if (record.rating > 0) append(" · ").append(record.rating).append(" 星")
+                                    if (record.note.isNotBlank()) append(" · ").append(record.note)
+                                }
+                                Text(detail, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                                TextButton(onClick = { onDelete(record.id) }) { Text("删除") }
+                            }
+                        }
+                    }
+                    Text("共 ${records.size} 条记录，仅保存在本机。", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("关闭") } }
     )
 }
 

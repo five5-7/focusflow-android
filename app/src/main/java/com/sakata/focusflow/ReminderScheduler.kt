@@ -45,6 +45,7 @@ object ReminderScheduler {
             } else scheduleActivityReminders(context, session, store.loadActivityReminderSettings())
         }
         scheduleDailyStatusCheckIn(context, store.loadStatusCheckInSettings())
+        scheduleDailyMealReminders(context, store.loadBaselineProfile())
     }
 
     fun scheduleDailyStatusCheckIn(
@@ -136,6 +137,88 @@ object ReminderScheduler {
         val pending = PendingIntent.getBroadcast(context, requestCode, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         context.getSystemService(AlarmManager::class.java).setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, scheduledAt, pending)
     }
+
+    /** 为今天的每餐调度一次“准备吃饭”提醒；已开始或已标记“今天不需要”的餐次跳过。 */
+    fun scheduleDailyMealReminders(
+        context: Context,
+        profile: BaselineProfile = PrototypeStore(context).loadBaselineProfile()
+    ) {
+        cancelAllMealReminders(context)
+        val store = PrototypeStore(context)
+        if (!store.loadMealReminderEnabled() || profile.lifeStage == null) return
+        val records = store.loadMealRecords()
+        val skipDays = store.loadMealSkipDays()
+        val todayKey = MealLearning.dayKey(System.currentTimeMillis())
+        val todayWeekday = Calendar.getInstance().get(Calendar.DAY_OF_WEEK)
+        val now = System.currentTimeMillis()
+        MealType.entries.forEach { type ->
+            val plan = MealLearning.todayPlan(records, profile, todayWeekday, type)
+            val startAt = todayAtMinute(plan.startMinute)
+            val skipKey = "$todayKey:${type.label}"
+            if (MealLearning.startedToday(records, now, type) || skipKey in skipDays) return@forEach
+            if (startAt <= now - 120 * 60_000L) return@forEach
+            scheduleMealReminderAt(context, type, plan, startAt)
+        }
+    }
+
+    fun snoozeMealReminder(context: Context, type: MealType) {
+        val store = PrototypeStore(context)
+        val profile = store.loadBaselineProfile()
+        val plan = MealLearning.todayPlan(store.loadMealRecords(), profile, Calendar.getInstance().get(Calendar.DAY_OF_WEEK), type)
+        scheduleMealReminderAt(context, type, plan, System.currentTimeMillis() + 20 * 60_000L)
+    }
+
+    /** 开始在吃后，按个人时长估计结束时间并提醒“吃完了吗”。 */
+    fun scheduleMealEndReminder(context: Context, record: MealRecord, minutes: Int) {
+        val triggerAt = record.startedAt + minutes.coerceIn(5, 120) * 60_000L
+        if (triggerAt <= System.currentTimeMillis()) return
+        val intent = Intent(context, ReminderReceiver::class.java).apply {
+            action = ReminderReceiver.ACTION_MEAL_END_REMINDER
+            putExtra(ReminderReceiver.EXTRA_MEAL_TYPE, record.mealType.label)
+        }
+        val pending = PendingIntent.getBroadcast(context, mealEndRequestCode(record.mealType), intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        context.getSystemService(AlarmManager::class.java).setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pending)
+    }
+
+    fun cancelMealReminder(context: Context, type: MealType) {
+        cancelPending(context, mealRequestCode(type), ReminderReceiver.ACTION_MEAL_REMINDER)
+        cancelPending(context, mealEndRequestCode(type), ReminderReceiver.ACTION_MEAL_END_REMINDER)
+    }
+
+    fun cancelAllMealReminders(context: Context) {
+        MealType.entries.forEach { cancelMealReminder(context, it) }
+    }
+
+    private fun scheduleMealReminderAt(context: Context, type: MealType, plan: MealPlan, triggerAt: Long) {
+        val intent = Intent(context, ReminderReceiver::class.java).apply {
+            action = ReminderReceiver.ACTION_MEAL_REMINDER
+            putExtra(ReminderReceiver.EXTRA_MEAL_TYPE, type.label)
+            putExtra(ReminderReceiver.EXTRA_MEAL_LEARNED, plan.learned)
+        }
+        val pending = PendingIntent.getBroadcast(context, mealRequestCode(type), intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        context.getSystemService(AlarmManager::class.java).setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pending)
+    }
+
+    private fun todayAtMinute(minute: Int): Long = Calendar.getInstance().apply {
+        set(Calendar.HOUR_OF_DAY, minute / 60)
+        set(Calendar.MINUTE, minute % 60)
+        set(Calendar.SECOND, 0)
+        set(Calendar.MILLISECOND, 0)
+    }.timeInMillis
+
+    private fun cancelPending(context: Context, requestCode: Int, action: String) {
+        val pending = PendingIntent.getBroadcast(
+            context,
+            requestCode,
+            Intent(context, ReminderReceiver::class.java).apply { this.action = action },
+            PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
+        )
+        pending?.let { context.getSystemService(AlarmManager::class.java).cancel(it) }
+    }
+
+    private fun mealRequestCode(type: MealType): Int = 3_000_001 + type.ordinal
+
+    private fun mealEndRequestCode(type: MealType): Int = 3_001_001 + type.ordinal
 
     private const val STATUS_CHECK_IN_REQUEST_CODE = 2_900_001
 }

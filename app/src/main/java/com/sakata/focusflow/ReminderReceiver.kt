@@ -73,6 +73,33 @@ class ReminderReceiver : BroadcastReceiver() {
                 showTaskNotification(context, manager, intent.getStringExtra(EXTRA_TASK_TITLE) ?: "已改期任务", intent.getLongExtra(EXTRA_TASK_ID, -1L))
                 return
             }
+            ACTION_MEAL_REMINDER -> {
+                val type = MealType.fromLabel(intent.getStringExtra(EXTRA_MEAL_TYPE) ?: "")
+                if (type != null) showMealPromptNotification(context, manager, type, intent.getBooleanExtra(EXTRA_MEAL_LEARNED, false))
+                return
+            }
+            ACTION_MEAL_SNOOZE -> {
+                if (notificationId >= 0) manager.cancel(notificationId)
+                MealType.fromLabel(intent.getStringExtra(EXTRA_MEAL_TYPE) ?: "")?.let { ReminderScheduler.snoozeMealReminder(context, it) }
+                return
+            }
+            ACTION_MEAL_END_REMINDER -> {
+                val type = MealType.fromLabel(intent.getStringExtra(EXTRA_MEAL_TYPE) ?: "")
+                if (type != null) showMealEndNotification(context, manager, type)
+                return
+            }
+            ACTION_MEAL_STILL_EATING -> {
+                if (notificationId >= 0) manager.cancel(notificationId)
+                val type = MealType.fromLabel(intent.getStringExtra(EXTRA_MEAL_TYPE) ?: "")
+                val store = PrototypeStore(context)
+                val record = type?.let { MealLearning.latestOpen(store.loadMealRecords(), it) }
+                val profile = store.loadBaselineProfile()
+                val minutes = type?.let { MealLearning.predictedMinutes(store.loadMealRecords(), profile.lifeStage, java.util.Calendar.getInstance().get(java.util.Calendar.DAY_OF_WEEK), it) ?: profile.meals.firstOrNull { m -> m.type == it }?.typicalMinutes ?: 20 }
+                if (record != null && type != null && minutes != null) {
+                    ReminderScheduler.scheduleMealEndReminder(context, record.copy(startedAt = System.currentTimeMillis()), minutes)
+                }
+                return
+            }
             ACTION_TASK_COMPLETE -> {
                 if (notificationId >= 0) manager.cancel(notificationId)
                 val taskId = intent.getLongExtra(EXTRA_TASK_ID, -1L)
@@ -207,6 +234,81 @@ class ReminderReceiver : BroadcastReceiver() {
             .build())
     }
 
+    private fun showMealPromptNotification(context: Context, manager: NotificationManager, type: MealType, learned: Boolean) {
+        if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
+        manager.createNotificationChannel(NotificationChannel(CHANNEL_MEAL, "饭点提醒", NotificationManager.IMPORTANCE_DEFAULT))
+        val id = MEAL_NOTIFICATION_BASE + type.ordinal
+        val openApp = PendingIntent.getActivity(
+            context,
+            id,
+            Intent(context, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                putExtra(EXTRA_OPEN_MEAL_PROMPT, true)
+                putExtra(EXTRA_MEAL_TYPE, type.label)
+            },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val snooze = PendingIntent.getBroadcast(
+            context,
+            id + 1,
+            Intent(context, ReminderReceiver::class.java).apply {
+                action = ACTION_MEAL_SNOOZE
+                putExtra(EXTRA_NOTIFICATION_ID, id)
+                putExtra(EXTRA_MEAL_TYPE, type.label)
+            },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val text = if (learned) "按你最近的记录，大概到${type.label}时间了。准备吃饭？" else "按你填写的大致时间，快到${type.label}了。准备吃饭？"
+        manager.notify(id, NotificationCompat.Builder(context, CHANNEL_MEAL)
+            .setSmallIcon(android.R.drawable.ic_popup_reminder)
+            .setContentTitle("准备${type.label}？")
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setContentIntent(openApp)
+            .addAction(0, "已在吃", openApp)
+            .addAction(0, "稍后 20 分钟", snooze)
+            .setAutoCancel(true)
+            .setOnlyAlertOnce(true)
+            .build())
+    }
+
+    private fun showMealEndNotification(context: Context, manager: NotificationManager, type: MealType) {
+        if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
+        manager.createNotificationChannel(NotificationChannel(CHANNEL_MEAL, "饭点提醒", NotificationManager.IMPORTANCE_DEFAULT))
+        val id = MEAL_NOTIFICATION_BASE + type.ordinal + 10
+        val openApp = PendingIntent.getActivity(
+            context,
+            id,
+            Intent(context, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                putExtra(EXTRA_OPEN_MEAL_FINISH, true)
+                putExtra(EXTRA_MEAL_TYPE, type.label)
+            },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val stillEating = PendingIntent.getBroadcast(
+            context,
+            id + 1,
+            Intent(context, ReminderReceiver::class.java).apply {
+                action = ACTION_MEAL_STILL_EATING
+                putExtra(EXTRA_NOTIFICATION_ID, id)
+                putExtra(EXTRA_MEAL_TYPE, type.label)
+            },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        manager.notify(id, NotificationCompat.Builder(context, CHANNEL_MEAL)
+            .setSmallIcon(android.R.drawable.ic_popup_reminder)
+            .setContentTitle("${type.label}吃完了吗？")
+            .setContentText("结束并记录用餐时间，金额与评价可留空；不回应不会影响任何学习。")
+            .setStyle(NotificationCompat.BigTextStyle().bigText("结束并记录用餐时间；金额与评价始终可选，不回应不会被视为没吃，也不会写入训练数据。"))
+            .setContentIntent(openApp)
+            .addAction(0, "吃完并记录", openApp)
+            .addAction(0, "还在吃", stillEating)
+            .setAutoCancel(true)
+            .setOnlyAlertOnce(true)
+            .build())
+    }
+
     private fun isSameDayAsNow(timestamp: Long): Boolean {
         val now = Calendar.getInstance()
         val value = Calendar.getInstance().apply { timeInMillis = timestamp }
@@ -249,6 +351,10 @@ class ReminderReceiver : BroadcastReceiver() {
         const val ACTION_TASK_MINIMUM = "com.sakata.focusflow.TASK_MINIMUM"
         const val ACTION_STATUS_CHECK_IN = "com.sakata.focusflow.STATUS_CHECK_IN"
         const val ACTION_STATUS_CHECK_IN_SNOOZE = "com.sakata.focusflow.STATUS_CHECK_IN_SNOOZE"
+        const val ACTION_MEAL_REMINDER = "com.sakata.focusflow.MEAL_REMINDER"
+        const val ACTION_MEAL_SNOOZE = "com.sakata.focusflow.MEAL_SNOOZE"
+        const val ACTION_MEAL_END_REMINDER = "com.sakata.focusflow.MEAL_END_REMINDER"
+        const val ACTION_MEAL_STILL_EATING = "com.sakata.focusflow.MEAL_STILL_EATING"
         const val EXTRA_ACTIVITY_NAME = "activity_name"
         const val EXTRA_NEXT_STEP = "next_step"
         const val EXTRA_SESSION_ID = "session_id"
@@ -256,11 +362,17 @@ class ReminderReceiver : BroadcastReceiver() {
         const val EXTRA_TASK_TITLE = "task_title"
         const val EXTRA_NOTIFICATION_ID = "notification_id"
         const val EXTRA_OPEN_STATUS_CHECK_IN = "open_status_check_in"
+        const val EXTRA_OPEN_MEAL_PROMPT = "open_meal_prompt"
+        const val EXTRA_OPEN_MEAL_FINISH = "open_meal_finish"
+        const val EXTRA_MEAL_TYPE = "meal_type"
+        const val EXTRA_MEAL_LEARNED = "meal_learned"
         private const val CHANNEL_ACTIVITY_PREVIEW = "focusflow_activity_preview"
         private const val CHANNEL_ACTIVITY_END = "focusflow_activity_end_v2"
         private const val CHANNEL_ACTIVITY_END_GENTLE = "focusflow_activity_end_gentle_v2"
         private const val CHANNEL_TASK = "focusflow_task_reminders"
         private const val CHANNEL_STATUS_CHECK_IN = "focusflow_status_check_in_v1"
+        private const val CHANNEL_MEAL = "focusflow_meal_reminders"
         private const val STATUS_CHECK_IN_NOTIFICATION_ID = 2_900_002
+        private const val MEAL_NOTIFICATION_BASE = 3_100_000
     }
 }

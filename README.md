@@ -1,6 +1,6 @@
 # FocusFlow Android prototype
 
-当前应用版本：**3.2**。功能更新记录见 [CHANGELOG.md](CHANGELOG.md)。
+当前应用版本：**3.3**。功能更新记录见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## First open in Android Studio
 
@@ -16,7 +16,7 @@ dependencies used by this prototype.
 
 The included GitHub Actions workflow builds a debug APK on a GitHub runner.
 Push this folder to a GitHub repository, then open **Actions** and run
-**Build FocusFlow APK**. Download the `FocusFlow-3.1-apk` artifact after the
+**Build FocusFlow APK**. Download the `FocusFlow-3.3-apk` artifact after the
 workflow succeeds.
 
 本项目是一个面向 Android 的本地优先日程与执行辅助原型。核心目标不是维护一张完整日历，而是降低记录压力、按当前状态调整提醒，并在错过计划后帮助恢复。
@@ -70,6 +70,9 @@ workflow succeeds.
 - 计划页提供本周低压力回顾：根据目标进度、最低版本与反馈阻碍提出保持、缩小、换时段或调整方法的建议
 - 启动时请求通知权限；没有通知权限时，其他功能仍可离线使用
 - 常驻快速记录通知与活动结束预告的设置开关（常驻通知仍待实现）
+- 今日页“今日餐点”卡片：按生活阶段与星期显示每餐预计时间，临近时提示“准备吃饭？”，确认后在预计结束时间提醒“吃完了吗？”
+- 饭点学习只使用用户确认的开始与结束时间，按“生活阶段 × 星期 × 餐次”取最近中位数；数据不足时只用基线并明确标注
+- 结束用餐可记录可选的消费草稿（金额、评价、备注），为 v4 理财预留；不记录不会被视为没吃
 
 ## 下一步
 
