@@ -153,6 +153,10 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, onStatusCheckInRequest
     var improvementNotes by remember { mutableStateOf(store.loadImprovementNotes()) }
     var improvementOpen by remember { mutableStateOf(false) }
     var roadmapSelections by remember { mutableStateOf(store.loadRoadmapSelections()) }
+    var baselineProfile by remember { mutableStateOf(store.loadBaselineProfile()) }
+    var baselineOnboardingOpen by remember { mutableStateOf(!store.loadOnboardingDone()) }
+    var baselineEventsOpen by remember { mutableStateOf(false) }
+    var baselineResetConfirmOpen by remember { mutableStateOf(false) }
     var planPage by remember { mutableStateOf<PlanPage?>(null) }
     val suggestedNextStep = items
         .filter { !it.done && it.kind != "收集箱" && it.kind != "暂停" }
@@ -322,6 +326,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, onStatusCheckInRequest
                     onScheduleGoal = { goal, suggestion ->
                         val scheduled = Item(title = goal.title, detail = "${goal.metricType}：${goal.metricTarget.ifBlank { "本次完成" }} · ${weekdayName(suggestion.weekday)} ${GoalPlanner.displayTime(suggestion.startMinute)}", kind = "任务", scheduledAt = GoalPlanner.nextOccurrence(suggestion.weekday, suggestion.startMinute), goalId = goal.id, durationMinutes = goal.durationMinutes)
                         saveItems(listOf(scheduled) + items)
+                        store.appendBaselineEvent(BaselineRecorder.event(BaselineEventType.TASK_SCHEDULED, "${goal.title} · ${weekdayName(suggestion.weekday)} ${GoalPlanner.displayTime(suggestion.startMinute)}"))
                         ReminderScheduler.scheduleTaskReminder(context, scheduled)
                     },
                     resources = resources,
@@ -332,7 +337,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, onStatusCheckInRequest
                     },
                     feedback = feedback
                 )
-                else -> SettingsScreen(Modifier.padding(padding), themeOption, commuteProfile, campusLifeEnabled, campusMapPackage, currentCampusPlace, improvementNotes, roadmapSelections, activitySettings, statusCheckInSettings, onThemeChange = { updated ->
+                else -> SettingsScreen(Modifier.padding(padding), themeOption, commuteProfile, campusLifeEnabled, campusMapPackage, currentCampusPlace, improvementNotes, roadmapSelections, activitySettings, statusCheckInSettings, baselineProfile, onThemeChange = { updated ->
                     themeOption = updated
                     store.saveTheme(updated)
                 }, onCommuteChange = { updated ->
@@ -362,6 +367,10 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, onStatusCheckInRequest
                 }, onAddImprovement = { improvementOpen = true }, onToggleRoadmap = { feature ->
                     roadmapSelections = if (feature.id in roadmapSelections) roadmapSelections - feature.id else roadmapSelections + feature.id
                     store.saveRoadmapSelections(roadmapSelections)
+                }, onOpenBaselineEditor = { baselineOnboardingOpen = true }, onOpenBaselineEvents = { baselineEventsOpen = true }, onResetBaseline = {
+                    baselineResetConfirmOpen = true
+                }, recordBaselineEvent = { type, payload ->
+                    store.appendBaselineEvent(BaselineRecorder.event(type, payload))
                 })
             }
         }
@@ -378,6 +387,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, onStatusCheckInRequest
             val session = ActivitySession(name = name, category = category, plannedStartAt = now, actualStartAt = now, endsAt = endsAt, nextStep = nextStep)
             store.saveSession(session)
             activeSession = session
+            store.appendBaselineEvent(BaselineRecorder.event(BaselineEventType.ACTIVITY_STARTED, name))
             ReminderScheduler.scheduleActivityReminders(context, session, activitySettings)
             activityOpen = false
             activityPreset = null
@@ -389,6 +399,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, onStatusCheckInRequest
             onSave = { selectedEnergy, selectedActivity ->
                 val checkIn = StatusCheckIn(selectedEnergy, selectedActivity)
                 store.saveStatusCheckIn(checkIn)
+                store.appendBaselineEvent(BaselineRecorder.event(BaselineEventType.CHECK_IN_RECORDED, "精力$selectedEnergy · $selectedActivity"))
                 energyLevel = selectedEnergy
                 latestStatusCheckIn = checkIn
                 statusCheckInOpen = false
@@ -401,6 +412,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, onStatusCheckInRequest
             onDismiss = { transitionTarget = null },
             onFinish = { actualEndAt ->
                 store.finishSession(session.id, ActivitySession.STATUS_COMPLETED, "finished_now", actualEndAt)
+                store.appendBaselineEvent(BaselineRecorder.event(BaselineEventType.ACTIVITY_ENDED, session.name))
                 ReminderScheduler.cancelActivityReminders(context, session.id)
                 activeSession = null
                 transitionTarget = null
@@ -408,14 +420,16 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, onStatusCheckInRequest
             onStartNext = {
                 val now = System.currentTimeMillis()
                 store.finishSession(session.id, ActivitySession.STATUS_COMPLETED, "started_next", now)
-                ReminderScheduler.cancelActivityReminders(context, session.id)
                 val nextName = session.nextStep.ifBlank { suggestedNextStepName }
+                store.appendBaselineEvent(BaselineRecorder.event(BaselineEventType.ACTIVITY_ENDED, nextName.takeIf { it.isNotBlank() }?.let { "${session.name} → $it" } ?: session.name))
+                ReminderScheduler.cancelActivityReminders(context, session.id)
                 if (nextName.isNotBlank()) {
                     val courseDuration = courses.firstOrNull { nextName.startsWith(it.title) }?.let { CourseGapPlanner.periodEnd(it.endPeriod) - CourseGapPlanner.periodStart(it.startPeriod) }
                     val duration = items.firstOrNull { it.title == nextName }?.durationMinutes ?: courseDuration ?: 30
                     val nextSession = ActivitySession(name = nextName, category = "下一步", plannedStartAt = now, actualStartAt = now, endsAt = now + duration * 60_000L)
                     store.saveSession(nextSession)
                     activeSession = nextSession
+                    store.appendBaselineEvent(BaselineRecorder.event(BaselineEventType.ACTIVITY_STARTED, nextName))
                     ReminderScheduler.scheduleActivityReminders(context, nextSession, activitySettings)
                 } else activeSession = null
                 transitionTarget = null
@@ -429,6 +443,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, onStatusCheckInRequest
             },
             onReplan = {
                 store.finishSession(session.id, ActivitySession.STATUS_SKIPPED, "replan")
+                store.appendBaselineEvent(BaselineRecorder.event(BaselineEventType.ACTIVITY_SKIPPED, session.name))
                 ReminderScheduler.cancelActivityReminders(context, session.id)
                 store.addReplanItem(session.nextStep.ifBlank { session.name })
                 items = store.loadItems()
@@ -439,6 +454,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, onStatusCheckInRequest
         rescheduleTarget?.let { item -> RescheduleTimeDialog(item, onDismiss = { rescheduleTarget = null }) { scheduledAt, duration, label ->
             val delayed = item.copy(kind = "任务", detail = "已改期至$label；届时会再次出现", scheduledAt = scheduledAt, durationMinutes = duration, dayOnly = false, windowStartAt = null, windowEndAt = null)
             saveItems(items.map { if (it.id == item.id) delayed else it })
+            store.appendBaselineEvent(BaselineRecorder.event(BaselineEventType.TASK_RESCHEDULED, "${item.title.removePrefix("重新安排：")} → $label"))
             ReminderScheduler.scheduleTaskReminder(context, delayed)
             rescheduleTarget = null
         } }
@@ -460,6 +476,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, onStatusCheckInRequest
                     windowEndAt = null
                 )
                 saveItems(items.map { if (it.id == item.id) scheduled else it })
+                store.appendBaselineEvent(BaselineRecorder.event(BaselineEventType.TASK_SCHEDULED, "${item.title.removePrefix("重新安排：")} · $label"))
                 ReminderScheduler.scheduleTaskReminder(context, scheduled)
                 inboxScheduleTarget = null
             },
@@ -475,6 +492,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, onStatusCheckInRequest
                     windowEndAt = end
                 )
                 saveItems(items.map { if (it.id == item.id) flexible else it })
+                store.appendBaselineEvent(BaselineRecorder.event(BaselineEventType.TASK_SCHEDULED, "${item.title.removePrefix("重新安排：")} · 弹性范围 $label"))
                 inboxScheduleTarget = null
             }
         ) }
@@ -492,6 +510,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, onStatusCheckInRequest
                     detail = "初步安排：${formatDateTime(suggestion.startsAt)} · ${suggestion.durationMinutes} 分钟；可随时改期"
                 )
                 saveItems(items.map { if (it.id == item.id) scheduled else it })
+                store.appendBaselineEvent(BaselineRecorder.event(BaselineEventType.TASK_SCHEDULED, "${item.title} · 初步安排 ${formatDateTime(suggestion.startsAt)}"))
                 ReminderScheduler.scheduleTaskReminder(context, scheduled)
                 flexiblePlanTarget = null
             }
@@ -522,6 +541,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, onStatusCheckInRequest
         }
         completionTarget?.let { item -> CompletionDialog(item, goals.firstOrNull { it.id == item.goalId }, onDismiss = { completionTarget = null }) { level ->
             saveItems(items.map { if (it.id == item.id) it.copy(done = true, completionLevel = level, completedAt = System.currentTimeMillis()) else it })
+            store.appendBaselineEvent(BaselineRecorder.event(BaselineEventType.TASK_COMPLETED, "${item.title} · $level"))
             item.goalId?.let { goalId ->
                 val key = GoalPlanner.currentWeekKey()
                 goals = goals.map { goal -> if (goal.id != goalId) goal else if (goal.completionWeekKey == key) {
@@ -545,6 +565,53 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, onStatusCheckInRequest
             store.saveImprovementNotes(improvementNotes)
             improvementOpen = false
         }
+        if (baselineOnboardingOpen) BaselineOnboardingDialog(
+            initial = baselineProfile,
+            onDismiss = {
+                baselineOnboardingOpen = false
+                store.saveOnboardingDone(true)
+            },
+            onSave = { profile ->
+                val previous = baselineProfile
+                baselineProfile = profile
+                store.saveBaselineProfile(profile)
+                store.saveOnboardingDone(true)
+                profile.lifeStage?.takeIf { it != previous.lifeStage }?.let { stage ->
+                    store.appendBaselineEvent(BaselineRecorder.event(BaselineEventType.LIFE_STAGE_SET, stage.label))
+                }
+                if (profile.wakeMinute != previous.wakeMinute || profile.sleepMinute != previous.sleepMinute || profile.entertainmentWindow != previous.entertainmentWindow) {
+                    store.appendBaselineEvent(BaselineRecorder.event(BaselineEventType.SCHEDULE_ANCHOR_SET, "起床 ${formatMinute(profile.wakeMinute)} · 睡觉 ${formatMinute(profile.sleepMinute)}${profile.entertainmentWindow.takeIf { it.isNotBlank() }?.let { " · 娱乐 $it" } ?: ""}"))
+                }
+                profile.meals.forEach { meal ->
+                    if (previous.meals.none { it.type == meal.type && it.typicalStartMinute == meal.typicalStartMinute && it.typicalMinutes == meal.typicalMinutes }) {
+                        store.appendBaselineEvent(BaselineRecorder.event(BaselineEventType.MEAL_TIMELINE_SET, "${meal.type.label} ${formatMinute(meal.typicalStartMinute)} · 约 ${meal.typicalMinutes} 分钟"))
+                    }
+                }
+                baselineOnboardingOpen = false
+            }
+        )
+        if (baselineEventsOpen) BaselineEventsDialog(
+            events = store.loadBaselineEvents(),
+            onDismiss = { baselineEventsOpen = false },
+            onClear = {
+                store.clearBaselineEvents()
+                baselineEventsOpen = false
+            }
+        )
+        if (baselineResetConfirmOpen) AlertDialog(
+            onDismissRequest = { baselineResetConfirmOpen = false },
+            title = { Text("重建习惯基线？") },
+            text = { Text("会清空当前基线资料和全部原始事件记录，并重新开始引导。这个操作不可撤销。") },
+            confirmButton = {
+                Button(onClick = {
+                    baselineProfile = BaselineProfile()
+                    store.resetBaseline()
+                    baselineResetConfirmOpen = false
+                    baselineOnboardingOpen = true
+                }) { Text("重建") }
+            },
+            dismissButton = { TextButton(onClick = { baselineResetConfirmOpen = false }) { Text("取消") } }
+        )
     }
     }
 }
@@ -1730,7 +1797,7 @@ private fun weekdayName(day: Int) = listOf("", "周一", "周二", "周三", "�
     }
 }
 
-@Composable private fun SettingsScreen(modifier: Modifier, themeOption: FocusFlowThemeOption, commuteProfile: CommuteProfile, campusLifeEnabled: Boolean, campusMapPackage: CampusMapPackage?, currentCampusPlace: String?, improvementNotes: List<ImprovementNote>, roadmapSelections: Set<String>, activitySettings: ActivityReminderSettings, statusCheckInSettings: StatusCheckInSettings, onThemeChange: (FocusFlowThemeOption) -> Unit, onCommuteChange: (CommuteProfile) -> Unit, onCampusLifeEnabledChange: (Boolean) -> Unit, onCampusMapPackageChange: (CampusMapPackage?) -> Unit, onCurrentCampusPlaceChange: (String?) -> Unit, onActivitySettingsChange: (ActivityReminderSettings) -> Unit, onStatusCheckInSettingsChange: (StatusCheckInSettings) -> Unit, onAddImprovement: () -> Unit, onToggleRoadmap: (RoadmapFeature) -> Unit) {
+@Composable private fun SettingsScreen(modifier: Modifier, themeOption: FocusFlowThemeOption, commuteProfile: CommuteProfile, campusLifeEnabled: Boolean, campusMapPackage: CampusMapPackage?, currentCampusPlace: String?, improvementNotes: List<ImprovementNote>, roadmapSelections: Set<String>, activitySettings: ActivityReminderSettings, statusCheckInSettings: StatusCheckInSettings, baselineProfile: BaselineProfile, onThemeChange: (FocusFlowThemeOption) -> Unit, onCommuteChange: (CommuteProfile) -> Unit, onCampusLifeEnabledChange: (Boolean) -> Unit, onCampusMapPackageChange: (CampusMapPackage?) -> Unit, onCurrentCampusPlaceChange: (String?) -> Unit, onActivitySettingsChange: (ActivityReminderSettings) -> Unit, onStatusCheckInSettingsChange: (StatusCheckInSettings) -> Unit, onAddImprovement: () -> Unit, onToggleRoadmap: (RoadmapFeature) -> Unit, onOpenBaselineEditor: () -> Unit, onOpenBaselineEvents: () -> Unit, onResetBaseline: () -> Unit, recordBaselineEvent: (BaselineEventType, String) -> Unit) {
     val context = LocalContext.current
     val campusPlaces = campusMapPackage?.places?.takeIf { it.isNotEmpty() } ?: ZijingangTravel.places
     var importStatus by remember { mutableStateOf<String?>(null) }
@@ -1831,6 +1898,27 @@ private fun weekdayName(day: Int) = listOf("", "周一", "周二", "周三", "�
                 }
             }
             Text("活动进行中会自动等到稍后；没有回应时当天不连续追问。签到数据仅保存在本机，现阶段不会据此自动改动日程。", style = MaterialTheme.typography.bodySmall)
+        }
+        HorizontalDivider()
+        Text("习惯基线", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        Text("2–3 分钟填好大致作息与餐点；只有你确认过的数据才会用于后续学习。", style = MaterialTheme.typography.bodySmall)
+        ElevatedCard {
+            Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (baselineProfile.isComplete) {
+                    Text("当前生活阶段：${baselineProfile.lifeStage?.label}", fontWeight = FontWeight.SemiBold)
+                    Text("起床 ${formatMinute(baselineProfile.wakeMinute)} · 睡觉 ${formatMinute(baselineProfile.sleepMinute)}")
+                    baselineProfile.meals.forEach { meal -> Text("${meal.type.label} 约 ${formatMinute(meal.typicalStartMinute)} · 约 ${meal.typicalMinutes} 分钟", style = MaterialTheme.typography.bodySmall) }
+                    if (baselineProfile.entertainmentWindow.isNotBlank()) Text("常见娱乐时段：${baselineProfile.entertainmentWindow}", style = MaterialTheme.typography.bodySmall)
+                } else {
+                    Text("尚未完成引导；可以现在补上。", fontWeight = FontWeight.SemiBold)
+                }
+                Text("原始事件按时间追加保存，不会因学习而覆盖；你可以随时查看、修正或重建。", style = MaterialTheme.typography.bodySmall)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    OutlinedButton(onClick = onOpenBaselineEditor) { Text("编辑") }
+                    TextButton(onClick = onOpenBaselineEvents) { Text("原始事件") }
+                    TextButton(onClick = onResetBaseline) { Text("重建基线") }
+                }
+            }
         }
         HorizontalDivider()
         Text("通勤与地点", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
@@ -1953,6 +2041,7 @@ private fun weekdayName(day: Int) = listOf("", "周一", "周二", "周三", "�
             onSave = { minutes ->
                 val key = ZijingangTravel.routeKey(from.zone, to.zone, commuteProfile.campusMode)
                 onCommuteChange(CommuteLearning.record(commuteProfile, key, minutes))
+                recordBaselineEvent(BaselineEventType.COMMUTE_CONFIRMED, "${from.name} → ${to.name} · ${commuteProfile.campusMode} · $minutes 分钟")
                 routeCalibrationTarget = null
             }
         )
@@ -1986,6 +2075,121 @@ private fun weekdayName(day: Int) = listOf("", "周一", "周二", "周三", "�
             }
         },
         confirmButton = { Button(onClick = onDismiss) { Text("知道了") } }
+    )
+}
+
+@Composable private fun BaselineTimePickButton(label: String, minute: Int, onChange: (Int) -> Unit) {
+    val context = LocalContext.current
+    OutlinedButton(onClick = {
+        TimePickerDialog(context, { _, hour, minuteOfHour ->
+            onChange(hour * 60 + minuteOfHour)
+        }, minute / 60, minute % 60, true).show()
+    }) { Text("$label ${formatMinute(minute)}") }
+}
+
+@Composable private fun BaselineOnboardingDialog(initial: BaselineProfile, onDismiss: () -> Unit, onSave: (BaselineProfile) -> Unit) {
+    var step by remember { mutableIntStateOf(0) }
+    var lifeStage by remember(initial) { mutableStateOf(initial.lifeStage) }
+    var wakeMinute by remember(initial) { mutableIntStateOf(initial.wakeMinute.takeIf { it >= 0 } ?: 7 * 60) }
+    var sleepMinute by remember(initial) { mutableIntStateOf(initial.sleepMinute.takeIf { it >= 0 } ?: 23 * 60) }
+    var meals by remember(initial) {
+        mutableStateOf(initial.meals.ifEmpty {
+            listOf(
+                MealTimeline(MealType.BREAKFAST, 8 * 60 + 30),
+                MealTimeline(MealType.LUNCH, 12 * 60),
+                MealTimeline(MealType.DINNER, 18 * 60)
+            )
+        })
+    }
+    var entertainment by remember(initial) { mutableStateOf(initial.entertainmentWindow) }
+    val steps = listOf("生活阶段", "作息", "餐点", "娱乐")
+    AlertDialog(
+        onDismissRequest = {},
+        title = { Text(if (initial.isComplete) "编辑习惯基线" else "先了解你的大致节奏（可跳过）") },
+        text = {
+            Column(Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("${steps[step]} · ${step + 1} / ${steps.size}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                when (step) {
+                    0 -> {
+                        Text("记录的目的是将来给出更合适的提醒与安排，现在只需大致回答。")
+                        Text("当前生活阶段", fontWeight = FontWeight.Bold)
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            LifeStage.entries.forEach { stage ->
+                                FilterChip(selected = lifeStage == stage, onClick = { lifeStage = stage }, label = { Text(stage.label) })
+                            }
+                        }
+                        Text("假期和开学后的作息会分开学习，避免互相干扰。", style = MaterialTheme.typography.bodySmall)
+                    }
+                    1 -> {
+                        Text("大致起床与睡觉时间；不用精确到分钟。", style = MaterialTheme.typography.bodySmall)
+                        BaselineTimePickButton("起床", wakeMinute) { wakeMinute = it }
+                        BaselineTimePickButton("睡觉", sleepMinute) { sleepMinute = it }
+                    }
+                    2 -> {
+                        Text("每餐大约什么时候开始、通常吃多久？只记大致时间，之后会按你的实际确认自动调整。", style = MaterialTheme.typography.bodySmall)
+                        meals.forEach { meal ->
+                            ElevatedCard {
+                                Column(Modifier.fillMaxWidth().padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Text(meal.type.label, fontWeight = FontWeight.SemiBold)
+                                    BaselineTimePickButton("开始", meal.typicalStartMinute) { minute ->
+                                        meals = meals.map { if (it.type == meal.type) it.copy(typicalStartMinute = minute) else it }
+                                    }
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        Text("时长", style = MaterialTheme.typography.bodySmall)
+                                        listOf(15, 20, 30, 45).forEach { minutes ->
+                                            FilterChip(selected = meal.typicalMinutes == minutes, onClick = { meals = meals.map { if (it.type == meal.type) it.copy(typicalMinutes = minutes) else it } }, label = { Text("$minutes 分钟") })
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    else -> {
+                        Text("常见的娱乐或放松时段（可选），例如“19:00-21:30”。")
+                        OutlinedTextField(value = entertainment, onValueChange = { entertainment = it }, label = { Text("娱乐时段（可选）") }, placeholder = { Text("例如：19:00-21:30") }, singleLine = true)
+                        Text("不需要今天就填得很准；之后任何时间都可以回来修正。", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            if (step < steps.size - 1) Button(enabled = step != 0 || lifeStage != null, onClick = { step += 1 }) { Text("下一步") }
+            else Button(enabled = lifeStage != null, onClick = {
+                onSave(BaselineProfile(lifeStage = lifeStage, wakeMinute = wakeMinute, sleepMinute = sleepMinute, meals = meals, entertainmentWindow = entertainment.trim()))
+            }) { Text("完成") }
+        },
+        dismissButton = {
+            Row {
+                if (step > 0) TextButton(onClick = { step -= 1 }) { Text("上一步") }
+                TextButton(onClick = onDismiss) { Text(if (initial.isComplete) "取消" else "跳过") }
+            }
+        }
+    )
+}
+
+@Composable private fun BaselineEventsDialog(events: List<BaselineEvent>, onDismiss: () -> Unit, onClear: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("原始事件记录") },
+        text = {
+            Column(Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("这些是你确认过的原始记录，按时间追加保存；学习算法不会覆盖它们。", style = MaterialTheme.typography.bodySmall)
+                if (events.isEmpty()) {
+                    Text("还没有记录。完成引导、开始活动、签到或确认通勤后会自动出现在这里。")
+                } else {
+                    events.takeLast(50).reversed().forEach { event ->
+                        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))) {
+                            Text(BaselineRecorder.displayPayload(event), Modifier.fillMaxWidth().padding(10.dp), style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                    Text("共 ${events.size} 条记录，仅保存在本机。", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        },
+        confirmButton = {
+            if (events.isNotEmpty()) OutlinedButton(onClick = onClear) { Text("清除全部记录") }
+            TextButton(onClick = onDismiss) { Text("关闭") }
+        }
     )
 }
 

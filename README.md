@@ -1,6 +1,6 @@
 # FocusFlow Android prototype
 
-当前应用版本：**3.1**。功能更新记录见 [CHANGELOG.md](CHANGELOG.md)。
+当前应用版本：**3.2**。功能更新记录见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## First open in Android Studio
 

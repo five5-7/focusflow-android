@@ -383,6 +383,87 @@ class PrototypeStore(context: Context) {
     fun loadRoadmapSelections(): Set<String> = preferences.getStringSet("roadmap_selections", emptySet()) ?: emptySet()
     fun saveRoadmapSelections(selections: Set<String>) { preferences.edit().putStringSet("roadmap_selections", selections).apply() }
 
+    fun loadOnboardingDone(): Boolean = preferences.getBoolean("baseline_onboarding_done", false)
+
+    fun saveOnboardingDone(done: Boolean) {
+        preferences.edit().putBoolean("baseline_onboarding_done", done).apply()
+    }
+
+    fun loadBaselineProfile(): BaselineProfile = runCatching {
+        val value = preferences.getString("baseline_profile", null) ?: return@runCatching BaselineProfile()
+        val json = JSONObject(value)
+        BaselineProfile(
+            lifeStage = LifeStage.fromKey(json.optString("lifeStage", "")),
+            wakeMinute = json.optInt("wakeMinute", -1),
+            sleepMinute = json.optInt("sleepMinute", -1),
+            meals = runCatching {
+                val values = json.optJSONArray("meals") ?: JSONArray()
+                List(values.length()) { index ->
+                    val meal = values.getJSONObject(index)
+                    MealTimeline(
+                        type = MealType.fromLabel(meal.getString("type")) ?: return@List MealTimeline(MealType.BREAKFAST, 480),
+                        typicalStartMinute = meal.optInt("typicalStartMinute", 480).coerceIn(0, 24 * 60 - 1),
+                        typicalMinutes = meal.optInt("typicalMinutes", 20).coerceIn(5, 120)
+                    )
+                }
+            }.getOrDefault(emptyList()),
+            entertainmentWindow = json.optString("entertainmentWindow", "")
+        )
+    }.getOrDefault(BaselineProfile())
+
+    fun saveBaselineProfile(profile: BaselineProfile) {
+        val meals = JSONArray()
+        profile.meals.forEach { meal -> meals.put(JSONObject().apply {
+            put("type", meal.type.label)
+            put("typicalStartMinute", meal.typicalStartMinute)
+            put("typicalMinutes", meal.typicalMinutes)
+        }) }
+        preferences.edit().putString("baseline_profile", JSONObject().apply {
+            put("lifeStage", profile.lifeStage?.storageKey ?: "")
+            put("wakeMinute", profile.wakeMinute)
+            put("sleepMinute", profile.sleepMinute)
+            put("meals", meals)
+            put("entertainmentWindow", profile.entertainmentWindow)
+        }.toString()).apply()
+    }
+
+    fun appendBaselineEvent(event: BaselineEvent) {
+        val all = (loadBaselineEvents(500) + event).takeLast(500)
+        val values = JSONArray()
+        all.forEach { value -> values.put(JSONObject().apply {
+            put("id", value.id)
+            put("type", value.type.storageKey)
+            put("recordedAt", value.recordedAt)
+            put("payload", value.payload)
+        }) }
+        preferences.edit().putString("baseline_events", values.toString()).apply()
+    }
+
+    fun loadBaselineEvents(limit: Int = 200): List<BaselineEvent> = runCatching {
+        val values = JSONArray(preferences.getString("baseline_events", "[]") ?: "[]")
+        List(values.length()) { index ->
+            val value = values.getJSONObject(index)
+            BaselineEvent(
+                id = value.getLong("id"),
+                type = BaselineEventType.entries.firstOrNull { it.storageKey == value.optString("type") } ?: BaselineEventType.LIFE_STAGE_SET,
+                recordedAt = value.optLong("recordedAt", 0),
+                payload = value.optString("payload", "")
+            )
+        }.takeLast(limit.coerceIn(1, 500))
+    }.getOrDefault(emptyList())
+
+    fun clearBaselineEvents() {
+        preferences.edit().remove("baseline_events").apply()
+    }
+
+    fun resetBaseline() {
+        preferences.edit()
+            .remove("baseline_profile")
+            .remove("baseline_events")
+            .putBoolean("baseline_onboarding_done", false)
+            .apply()
+    }
+
     private fun loadSessions(): List<ActivitySession> = runCatching {
         val values = JSONArray(preferences.getString("sessions", "[]") ?: "[]")
         List(values.length()) { index ->
