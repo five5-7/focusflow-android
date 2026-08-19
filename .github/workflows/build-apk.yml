@@ -29,38 +29,16 @@ jobs:
         with:
           gradle-version: "8.7"
 
-      - name: Prepare stable prototype signing key
-        env:
-          FOCUSFLOW_KEYSTORE_BASE64: ${{ secrets.FOCUSFLOW_KEYSTORE_BASE64 }}
-        run: |
-          if [ -n "$FOCUSFLOW_KEYSTORE_BASE64" ]; then
-            printf '%s' "$FOCUSFLOW_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/focusflow-debug.jks"
-            echo "FOCUSFLOW_HAS_SIGNING_KEY=true" >> "$GITHUB_ENV"
-          else
-            echo "FOCUSFLOW_HAS_SIGNING_KEY=false" >> "$GITHUB_ENV"
-            echo "Signing secrets are not configured; this run validates compilation but will not upload an installable APK."
-          fi
+      - name: Run unit tests
+        run: gradle --no-daemon :app:testDebugUnitTest
 
-      - name: Build signed APK
-        env:
-          FOCUSFLOW_SIGNING_STORE_PASSWORD: ${{ secrets.FOCUSFLOW_SIGNING_STORE_PASSWORD }}
-          FOCUSFLOW_SIGNING_KEY_ALIAS: ${{ secrets.FOCUSFLOW_SIGNING_KEY_ALIAS }}
-          FOCUSFLOW_SIGNING_KEY_PASSWORD: ${{ secrets.FOCUSFLOW_SIGNING_KEY_PASSWORD }}
-        run: |
-          if [ "$FOCUSFLOW_HAS_SIGNING_KEY" = "true" ]; then
-            export FOCUSFLOW_SIGNING_STORE_FILE="$RUNNER_TEMP/focusflow-debug.jks"
-          fi
-          gradle --no-daemon :app:assembleDebug
-
-      - name: Name APK with version
-        if: env.FOCUSFLOW_HAS_SIGNING_KEY == 'true'
-        run: cp app/build/outputs/apk/debug/app-debug.apk FocusFlow-3.3.apk
+      - name: Build debug APK
+        run: gradle --no-daemon :app:assembleDebug
 
       - name: Upload APK
-        if: env.FOCUSFLOW_HAS_SIGNING_KEY == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: FocusFlow-3.3-apk
-          path: FocusFlow-3.3.apk
+          name: FocusFlow-debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 7
