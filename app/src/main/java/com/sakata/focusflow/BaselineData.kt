@@ -26,16 +26,34 @@ data class MealTimeline(
     val typicalMinutes: Int = 20
 )
 
-/** 用户填写的习惯基线。lifeStage 为空表示尚未完成引导。 */
+/** 按星期分组作息：某几天使用独立的起床/睡觉/餐次锚点（如周五课少≈周末、周末晚起）。 */
+data class DayGroup(
+    val label: String,
+    val days: Set<Int>,          // 1=周一 .. 7=周日
+    val wakeMinute: Int,
+    val sleepMinute: Int,
+    val meals: List<MealTimeline>
+)
+
+/** 用户填写的习惯基线。lifeStage 为空表示尚未完成引导。variantName 非空表示这是已另存的“生活模式方案”。 */
 data class BaselineProfile(
     val lifeStage: LifeStage? = null,
     val wakeMinute: Int = -1,
     val sleepMinute: Int = -1,
     val meals: List<MealTimeline> = emptyList(),
-    val entertainmentWindow: String = ""
+    val entertainmentWindow: String = "",
+    val variantName: String = "",
+    val dayGroups: List<DayGroup> = emptyList()
 ) {
     val isComplete: Boolean
         get() = lifeStage != null && wakeMinute in 0 until 24 * 60 && sleepMinute in 0 until 24 * 60 && meals.size >= 2
+
+    /** 某星期（1=周一..7=周日）生效的分组锚点；无匹配分组返回 null（用主锚点）。 */
+    fun groupFor(weekday: Int): DayGroup? = dayGroups.firstOrNull { weekday in it.days }
+
+    fun sleepMinuteFor(weekday: Int): Int = groupFor(weekday)?.sleepMinute ?: sleepMinute
+
+    fun mealsFor(weekday: Int): List<MealTimeline> = groupFor(weekday)?.meals ?: meals
 }
 
 enum class BaselineEventType(val label: String, val storageKey: String) {

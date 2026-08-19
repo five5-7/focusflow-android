@@ -24,6 +24,7 @@ class ReminderReceiver : BroadcastReceiver() {
                 val settings = store.loadStatusCheckInSettings()
                 ReminderScheduler.scheduleDailyStatusCheckIn(context, settings)
                 if (!settings.enabled) return
+                if (suppressNow(store, intent.action)) return
                 val active = store.loadLatestActiveSession()
                 if (active != null) {
                     val minutes = ((active.endsAt - System.currentTimeMillis()) / 60_000L + 10).toInt().coerceIn(30, 180)
@@ -74,6 +75,7 @@ class ReminderReceiver : BroadcastReceiver() {
                 return
             }
             ACTION_MEAL_REMINDER -> {
+                if (suppressNow(store, intent.action)) return
                 val type = MealType.fromLabel(intent.getStringExtra(EXTRA_MEAL_TYPE) ?: "")
                 if (type != null) showMealPromptNotification(context, manager, type, intent.getBooleanExtra(EXTRA_MEAL_LEARNED, false))
                 return
@@ -84,8 +86,14 @@ class ReminderReceiver : BroadcastReceiver() {
                 return
             }
             ACTION_MEAL_END_REMINDER -> {
+                if (suppressNow(store, intent.action)) return
                 val type = MealType.fromLabel(intent.getStringExtra(EXTRA_MEAL_TYPE) ?: "")
                 if (type != null) showMealEndNotification(context, manager, type)
+                return
+            }
+            ACTION_WIND_DOWN -> {
+                if (suppressNow(store, intent.action)) return
+                showWindDownNotification(context, manager)
                 return
             }
             ACTION_MEAL_STILL_EATING -> {
@@ -106,6 +114,11 @@ class ReminderReceiver : BroadcastReceiver() {
                 if (taskId >= 0) store.findItem(taskId)?.let { task ->
                     store.updateItem(taskId) { it.copy(done = true, completionLevel = "完整完成", completedAt = System.currentTimeMillis()) }
                     task.goalId?.let { store.markGoalCompleted(it) }
+                    task.scheduledAt?.let { time ->
+                        val cal = java.util.Calendar.getInstance().apply { timeInMillis = time }
+                        val day = when (cal.get(java.util.Calendar.DAY_OF_WEEK)) { java.util.Calendar.SUNDAY -> 7 else -> cal.get(java.util.Calendar.DAY_OF_WEEK) - 1 }
+                        PlanLearning.recordCompleted(store, day, cal.get(java.util.Calendar.HOUR_OF_DAY))
+                    }
                 }
                 return
             }
@@ -134,13 +147,42 @@ class ReminderReceiver : BroadcastReceiver() {
                 if (taskId >= 0) store.updateItem(taskId) { item -> item.copy(title = if (item.title.startsWith("重新安排：")) item.title else "重新安排：${item.title}", kind = "收集箱", detail = "这次没有做；可以改期、缩短、暂停或放弃", scheduledAt = null) }
                 return
             }
+            ACTION_GAME_START -> {
+                showGameStartNotification(context, manager, intent)
+                return
+            }
+            ACTION_GAME_END -> {
+                handleGameEndCheck(context, manager, intent, followUp = false)
+                return
+            }
+            ACTION_GAME_END_FOLLOWUP -> {
+                handleGameEndCheck(context, manager, intent, followUp = true)
+                return
+            }
+            ACTION_GAME_FINISH -> {
+                if (notificationId >= 0) manager.cancel(notificationId)
+                recordGameActualEnd(context, intent.getLongExtra(EXTRA_GAME_SESSION_ID, -1L), System.currentTimeMillis())
+                return
+            }
+            ACTION_GAME_EXTEND -> {
+                if (notificationId >= 0) manager.cancel(notificationId)
+                val sessionId = intent.getLongExtra(EXTRA_GAME_SESSION_ID, -1L)
+                PrototypeStore(context).loadGameSessions().firstOrNull { it.id == sessionId && it.isOpen() }?.let { session ->
+                    val extended = session.copy(plannedEndAt = session.plannedEndAt + 15 * 60_000L)
+                    store.updateGameSession(sessionId) { extended }
+                    ReminderScheduler.cancelGameReminders(context, sessionId)
+                    ReminderScheduler.scheduleGameReminders(context, extended)
+                }
+                return
+            }
             else -> return
         }
         if (!store.loadActivityReminderSettings().notificationsEnabled) return
         if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
         val stronger = store.loadActivityReminderSettings().strongerEndReminder
         val endChannel = if (stronger) CHANNEL_ACTIVITY_END else CHANNEL_ACTIVITY_END_GENTLE
-        manager.createNotificationChannel(NotificationChannel(endChannel, "活动结束提醒", if (stronger) NotificationManager.IMPORTANCE_HIGH else NotificationManager.IMPORTANCE_DEFAULT))
+        // 所有提醒渠道升级为高重要性：横幅弹出几秒＋声音（像微信）；温和版到点提醒为静音横幅。
+        ensureChannel(manager, endChannel, "活动结束提醒", silent = !stronger)
         val id = (System.currentTimeMillis() % Int.MAX_VALUE).toInt()
         val text = if (nextStep.isBlank()) "预计时间已到。现在结束、延长，或打开 FocusFlow 决定下一步。" else "预计时间已到。下一步：$nextStep"
         val openApp = PendingIntent.getActivity(context, id + 9, Intent(context, MainActivity::class.java), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
@@ -161,9 +203,16 @@ class ReminderReceiver : BroadcastReceiver() {
         manager.notify(id, notification.build())
     }
 
+    /** 打扰控制：一次性静音期间全部静音；免打扰时段内按类型静音（状态询问/饭点/睡前减速）。 */
+    private fun suppressNow(store: PrototypeStore, action: String?): Boolean {
+        val quiet = store.loadQuietHoursSettings()
+        if (quiet.isMuted()) return true
+        return quiet.inQuietHours() && QuietHoursSettings.suppresses(quiet, action ?: "")
+    }
+
     private fun showActivityPreview(context: Context, manager: NotificationManager, activityName: String, nextStep: String, sessionId: Long) {
         if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
-        manager.createNotificationChannel(NotificationChannel(CHANNEL_ACTIVITY_PREVIEW, "活动结束预告", NotificationManager.IMPORTANCE_DEFAULT))
+        ensureChannel(manager, CHANNEL_ACTIVITY_PREVIEW, "活动结束预告")
         val id = ((sessionId % Int.MAX_VALUE) + 700).toInt()
         val openApp = PendingIntent.getActivity(context, id, Intent(context, MainActivity::class.java), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val text = if (nextStep.isBlank()) "$activityName 即将到达预计结束时间，可以开始收尾。" else "$activityName 即将结束；接下来准备：$nextStep"
@@ -179,7 +228,7 @@ class ReminderReceiver : BroadcastReceiver() {
 
     private fun showTaskNotification(context: Context, manager: NotificationManager, title: String, taskId: Long) {
         if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
-        manager.createNotificationChannel(NotificationChannel(CHANNEL_TASK, "FocusFlow 任务提醒", NotificationManager.IMPORTANCE_HIGH))
+        ensureChannel(manager, CHANNEL_TASK, "FocusFlow 任务提醒")
         val openApp = PendingIntent.getActivity(context, 0, Intent(context, MainActivity::class.java), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val id = (System.currentTimeMillis() % Int.MAX_VALUE).toInt()
         val task = PrototypeStore(context).findItem(taskId)
@@ -201,7 +250,7 @@ class ReminderReceiver : BroadcastReceiver() {
         settings: StatusCheckInSettings
     ) {
         if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
-        manager.createNotificationChannel(NotificationChannel(CHANNEL_STATUS_CHECK_IN, "低打扰状态询问", NotificationManager.IMPORTANCE_DEFAULT))
+        ensureChannel(manager, CHANNEL_STATUS_CHECK_IN, "低打扰状态询问")
         val id = STATUS_CHECK_IN_NOTIFICATION_ID
         val openApp = PendingIntent.getActivity(
             context,
@@ -236,7 +285,7 @@ class ReminderReceiver : BroadcastReceiver() {
 
     private fun showMealPromptNotification(context: Context, manager: NotificationManager, type: MealType, learned: Boolean) {
         if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
-        manager.createNotificationChannel(NotificationChannel(CHANNEL_MEAL, "饭点提醒", NotificationManager.IMPORTANCE_DEFAULT))
+        ensureChannel(manager, CHANNEL_MEAL, "饭点提醒")
         val id = MEAL_NOTIFICATION_BASE + type.ordinal
         val openApp = PendingIntent.getActivity(
             context,
@@ -272,9 +321,41 @@ class ReminderReceiver : BroadcastReceiver() {
             .build())
     }
 
+    private fun showWindDownNotification(context: Context, manager: NotificationManager) {
+        if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
+        ensureChannel(manager, CHANNEL_WIND_DOWN, "睡前减速")
+        val id = WIND_DOWN_NOTIFICATION_ID
+        val openApp = PendingIntent.getActivity(
+            context,
+            id,
+            Intent(context, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val profile = PrototypeStore(context).loadBaselineProfile()
+        val sleepText = WindDownInsights.formatMinute(profile.sleepMinute.coerceAtLeast(0))
+        val store2 = PrototypeStore(context)
+        val lateNightCount = LifestyleInsights.lateNightActiveCount(store2.loadStatusCheckIns(90), store2.loadRecentActivitySessions())
+        val text = if (lateNightCount >= 3) {
+            "按你的习惯 ${sleepText} 睡觉。你最近 $lateNightCount 次在深夜（22 点后）仍活跃，今晚建议比平时更早收尾、放下手机。"
+        } else {
+            "按你的习惯 ${sleepText} 睡觉。现在收尾、洗漱、放下手机，明天从低强度任务开始。"
+        }
+        manager.notify(id, NotificationCompat.Builder(context, CHANNEL_WIND_DOWN)
+            .setSmallIcon(android.R.drawable.ic_popup_reminder)
+            .setContentTitle("该开始睡前减速了")
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setContentIntent(openApp)
+            .setAutoCancel(true)
+            .setOnlyAlertOnce(true)
+            .build())
+    }
+
     private fun showMealEndNotification(context: Context, manager: NotificationManager, type: MealType) {
         if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
-        manager.createNotificationChannel(NotificationChannel(CHANNEL_MEAL, "饭点提醒", NotificationManager.IMPORTANCE_DEFAULT))
+        ensureChannel(manager, CHANNEL_MEAL, "饭点提醒")
         val id = MEAL_NOTIFICATION_BASE + type.ordinal + 10
         val openApp = PendingIntent.getActivity(
             context,
@@ -309,6 +390,19 @@ class ReminderReceiver : BroadcastReceiver() {
             .build())
     }
 
+    /** 创建高重要性（横幅弹出）渠道；silent=true 时为静音横幅（温和版到点提醒）。旧渠道就地删除，避免遗留。 */
+    private fun ensureChannel(manager: NotificationManager, channelId: String, name: String, silent: Boolean = false) {
+        manager.createNotificationChannel(
+            NotificationChannel(channelId, name, NotificationManager.IMPORTANCE_HIGH).apply {
+                if (silent) {
+                    setSound(null, null)
+                    enableVibration(false)
+                }
+            }
+        )
+        LEGACY_CHANNELS.forEach { if (manager.getNotificationChannel(it) != null) manager.deleteNotificationChannel(it) }
+    }
+
     private fun isSameDayAsNow(timestamp: Long): Boolean {
         val now = Calendar.getInstance()
         val value = Calendar.getInstance().apply { timeInMillis = timestamp }
@@ -338,6 +432,89 @@ class ReminderReceiver : BroadcastReceiver() {
         return PendingIntent.getBroadcast(context, requestCode, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
     }
 
+    private fun gameActionIntent(context: Context, action: String, sessionId: Long, title: String, notificationId: Int, actionOffset: Int): PendingIntent {
+        val intent = Intent(context, ReminderReceiver::class.java).apply {
+            this.action = action
+            putExtra(EXTRA_GAME_SESSION_ID, sessionId)
+            putExtra(EXTRA_GAME_TITLE, title)
+            putExtra(EXTRA_NOTIFICATION_ID, notificationId)
+        }
+        return PendingIntent.getBroadcast(context, notificationId + actionOffset, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+    }
+
+    /** 到游戏时间：自动记录当前状态为娱乐并提醒开始。 */
+    private fun showGameStartNotification(context: Context, manager: NotificationManager, intent: Intent) {
+        if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
+        ensureChannel(manager, CHANNEL_GAME, "游戏安排提醒")
+        val sessionId = intent.getLongExtra(EXTRA_GAME_SESSION_ID, -1L)
+        val title = intent.getStringExtra(EXTRA_GAME_TITLE) ?: "游戏"
+        val id = ((sessionId % Int.MAX_VALUE).toInt() + 400).coerceAtLeast(0)
+        val openApp = PendingIntent.getActivity(context, id + 9, Intent(context, MainActivity::class.java), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val store = PrototypeStore(context)
+        store.saveStatusCheckIn(StatusCheckIn(store.loadEnergyLevel(), "娱乐"))
+        val text = "到游戏时间了！已自动记录当前状态为娱乐；到点会提醒你收尾。"
+        manager.notify(id, NotificationCompat.Builder(context, CHANNEL_GAME)
+            .setSmallIcon(android.R.drawable.ic_popup_reminder)
+            .setContentTitle("开始游戏吧 · $title")
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setContentIntent(openApp)
+            .setAutoCancel(true)
+            .build())
+    }
+
+    /** 到点检测：游戏/视频类检查前台是否还在玩；其他活动不检测前台，直接提醒收尾。到点提醒结束（可结束/延长 15 分钟）并 10 分钟后复查。 */
+    private fun handleGameEndCheck(context: Context, manager: NotificationManager, intent: Intent, followUp: Boolean) {
+        val store = PrototypeStore(context)
+        val sessionId = intent.getLongExtra(EXTRA_GAME_SESSION_ID, -1L)
+        val title = intent.getStringExtra(EXTRA_GAME_TITLE) ?: "活动"
+        val session = store.loadGameSessions().firstOrNull { it.id == sessionId && it.isOpen() } ?: return
+        val now = System.currentTimeMillis()
+        val detectionOn = store.loadGameDetectionEnabled() && AppLibrary.hasUsageAccess(context)
+        val targetCategory = when (session.category) {
+            "游戏" -> AppCategory.GAME
+            "视频" -> AppCategory.VIDEO
+            else -> null
+        }
+        val foreground = if (detectionOn && targetCategory != null) AppLibrary.foregroundPackage(context) else null
+        val stillPlaying = foreground != null &&
+            (session.packageName == foreground || AppLibrary.categoryOf(context, foreground, store.loadAppCategories()) == targetCategory)
+        // 无检测类别（学习/休息/运动/自定义）或检测到仍在玩：提醒收尾；否则自动记录按时结束。
+        if (targetCategory == null || stillPlaying) {
+            if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
+            ensureChannel(manager, CHANNEL_GAME, "活动收尾提醒")
+            val id = ((sessionId % Int.MAX_VALUE).toInt() + 500 + if (followUp) 1 else 0).coerceAtLeast(0)
+            val openApp = PendingIntent.getActivity(context, id + 9, Intent(context, MainActivity::class.java), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+            val text = when {
+                stillPlaying && foreground != null -> if (followUp) "还在玩《${AppLibrary.appLabel(context, foreground)}》？计划时间已经过了，收个尾吧。" else "计划到点了，检测到你还在玩《${AppLibrary.appLabel(context, foreground)}》。"
+                else -> "计划时间到了，收个尾吧（可结束或延长 15 分钟）。"
+            }
+            val notification = NotificationCompat.Builder(context, CHANNEL_GAME)
+                .setSmallIcon(android.R.drawable.ic_popup_reminder)
+                .setContentTitle("$title 时间到了")
+                .setContentText(text)
+                .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+                .setContentIntent(openApp)
+                .addAction(0, "结束", gameActionIntent(context, ACTION_GAME_FINISH, sessionId, title, id, 1))
+                .addAction(0, "延长 15 分钟", gameActionIntent(context, ACTION_GAME_EXTEND, sessionId, title, id, 2))
+                .setAutoCancel(true)
+            manager.notify(id, notification.build())
+            if (!followUp) ReminderScheduler.scheduleGameFollowUp(context, sessionId, title, now + 10 * 60_000L)
+        } else {
+            recordGameActualEnd(context, sessionId, now)
+        }
+    }
+
+    /** 记录游戏实际结束并清掉相关提醒。 */
+    private fun recordGameActualEnd(context: Context, sessionId: Long, actualEndAt: Long) {
+        val store = PrototypeStore(context)
+        store.loadGameSessions().firstOrNull { it.id == sessionId && it.isOpen() }?.let { session ->
+            val overrun = ((actualEndAt - session.plannedEndAt) / 60_000L).toInt().coerceAtLeast(0)
+            store.updateGameSession(sessionId) { it.copy(actualEndAt = actualEndAt, endedOnTime = overrun == 0, overrunMinutes = overrun) }
+            ReminderScheduler.cancelGameReminders(context, sessionId)
+        }
+    }
+
     companion object {
         const val ACTION_ACTIVITY_END = "com.sakata.focusflow.ACTIVITY_END"
         const val ACTION_ACTIVITY_PREVIEW = "com.sakata.focusflow.ACTIVITY_PREVIEW"
@@ -349,8 +526,14 @@ class ReminderReceiver : BroadcastReceiver() {
         const val ACTION_TASK_SNOOZE = "com.sakata.focusflow.TASK_SNOOZE"
         const val ACTION_TASK_SKIP = "com.sakata.focusflow.TASK_SKIP"
         const val ACTION_TASK_MINIMUM = "com.sakata.focusflow.TASK_MINIMUM"
+        const val ACTION_GAME_START = "com.sakata.focusflow.GAME_START"
+        const val ACTION_GAME_END = "com.sakata.focusflow.GAME_END"
+        const val ACTION_GAME_END_FOLLOWUP = "com.sakata.focusflow.GAME_END_FOLLOWUP"
+        const val ACTION_GAME_FINISH = "com.sakata.focusflow.GAME_FINISH"
+        const val ACTION_GAME_EXTEND = "com.sakata.focusflow.GAME_EXTEND"
         const val ACTION_STATUS_CHECK_IN = "com.sakata.focusflow.STATUS_CHECK_IN"
         const val ACTION_STATUS_CHECK_IN_SNOOZE = "com.sakata.focusflow.STATUS_CHECK_IN_SNOOZE"
+        const val ACTION_WIND_DOWN = "com.sakata.focusflow.WIND_DOWN"
         const val ACTION_MEAL_REMINDER = "com.sakata.focusflow.MEAL_REMINDER"
         const val ACTION_MEAL_SNOOZE = "com.sakata.focusflow.MEAL_SNOOZE"
         const val ACTION_MEAL_END_REMINDER = "com.sakata.focusflow.MEAL_END_REMINDER"
@@ -362,17 +545,28 @@ class ReminderReceiver : BroadcastReceiver() {
         const val EXTRA_TASK_TITLE = "task_title"
         const val EXTRA_NOTIFICATION_ID = "notification_id"
         const val EXTRA_OPEN_STATUS_CHECK_IN = "open_status_check_in"
+        const val EXTRA_OPEN_QUICK_CAPTURE = "open_quick_capture"
         const val EXTRA_OPEN_MEAL_PROMPT = "open_meal_prompt"
         const val EXTRA_OPEN_MEAL_FINISH = "open_meal_finish"
         const val EXTRA_MEAL_TYPE = "meal_type"
         const val EXTRA_MEAL_LEARNED = "meal_learned"
-        private const val CHANNEL_ACTIVITY_PREVIEW = "focusflow_activity_preview"
-        private const val CHANNEL_ACTIVITY_END = "focusflow_activity_end_v2"
-        private const val CHANNEL_ACTIVITY_END_GENTLE = "focusflow_activity_end_gentle_v2"
+        const val EXTRA_GAME_SESSION_ID = "game_session_id"
+        const val EXTRA_GAME_TITLE = "game_title"
+        private const val CHANNEL_ACTIVITY_PREVIEW = "focusflow_activity_preview_v2"
+        private const val CHANNEL_ACTIVITY_END = "focusflow_activity_end_v3"
+        private const val CHANNEL_ACTIVITY_END_GENTLE = "focusflow_activity_end_gentle_v3"
         private const val CHANNEL_TASK = "focusflow_task_reminders"
-        private const val CHANNEL_STATUS_CHECK_IN = "focusflow_status_check_in_v1"
-        private const val CHANNEL_MEAL = "focusflow_meal_reminders"
+        private const val CHANNEL_STATUS_CHECK_IN = "focusflow_status_check_in_v2"
+        private const val CHANNEL_WIND_DOWN = "focusflow_wind_down_v2"
+        private const val CHANNEL_MEAL = "focusflow_meal_reminders_v2"
+        private const val CHANNEL_GAME = "focusflow_game_v1"
+        /** 3.9.8 之前创建的低重要性渠道；升级横幅后删除，避免设置页残留旧渠道。 */
+        private val LEGACY_CHANNELS = listOf(
+            "focusflow_activity_end_v2", "focusflow_activity_end_gentle_v2", "focusflow_activity_preview",
+            "focusflow_status_check_in_v1", "focusflow_wind_down", "focusflow_meal_reminders"
+        )
         private const val STATUS_CHECK_IN_NOTIFICATION_ID = 2_900_002
+        private const val WIND_DOWN_NOTIFICATION_ID = 2_900_004
         private const val MEAL_NOTIFICATION_BASE = 3_100_000
     }
 }

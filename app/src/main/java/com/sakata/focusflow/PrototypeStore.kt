@@ -1,8 +1,12 @@
 package com.sakata.focusflow
 
 import android.content.Context
+import androidx.compose.ui.graphics.Color
 import org.json.JSONArray
 import org.json.JSONObject
+
+/** 自定义主题预设：命名配色存档，用于保存／切换多套自定义配色。 */
+data class ThemePreset(val name: String, val colors: FocusFlowThemeColors)
 
 /** Deliberately small offline persistence for the first test build. */
 class PrototypeStore(context: Context) {
@@ -15,6 +19,84 @@ class PrototypeStore(context: Context) {
         preferences.edit().putString("app_theme", theme.storageKey).apply()
     }
 
+    fun loadDarkMode(): Boolean = preferences.getBoolean("dark_mode", false)
+
+    fun saveDarkMode(enabled: Boolean) {
+        preferences.edit().putBoolean("dark_mode", enabled).apply()
+    }
+
+    /** 自定义主题 5 色（ARGB，全局配色分工）。无自定义记录时返回 null。 */
+    fun loadCustomThemeColors(): FocusFlowThemeColors? = runCatching {
+        preferences.getString("custom_theme_colors", null)?.let { json ->
+            val value = JSONObject(json)
+            FocusFlowThemeColors(
+                primaryAction = Color(value.getLong("primaryAction")),
+                // 旧存档（3.9.10 前）没有这些字段：回退 OCEAN 种子值。
+                secondary = Color(value.optLong("secondary", 0xFF5C4B9A)),
+                accent = Color(value.getLong("accent")),
+                schedule = Color(value.getLong("schedule")),
+                neutral = Color(value.getLong("neutral")),
+                warning = Color(value.getLong("warning")),
+                text = Color(value.optLong("text", 0xFF182124))
+            )
+        }
+    }.getOrNull()
+
+    fun saveCustomThemeColors(colors: FocusFlowThemeColors) {
+        preferences.edit().putString("custom_theme_colors", JSONObject().apply {
+            put("primaryAction", colors.primaryAction.value.toLong())
+            put("secondary", colors.secondary.value.toLong())
+            put("accent", colors.accent.value.toLong())
+            put("schedule", colors.schedule.value.toLong())
+            put("neutral", colors.neutral.value.toLong())
+            put("warning", colors.warning.value.toLong())
+            put("text", colors.text.value.toLong())
+        }.toString()).apply()
+    }
+
+    /** 自定义主题预设：多套命名配色存档。无预设时返回空列表。 */
+    fun loadThemePresets(): List<ThemePreset> = runCatching {
+        preferences.getString("theme_presets", null)?.let { json ->
+            JSONArray(json).let { arr ->
+                (0 until arr.length()).map { i ->
+                    val item = arr.getJSONObject(i)
+                    val c = item.getJSONObject("colors")
+                    ThemePreset(
+                        name = item.getString("name"),
+                        colors = FocusFlowThemeColors(
+                            primaryAction = Color(c.getLong("primaryAction")),
+                            secondary = Color(c.optLong("secondary", 0xFF5C4B9A)),
+                            accent = Color(c.getLong("accent")),
+                            schedule = Color(c.getLong("schedule")),
+                            neutral = Color(c.getLong("neutral")),
+                            warning = Color(c.getLong("warning")),
+                            text = Color(c.optLong("text", 0xFF182124))
+                        )
+                    )
+                }
+            }
+        } ?: emptyList()
+    }.getOrElse { emptyList() }
+
+    fun saveThemePresets(presets: List<ThemePreset>) {
+        preferences.edit().putString("theme_presets", JSONArray().apply {
+            presets.forEach { preset ->
+                put(JSONObject().apply {
+                    put("name", preset.name)
+                    put("colors", JSONObject().apply {
+                        put("primaryAction", preset.colors.primaryAction.value.toLong())
+                        put("secondary", preset.colors.secondary.value.toLong())
+                        put("accent", preset.colors.accent.value.toLong())
+                        put("schedule", preset.colors.schedule.value.toLong())
+                        put("neutral", preset.colors.neutral.value.toLong())
+                        put("warning", preset.colors.warning.value.toLong())
+                        put("text", preset.colors.text.value.toLong())
+                    })
+                })
+            }
+        }.toString()).apply()
+    }
+
     fun loadEnergyLevel(): String = (preferences.getString("energy_level", "正常") ?: "正常").takeIf { it in setOf("偏低", "正常", "充足") } ?: "正常"
 
     fun saveEnergyLevel(level: String) {
@@ -24,7 +106,8 @@ class PrototypeStore(context: Context) {
     fun loadStatusCheckInSettings(): StatusCheckInSettings = StatusCheckInSettings(
         enabled = preferences.getBoolean("status_checkin_enabled", false),
         promptHour = preferences.getInt("status_checkin_hour", 14).coerceIn(8, 22),
-        snoozeMinutes = preferences.getInt("status_checkin_snooze_minutes", 60).coerceIn(30, 180)
+        snoozeMinutes = preferences.getInt("status_checkin_snooze_minutes", 60).coerceIn(30, 180),
+        promptHourAutoAdjusted = preferences.getBoolean("status_checkin_hour_auto", false)
     )
 
     fun saveStatusCheckInSettings(settings: StatusCheckInSettings) {
@@ -32,6 +115,7 @@ class PrototypeStore(context: Context) {
             .putBoolean("status_checkin_enabled", settings.enabled)
             .putInt("status_checkin_hour", settings.promptHour)
             .putInt("status_checkin_snooze_minutes", settings.snoozeMinutes)
+            .putBoolean("status_checkin_hour_auto", settings.promptHourAutoAdjusted)
             .apply()
     }
 
@@ -266,6 +350,18 @@ class PrototypeStore(context: Context) {
         preferences.edit().putBoolean("campus_life_enabled", enabled).apply()
     }
 
+    /** 被用户删除（隐藏）的内置默认地点名；可从“已隐藏地点”恢复。 */
+    fun loadHiddenPlaces(): Set<String> = runCatching {
+        val values = JSONArray(preferences.getString("hidden_places", "[]") ?: "[]")
+        List(values.length()) { index -> values.optString(index, "") }.filter { it.isNotBlank() }.toSet()
+    }.getOrDefault(emptySet())
+
+    fun saveHiddenPlaces(hidden: Set<String>) {
+        val values = JSONArray()
+        hidden.take(100).forEach { values.put(it) }
+        preferences.edit().putString("hidden_places", values.toString()).apply()
+    }
+
     fun loadCampusMapPackage(): CampusMapPackage? = runCatching {
         preferences.getString("campus_map_package", null)?.let(CampusMapPackageCodec::parse)
     }.getOrNull()
@@ -284,6 +380,123 @@ class PrototypeStore(context: Context) {
             if (placeName.isNullOrBlank()) remove("current_campus_place")
             else putString("current_campus_place", placeName)
         }.apply()
+    }
+
+    /** 用户自定义地点（本地退化版地点管理），与内置目录/地点包合并后作为全部地点列表。 */
+    fun loadCustomPlaces(): List<CampusPlace> = runCatching {
+        val values = JSONArray(preferences.getString("custom_places", "[]") ?: "[]")
+        val seen = mutableSetOf<String>()
+        List(values.length()) { index ->
+            runCatching { CampusMapPackageCodec.parsePlace(values.getJSONObject(index)) }.getOrNull()
+        }.filterNotNull().filter { seen.add(it.name.lowercase()) }.takeLast(100)
+    }.getOrDefault(emptyList())
+
+    fun saveCustomPlaces(places: List<CampusPlace>) {
+        val values = JSONArray()
+        places.takeLast(100).forEach { place -> values.put(CampusMapPackageCodec.encodePlace(place)) }
+        preferences.edit().putString("custom_places", values.toString()).apply()
+    }
+
+    fun loadAmapKey(): String = preferences.getString("amap_web_key", "") ?: ""
+
+    fun saveAmapKey(key: String) {
+        preferences.edit().apply {
+            if (key.isBlank()) remove("amap_web_key")
+            else putString("amap_web_key", key.trim())
+        }.apply()
+    }
+
+    fun loadCampusCenter(): CampusCenter = runCatching {
+        preferences.getString("campus_center", null)?.let { json ->
+            val value = JSONObject(json)
+            CampusCenter(
+                lat = value.optDouble("lat", AmapWebApi.ZIJINGANG_CENTER.first),
+                lng = value.optDouble("lng", AmapWebApi.ZIJINGANG_CENTER.second),
+                city = value.optString("city", "杭州").ifBlank { "杭州" }
+            )
+        }
+    }.getOrNull() ?: AmapWebApi.defaultCampusCenter()
+
+    fun saveCampusCenter(center: CampusCenter) {
+        preferences.edit().putString("campus_center", JSONObject().apply {
+            put("lat", center.lat)
+            put("lng", center.lng)
+            put("city", center.city.ifBlank { "杭州" })
+        }.toString()).apply()
+    }
+
+    fun loadTutorialSearchSettings(): TutorialSearchSettings = TutorialSearchSettings(
+        enabled = preferences.getBoolean("tutorial_search_enabled", false),
+        apiKey = preferences.getString("siliconflow_api_key", "") ?: "",
+        // 旧默认 Qwen/Qwen2.5-7B 已从硅基流动下线：已保存的旧默认值迁移为新默认，用户自定义模型名不动。
+        model = (preferences.getString("tutorial_search_model", null) ?: DEFAULT_TUTORIAL_MODEL)
+            .takeIf { it.isNotBlank() }
+            ?.let { if (it == "Qwen/Qwen2.5-7B") DEFAULT_TUTORIAL_MODEL else it }
+            ?: DEFAULT_TUTORIAL_MODEL
+    )
+
+    fun saveTutorialSearchSettings(settings: TutorialSearchSettings) {
+        preferences.edit()
+            .putBoolean("tutorial_search_enabled", settings.enabled)
+            .putString("siliconflow_api_key", settings.apiKey.trim())
+            .putString("tutorial_search_model", settings.model.ifBlank { DEFAULT_TUTORIAL_MODEL })
+            .apply()
+    }
+
+    /** 完成率学习原始 JSON（PlanLearning 使用）。 */
+    fun loadPlanLearningRaw(): String = preferences.getString("plan_learning", "{}") ?: "{}"
+
+    fun savePlanLearning(data: JSONObject) {
+        preferences.edit().putString("plan_learning", data.toString()).apply()
+    }
+
+    fun loadCourseVisionSettings(): CourseVisionSettings = CourseVisionSettings(
+        enabled = preferences.getBoolean("course_vision_enabled", false),
+        model = migrateVisionModel(preferences.getString("course_vision_model", null) ?: DEFAULT_COURSE_VISION_MODEL)
+    )
+
+    /** 硅基流动已下线 Qwen2.5-VL 系列：已保存的旧 ID 迁移到在线的 Qwen3-VL 新 ID，其余自定义模型名不动。 */
+    private fun migrateVisionModel(model: String): String {
+        if (model.isBlank()) return DEFAULT_COURSE_VISION_MODEL
+        val prefix = "Qwen/Qwen2.5-VL-"
+        if (!model.startsWith(prefix)) return model
+        return when (model.removePrefix(prefix)) {
+            "7B-Instruct" -> "Qwen/Qwen3-VL-8B-Instruct"
+            "32B-Instruct" -> "Qwen/Qwen3-VL-32B-Instruct"
+            else -> DEFAULT_COURSE_VISION_MODEL
+        }
+    }
+
+    fun saveCourseVisionSettings(settings: CourseVisionSettings) {
+        preferences.edit()
+            .putBoolean("course_vision_enabled", settings.enabled)
+            .putString("course_vision_model", settings.model.ifBlank { DEFAULT_COURSE_VISION_MODEL })
+            .apply()
+    }
+
+    /** 首次开启课表视觉模型时的 key 申请引导是否已显示过（只自动弹一次，之后可从设置页/帮助再次打开）。 */
+    fun loadCourseVisionGuideShown(): Boolean = preferences.getBoolean("course_vision_guide_shown", false)
+
+    fun saveCourseVisionGuideShown(shown: Boolean) {
+        preferences.edit().putBoolean("course_vision_guide_shown", shown).apply()
+    }
+
+    /** 课表识别发现的新地点（楼级文字，尚未加入地点目录），最多 50 个；加载时自动剥校区前缀并归并到楼级。 */
+    fun loadPendingPlaces(): List<String> = runCatching {
+        val values = JSONArray(preferences.getString("pending_places", "[]") ?: "[]")
+        List(values.length()) { index -> values.optString(index, "") }
+            .filter { it.isNotBlank() }
+            .mapNotNull { value ->
+                val stripped = CourseScreenshotParser.stripCampusPrefix(value).trim()
+                CourseScreenshotParser.buildingFromRoom(stripped) ?: stripped.takeIf { it.isNotBlank() }
+            }
+            .distinct()
+    }.getOrDefault(emptyList())
+
+    fun savePendingPlaces(places: List<String>) {
+        val values = JSONArray()
+        places.take(50).forEach { values.put(it) }
+        preferences.edit().putString("pending_places", values.toString()).apply()
     }
 
     fun hasCourseSetup(): Boolean = preferences.getBoolean("course_setup_done", false)
@@ -335,14 +548,14 @@ class PrototypeStore(context: Context) {
         val values = JSONArray(preferences.getString("resources", "[]") ?: "[]")
         List(values.length()) { index ->
             val resource = values.getJSONObject(index)
-            LearningResource(resource.getLong("id"), resource.getString("title"), resource.optString("url"), resource.optBoolean("selected"))
+            LearningResource(resource.getLong("id"), resource.getString("title"), resource.optString("url"), resource.optBoolean("selected"), resource.optString("summary", ""))
         }
     }.getOrDefault(emptyList())
 
     fun saveResources(resources: List<LearningResource>) {
         val values = JSONArray()
         resources.forEach { resource -> values.put(JSONObject().apply {
-            put("id", resource.id); put("title", resource.title); put("url", resource.url); put("selected", resource.selected)
+            put("id", resource.id); put("title", resource.title); put("url", resource.url); put("selected", resource.selected); put("summary", resource.summary)
         }) }
         preferences.edit().putString("resources", values.toString()).apply()
     }
@@ -380,51 +593,126 @@ class PrototypeStore(context: Context) {
         preferences.edit().putString("improvement_notes", values.toString()).apply()
     }
 
-    fun loadRoadmapSelections(): Set<String> = preferences.getStringSet("roadmap_selections", emptySet()) ?: emptySet()
-    fun saveRoadmapSelections(selections: Set<String>) { preferences.edit().putStringSet("roadmap_selections", selections).apply() }
-
     fun loadOnboardingDone(): Boolean = preferences.getBoolean("baseline_onboarding_done", false)
 
     fun saveOnboardingDone(done: Boolean) {
         preferences.edit().putBoolean("baseline_onboarding_done", done).apply()
     }
 
+    // 首次启动权限一站式标记：申请过即不再重复打扰（即使系统在弹窗期间杀进程也不重申请）。
+    fun loadPermissionOnboardingDone(): Boolean = preferences.getBoolean("permission_onboarding_done", false)
+
+    fun savePermissionOnboardingDone(done: Boolean) {
+        preferences.edit().putBoolean("permission_onboarding_done", done).apply()
+    }
+
+    /** 首次启动的快速入门是否已显示过（之后可从 设置 → 快速入门 再次打开）。 */
+    fun loadFeatureIntroShown(): Boolean = preferences.getBoolean("feature_intro_shown", false)
+
+    fun saveFeatureIntroShown(shown: Boolean) {
+        preferences.edit().putBoolean("feature_intro_shown", shown).apply()
+    }
+
+    /** 首次完成习惯基线后的“后续在哪找”提示是否已显示过。 */
+    fun loadBaselineWhereToFindShown(): Boolean = preferences.getBoolean("baseline_where_to_find_shown", false)
+
+    fun saveBaselineWhereToFindShown(shown: Boolean) {
+        preferences.edit().putBoolean("baseline_where_to_find_shown", shown).apply()
+    }
+
     fun loadBaselineProfile(): BaselineProfile = runCatching {
         val value = preferences.getString("baseline_profile", null) ?: return@runCatching BaselineProfile()
-        val json = JSONObject(value)
-        BaselineProfile(
-            lifeStage = LifeStage.fromKey(json.optString("lifeStage", "")),
-            wakeMinute = json.optInt("wakeMinute", -1),
-            sleepMinute = json.optInt("sleepMinute", -1),
-            meals = runCatching {
-                val values = json.optJSONArray("meals") ?: JSONArray()
-                List(values.length()) { index ->
-                    val meal = values.getJSONObject(index)
-                    MealTimeline(
-                        type = MealType.fromLabel(meal.getString("type")) ?: return@List MealTimeline(MealType.BREAKFAST, 480),
-                        typicalStartMinute = meal.optInt("typicalStartMinute", 480).coerceIn(0, 24 * 60 - 1),
-                        typicalMinutes = meal.optInt("typicalMinutes", 20).coerceIn(5, 120)
-                    )
-                }
-            }.getOrDefault(emptyList()),
-            entertainmentWindow = json.optString("entertainmentWindow", "")
-        )
+        baselineProfileFromJson(JSONObject(value))
     }.getOrDefault(BaselineProfile())
 
     fun saveBaselineProfile(profile: BaselineProfile) {
+        preferences.edit().putString("baseline_profile", baselineProfileToJson(profile).toString()).apply()
+    }
+
+    /** 已另存的生活模式方案（同阶段多种作息共存，可切换/删除）。 */
+    fun loadBaselineVariants(): List<BaselineProfile> = runCatching {
+        val values = JSONArray(preferences.getString("baseline_variants", "[]") ?: "[]")
+        List(values.length()) { index -> values.optJSONObject(index)?.let(::baselineProfileFromJson) }.filterNotNull()
+    }.getOrDefault(emptyList())
+
+    fun saveBaselineVariants(variants: List<BaselineProfile>) {
+        val values = JSONArray()
+        variants.take(8).forEach { profile -> values.put(baselineProfileToJson(profile)) }
+        preferences.edit().putString("baseline_variants", values.toString()).apply()
+    }
+
+    private fun baselineProfileFromJson(json: JSONObject): BaselineProfile = BaselineProfile(
+        lifeStage = LifeStage.fromKey(json.optString("lifeStage", "")),
+        wakeMinute = json.optInt("wakeMinute", -1),
+        sleepMinute = json.optInt("sleepMinute", -1),
+        meals = runCatching {
+            val values = json.optJSONArray("meals") ?: JSONArray()
+            List(values.length()) { index ->
+                val meal = values.getJSONObject(index)
+                MealTimeline(
+                    type = MealType.fromLabel(meal.getString("type")) ?: return@List MealTimeline(MealType.BREAKFAST, 480),
+                    typicalStartMinute = meal.optInt("typicalStartMinute", 480).coerceIn(0, 24 * 60 - 1),
+                    typicalMinutes = meal.optInt("typicalMinutes", 20).coerceIn(5, 120)
+                )
+            }
+        }.getOrDefault(emptyList()),
+        entertainmentWindow = json.optString("entertainmentWindow", ""),
+        variantName = json.optString("variantName", ""),
+        dayGroups = runCatching {
+            val values = json.optJSONArray("dayGroups") ?: JSONArray()
+            List(values.length()) { index ->
+                val group = values.getJSONObject(index)
+                val days = group.optJSONArray("days")?.let { daysArray -> List(daysArray.length()) { i -> daysArray.optInt(i, 0) }.filter { it in 1..7 }.toSet() } ?: emptySet()
+                val meals = runCatching {
+                    val mealValues = group.optJSONArray("meals") ?: JSONArray()
+                    List(mealValues.length()) { i ->
+                        val meal = mealValues.getJSONObject(i)
+                        MealTimeline(
+                            type = MealType.fromLabel(meal.getString("type")) ?: return@List MealTimeline(MealType.BREAKFAST, 480),
+                            typicalStartMinute = meal.optInt("typicalStartMinute", 480).coerceIn(0, 24 * 60 - 1),
+                            typicalMinutes = meal.optInt("typicalMinutes", 20).coerceIn(5, 120)
+                        )
+                    }
+                }.getOrDefault(emptyList())
+                DayGroup(group.optString("label", ""), days, group.optInt("wakeMinute", -1), group.optInt("sleepMinute", -1), meals)
+            }
+        }.getOrDefault(emptyList())
+    )
+
+    private fun baselineProfileToJson(profile: BaselineProfile): JSONObject {
         val meals = JSONArray()
         profile.meals.forEach { meal -> meals.put(JSONObject().apply {
             put("type", meal.type.label)
             put("typicalStartMinute", meal.typicalStartMinute)
             put("typicalMinutes", meal.typicalMinutes)
         }) }
-        preferences.edit().putString("baseline_profile", JSONObject().apply {
+        val groups = JSONArray()
+        profile.dayGroups.forEach { group ->
+            groups.put(JSONObject().apply {
+                put("label", group.label)
+                val days = JSONArray()
+                group.days.sorted().forEach { days.put(it) }
+                put("days", days)
+                put("wakeMinute", group.wakeMinute)
+                put("sleepMinute", group.sleepMinute)
+                val groupMeals = JSONArray()
+                group.meals.forEach { meal -> groupMeals.put(JSONObject().apply {
+                    put("type", meal.type.label)
+                    put("typicalStartMinute", meal.typicalStartMinute)
+                    put("typicalMinutes", meal.typicalMinutes)
+                }) }
+                put("meals", groupMeals)
+            })
+        }
+        return JSONObject().apply {
             put("lifeStage", profile.lifeStage?.storageKey ?: "")
             put("wakeMinute", profile.wakeMinute)
             put("sleepMinute", profile.sleepMinute)
             put("meals", meals)
             put("entertainmentWindow", profile.entertainmentWindow)
-        }.toString()).apply()
+            put("variantName", profile.variantName)
+            put("dayGroups", groups)
+        }
     }
 
     fun appendBaselineEvent(event: BaselineEvent) {
@@ -507,8 +795,19 @@ class PrototypeStore(context: Context) {
         preferences.edit().putString("meal_records", values.toString()).apply()
     }
 
-    fun updateMealRecordEnd(id: Long, endedAt: Long) {
-        val updated = loadMealRecords(500).map { if (it.id == id) it.copy(endedAt = endedAt) else it }
+    fun updateMealRecordEnd(id: Long, endedAt: Long, draft: MealDraft = MealDraft()) {
+        val updated = loadMealRecords(500).map {
+            if (it.id == id) it.copy(
+                endedAt = endedAt,
+                location = if (draft.location.isNotBlank()) draft.location else it.location,
+                category = if (draft.category.isNotBlank()) draft.category else it.category,
+                merchant = if (draft.merchant.isNotBlank()) draft.merchant else it.merchant,
+                amount = if (draft.amount >= 0) draft.amount else it.amount,
+                payMethod = if (draft.payMethod.isNotBlank()) draft.payMethod else it.payMethod,
+                rating = if (draft.rating > 0) draft.rating else it.rating,
+                note = if (draft.note.isNotBlank()) draft.note else it.note
+            ) else it
+        }
         val values = JSONArray()
         updated.forEach { value -> values.put(JSONObject().apply {
             put("id", value.id)
@@ -553,6 +852,111 @@ class PrototypeStore(context: Context) {
 
     fun saveMealReminderEnabled(enabled: Boolean) {
         preferences.edit().putBoolean("meal_reminder_enabled", enabled).apply()
+    }
+
+    fun loadQuickCaptureEnabled(): Boolean = preferences.getBoolean("quick_capture_enabled", false)
+
+    fun saveQuickCaptureEnabled(enabled: Boolean) {
+        preferences.edit().putBoolean("quick_capture_enabled", enabled).apply()
+    }
+
+    fun loadGameDetectionEnabled(): Boolean = preferences.getBoolean("game_detection_enabled", false)
+
+    fun saveGameDetectionEnabled(enabled: Boolean) {
+        preferences.edit().putBoolean("game_detection_enabled", enabled).apply()
+    }
+
+    fun loadVideoAnalysisModel(): String = preferences.getString("video_analysis_model", DEFAULT_VIDEO_ANALYSIS_MODEL) ?: DEFAULT_VIDEO_ANALYSIS_MODEL
+
+    fun saveVideoAnalysisModel(model: String) {
+        preferences.edit().putString("video_analysis_model", model).apply()
+    }
+
+    /** 用户手动设定的应用分类：包名 → 分类名（AppCategory.name）。 */
+    fun loadAppCategories(): Map<String, String> = runCatching {
+        val obj = JSONObject(preferences.getString("app_categories", "{}") ?: "{}")
+        obj.keys().asSequence().associateWith { obj.optString(it, "") }.filterValues { it.isNotBlank() }
+    }.getOrDefault(emptyMap())
+
+    fun saveAppCategories(categories: Map<String, String>) {
+        val obj = JSONObject()
+        categories.forEach { (pkg, category) -> if (category.isNotBlank()) obj.put(pkg, category) }
+        preferences.edit().putString("app_categories", obj.toString()).apply()
+    }
+
+    /** 被用户忽略（从应用分类列表隐藏）的应用包名；可从“已忽略应用”恢复。 */
+    fun loadHiddenApps(): Set<String> = runCatching {
+        val values = JSONArray(preferences.getString("hidden_apps", "[]") ?: "[]")
+        List(values.length()) { values.optString(it, "") }.filter { it.isNotBlank() }.toSet()
+    }.getOrDefault(emptySet())
+
+    fun saveHiddenApps(hidden: Set<String>) {
+        val values = JSONArray()
+        hidden.take(300).forEach { values.put(it) }
+        preferences.edit().putString("hidden_apps", values.toString()).apply()
+    }
+
+    fun loadGameSessions(): List<GameSessionRecord> = runCatching {
+        val values = JSONArray(preferences.getString("game_sessions", "[]") ?: "[]")
+        List(values.length()) { index ->
+            val session = values.getJSONObject(index)
+            GameSessionRecord(
+                id = session.getLong("id"),
+                title = session.getString("title"),
+                category = session.optString("category", "游戏").takeIf { it.isNotBlank() } ?: "游戏",
+                packageName = session.optString("packageName", "").takeIf { it.isNotBlank() },
+                plannedStartAt = session.getLong("plannedStartAt"),
+                plannedEndAt = session.getLong("plannedEndAt"),
+                actualEndAt = if (session.has("actualEndAt") && !session.isNull("actualEndAt")) session.getLong("actualEndAt") else null,
+                endedOnTime = session.optBoolean("endedOnTime", false),
+                overrunMinutes = session.optInt("overrunMinutes", 0),
+                remindStart = session.optBoolean("remindStart", false)
+            )
+        }
+    }.getOrDefault(emptyList())
+
+    fun saveGameSessions(sessions: List<GameSessionRecord>) {
+        val values = JSONArray()
+        sessions.takeLast(200).forEach { session -> values.put(JSONObject().apply {
+            put("id", session.id); put("title", session.title); put("category", session.category); put("packageName", session.packageName ?: ""); put("plannedStartAt", session.plannedStartAt); put("plannedEndAt", session.plannedEndAt)
+            session.actualEndAt?.let { put("actualEndAt", it) }
+            put("endedOnTime", session.endedOnTime); put("overrunMinutes", session.overrunMinutes); put("remindStart", session.remindStart)
+        }) }
+        preferences.edit().putString("game_sessions", values.toString()).apply()
+    }
+
+    /** 更新一条游戏会话（前台检测/通知动作记录实际结束等）。 */
+    fun updateGameSession(id: Long, transform: (GameSessionRecord) -> GameSessionRecord) {
+        val sessions = loadGameSessions()
+        saveGameSessions(sessions.map { if (it.id == id) transform(it) else it })
+    }
+
+    fun loadQuietHoursSettings(): QuietHoursSettings = QuietHoursSettings(
+        enabled = preferences.getBoolean("quiet_hours_enabled", false),
+        startMinute = preferences.getInt("quiet_hours_start", 23 * 60).coerceIn(0, 1439),
+        endMinute = preferences.getInt("quiet_hours_end", 7 * 60).coerceIn(0, 1439),
+        suppressStatusCheckIn = preferences.getBoolean("quiet_hours_suppress_status", true),
+        suppressMeal = preferences.getBoolean("quiet_hours_suppress_meal", true),
+        suppressWindDown = preferences.getBoolean("quiet_hours_suppress_wind_down", true),
+        muteUntil = preferences.getLong("quiet_hours_mute_until", 0L)
+    )
+
+    fun saveQuietHoursSettings(settings: QuietHoursSettings) {
+        preferences.edit()
+            .putBoolean("quiet_hours_enabled", settings.enabled)
+            .putInt("quiet_hours_start", settings.startMinute)
+            .putInt("quiet_hours_end", settings.endMinute)
+            .putBoolean("quiet_hours_suppress_status", settings.suppressStatusCheckIn)
+            .putBoolean("quiet_hours_suppress_meal", settings.suppressMeal)
+            .putBoolean("quiet_hours_suppress_wind_down", settings.suppressWindDown)
+            .putLong("quiet_hours_mute_until", settings.muteUntil)
+            .apply()
+    }
+
+    fun loadWindDownEnabled(): Boolean = preferences.getBoolean("wind_down_enabled", true)
+
+    fun saveWindDownEnabled(enabled: Boolean) {
+        preferences.edit().putBoolean("wind_down_enabled", enabled).apply()
     }
 
     /** 当天标记“今天不需要”的餐次，格式为 “yyyy-MM-dd:类型标签”。 */

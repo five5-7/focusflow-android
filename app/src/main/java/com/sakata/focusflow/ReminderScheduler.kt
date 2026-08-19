@@ -46,6 +46,7 @@ object ReminderScheduler {
         }
         scheduleDailyStatusCheckIn(context, store.loadStatusCheckInSettings())
         scheduleDailyMealReminders(context, store.loadBaselineProfile())
+        scheduleDailyWindDown(context, store.loadBaselineProfile())
     }
 
     fun scheduleDailyStatusCheckIn(
@@ -124,6 +125,64 @@ object ReminderScheduler {
 
     private fun activityRequestCode(sessionId: Long, offset: Int): Int {
         return (sessionId % 500_000_000L).toInt() * 2 + offset
+    }
+
+    private fun gameRequestCode(sessionId: Long, offset: Int): Int {
+        return ((sessionId + 700_000L) % 500_000_000L).toInt() * 3 + offset
+    }
+
+    /** 游戏安排：到点提醒开始（可选）+ 到点检测前台是否还在玩（结束提醒始终有）。 */
+    fun scheduleGameReminders(context: Context, session: GameSessionRecord) {
+        cancelGameReminders(context, session.id)
+        val now = System.currentTimeMillis()
+        val manager = context.getSystemService(AlarmManager::class.java)
+        if (session.remindStart && session.plannedStartAt > now) {
+            val startIntent = Intent(context, ReminderReceiver::class.java).apply {
+                action = ReminderReceiver.ACTION_GAME_START
+                putExtra(ReminderReceiver.EXTRA_GAME_SESSION_ID, session.id)
+                putExtra(ReminderReceiver.EXTRA_GAME_TITLE, session.title)
+            }
+            val pending = PendingIntent.getBroadcast(context, gameRequestCode(session.id, 1), startIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+            manager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, session.plannedStartAt, pending)
+        }
+        if (session.plannedEndAt > now) {
+            val endIntent = Intent(context, ReminderReceiver::class.java).apply {
+                action = ReminderReceiver.ACTION_GAME_END
+                putExtra(ReminderReceiver.EXTRA_GAME_SESSION_ID, session.id)
+                putExtra(ReminderReceiver.EXTRA_GAME_TITLE, session.title)
+            }
+            val pending = PendingIntent.getBroadcast(context, gameRequestCode(session.id, 2), endIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+            manager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, session.plannedEndAt, pending)
+        }
+    }
+
+    /** 到点仍在玩时，10 分钟后复查一次。 */
+    fun scheduleGameFollowUp(context: Context, sessionId: Long, title: String, at: Long) {
+        val followIntent = Intent(context, ReminderReceiver::class.java).apply {
+            action = ReminderReceiver.ACTION_GAME_END_FOLLOWUP
+            putExtra(ReminderReceiver.EXTRA_GAME_SESSION_ID, sessionId)
+            putExtra(ReminderReceiver.EXTRA_GAME_TITLE, title)
+        }
+        val pending = PendingIntent.getBroadcast(context, gameRequestCode(sessionId, 3), followIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        context.getSystemService(AlarmManager::class.java).setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pending)
+    }
+
+    fun cancelGameReminders(context: Context, sessionId: Long) {
+        val manager = context.getSystemService(AlarmManager::class.java)
+        val actions = listOf(ReminderReceiver.ACTION_GAME_START, ReminderReceiver.ACTION_GAME_END, ReminderReceiver.ACTION_GAME_END_FOLLOWUP)
+        actions.forEachIndexed { index, action ->
+            val intent = Intent(context, ReminderReceiver::class.java).apply { this.action = action }
+            val pending = PendingIntent.getBroadcast(context, gameRequestCode(sessionId, index + 1), intent, PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE)
+            pending?.let(manager::cancel)
+        }
+    }
+
+    /** 开机/升级后恢复未结束的游戏提醒。 */
+    fun restoreGameReminders(context: Context) {
+        val store = PrototypeStore(context)
+        store.loadGameSessions().filter { it.isOpen() }.forEach { session ->
+            if (session.plannedEndAt > System.currentTimeMillis()) scheduleGameReminders(context, session)
+        }
     }
 
     fun scheduleTaskReminder(context: Context, item: Item) {
@@ -220,5 +279,48 @@ object ReminderScheduler {
 
     private fun mealEndRequestCode(type: MealType): Int = 3_001_001 + type.ordinal
 
+    /** 每晚睡前减速提醒：按睡觉锚点提前 40 分钟调度，改期用 setAndAllowWhileIdle。 */
+    fun scheduleDailyWindDown(
+        context: Context,
+        profile: BaselineProfile = PrototypeStore(context).loadBaselineProfile()
+    ) {
+        cancelWindDown(context)
+        val store = PrototypeStore(context)
+        if (!store.loadWindDownEnabled() || profile.lifeStage == null) return
+        val minute = WindDownInsights.windDownMinute(profile) ?: return
+        val now = System.currentTimeMillis()
+        val next = Calendar.getInstance().apply {
+            set(Calendar.HOUR_OF_DAY, minute / 60)
+            set(Calendar.MINUTE, minute % 60)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+            if (timeInMillis <= now + 60_000L) add(Calendar.DAY_OF_YEAR, 1)
+        }.timeInMillis
+        scheduleWindDownAt(context, next)
+    }
+
+    private fun scheduleWindDownAt(context: Context, triggerAt: Long) {
+        val pending = PendingIntent.getBroadcast(
+            context,
+            WIND_DOWN_REQUEST_CODE,
+            Intent(context, ReminderReceiver::class.java).apply { action = ReminderReceiver.ACTION_WIND_DOWN },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        context.getSystemService(AlarmManager::class.java)
+            .setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pending)
+    }
+
+    fun cancelWindDown(context: Context) {
+        val manager = context.getSystemService(AlarmManager::class.java)
+        val pending = PendingIntent.getBroadcast(
+            context,
+            WIND_DOWN_REQUEST_CODE,
+            Intent(context, ReminderReceiver::class.java).apply { action = ReminderReceiver.ACTION_WIND_DOWN },
+            PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
+        )
+        pending?.let(manager::cancel)
+    }
+
     private const val STATUS_CHECK_IN_REQUEST_CODE = 2_900_001
+    private const val WIND_DOWN_REQUEST_CODE = 2_900_003
 }

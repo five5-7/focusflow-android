@@ -29,10 +29,7 @@ object CampusMapPackageCodec {
             val placeName = value.optString("name").trim()
             require(placeName.isNotBlank()) { "第 ${index + 1} 个地点缺少名称" }
             require(seenNames.add(placeName.lowercase())) { "地点名称重复：$placeName" }
-            val zoneName = value.optString("zone").trim()
-            val zone = runCatching { CampusZone.valueOf(zoneName) }
-                .getOrElse { throw IllegalArgumentException("$placeName 的分区无效：$zoneName") }
-            CampusPlace(placeName, zone, value.optString("kind", "地点").trim().ifBlank { "地点" })
+            parsePlace(value)
         }
         return CampusMapPackage(name = name, version = version, places = places)
     }
@@ -41,13 +38,28 @@ object CampusMapPackageCodec {
         put("name", mapPackage.name)
         put("version", mapPackage.version)
         put("places", JSONArray().apply {
-            mapPackage.places.forEach { place ->
-                put(JSONObject().apply {
-                    put("name", place.name)
-                    put("zone", place.zone.name)
-                    put("kind", place.kind)
-                })
-            }
+            mapPackage.places.forEach { place -> put(encodePlace(place)) }
         })
     }.toString()
+
+    /** 单个地点的 JSON 解析，供地点包与自定义地点存储共用。lat/lng 可选，越界视为缺失。 */
+    internal fun parsePlace(json: JSONObject): CampusPlace {
+        val name = json.optString("name").trim()
+        require(name.isNotBlank()) { "地点缺少名称" }
+        val zoneName = json.optString("zone").trim()
+        val zone = runCatching { CampusZone.valueOf(zoneName) }
+            .getOrElse { throw IllegalArgumentException("$name 的分区无效：$zoneName") }
+        val kind = json.optString("kind", "地点").trim().ifBlank { "地点" }
+        val lat = json.optDouble("lat", Double.NaN).takeIf { !it.isNaN() && it in -90.0..90.0 }
+        val lng = json.optDouble("lng", Double.NaN).takeIf { !it.isNaN() && it in -180.0..180.0 }
+        return CampusPlace(name, zone, kind, lat, lng)
+    }
+
+    internal fun encodePlace(place: CampusPlace): JSONObject = JSONObject().apply {
+        put("name", place.name)
+        put("zone", place.zone.name)
+        put("kind", place.kind)
+        place.lat?.let { put("lat", it) }
+        place.lng?.let { put("lng", it) }
+    }
 }

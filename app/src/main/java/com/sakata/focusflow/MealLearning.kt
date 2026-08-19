@@ -27,6 +27,17 @@ data class MealPlan(
     val sampleCount: Int
 )
 
+/** 吃完时可选填写的消费草稿；3.x 只保存草稿，不会自动生成账目或推断金额。 */
+data class MealDraft(
+    val amount: Int = -1,
+    val rating: Int = 0,
+    val note: String = "",
+    val location: String = "",
+    val category: String = "",
+    val merchant: String = "",
+    val payMethod: String = ""
+)
+
 object MealLearning {
     private const val MAX_SAMPLES = 8
     private const val MIN_SAMPLES = 3
@@ -47,7 +58,8 @@ object MealLearning {
     fun todayPlan(records: List<MealRecord>, profile: BaselineProfile, weekday: Int, mealType: MealType): MealPlan {
         val learnedStart = predictedStartMinute(records, profile.lifeStage, weekday, mealType)
         val learnedMinutes = predictedMinutes(records, profile.lifeStage, weekday, mealType)
-        val timeline = profile.meals.firstOrNull { it.type == mealType }
+        // 按星期分组作息优先（如周五≈周末、周末晚起），无分组用主锚点。
+        val timeline = profile.mealsFor(weekday).firstOrNull { it.type == mealType }
         val count = samples(records, profile.lifeStage, weekday, mealType).size
         return if (learnedStart != null) {
             MealPlan(learnedStart, learnedMinutes ?: timeline?.typicalMinutes ?: 20, true, count)
@@ -63,6 +75,10 @@ object MealLearning {
     /** 该餐是否有仍在进行中的记录（开始后未结束）。 */
     fun latestOpen(records: List<MealRecord>, mealType: MealType): MealRecord? =
         records.filter { it.mealType == mealType && it.endedAt == null }.maxByOrNull { it.startedAt }
+
+    /** 该餐最近一次记录了地点的地方；没有记录时返回 null。 */
+    fun recentLocation(records: List<MealRecord>, mealType: MealType): String? =
+        records.filter { it.mealType == mealType && it.location.isNotBlank() }.maxByOrNull { it.startedAt }?.location
 
     fun defaultStartMinute(type: MealType): Int = when (type) {
         MealType.BREAKFAST -> 8 * 60 + 30

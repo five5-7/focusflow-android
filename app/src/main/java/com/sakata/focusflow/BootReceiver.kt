@@ -8,6 +8,8 @@ class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action == Intent.ACTION_BOOT_COMPLETED || intent.action == Intent.ACTION_MY_PACKAGE_REPLACED) {
             ReminderScheduler.restoreActivityReminders(context)
+            ReminderScheduler.restoreGameReminders(context)
+            if (PrototypeStore(context).loadQuickCaptureEnabled()) QuickCaptureService.start(context)
         }
     }
 }

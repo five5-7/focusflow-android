@@ -22,7 +22,8 @@ data class LearningResource(
     val id: Long = System.currentTimeMillis(),
     val title: String,
     val url: String,
-    val selected: Boolean = false
+    val selected: Boolean = false,
+    val summary: String = ""
 )
 
 data class TaskFeedback(
@@ -39,32 +40,6 @@ data class ImprovementNote(
     val text: String,
     val createdAt: Long = System.currentTimeMillis()
 )
-
-data class RoadmapFeature(val id: String, val version: String, val title: String)
-
-object RoadmapCatalog {
-    val features = listOf(
-        RoadmapFeature("v2_activity_transition", "V2", "活动计时、分级预告与结束后的下一步转场"),
-        RoadmapFeature("v2_custom_time", "V2", "任意日期与时间的改期选择"),
-        RoadmapFeature("v2_course_ocr", "V2 · 2.6 已实现", "课表截图 OCR 识别与逐项确认"),
-        RoadmapFeature("v2_route_calibration", "V2", "紫金港路线耗时的实际校正"),
-        RoadmapFeature("v2_flexible_initial_plan", "V2", "为弹性任务提供可确认的初步规划时间"),
-        RoadmapFeature("v2_next_action_launch", "V2 · 2.7 已实现", "从下一件合适的事直接开始、缩短或改期"),
-        RoadmapFeature("v2_inbox_flexible_schedule", "V2 · 2.8 已实现", "收集箱支持推荐空档、大致时间范围和精确时间"),
-        RoadmapFeature("v2_status_checkin", "V2 · 2.9 已实现", "低打扰通知询问精力与当前活动，并在未回应时退避"),
-        RoadmapFeature("v2_goal_review", "V2", "每周目标回顾与低压力调整建议"),
-        RoadmapFeature("v3_resource_search", "V3", "可选联网搜集教程并比较候选来源"),
-        RoadmapFeature("v3_activity_time_suggestion", "V3 · 3.0 已实现", "开始活动时按历史与下一项日程建议预计时长或结束时间"),
-        RoadmapFeature("v3_context_learning", "V3 · 3.1 已实现", "仅根据用户确认记录学习实际通勤耗时，并允许撤销与清除"),
-        RoadmapFeature("v3_checkin_learning", "V3", "根据确认过的签到学习时段精力与常见活动"),
-        RoadmapFeature("v3_campus_poi_discovery", "V3 · 3.2 计划", "自动搜索校区 POI 并推断教学、学习、运动与生活用途"),
-        RoadmapFeature("v3_map_pin_places", "V3 · 3.2 计划", "在地图上点选缺失地点并用逆地理编码建议名称"),
-        RoadmapFeature("v3_background_commute", "V3 · 3.2 计划", "可选后台定位辅助记录通勤，持续通知显示并可随时停止"),
-        RoadmapFeature("v3_sleep_protection", "V3", "睡前减速、娱乐延长与恢复机制"),
-        RoadmapFeature("v3_ebike", "V3", "电动车充电与远距离出行联动"),
-        RoadmapFeature("v3_feedback_analysis", "V3", "基于反馈的长期方法与心态调整建议")
-    )
-}
 
 data class GoalSuggestion(val weekday: Int, val startMinute: Int, val freeMinutes: Int)
 
@@ -85,11 +60,16 @@ object GoalPlanner {
 
     fun completedThisWeek(goal: Goal): Int = if (goal.completionWeekKey == currentWeekKey()) goal.completedThisWeek else 0
     fun minimumCompletedThisWeek(goal: Goal): Int = if (goal.completionWeekKey == currentWeekKey()) goal.minimumCompletionsThisWeek else 0
-    fun suggestions(goal: Goal, courses: List<Course>, profile: CommuteProfile): List<GoalSuggestion> {
+    /** occupied：日程里已有安排按星期几的占用分钟段，建议会避开这些时段。 */
+    fun suggestions(goal: Goal, courses: List<Course>, profile: CommuteProfile, occupied: Map<Int, List<IntRange>> = emptyMap()): List<GoalSuggestion> {
         val confirmed = courses.filter { !it.needsConfirmation }
-        val gapSuggestions = CourseGapPlanner.gaps(confirmed, profile)
+        val gapSuggestions = CourseGapPlanner.gaps(confirmed, profile, occupied)
             .filter { it.minutesFree >= goal.durationMinutes }
             .map { GoalSuggestion(it.from.weekday, it.suggestedStartMinute, it.minutesFree) }
+        // 自由时段：课后空闲与整天空闲也参与安排（不只课间空挡）；freeWindows 已扣除占用段。
+        val freeSuggestions = CourseGapPlanner.freeWindows(confirmed, occupied = occupied)
+            .filter { it.minutes >= goal.durationMinutes }
+            .map { GoalSuggestion(it.weekday, it.startMinute, it.minutes) }
         val fallbackSuggestions = (1..7).flatMap { weekday ->
             listOf(9 * 60, 14 * 60, 18 * 60, 20 * 60).map { start -> GoalSuggestion(weekday, start, 120) }
         }.filter { suggestion ->
@@ -102,10 +82,17 @@ object GoalPlanner {
         val calendar = Calendar.getInstance()
         val currentDay = when (calendar.get(Calendar.DAY_OF_WEEK)) { Calendar.SUNDAY -> 7 else -> calendar.get(Calendar.DAY_OF_WEEK) - 1 }
         val currentMinute = calendar.get(Calendar.HOUR_OF_DAY) * 60 + calendar.get(Calendar.MINUTE)
-        return (gapSuggestions + fallbackSuggestions)
+        return (gapSuggestions + freeSuggestions + fallbackSuggestions)
             .distinctBy { it.weekday to it.startMinute }
             .filter { it.weekday > currentDay || (it.weekday == currentDay && it.startMinute > currentMinute + 15) }
+            .filterNot { overlapsOccupied(it, goal.durationMinutes, occupied) }
             .sortedWith(compareBy<GoalSuggestion> { it.weekday }.thenBy { it.startMinute })
+    }
+
+    /** 建议时段 [start, start+duration) 是否与已有安排重叠。 */
+    private fun overlapsOccupied(suggestion: GoalSuggestion, durationMinutes: Int, occupied: Map<Int, List<IntRange>>): Boolean {
+        val end = suggestion.startMinute + durationMinutes
+        return occupied[suggestion.weekday].orEmpty().any { it.first < end && suggestion.startMinute < it.last + 1 }
     }
 
     fun nextOccurrence(weekday: Int, minuteOfDay: Int): Long {

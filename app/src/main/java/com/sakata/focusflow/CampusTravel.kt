@@ -6,10 +6,12 @@ enum class CampusZone(val label: String) {
     NORTH_TEACHING("北教学区"),
     CHEMISTRY_LABS("化学实验中心"),
     LIBRARY("图书馆"),
-    EAST_STADIUM("东田径场")
+    EAST_STADIUM("东田径场"),
+    OTHER("其他")
 }
 
-data class CampusPlace(val name: String, val zone: CampusZone, val kind: String)
+/** lat/lng 可选：地点包与自定义地点可能带坐标（高德逆地理/POI 搜索所得），内置目录不带。 */
+data class CampusPlace(val name: String, val zone: CampusZone, val kind: String, val lat: Double? = null, val lng: Double? = null)
 
 /**
  * Initial, deliberately conservative estimates. They are planning buffers rather
@@ -47,6 +49,7 @@ object ZijingangTravel {
             setOf(CampusZone.LIBRARY, CampusZone.EAST_STADIUM) -> 9
             else -> 12
         }
+        // 其他分区（自定义）没有距离矩阵数据，一律走默认 12 分钟兜底，可手动校准。
         val travel = when (profile.campusMode) {
             "自行车" -> maxOf(3, (walkingMinutes * 0.6).toInt())
             "电动车" -> maxOf(3, (walkingMinutes * 0.5).toInt())
