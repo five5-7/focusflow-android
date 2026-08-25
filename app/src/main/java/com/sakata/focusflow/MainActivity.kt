@@ -1907,10 +1907,6 @@ private fun dayRange(millis: Long): LongRange {
     return start until (start + 24 * 60 * 60 * 1000L)
 }
 
-private enum class PlanPage(val title: String) {
-    COURSES("课程"), GAPS("空挡建议"), GOALS("目标与执行"), REVIEW("本周回顾"), PAUSED("暂停项目")
-}
-
 private enum class SettingsSubPage(val title: String) {
     ROADMAP("版本路线图"), CAMPUS_PLACES("校园地点"), COMMUTE_PLACES("通勤与地点"), TUTORIAL_SEARCH("学习路径建议"),
     COURSE_VISION("课表识别（视觉模型）"), APP_DETECTION("前台应用检测"), STABILITY("稳定性与崩溃"),
@@ -1975,12 +1971,18 @@ private fun locationHintFor(text: String): String? {
         ) {
         PlanHubScreen(
             modifier = Modifier.fillMaxSize(),
-            entries = listOf(
-                PlanPage.COURSES to if (conflictingCourses.isNotEmpty()) "⚠ ${conflictingCourses.size} 门冲突 · ${confirmedCourses.size} 门已确认 · ${awaitingCourses.size} 门待确认" else "${confirmedCourses.size} 门已确认 · ${awaitingCourses.size} 门待确认",
-                PlanPage.GAPS to if (gaps.isEmpty()) "暂无可用空挡" else "${gaps.size} 段可用空挡",
-                PlanPage.GOALS to if (goals.isEmpty()) "尚未创建目标 · ${resources.size} 项教程资料" else "${goals.size} 个目标 · ${resources.size} 项教程资料",
-                PlanPage.REVIEW to if (goals.isEmpty()) "有目标后生成建议" else "本周 ${goals.sumOf { GoalPlanner.completedThisWeek(it) }} / ${goals.sumOf { it.weeklyTarget }} 次 · 低压力建议",
-                PlanPage.PAUSED to if (paused.isEmpty()) "暂无" else "${paused.size} 项"
+            entries = PlanHubSummary.entries(
+                PlanHubSnapshot(
+                    confirmedCourseCount = confirmedCourses.size,
+                    pendingCourseCount = awaitingCourses.size,
+                    conflictingCourseCount = conflictingCourses.size,
+                    gapCount = gaps.size,
+                    goalCount = goals.size,
+                    resourceCount = resources.size,
+                    completedThisWeek = goals.sumOf { GoalPlanner.completedThisWeek(it) },
+                    weeklyTarget = goals.sumOf { it.weeklyTarget },
+                    pausedCount = paused.size
+                )
             ),
             onOpen = { onPageChange(it) },
             onAddGoal = onAddGoal
@@ -2375,26 +2377,6 @@ private fun locationHintFor(text: String): String? {
     }
 }
 
-@Composable private fun PlanHubScreen(modifier: Modifier, entries: List<Pair<PlanPage, String>>, onOpen: (PlanPage) -> Unit, onAddGoal: () -> Unit) {
-    var helpOpen by remember { mutableStateOf(false) }
-    ScrollableWithBar(modifier = modifier, scrollState = rememberScrollState(), spacing = 10.dp) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-            Text("计划", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
-            HelpToggleButton(onClick = { helpOpen = true })
-        }
-        ElevatedCard(colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
-            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                Column(Modifier.weight(1f)) {
-                    Text("从结果开始", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                }
-                Button(onClick = onAddGoal) { Text("新增目标") }
-            }
-        }
-        entries.forEach { (page, summary) -> PlanHubItem(page.title, summary) { onOpen(page) } }
-        if (helpOpen) HelpDialog(title = HelpCatalog.plan.title, sections = HelpCatalog.plan.sections, onDismiss = { helpOpen = false })
-    }
-}
-
 /**
  * 主题预览色点：主色/副色/强调色/中性色（描边灰可见）/文字色（正文色可见）。
  */
@@ -2753,34 +2735,6 @@ private fun hsvTriple(color: Color): Triple<Float, Float, Float> {
 
 /** 颜色 → #RRGGBB 文本。 */
 private fun formatHex(color: Color): String = "#%06X".format(color.toArgb() and 0xFFFFFF)
-
-@Composable private fun PlanHubItem(title: String, summary: String, onClick: () -> Unit) {
-    ElevatedCard(Modifier.fillMaxWidth().clickable(onClick = onClick)) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                Text(summary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
-            Icon(
-                Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(24.dp)
-            )
-        }
-    }
-}
-
-@Composable private fun PlanSubpageFrame(modifier: Modifier, title: String, titleAction: (@Composable () -> Unit)? = null, content: @Composable ColumnScope.() -> Unit) {
-    ScrollableWithBar(modifier = modifier, scrollState = rememberScrollState(), spacing = 10.dp) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(title, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-            titleAction?.invoke()
-        }
-        Column(Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(10.dp), content = content)
-    }
-}
-
 
 private fun weekdayOf(millis: Long): Int {
     val calendar = java.util.Calendar.getInstance().apply { timeInMillis = millis }
