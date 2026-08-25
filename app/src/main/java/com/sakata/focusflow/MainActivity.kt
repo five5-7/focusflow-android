@@ -2995,6 +2995,15 @@ private fun DayGroupWizardDialog(existingGroups: List<DayGroup>, defaultWake: In
 
 @Composable private fun SettingsScreen(modifier: Modifier, settingsScrollState: ScrollState, themeOption: FocusFlowThemeOption, commuteProfile: CommuteProfile, campusLifeEnabled: Boolean, campusMapPackage: CampusMapPackage?, currentCampusPlace: String?, improvementNotes: List<ImprovementNote>, activitySettings: ActivityReminderSettings, statusCheckInSettings: StatusCheckInSettings, windDownEnabled: Boolean, checkIns: List<StatusCheckIn>, baselineProfile: BaselineProfile, mealRecords: List<MealRecord>, mealReminderEnabled: Boolean, subPage: SettingsSubPage?, onSubPageChange: (SettingsSubPage?) -> Unit, onThemeChange: (FocusFlowThemeOption) -> Unit, customThemeColors: FocusFlowThemeColors, onCustomThemeColorsChange: (FocusFlowThemeColors) -> Unit, themePresets: List<ThemePreset>, onThemePresetsChange: (List<ThemePreset>) -> Unit, onRestoreDefaultTheme: () -> Unit, onCommuteChange: (CommuteProfile) -> Unit, onCampusLifeEnabledChange: (Boolean) -> Unit, onCampusMapPackageChange: (CampusMapPackage?) -> Unit, onCurrentCampusPlaceChange: (String?) -> Unit, allPlaces: List<CampusPlace>, customPlaces: List<CampusPlace>, onCustomPlacesChange: (List<CampusPlace>) -> Unit, hiddenPlaces: Set<String>, onToggleHiddenPlace: (String) -> Unit, amapKey: String, onAmapKeyChange: (String) -> Unit, campusCenter: CampusCenter, onCampusCenterChange: (CampusCenter) -> Unit, tutorialSearch: TutorialSearchSettings, onTutorialSearchSettingsChange: (TutorialSearchSettings) -> Unit, courseVision: CourseVisionSettings, onCourseVisionSettingsChange: (CourseVisionSettings) -> Unit, courseVisionGuideOpen: Boolean, onCourseVisionGuideOpenChange: (Boolean) -> Unit, pendingPlaces: List<String>, onAddPendingPlace: (String) -> Unit, onRemovePendingPlace: (String) -> Unit, onActivitySettingsChange: (ActivityReminderSettings) -> Unit, quietHours: QuietHoursSettings, onQuietHoursChange: (QuietHoursSettings) -> Unit, quickCaptureEnabled: Boolean, onQuickCaptureEnabledChange: (Boolean) -> Unit, onStatusCheckInSettingsChange: (StatusCheckInSettings) -> Unit, onWindDownEnabledChange: (Boolean) -> Unit, onAddImprovement: () -> Unit, onOpenBaselineEditor: () -> Unit, onOpenBaselineEvents: () -> Unit, onResetBaseline: () -> Unit, onOpenFeatureIntro: () -> Unit, baselineVariants: List<BaselineProfile>, onSaveBaselineVariant: (String) -> Unit, onSwitchBaselineVariant: (BaselineProfile) -> Unit, onDeleteBaselineVariant: (BaselineProfile) -> Unit, onDayGroupsChange: (List<DayGroup>) -> Unit, baselineVariantNameOpen: Boolean, onBaselineVariantNameOpenChange: (Boolean) -> Unit, onMealReminderEnabledChange: (Boolean) -> Unit, onOpenMealRecords: () -> Unit, recordBaselineEvent: (BaselineEventType, String) -> Unit, gameDetectionEnabled: Boolean, onGameDetectionEnabledChange: (Boolean) -> Unit, appCategories: Map<String, String>, onAppCategoriesChange: (Map<String, String>) -> Unit, hiddenApps: Set<String>, onToggleHiddenApp: (String) -> Unit, videoAnalysisModel: String, onVideoAnalysisModelChange: (String) -> Unit, darkMode: Boolean, onDarkModeChange: (Boolean) -> Unit, onGlobalLoadingChange: (Boolean) -> Unit) {
     val context = LocalContext.current
+    val settingsLifecycleOwner = LocalLifecycleOwner.current
+    var settingsNotificationHealth by remember { mutableStateOf(NotificationChannelSettings.health(context)) }
+    DisposableEffect(settingsLifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) settingsNotificationHealth = NotificationChannelSettings.health(context)
+        }
+        settingsLifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { settingsLifecycleOwner.lifecycle.removeObserver(observer) }
+    }
     val campusPlaces = allPlaces
     var importStatus by remember { mutableStateOf<String?>(null) }
     var campusMapHelpOpen by remember { mutableStateOf(false) }
@@ -3032,7 +3041,14 @@ private fun DayGroupWizardDialog(existingGroups: List<DayGroup>, defaultWake: In
         Text("设置", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
         PlanHubItem("外观", "当前主题：${themeOption.label}") { onSubPageChange(SettingsSubPage.APPEARANCE) }
         HorizontalDivider()
-        PlanHubItem("日程与活动提醒", if (activitySettings.notificationsEnabled) "日程提前 ${activitySettings.scheduleAdvanceMinutes} 分钟" else "通知权限待开启") { onSubPageChange(SettingsSubPage.ACTIVITY_REMINDERS) }
+        PlanHubItem(
+            "日程与活动提醒",
+            when {
+                !settingsNotificationHealth.allReadableSettingsReady -> "通知或横幅待检查"
+                !activitySettings.notificationsEnabled -> "活动提醒已关闭"
+                else -> "日程提前 ${activitySettings.scheduleAdvanceMinutes} 分钟"
+            }
+        ) { onSubPageChange(SettingsSubPage.ACTIVITY_REMINDERS) }
         HorizontalDivider()
         PlanHubItem("提醒打扰控制", if (quietHours.enabled) "免打扰 ${formatMinute(quietHours.startMinute)}–${formatMinute(quietHours.endMinute)}" else if (quietHours.isMuted()) "已静音" else "未开启") { onSubPageChange(SettingsSubPage.QUIET_HOURS) }
         HorizontalDivider()
@@ -3181,8 +3197,8 @@ private fun DayGroupWizardDialog(existingGroups: List<DayGroup>, defaultWake: In
         HorizontalDivider()
         PlanHubItem("快速入门", "几步上手的核心流程介绍") { onOpenFeatureIntro() }
         HorizontalDivider()
-        PlanHubItem("版本路线图", "当前版本 ${BuildConfig.VERSION_NAME} · 版本演进与后续候选") { onSubPageChange(SettingsSubPage.ROADMAP) }
-        Text("通知权限已在首次启动时统一申请；可到“活动提醒”查看状态，精确闹钟按设备支持情况自动处理。")
+        PlanHubItem("版本路线图", "当前 ${BuildConfig.VERSION_NAME} · 构建 #${BuildConfig.CI_RUN_NUMBER} · 版本演进") { onSubPageChange(SettingsSubPage.ROADMAP) }
+        Text("通知异常时请到“日程与活动提醒”查看检测结果和 ColorOS 手动路径；精确闹钟按设备支持情况自动处理。")
     }
     }
     AnimatedVisibility(
