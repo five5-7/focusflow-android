@@ -19,4 +19,16 @@ internal object NotificationChannelSettings {
             )
         }
     }
+    fun health(context: Context): NotificationHealth {
+        val manager = context.getSystemService(NotificationManager::class.java)
+        fun bannerEnabled(channelId: String): Boolean =
+            manager.getNotificationChannel(channelId)?.importance
+                ?.let { it >= NotificationManager.IMPORTANCE_HIGH } == true
+
+        return NotificationHealthPolicy.evaluate(
+            appNotificationsAllowed = manager.areNotificationsEnabled(),
+            taskBannerAllowed = bannerEnabled(ReminderReceiver.CHANNEL_TASK),
+            mealBannerAllowed = bannerEnabled(ReminderReceiver.CHANNEL_MEAL)
+        )
+    }
 }
