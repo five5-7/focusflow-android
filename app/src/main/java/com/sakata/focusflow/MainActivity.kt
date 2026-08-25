@@ -3198,7 +3198,7 @@ private fun DayGroupWizardDialog(existingGroups: List<DayGroup>, defaultWake: In
         PlanHubItem("快速入门", "几步上手的核心流程介绍") { onOpenFeatureIntro() }
         HorizontalDivider()
         PlanHubItem("版本路线图", "当前 ${BuildConfig.VERSION_NAME} · 构建 #${BuildConfig.CI_RUN_NUMBER} · 版本演进") { onSubPageChange(SettingsSubPage.ROADMAP) }
-        Text("通知异常时请到“日程与活动提醒”查看检测结果和 ColorOS 手动路径；精确闹钟按设备支持情况自动处理。")
+        Text("通知异常时请到“日程与活动提醒”查看检测结果和当前设备的手动路径；精确闹钟按设备支持情况自动处理。")
     }
     }
     AnimatedVisibility(
@@ -3349,6 +3349,7 @@ private fun DayGroupWizardDialog(existingGroups: List<DayGroup>, defaultWake: In
                         // 权限状态随前台恢复刷新：从系统设置页返回后立即更新文案。
                         val lifecycleOwner = LocalLifecycleOwner.current
                         var notificationHealth by remember { mutableStateOf(NotificationChannelSettings.health(context)) }
+                        val notificationGuidance = remember { NotificationGuidancePolicy.forDevice(Build.MANUFACTURER, Build.BRAND) }
                         var notifGranted by remember { mutableStateOf(context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) }
                         var exactAllowed by remember { mutableStateOf(Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && context.getSystemService(AlarmManager::class.java).canScheduleExactAlarms()) }
                         val notificationPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
