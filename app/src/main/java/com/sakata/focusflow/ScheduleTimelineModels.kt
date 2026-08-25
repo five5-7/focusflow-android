@@ -31,6 +31,12 @@ internal data class TimelineEventLayout(
     val laneCount: Int
 )
 
+internal data class GapMarker(
+    val startMinute: Int,
+    val endMinute: Int,
+    val minutes: Int
+)
+
 /** 把同一时间段互相重叠的课程合并为单一事件（覆盖整个冲突区间），其余事件原样保留。 */
 internal fun mergeConflictingCourses(events: List<TimelineEvent>): List<TimelineEvent> {
     val others = events.filter { it.type != ScheduleType.COURSE }
