@@ -71,13 +71,24 @@ class ReminderReceiver : BroadcastReceiver() {
                 if (sessionId >= 0) store.markSessionAwaitingConfirmation(sessionId)
             }
             ACTION_TASK_DUE -> {
-                showTaskNotification(context, manager, intent.getStringExtra(EXTRA_TASK_TITLE) ?: "已改期任务", intent.getLongExtra(EXTRA_TASK_ID, -1L))
+                showTaskNotification(
+                    context,
+                    manager,
+                    intent.getStringExtra(EXTRA_TASK_TITLE) ?: "日程任务",
+                    intent.getLongExtra(EXTRA_TASK_ID, -1L),
+                    intent.getLongExtra(EXTRA_TASK_START_AT, 0L)
+                )
                 return
             }
             ACTION_MEAL_REMINDER -> {
                 if (suppressNow(store, intent.action)) return
                 val type = MealType.fromLabel(intent.getStringExtra(EXTRA_MEAL_TYPE) ?: "")
                 if (type != null) showMealPromptNotification(context, manager, type, intent.getBooleanExtra(EXTRA_MEAL_LEARNED, false))
+                return
+            }
+            ACTION_MEAL_DISMISS -> {
+                val type = MealType.fromLabel(intent.getStringExtra(EXTRA_MEAL_TYPE) ?: "")
+                if (type != null) ReminderScheduler.dismissMealForToday(context, type)
                 return
             }
             ACTION_MEAL_SNOOZE -> {
@@ -106,6 +117,10 @@ class ReminderReceiver : BroadcastReceiver() {
                 if (record != null && type != null && minutes != null) {
                     ReminderScheduler.scheduleMealEndReminder(context, record.copy(startedAt = System.currentTimeMillis()), minutes)
                 }
+                return
+            }
+            ACTION_DAILY_MEAL_REFRESH -> {
+                ReminderScheduler.scheduleDailyMealReminders(context)
                 return
             }
             ACTION_TASK_COMPLETE -> {
@@ -226,16 +241,18 @@ class ReminderReceiver : BroadcastReceiver() {
             .build())
     }
 
-    private fun showTaskNotification(context: Context, manager: NotificationManager, title: String, taskId: Long) {
+    private fun showTaskNotification(context: Context, manager: NotificationManager, title: String, taskId: Long, startsAt: Long) {
         if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
         ensureChannel(manager, CHANNEL_TASK, "FocusFlow 任务提醒")
         val openApp = PendingIntent.getActivity(context, 0, Intent(context, MainActivity::class.java), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val id = (System.currentTimeMillis() % Int.MAX_VALUE).toInt()
         val task = PrototypeStore(context).findItem(taskId)
+        val minutes = ((startsAt - System.currentTimeMillis()) / 60_000L).toInt().coerceAtLeast(0)
+        val timing = if (minutes <= 1) "现在该开始了。" else "约 $minutes 分钟后开始。"
         val notification = NotificationCompat.Builder(context, CHANNEL_TASK)
             .setSmallIcon(android.R.drawable.ic_popup_reminder)
-            .setContentTitle("现在适合处理：$title")
-            .setContentText("这是之前改期的项目。打开 FocusFlow 可以完成、再次调整或暂停。")
+            .setContentTitle("日程提醒：$title")
+            .setContentText("$timing 可开始、稍后或改期。")
             .setContentIntent(openApp)
             .addAction(0, "完整完成", taskActionIntent(context, ACTION_TASK_COMPLETE, taskId, id, 11))
             .addAction(0, "稍后 1 小时", taskActionIntent(context, ACTION_TASK_SNOOZE, taskId, id, 12))
@@ -307,6 +324,15 @@ class ReminderReceiver : BroadcastReceiver() {
             },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
+        val dismissed = PendingIntent.getBroadcast(
+            context,
+            id + 2,
+            Intent(context, ReminderReceiver::class.java).apply {
+                action = ACTION_MEAL_DISMISS
+                putExtra(EXTRA_MEAL_TYPE, type.label)
+            },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
         val text = if (learned) "按你最近的记录，大概到${type.label}时间了。准备吃饭？" else "按你填写的大致时间，快到${type.label}了。准备吃饭？"
         manager.notify(id, NotificationCompat.Builder(context, CHANNEL_MEAL)
             .setSmallIcon(android.R.drawable.ic_popup_reminder)
@@ -316,6 +342,7 @@ class ReminderReceiver : BroadcastReceiver() {
             .setContentIntent(openApp)
             .addAction(0, "已在吃", openApp)
             .addAction(0, "稍后 20 分钟", snooze)
+            .setDeleteIntent(dismissed)
             .setAutoCancel(true)
             .setOnlyAlertOnce(true)
             .build())
@@ -536,13 +563,16 @@ class ReminderReceiver : BroadcastReceiver() {
         const val ACTION_WIND_DOWN = "com.sakata.focusflow.WIND_DOWN"
         const val ACTION_MEAL_REMINDER = "com.sakata.focusflow.MEAL_REMINDER"
         const val ACTION_MEAL_SNOOZE = "com.sakata.focusflow.MEAL_SNOOZE"
+        const val ACTION_MEAL_DISMISS = "com.sakata.focusflow.MEAL_DISMISS"
         const val ACTION_MEAL_END_REMINDER = "com.sakata.focusflow.MEAL_END_REMINDER"
         const val ACTION_MEAL_STILL_EATING = "com.sakata.focusflow.MEAL_STILL_EATING"
+        const val ACTION_DAILY_MEAL_REFRESH = "com.sakata.focusflow.DAILY_MEAL_REFRESH"
         const val EXTRA_ACTIVITY_NAME = "activity_name"
         const val EXTRA_NEXT_STEP = "next_step"
         const val EXTRA_SESSION_ID = "session_id"
         const val EXTRA_TASK_ID = "task_id"
         const val EXTRA_TASK_TITLE = "task_title"
+        const val EXTRA_TASK_START_AT = "task_start_at"
         const val EXTRA_NOTIFICATION_ID = "notification_id"
         const val EXTRA_OPEN_STATUS_CHECK_IN = "open_status_check_in"
         const val EXTRA_OPEN_QUICK_CAPTURE = "open_quick_capture"
@@ -555,10 +585,10 @@ class ReminderReceiver : BroadcastReceiver() {
         private const val CHANNEL_ACTIVITY_PREVIEW = "focusflow_activity_preview_v2"
         private const val CHANNEL_ACTIVITY_END = "focusflow_activity_end_v3"
         private const val CHANNEL_ACTIVITY_END_GENTLE = "focusflow_activity_end_gentle_v3"
-        private const val CHANNEL_TASK = "focusflow_task_reminders"
+        const val CHANNEL_TASK = "focusflow_task_reminders"
         private const val CHANNEL_STATUS_CHECK_IN = "focusflow_status_check_in_v2"
         private const val CHANNEL_WIND_DOWN = "focusflow_wind_down_v2"
-        private const val CHANNEL_MEAL = "focusflow_meal_reminders_v2"
+        const val CHANNEL_MEAL = "focusflow_meal_reminders_v2"
         private const val CHANNEL_GAME = "focusflow_game_v1"
         /** 3.9.8 之前创建的低重要性渠道；升级横幅后删除，避免设置页残留旧渠道。 */
         private val LEGACY_CHANNELS = listOf(

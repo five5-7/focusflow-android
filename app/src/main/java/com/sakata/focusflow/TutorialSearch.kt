@@ -620,13 +620,13 @@ fun TutorialSearchDialog(
     )
 }
 
-/** AI 教程查找（新建目标时）：手动搜索（三平台跳转）+ AI 生成搜索建议；「保存为教程」设为标准并回到目标对话框。 */
+/** AI only proposes a search action. It never creates a resource until the user confirms real material. */
 @Composable
 fun TutorialFinderDialog(
     settings: TutorialSearchSettings,
     initialContext: String,
     onDismiss: () -> Unit,
-    onSaveTutorial: (title: String, url: String) -> Unit,
+    onUseSuggestion: (action: String) -> Unit,
     onLoadingChange: (Boolean) -> Unit = {}
 ) {
     val context = LocalContext.current
@@ -648,7 +648,7 @@ fun TutorialFinderDialog(
                         }, modifier = Modifier.weight(1f)) { Text("去${platform}搜") }
                     }
                 }
-                Text("手动搜索：直接点平台按钮跳转搜索，找到后回来“收集教程”或保存为教程。", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("手动搜索：直接跳转平台；找到真实内容后，回到资料工具箱保存链接或笔记。", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 HorizontalDivider()
                 if (!settings.enabled || settings.apiKey.isBlank()) {
                     Text("AI 建议需在 设置 → 教程联网搜索 开启并填写硅基流动 key。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -665,7 +665,7 @@ fun TutorialFinderDialog(
                     }, modifier = Modifier.fillMaxWidth()) { Text(if (searching) "生成中…" else "AI 生成搜索建议") }
                 }
                 when (val result = state) {
-                    null -> Text("AI 建议：按目标生成 3–5 条“去哪个平台搜什么”，可一键保存为教程并设为当前标准。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    null -> Text("AI 只建议去哪里搜索什么；找到并确认真实资料后，再从资料工具箱保存。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     is SiliconFlowClient.SearchResult.Error -> Text(result.message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                     is SiliconFlowClient.SearchResult.RawText -> Text("返回内容不是建议，已原文展示：${result.text}", style = MaterialTheme.typography.bodySmall)
                     is SiliconFlowClient.SearchResult.Steps -> Text("返回了学习路径而非搜索建议，请重新生成。", style = MaterialTheme.typography.bodySmall)
@@ -683,12 +683,12 @@ fun TutorialFinderDialog(
                                             val url = SiliconFlowClient.platformSearchUrl(suggestion.platform, suggestion.keyword)
                                             runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url))) }
                                         }, modifier = Modifier.weight(1f)) { Text("去${suggestion.platform}搜") }
-                                        Button(onClick = { onSaveTutorial(suggestion.keyword, SiliconFlowClient.platformSearchUrl(suggestion.platform, suggestion.keyword)) }, modifier = Modifier.weight(1f)) { Text("保存为教程") }
+                                        Button(onClick = { onUseSuggestion(LearningResourcePolicy.candidateFirstAction(suggestion.platform, suggestion.keyword)) }, modifier = Modifier.weight(1f)) { Text("用作第一步") }
                                     }
                                 }
                             }
                         }
-                        Text("「保存为教程」会把它设为当前标准并回到新建目标（已填内容保留），继续创建即可。", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("采用后只会填入目标的候选第一步；请回到目标编辑器确认或修改，不会自动创建资料。", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
@@ -718,7 +718,7 @@ fun VideoAnalysisDialog(
         title = { Text("视频分析（一站式整理）") },
         text = {
             Column(Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("粘贴视频的标题/链接/简介或字幕，生成要点与适用目标；保存后直接入库为教程资料。没有简介或字幕也能保存：填标题＋链接后点「保存为新教程」即可（不生成总结）。", style = MaterialTheme.typography.bodySmall)
+                Text("粘贴已经确认的视频链接、简介或字幕，生成候选要点；保存前仍由你确认标题和真实材料。", style = MaterialTheme.typography.bodySmall)
                 OutlinedTextField(value = title, onValueChange = { title = it }, label = { Text("教程标题（如：概率论入门）") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(value = url, onValueChange = { url = it }, label = { Text("视频链接（可选）") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(value = text, onValueChange = { text = it }, label = { Text("粘贴字幕／简介／笔记正文（要 AI 总结才需要）") }, minLines = 4, modifier = Modifier.fillMaxWidth())
@@ -745,7 +745,7 @@ fun VideoAnalysisDialog(
                 }
             }
         },
-        confirmButton = { Button(enabled = title.isNotBlank(), onClick = { onSave(title.trim(), url.trim(), result ?: "") }) { Text("保存为新教程") } },
+        confirmButton = { Button(enabled = LearningResourcePolicy.canSave(title, url, text), onClick = { onSave(title.trim(), url.trim(), result ?: text.trim()) }) { Text("确认资料并保存") } },
         dismissButton = { TextButton(onClick = onDismiss, enabled = !analyzing) { Text("取消") } }
     )
 }

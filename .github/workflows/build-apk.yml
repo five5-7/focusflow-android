@@ -29,16 +29,87 @@ jobs:
         with:
           gradle-version: "8.7"
 
+      # 签名只从仓库级 GitHub Secrets 读取，绝不写进代码或构建产物日志。
+      # 缺失时直接失败，防止 CI 悄悄回退到 debug 签名而导致安装覆盖冲突。
+      - name: Prepare stable signing key
+        env:
+          FOCUSFLOW_KEYSTORE_BASE64: ${{ secrets.FOCUSFLOW_KEYSTORE_BASE64 }}
+          FOCUSFLOW_SIGNING_STORE_PASSWORD: ${{ secrets.FOCUSFLOW_SIGNING_STORE_PASSWORD }}
+          FOCUSFLOW_SIGNING_KEY_ALIAS: ${{ secrets.FOCUSFLOW_SIGNING_KEY_ALIAS }}
+          FOCUSFLOW_SIGNING_KEY_PASSWORD: ${{ secrets.FOCUSFLOW_SIGNING_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          required=(FOCUSFLOW_KEYSTORE_BASE64 FOCUSFLOW_SIGNING_STORE_PASSWORD FOCUSFLOW_SIGNING_KEY_PASSWORD)
+          for key in "${required[@]}"; do
+            test -n "${!key}" || { echo "::error::Missing repository secret: $key"; exit 1; }
+          done
+          umask 077
+          store="$RUNNER_TEMP/focusflow-release.jks"
+          printf '%s' "$FOCUSFLOW_KEYSTORE_BASE64" | base64 --decode > "$store"
+          test -s "$store" || { echo "::error::Signing keystore is empty"; exit 1; }
+          # 允许旧配置中的 alias 不准确：仅当 keystore 内只有一个私钥时自动采用它。
+          # 多私钥时不猜测，要求显式提供正确 alias，以免误签名。
+          keytool -list -v -keystore "$store" -storepass "$FOCUSFLOW_SIGNING_STORE_PASSWORD" > "$RUNNER_TEMP/keystore-info.txt"
+          store_type="$(sed -n 's/^Keystore type: //p' "$RUNNER_TEMP/keystore-info.txt" | head -n 1)"
+          test -n "$store_type" || { echo "::error::Unable to identify keystore type"; exit 1; }
+          mapfile -t private_aliases < <(awk -F': ' '/^Alias name: / { alias=$2 } /^Entry type: PrivateKeyEntry/ { print alias }' "$RUNNER_TEMP/keystore-info.txt")
+          configured_alias="$FOCUSFLOW_SIGNING_KEY_ALIAS"
+          if printf '%s\n' "${private_aliases[@]}" | grep -Fxq "$configured_alias"; then
+            resolved_alias="$configured_alias"
+          elif [ "${#private_aliases[@]}" -eq 1 ]; then
+            resolved_alias="${private_aliases[0]}"
+            echo "::warning::Configured signing alias was not found; using the only private key in the keystore."
+          else
+            echo "::error::Signing key alias does not match and the keystore has multiple private keys."
+            exit 1
+          fi
+          # 验证私钥密码；许多 Android keystore 使用与 store 相同的密码，
+          # 因此旧配置中的 key 密码失效时可无交互恢复这一标准情况。
+          cat > "$RUNNER_TEMP/CheckPrivateKey.java" <<'JAVA'
+          import java.io.FileInputStream;
+          import java.security.KeyStore;
+          public final class CheckPrivateKey {
+            public static void main(String[] args) throws Exception {
+              KeyStore store = KeyStore.getInstance(args[4]);
+              try (FileInputStream input = new FileInputStream(args[0])) {
+                store.load(input, args[1].toCharArray());
+              }
+              if (store.getKey(args[2], args[3].toCharArray()) == null) System.exit(1);
+            }
+          }
+          JAVA
+          javac -d "$RUNNER_TEMP" "$RUNNER_TEMP/CheckPrivateKey.java"
+          resolved_key_password="$FOCUSFLOW_SIGNING_KEY_PASSWORD"
+          if ! java -cp "$RUNNER_TEMP" CheckPrivateKey "$store" "$FOCUSFLOW_SIGNING_STORE_PASSWORD" "$resolved_alias" "$resolved_key_password" "$store_type"; then
+            if java -cp "$RUNNER_TEMP" CheckPrivateKey "$store" "$FOCUSFLOW_SIGNING_STORE_PASSWORD" "$resolved_alias" "$FOCUSFLOW_SIGNING_STORE_PASSWORD" "$store_type"; then
+              resolved_key_password="$FOCUSFLOW_SIGNING_STORE_PASSWORD"
+              echo "::warning::Configured key password was rejected; using the matching keystore password."
+            else
+              echo "::error::The configured signing key password cannot unlock the signing key."
+              exit 1
+            fi
+          fi
+          echo "FOCUSFLOW_SIGNING_STORE_FILE=$store" >> "$GITHUB_ENV"
+          echo "FOCUSFLOW_SIGNING_STORE_PASSWORD=$FOCUSFLOW_SIGNING_STORE_PASSWORD" >> "$GITHUB_ENV"
+          echo "FOCUSFLOW_SIGNING_KEY_ALIAS=$resolved_alias" >> "$GITHUB_ENV"
+          echo "FOCUSFLOW_SIGNING_KEY_PASSWORD=$resolved_key_password" >> "$GITHUB_ENV"
+
       - name: Run unit tests
         run: gradle --no-daemon :app:testDebugUnitTest
 
       - name: Build debug APK
         run: gradle --no-daemon :app:assembleDebug
 
+      - name: Read version name
+        run: echo "VERSION_NAME=$(sed -n 's/.*versionName = \"\(.*\)\"/\1/p' app/build.gradle.kts | head -1)" >> "$GITHUB_ENV"
+
+      - name: Name APK with version
+        run: cp app/build/outputs/apk/debug/app-debug.apk "FocusFlow-$VERSION_NAME-run-$GITHUB_RUN_NUMBER.apk"
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: FocusFlow-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: FocusFlow-${{ env.VERSION_NAME }}-run-${{ github.run_number }}-apk
+          path: FocusFlow-${{ env.VERSION_NAME }}-run-${{ github.run_number }}.apk
           if-no-files-found: error
           retention-days: 7

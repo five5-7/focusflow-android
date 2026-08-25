@@ -5,6 +5,7 @@ plugins {
 }
 
 val focusFlowSigningStore = System.getenv("FOCUSFLOW_SIGNING_STORE_FILE")
+val focusFlowCiRun = System.getenv("GITHUB_RUN_NUMBER") ?: "local"
 
 android {
     namespace = "com.sakata.focusflow"
@@ -14,8 +15,9 @@ android {
         applicationId = "com.sakata.focusflow"
         minSdk = 26
         targetSdk = 35
-        versionCode = 460
-        versionName = "6.0.0"
+        versionCode = 462
+        versionName = "6.2.0"
+        buildConfigField("String", "CI_RUN_NUMBER", "\"$focusFlowCiRun\"")
     }
 
     compileOptions {
@@ -58,4 +60,5 @@ dependencies {
     implementation(libs.androidx.material3)
     debugImplementation(libs.androidx.ui.tooling)
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20240303")
 }

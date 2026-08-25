@@ -59,8 +59,9 @@ object HelpCatalog {
         HelpSection("课程", listOf("从课表截图开始，通过硅基流动视觉模型识别（需先在 设置→课表识别（视觉模型） 开启并填写 key；本地 OCR 已移除，识别失败会提示原因，不会出低质量结果）。结果先进入待确认区，不会直接加入日程。截图中需要显示课程名称、星期和节次。", "确认课程后，它们会用于周日程和空挡计算。")),
         HelpSection("空挡建议", listOf("根据已确认课程、校内路程与缓冲时间计算，不与课程列表混放。")),
         HelpSection("目标与执行", listOf(
-            "从预期结果、每周次数和单次时长开始；教程资料作为执行依据（“当前标准”）：搜索结果保存后自动设为标准，可随时取消标准、删除或重选其他教程。",
-            "安排目标任务（手动点“排入”或“按空挡自动排本周目标”）时，任务详情会带上教程与最低版本指引，执行时直接照着做。",
+            "每个目标分别保存预期结果、第一步行动、完成标准和可选资料；资料库的常用标记不会自动套用到目标。",
+            "安排目标任务（手动点“排入”或“按空挡自动排本周目标”）时，任务详情会带上该目标自己的第一步、资料与最低版本指引。",
+            "AI 搜索只给出候选第一步；找到真实链接或材料并确认后，才从资料工具箱保存。",
             "“按空挡自动排本周目标”：本地判断，把本周未完成的目标次数排进课程空挡（避开课程与已有安排、优先更长空档），结果进入日程，可随时改期或调整。"
         )),
         HelpSection("本周回顾", listOf("创建目标并积累完成记录后，这里会给出调整建议。")),
@@ -85,8 +86,10 @@ object HelpCatalog {
             "明确的到点提醒：到达约定时间时使用更醒目的提醒。",
             "提前预告：约定结束前 N 分钟提醒一次。",
             "连续延长提示上限：到点转场时可延长的次数。",
-            "如果 ColorOS 延迟到点提醒，可在系统的“闹钟和提醒”及电池设置中允许 FocusFlow；未授权精确提醒时仍会自动使用普通后台提醒。",
-            "通知权限未开启时提醒会被系统拦截：可在本页查看权限状态并一键跳转系统设置。ColorOS 等定制系统上精确闹钟可能没有授权开关，届时自动改用普通后台提醒。"
+            "如果系统延迟到点提醒，可在系统的“闹钟和提醒”及电池设置中允许 FocusFlow；未授权精确提醒时仍会自动使用普通后台提醒。",
+            "应用冷启动及每次回到前台时，会检查 Android 公开的总通知、日程渠道和饭点渠道状态；未开启时在应用内提醒。",
+            "长按 FocusFlow 图标 → 应用信息 → 通知（或通知管理），先开“允许通知”，再分别检查“FocusFlow 任务提醒”和“饭点提醒”。设置页会按三星、小米／Redmi／POCO、华为／荣耀、OPPO／realme／OnePlus、vivo／iQOO、Pixel／原生 Android 显示补充路径。",
+            "不同系统可能把弹出方式称为横幅、悬浮通知、顶部预览、在屏幕上弹出或显示为弹出窗口。厂商单独的开关通常不对应用公开，因此仍需手动确认；精确闹钟不可用时 FocusFlow 会自动改用普通后台提醒。"
         )),
         SettingsBlock.QUIET_HOURS to HelpSection("提醒打扰控制", listOf(
             "免打扰时段：按你设定的起止时间（支持跨天，如 23:00–07:00）静音低打扰类提醒（状态询问、饭点提醒、睡前减速）；活动到点和任务提醒保持时间敏感，不会被静音。",
@@ -208,7 +211,7 @@ fun CourseVisionKeyGuideDialog(onDismiss: () -> Unit) {
     )
 }
 
-/** 首次启动的快速入门：介绍上手步骤与四个入口；之后可在 设置 → 快速入门 再次查看。 */
+/** 首次启动的快速入门：先介绍日常闭环，再说明可选设置。 */
 @Composable
 fun WelcomeIntroDialog(onDismiss: () -> Unit) {
     AlertDialog(
@@ -216,18 +219,22 @@ fun WelcomeIntroDialog(onDismiss: () -> Unit) {
         title = { Text("快速入门") },
         text = {
             Column(Modifier.heightIn(max = 520.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("几步上手：", fontWeight = FontWeight.SemiBold)
-                Text("1. 设置 → 习惯基线：填起床／睡觉／三餐（作息可再按星期分组）", style = MaterialTheme.typography.bodySmall)
-                Text("2. 计划 → 课程：导入课表截图（可选视觉模型）或手动加课", style = MaterialTheme.typography.bodySmall)
-                Text("3. 计划 → 目标与执行：建目标（预期结果、每周次数、时长，可搜教程）", style = MaterialTheme.typography.bodySmall)
-                Text("4. 计划 → 空挡建议：看「适合做什么」一键排入本周空挡", style = MaterialTheme.typography.bodySmall)
+                Text("先完成一次日常闭环：", fontWeight = FontWeight.SemiBold)
+                Text("1. 点底部＋，用“快速记录”收集一件想做的事。", style = MaterialTheme.typography.bodySmall)
+                Text("2. 在今日页的收集箱中编辑或安排时间；时间不确定可保持弹性。", style = MaterialTheme.typography.bodySmall)
+                Text("3. 到日程查看安排；到点后完成、改期或推迟，完成项会保留并灰化。", style = MaterialTheme.typography.bodySmall)
+                Text("4. 应用不会自动改动你的固定日程；弹性建议需要你确认后才会写入。", style = MaterialTheme.typography.bodySmall)
                 Text("四个入口：", fontWeight = FontWeight.SemiBold)
-                Text("• 今日：状态、下一步、收集箱、今日餐点与睡前减速。", style = MaterialTheme.typography.bodySmall)
+                Text("• 今日：现在、接下来和收集箱始终靠前；餐点、精力、睡前与校园模块按需出现。", style = MaterialTheme.typography.bodySmall)
                 Text("• 日程：日／周时间轴，任务与活动可改期、完成、删除。", style = MaterialTheme.typography.bodySmall)
-                Text("• 计划：课表、空挡、目标与教程、每周回顾与 AI 周总结。", style = MaterialTheme.typography.bodySmall)
-                Text("• 设置：提醒打扰控制、外观（含深色）、习惯基线、前台应用检测、稳定性与崩溃记录等。", style = MaterialTheme.typography.bodySmall)
+                Text("• 计划：用堆叠入口进入课表、空挡、目标、回顾和资料工具箱；不需要时可以完全不配置。", style = MaterialTheme.typography.bodySmall)
+                Text("• 设置：高频提醒、外观和作息在主页；地点、AI、识别和应用检测收在高级工具。", style = MaterialTheme.typography.bodySmall)
                 Text("底部 ＋ 号：", fontWeight = FontWeight.SemiBold)
-                Text("「快速记录」记想法；「安排空闲活动」给游戏／学习／运动等安排时间，到点提醒开始与收尾（游戏/视频可检测前台）。", style = MaterialTheme.typography.bodySmall)
+                Text("“快速记录”记想法；“安排空闲活动”给游戏／学习／运动等安排时间，到点提醒开始与收尾（游戏/视频可检测前台）。", style = MaterialTheme.typography.bodySmall)
+                Text("通知与设备适配：", fontWeight = FontWeight.SemiBold)
+                Text("首次启动可申请通知权限。应用打开时会检查总通知和日程／饭点渠道；如有异常可点“查看说明”。不同 Android 系统可能把弹出方式称为横幅、悬浮、顶部预览或弹出窗口，设置页会按当前设备显示补充路径。", style = MaterialTheme.typography.bodySmall)
+                Text("可选设置：", fontWeight = FontWeight.SemiBold)
+                Text("习惯基线只在你需要饭点、睡前或作息建议时填；上学时再导入课表；长期任务再建目标。资料、AI、地图和前台检测均不是核心流程必需项。", style = MaterialTheme.typography.bodySmall)
                 Text("所有数据只保存在本机；建议只用你确认过的数据生成，数据不足时不打扰。", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text("之后可在 设置 → 快速入门 再次查看。", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
