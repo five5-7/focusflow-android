@@ -30,7 +30,9 @@ data class ActivityReminderSettings(
     val notificationsEnabled: Boolean = true,
     val previewMinutes: Int = 10,
     val maxExtensions: Int = 3,
-    val strongerEndReminder: Boolean = true
+    val strongerEndReminder: Boolean = true,
+    val scheduleRemindersEnabled: Boolean = true,
+    val scheduleAdvanceMinutes: Int = 10
 )
 
 data class ActivityCommitment(val title: String, val startsAt: Long)

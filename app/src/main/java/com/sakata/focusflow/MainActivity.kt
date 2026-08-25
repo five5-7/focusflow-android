@@ -374,7 +374,12 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                 })
         }
     }
-    fun saveItems(updated: List<Item>) { items = updated; store.saveItems(updated) }
+    fun saveItems(updated: List<Item>) {
+        val previous = items
+        items = updated
+        store.saveItems(updated)
+        ReminderScheduler.syncTaskReminders(context, previous, updated)
+    }
     fun selectTab(index: Int) {
         todayInboxOpen = false
         planPage = null
@@ -766,6 +771,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                     activitySettings = updated
                     store.saveActivityReminderSettings(updated)
                     activeSession?.let { ReminderScheduler.scheduleActivityReminders(context, it, updated) }
+                    ReminderScheduler.restoreTaskReminders(context)
                 }, onStatusCheckInSettingsChange = { updated ->
                     statusCheckInSettings = updated
                     store.saveStatusCheckInSettings(updated)
@@ -2356,7 +2362,7 @@ private enum class PlanPage(val title: String) {
 private enum class SettingsSubPage(val title: String) {
     ROADMAP("版本路线图"), CAMPUS_PLACES("校园地点"), COMMUTE_PLACES("通勤与地点"), TUTORIAL_SEARCH("学习路径建议"),
     COURSE_VISION("课表识别（视觉模型）"), APP_DETECTION("前台应用检测"), STABILITY("稳定性与崩溃"),
-    APPEARANCE("外观"), ACTIVITY_REMINDERS("活动提醒"), QUIET_HOURS("提醒打扰控制"), CUSTOM_THEME("自定义主题")
+    APPEARANCE("外观"), ACTIVITY_REMINDERS("日程与活动提醒"), QUIET_HOURS("提醒打扰控制"), CUSTOM_THEME("自定义主题")
 }
 
 /** 空挡内容建议：这段空挡适合做什么（目标优先，其次弹性任务）。 */
@@ -3756,7 +3762,7 @@ private fun DayGroupWizardDialog(existingGroups: List<DayGroup>, defaultWake: In
         Text("设置", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
         PlanHubItem("外观", "当前主题：${themeOption.label}") { onSubPageChange(SettingsSubPage.APPEARANCE) }
         HorizontalDivider()
-        PlanHubItem("活动提醒", if (activitySettings.notificationsEnabled) "已开启 · 提前 ${activitySettings.previewMinutes} 分钟" else "已关闭") { onSubPageChange(SettingsSubPage.ACTIVITY_REMINDERS) }
+        PlanHubItem("日程与活动提醒", if (activitySettings.notificationsEnabled) "日程提前 ${activitySettings.scheduleAdvanceMinutes} 分钟" else "通知权限待开启") { onSubPageChange(SettingsSubPage.ACTIVITY_REMINDERS) }
         HorizontalDivider()
         PlanHubItem("提醒打扰控制", if (quietHours.enabled) "免打扰 ${formatMinute(quietHours.startMinute)}–${formatMinute(quietHours.endMinute)}" else if (quietHours.isMuted()) "已静音" else "未开启") { onSubPageChange(SettingsSubPage.QUIET_HOURS) }
         HorizontalDivider()
@@ -4058,6 +4064,9 @@ private fun DayGroupWizardDialog(existingGroups: List<DayGroup>, defaultWake: In
                         val lifecycleOwner = LocalLifecycleOwner.current
                         var notifGranted by remember { mutableStateOf(context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) }
                         var exactAllowed by remember { mutableStateOf(Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && context.getSystemService(AlarmManager::class.java).canScheduleExactAlarms()) }
+                        val notificationPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+                            notifGranted = context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+                        }
                         DisposableEffect(lifecycleOwner) {
                             val observer = LifecycleEventObserver { _, event ->
                                 if (event == Lifecycle.Event.ON_RESUME) {
@@ -4071,13 +4080,43 @@ private fun DayGroupWizardDialog(existingGroups: List<DayGroup>, defaultWake: In
                         if (!notifGranted) {
                             Text("通知权限未开启，提醒无法弹出。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                             OutlinedButton(onClick = {
-                                context.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS, Uri.parse("package:${context.packageName}")))
-                            }) { Text("去系统设置开启通知") }
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                else context.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS, Uri.parse("package:${context.packageName}")))
+                            }) { Text("申请通知权限") }
+                            TextButton(onClick = { context.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS, Uri.parse("package:${context.packageName}"))) }) { Text("已拒绝？去系统设置开启") }
                         } else {
-                            Text("通知权限已开启，提醒正常弹出。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                            val notificationManager = context.getSystemService(android.app.NotificationManager::class.java)
+                            val taskChannel = notificationManager.getNotificationChannel(ReminderReceiver.CHANNEL_TASK)
+                            val channelMuted = taskChannel != null && taskChannel.importance < android.app.NotificationManager.IMPORTANCE_HIGH
+                            Text(if (channelMuted) "通知已允许，但日程横幅当前可能被系统静音。" else "通知权限已开启。", style = MaterialTheme.typography.bodySmall, color = if (channelMuted) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                OutlinedButton(onClick = {
+                                    context.startActivity(Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS).apply {
+                                        putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                                        putExtra(Settings.EXTRA_CHANNEL_ID, ReminderReceiver.CHANNEL_TASK)
+                                    })
+                                }) { Text("管理日程横幅") }
+                                OutlinedButton(onClick = {
+                                    context.startActivity(Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS).apply {
+                                        putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                                        putExtra(Settings.EXTRA_CHANNEL_ID, ReminderReceiver.CHANNEL_MEAL)
+                                    })
+                                }) { Text("管理饭点横幅") }
+                            }
                         }
                         SettingSwitch("活动提醒", "关闭后仍会保留活动记录和手动转场", activitySettings.notificationsEnabled) { onActivitySettingsChange(activitySettings.copy(notificationsEnabled = it)) }
                         SettingSwitch("明确的到点提醒", "到达约定时间时使用更醒目的提醒", activitySettings.strongerEndReminder) { onActivitySettingsChange(activitySettings.copy(strongerEndReminder = it)) }
+                        HorizontalDivider()
+                        SettingSwitch("日程提醒", "课程以外的定时任务、目标安排会在开始前提醒；重启后自动恢复", activitySettings.scheduleRemindersEnabled) {
+                            onActivitySettingsChange(activitySettings.copy(scheduleRemindersEnabled = it))
+                        }
+                        Text("日程默认提前：${activitySettings.scheduleAdvanceMinutes} 分钟")
+                        Slider(
+                            value = activitySettings.scheduleAdvanceMinutes.toFloat(),
+                            onValueChange = { onActivitySettingsChange(activitySettings.copy(scheduleAdvanceMinutes = (it / 5).toInt() * 5)) },
+                            valueRange = 0f..30f,
+                            steps = 5
+                        )
                         Text("提前预告：${activitySettings.previewMinutes} 分钟")
                         Slider(
                             value = activitySettings.previewMinutes.toFloat(),
