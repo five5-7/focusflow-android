@@ -1934,7 +1934,6 @@ internal fun recommendForWindow(goals: List<Goal>, items: List<Item>, minutes: I
 }
 
 @Composable private fun PlansScreen(modifier: Modifier, items: List<Item>, courses: List<Course>, profile: CommuteProfile, lifeStage: LifeStage?, page: PlanPage?, onPageChange: (PlanPage?) -> Unit, onResume: (Item) -> Unit, onConfirmCourse: (Course) -> Unit, onIgnoreCourse: (Course) -> Unit, onClearAwaitingCourses: () -> Unit, onAddCourse: () -> Unit, courseImportRunning: Boolean, courseImportMessage: String?, onImportCourses: () -> Unit, onEditCourse: (Course) -> Unit, goals: List<Goal>, onAddGoal: () -> Unit, onScheduleGoal: (Goal, GoalSuggestion) -> Unit, onScheduleFlexible: (Item, Int, Int) -> Unit, resources: List<LearningResource>, onAddResource: () -> Unit, onSelectResource: (LearningResource) -> Unit, onDeleteResource: (LearningResource) -> Unit, onDeselectResource: () -> Unit, onApplyStandardToAll: () -> Unit, onSummarizeResource: (LearningResource) -> Unit, onAutoPlanGoals: () -> Unit, autoPlanMessage: String?, tutorialSearch: TutorialSearchSettings, courseVision: CourseVisionSettings, onSearchTutorial: () -> Unit, onVideoAnalysis: () -> Unit, feedback: List<TaskFeedback>, gameSessions: List<GameSessionRecord>, checkIns: List<StatusCheckIn>, store: PrototypeStore) {
-    val context = LocalContext.current
     // 假期阶段：空挡与目标建议不把课程当作安排（课程管理页仍用完整列表）。
     val planningCourses = if (lifeStage == LifeStage.HOLIDAY) emptyList<Course>() else courses
     var gapsTableExpanded by remember { mutableStateOf(false) }
@@ -2006,112 +2005,27 @@ internal fun recommendForWindow(goals: List<Goal>, items: List<Item>, minutes: I
                 onScheduleGoal = onScheduleGoal,
                 onScheduleFlexible = onScheduleFlexible
             )
-            PlanPage.GOALS -> {
-                Text("教程资料", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextButton(onClick = onAddResource) { Text("＋ 收集教程／链接") }
-                    TextButton(onClick = onVideoAnalysis) { Text("＋ 视频分析") }
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextButton(enabled = tutorialSearch.enabled && tutorialSearch.apiKey.isNotBlank(), onClick = onSearchTutorial) { Text("学习路径建议") }
-                }
-                val standard = resources.firstOrNull { it.selected }
-                var resourcesExpanded by remember { mutableStateOf(false) }
-                Card {
-                    Column(Modifier.fillMaxWidth().clickable { resourcesExpanded = !resourcesExpanded }.padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                            Text("已收集 ${resources.size} 项${standard?.let { " · 当前标准：${it.title}" } ?: ""}", fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text(if (resourcesExpanded) "收起 ▴" else "展开 ▾", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-                        }
-                        if (resourcesExpanded) {
-                            when {
-                                !tutorialSearch.enabled -> Text("在设置页开启“教程联网搜索”并填写硅基流动 key 后，可为学习目标生成学习路径建议。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                tutorialSearch.apiKey.isBlank() -> Text("已开启但未填 key：请到设置页填写硅基流动 API key。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                            Card(colors = CardDefaults.cardColors(containerColor = if (standard != null) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))) {
-                                Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    Text(if (standard != null) "当前标准：${standard.title}" else "未设置标准", fontWeight = FontWeight.SemiBold)
-                                    Text(if (standard != null) "新建目标会自动作为它的教程依据；安排目标任务时任务详情带教程提示。" else "新建目标不会自动带教程依据；可先收集教程并设为标准。", style = MaterialTheme.typography.bodySmall)
-                                }
-                            }
-                            standard?.let { s ->
-                                val unlinked = goals.count { it.resourceTitle.isBlank() }
-                                if (unlinked > 0) {
-                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                        Text("有 $unlinked 个目标未关联教程", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                        TextButton(onClick = onApplyStandardToAll) { Text("全部应用当前标准") }
-                                    }
-                                }
-                            }
-                            Text("「设为标准」的作用：新建目标时自动作为该目标的教程依据（目标卡显示“依据”并可直接打开链接），安排目标任务时任务详情会带上教程提示。", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            if (resources.isEmpty()) Text("尚未收集教程。", style = MaterialTheme.typography.bodySmall)
-                            resources.forEach { resource ->
-                                ElevatedCard {
-                                    Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                            Column(Modifier.weight(1f)) {
-                                                Text(resource.title, fontWeight = FontWeight.SemiBold)
-                                                Text(resource.url, style = MaterialTheme.typography.bodySmall)
-                                            }
-                                            if (resource.selected) {
-                                                TextButton(onClick = onDeselectResource) { Text("取消标准") }
-                                            } else {
-                                                TextButton(onClick = { onSelectResource(resource) }) { Text("设为标准") }
-                                            }
-                                            TextButton(onClick = { onDeleteResource(resource) }) { Text("删除") }
-                                        }
-                                        if (resource.summary.isNotBlank()) {
-                                            Text("AI 总结：${resource.summary}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                        }
-                                        if (tutorialSearch.enabled && tutorialSearch.apiKey.isNotBlank()) {
-                                            TextButton(onClick = { onSummarizeResource(resource) }) { Text("AI 总结") }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                HorizontalDivider()
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Text("目标与执行", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                    TextButton(onClick = onAddGoal) { Text("＋ 新增目标") }
-                }
-                TextButton(onClick = onAutoPlanGoals) { Text("按空挡自动排本周目标（本地判断）") }
-                autoPlanMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                if (goals.isEmpty()) Text("从预期结果、每周次数和单次时长开始。")
-                goals.forEach { goal ->
-                    val suggestions = GoalPlanner.suggestions(goal, planningCourses, profile, occupiedByWeekday(items))
-                    ElevatedCard { Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                        Text(goal.title, fontWeight = FontWeight.SemiBold)
-                        val completed = GoalPlanner.completedThisWeek(goal)
-                        val pending = items.count { it.goalId == goal.id && it.kind == "任务" && !it.done }
-                        val remaining = (goal.weeklyTarget - completed - pending).coerceAtLeast(0)
-                        if (goal.desiredOutcome.isNotBlank()) Text("预期结果：${goal.desiredOutcome}")
-                        Text("本周 $completed / ${goal.weeklyTarget} 次 · 已安排 $pending · 待安排 $remaining")
-                        Text("每次 ${goal.durationMinutes} 分钟 · ${goal.metricType}：${goal.metricTarget.ifBlank { "完成本次" }}", style = MaterialTheme.typography.bodySmall)
-                        if (goal.minimumVersion.isNotBlank()) Text("最低版本：${goal.minimumVersion}", style = MaterialTheme.typography.bodySmall)
-                        if (goal.resourceTitle.isNotBlank()) {
-                            val linked = resources.firstOrNull { it.title == goal.resourceTitle }
-                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                                Text("依据：${goal.resourceTitle}${goal.resourceUnit.takeIf { it.isNotBlank() }?.let { " · $it" } ?: ""}", style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
-                                if (linked?.url?.isNotBlank() == true) {
-                                    TextButton(onClick = { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(linked.url))) } }) { Text("打开教程") }
-                                }
-                            }
-                        } else {
-                            Text("未设教程依据", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        feedback.filter { it.goalId == goal.id && it.barrier != "无" }.groupingBy { it.barrier }.eachCount().maxByOrNull { it.value }?.let { (barrier, count) -> Text("最近常见阻碍：$barrier（$count 次）", style = MaterialTheme.typography.bodySmall) }
-                        if (completed >= goal.weeklyTarget) Text("本周目标已达成。", color = MaterialTheme.colorScheme.primary)
-                        else if (remaining == 0) Text("剩余次数均已安排，可在日程中逐次完成或改期。")
-                        else suggestions.firstOrNull { suggestion -> items.none { item -> item.goalId == goal.id && !item.done && item.scheduledAt?.let { todayWeekday(it) == suggestion.weekday && minuteOfDay(it) == suggestion.startMinute } == true } }?.let { suggestion ->
-                            Text("建议：${weekdayName(suggestion.weekday)} ${GoalPlanner.displayTime(suggestion.startMinute)}，可用 ${suggestion.freeMinutes} 分钟")
-                            Button(onClick = { onScheduleGoal(goal, suggestion) }) { Text("安排第 ${completed + pending + 1} / ${goal.weeklyTarget} 次") }
-                        } ?: Text("暂未找到足够连续的空档。")
-                    } }
-                }
-            }
+            PlanPage.GOALS -> PlanGoalsSection(
+                goals = goals,
+                resources = resources,
+                tutorialSearch = tutorialSearch,
+                planningCourses = planningCourses,
+                profile = profile,
+                items = items,
+                feedback = feedback,
+                autoPlanMessage = autoPlanMessage,
+                onAddResource = onAddResource,
+                onVideoAnalysis = onVideoAnalysis,
+                onSearchTutorial = onSearchTutorial,
+                onSelectResource = onSelectResource,
+                onDeselectResource = onDeselectResource,
+                onDeleteResource = onDeleteResource,
+                onSummarizeResource = onSummarizeResource,
+                onApplyStandardToAll = onApplyStandardToAll,
+                onAddGoal = onAddGoal,
+                onAutoPlanGoals = onAutoPlanGoals,
+                onScheduleGoal = onScheduleGoal
+            )
             PlanPage.REVIEW -> {
                 if (goals.isEmpty()) Text("创建目标并积累完成记录后，这里会给出调整建议。", style = MaterialTheme.typography.bodySmall)
                 else {
