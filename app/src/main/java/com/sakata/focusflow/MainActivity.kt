@@ -187,6 +187,16 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     var activityStatusOpen by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    val appLifecycleOwner = LocalLifecycleOwner.current
+    // 初始值保证冷启动也检查；后续每次回到前台再递增。
+    var notificationForegroundCheck by remember { mutableIntStateOf(1) }
+    DisposableEffect(appLifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_START) notificationForegroundCheck++
+        }
+        appLifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { appLifecycleOwner.lifecycle.removeObserver(observer) }
+    }
     var globalLoading by remember { mutableStateOf(false) }
     var themeOption by remember { mutableStateOf(store.loadTheme()) }
     var darkMode by remember { mutableStateOf(store.loadDarkMode()) }
@@ -278,6 +288,25 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     var planPage by remember { mutableStateOf<PlanPage?>(null) }
     var settingsSubPage by remember { mutableStateOf<SettingsSubPage?>(null) }
     var settingsParentPage by remember { mutableStateOf<SettingsSubPage?>(null) }
+    LaunchedEffect(
+        notificationForegroundCheck,
+        permissionOnboardingPending,
+        baselineOnboardingOpen,
+        baselineWhereToFindOpen,
+        featureIntroOpen
+    ) {
+        if (notificationForegroundCheck == 0 || permissionOnboardingPending || baselineOnboardingOpen || baselineWhereToFindOpen || featureIntroOpen) return@LaunchedEffect
+        delay(500)
+        val message = NotificationHealthPolicy.startupMessage(NotificationChannelSettings.health(context)) ?: return@LaunchedEffect
+        val result = snackbarHostState.showSnackbar(message = message, actionLabel = "查看说明", withDismissAction = true)
+        if (result == SnackbarResult.ActionPerformed) {
+            tab = 3
+            todayInboxOpen = false
+            planPage = null
+            settingsParentPage = null
+            settingsSubPage = SettingsSubPage.ACTIVITY_REMINDERS
+        }
+    }
     // 提升到 app 层：设置页主列表在子页面往返/切 tab 时保持滚动位置。
     val settingsScrollState = remember { ScrollState(0) }
     val suggestedNextStep = items
@@ -3303,15 +3332,18 @@ private fun DayGroupWizardDialog(existingGroups: List<DayGroup>, defaultWake: In
                         }
                         // 权限状态随前台恢复刷新：从系统设置页返回后立即更新文案。
                         val lifecycleOwner = LocalLifecycleOwner.current
+                        var notificationHealth by remember { mutableStateOf(NotificationChannelSettings.health(context)) }
                         var notifGranted by remember { mutableStateOf(context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) }
                         var exactAllowed by remember { mutableStateOf(Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && context.getSystemService(AlarmManager::class.java).canScheduleExactAlarms()) }
                         val notificationPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
                             notifGranted = context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+                            notificationHealth = NotificationChannelSettings.health(context)
                         }
                         DisposableEffect(lifecycleOwner) {
                             val observer = LifecycleEventObserver { _, event ->
                                 if (event == Lifecycle.Event.ON_RESUME) {
                                     notifGranted = context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+                                    notificationHealth = NotificationChannelSettings.health(context)
                                     exactAllowed = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && context.getSystemService(AlarmManager::class.java).canScheduleExactAlarms()
                                 }
                             }
@@ -3326,23 +3358,23 @@ private fun DayGroupWizardDialog(existingGroups: List<DayGroup>, defaultWake: In
                             }) { Text("申请通知权限") }
                             TextButton(onClick = { context.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS, Uri.parse("package:${context.packageName}"))) }) { Text("已拒绝？去系统设置开启") }
                         } else {
-                            val notificationManager = context.getSystemService(android.app.NotificationManager::class.java)
-                            val taskChannel = notificationManager.getNotificationChannel(ReminderReceiver.CHANNEL_TASK)
-                            val channelMuted = taskChannel != null && taskChannel.importance < android.app.NotificationManager.IMPORTANCE_HIGH
-                            Text(if (channelMuted) "通知已允许，但日程横幅当前可能被系统静音。" else "通知权限已开启。", style = MaterialTheme.typography.bodySmall, color = if (channelMuted) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                OutlinedButton(onClick = {
-                                    context.startActivity(Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS).apply {
-                                        putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
-                                        putExtra(Settings.EXTRA_CHANNEL_ID, ReminderReceiver.CHANNEL_TASK)
-                                    })
-                                }) { Text("管理日程横幅") }
-                                OutlinedButton(onClick = {
-                                    context.startActivity(Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS).apply {
-                                        putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
-                                        putExtra(Settings.EXTRA_CHANNEL_ID, ReminderReceiver.CHANNEL_MEAL)
-                                    })
-                                }) { Text("管理饭点横幅") }
+                            Text(
+                                if (notificationHealth.allReadableSettingsReady) "Android 可读取的通知与两个渠道均已开启。"
+                                else NotificationHealthPolicy.startupMessage(notificationHealth) ?: "通知设置需要检查。",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (notificationHealth.allReadableSettingsReady) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+                            )
+                            Surface(
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Text("ColorOS 手动开启路径", fontWeight = FontWeight.SemiBold)
+                                    Text("1. 长按桌面上的 FocusFlow 图标，打开“应用信息”。", style = MaterialTheme.typography.bodySmall)
+                                    Text("2. 进入“通知管理”，先开启“允许通知”。", style = MaterialTheme.typography.bodySmall)
+                                    Text("3. 分别进入“FocusFlow 任务提醒”和“饭点提醒”，开启横幅／悬浮通知。", style = MaterialTheme.typography.bodySmall)
+                                    Text("应用每次回到前台都会检测 Android 公开的总通知和渠道状态。ColorOS 单独的“横幅／悬浮”开关不对应用公开；如果此处显示已开启但仍无横幅，请按上述路径手动确认。", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
                             }
                         }
                         SettingSwitch("活动提醒", "关闭后仍会保留活动记录和手动转场", activitySettings.notificationsEnabled) { onActivitySettingsChange(activitySettings.copy(notificationsEnabled = it)) }
