@@ -525,20 +525,10 @@ class PrototypeStore(context: Context) {
         preferences.edit().putBoolean("course_setup_done", true).putString("courses", values.toString()).apply()
     }
 
-    fun loadGoals(): List<Goal> = runCatching {
-        val values = JSONArray(preferences.getString("goals", "[]") ?: "[]")
-        List(values.length()) { index ->
-            val goal = values.getJSONObject(index)
-            Goal(goal.getLong("id"), goal.getString("title"), goal.getInt("weeklyTarget"), goal.getInt("durationMinutes"), goal.optString("metricType", "时长"), goal.optString("metricTarget"), goal.optString("minimumVersion"), goal.optString("resourceTitle"), goal.optString("resourceUnit"), goal.optInt("completedThisWeek"), goal.optInt("minimumCompletionsThisWeek"), goal.optLong("completionWeekKey", GoalPlanner.currentWeekKey()), goal.optString("desiredOutcome"))
-        }
-    }.getOrDefault(emptyList())
+    fun loadGoals(): List<Goal> = StoredGoalsCodec.decodeGoals(preferences.getString("goals", "[]") ?: "[]")
 
     fun saveGoals(goals: List<Goal>) {
-        val values = JSONArray()
-        goals.forEach { goal -> values.put(JSONObject().apply {
-            put("id", goal.id); put("title", goal.title); put("weeklyTarget", goal.weeklyTarget); put("durationMinutes", goal.durationMinutes); put("metricType", goal.metricType); put("metricTarget", goal.metricTarget); put("minimumVersion", goal.minimumVersion); put("resourceTitle", goal.resourceTitle); put("resourceUnit", goal.resourceUnit); put("completedThisWeek", goal.completedThisWeek); put("minimumCompletionsThisWeek", goal.minimumCompletionsThisWeek); put("completionWeekKey", goal.completionWeekKey); put("desiredOutcome", goal.desiredOutcome)
-        }) }
-        preferences.edit().putString("goals", values.toString()).apply()
+        preferences.edit().putString("goals", StoredGoalsCodec.encodeGoals(goals)).apply()
     }
 
     fun markGoalCompleted(goalId: Long, minimum: Boolean = false) {
@@ -548,20 +538,10 @@ class PrototypeStore(context: Context) {
         } else if (minimum) goal.copy(minimumCompletionsThisWeek = 1, completionWeekKey = key) else goal.copy(completedThisWeek = 1, minimumCompletionsThisWeek = 0, completionWeekKey = key) })
     }
 
-    fun loadResources(): List<LearningResource> = runCatching {
-        val values = JSONArray(preferences.getString("resources", "[]") ?: "[]")
-        List(values.length()) { index ->
-            val resource = values.getJSONObject(index)
-            LearningResource(resource.getLong("id"), resource.getString("title"), resource.optString("url"), resource.optBoolean("selected"), resource.optString("summary", ""))
-        }
-    }.getOrDefault(emptyList())
+    fun loadResources(): List<LearningResource> = StoredGoalsCodec.decodeResources(preferences.getString("resources", "[]") ?: "[]")
 
     fun saveResources(resources: List<LearningResource>) {
-        val values = JSONArray()
-        resources.forEach { resource -> values.put(JSONObject().apply {
-            put("id", resource.id); put("title", resource.title); put("url", resource.url); put("selected", resource.selected); put("summary", resource.summary)
-        }) }
-        preferences.edit().putString("resources", values.toString()).apply()
+        preferences.edit().putString("resources", StoredGoalsCodec.encodeResources(resources)).apply()
     }
 
     fun loadFeedback(): List<TaskFeedback> = runCatching {
