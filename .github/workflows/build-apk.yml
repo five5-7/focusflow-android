@@ -39,7 +39,7 @@ jobs:
           FOCUSFLOW_SIGNING_KEY_PASSWORD: ${{ secrets.FOCUSFLOW_SIGNING_KEY_PASSWORD }}
         run: |
           set -euo pipefail
-          required=(FOCUSFLOW_KEYSTORE_BASE64 FOCUSFLOW_SIGNING_STORE_PASSWORD FOCUSFLOW_SIGNING_KEY_ALIAS FOCUSFLOW_SIGNING_KEY_PASSWORD)
+          required=(FOCUSFLOW_KEYSTORE_BASE64 FOCUSFLOW_SIGNING_STORE_PASSWORD FOCUSFLOW_SIGNING_KEY_PASSWORD)
           for key in "${required[@]}"; do
             test -n "${!key}" || { echo "::error::Missing repository secret: $key"; exit 1; }
           done
@@ -47,9 +47,23 @@ jobs:
           store="$RUNNER_TEMP/focusflow-release.jks"
           printf '%s' "$FOCUSFLOW_KEYSTORE_BASE64" | base64 --decode > "$store"
           test -s "$store" || { echo "::error::Signing keystore is empty"; exit 1; }
+          # 允许旧配置中的 alias 不准确：仅当 keystore 内只有一个私钥时自动采用它。
+          # 多私钥时不猜测，要求显式提供正确 alias，以免误签名。
+          keytool -list -v -keystore "$store" -storepass "$FOCUSFLOW_SIGNING_STORE_PASSWORD" > "$RUNNER_TEMP/keystore-info.txt"
+          mapfile -t private_aliases < <(awk -F': ' '/^Alias name: / { alias=$2 } /^Entry type: PrivateKeyEntry/ { print alias }' "$RUNNER_TEMP/keystore-info.txt")
+          configured_alias="$FOCUSFLOW_SIGNING_KEY_ALIAS"
+          if printf '%s\n' "${private_aliases[@]}" | grep -Fxq "$configured_alias"; then
+            resolved_alias="$configured_alias"
+          elif [ "${#private_aliases[@]}" -eq 1 ]; then
+            resolved_alias="${private_aliases[0]}"
+            echo "::warning::Configured signing alias was not found; using the only private key in the keystore."
+          else
+            echo "::error::Signing key alias does not match and the keystore has multiple private keys."
+            exit 1
+          fi
           echo "FOCUSFLOW_SIGNING_STORE_FILE=$store" >> "$GITHUB_ENV"
           echo "FOCUSFLOW_SIGNING_STORE_PASSWORD=$FOCUSFLOW_SIGNING_STORE_PASSWORD" >> "$GITHUB_ENV"
-          echo "FOCUSFLOW_SIGNING_KEY_ALIAS=$FOCUSFLOW_SIGNING_KEY_ALIAS" >> "$GITHUB_ENV"
+          echo "FOCUSFLOW_SIGNING_KEY_ALIAS=$resolved_alias" >> "$GITHUB_ENV"
           echo "FOCUSFLOW_SIGNING_KEY_PASSWORD=$FOCUSFLOW_SIGNING_KEY_PASSWORD" >> "$GITHUB_ENV"
 
       - name: Run unit tests
