@@ -29,31 +29,28 @@ jobs:
         with:
           gradle-version: "8.7"
 
-      # 签名只从仓库 Secret 读取，绝不写进代码或构建产物日志。
-      # 单个 FOCUSFLOW_SIGNING_SECRETS 的格式见 README；缺失时直接失败，
-      # 防止 CI 悄悄回退到 debug 签名而导致安装覆盖冲突。
+      # 签名只从仓库级 GitHub Secrets 读取，绝不写进代码或构建产物日志。
+      # 缺失时直接失败，防止 CI 悄悄回退到 debug 签名而导致安装覆盖冲突。
       - name: Prepare stable signing key
         env:
-          FOCUSFLOW_SIGNING_SECRETS: ${{ secrets.FOCUSFLOW_SIGNING_SECRETS }}
+          FOCUSFLOW_KEYSTORE_BASE64: ${{ secrets.FOCUSFLOW_KEYSTORE_BASE64 }}
+          FOCUSFLOW_SIGNING_STORE_PASSWORD: ${{ secrets.FOCUSFLOW_SIGNING_STORE_PASSWORD }}
+          FOCUSFLOW_SIGNING_KEY_ALIAS: ${{ secrets.FOCUSFLOW_SIGNING_KEY_ALIAS }}
+          FOCUSFLOW_SIGNING_KEY_PASSWORD: ${{ secrets.FOCUSFLOW_SIGNING_KEY_PASSWORD }}
         run: |
           set -euo pipefail
-          test -n "$FOCUSFLOW_SIGNING_SECRETS" || { echo "::error::Missing FOCUSFLOW_SIGNING_SECRETS"; exit 1; }
-          umask 077
-          signing_file="$RUNNER_TEMP/focusflow-signing.env"
-          printf '%s' "$FOCUSFLOW_SIGNING_SECRETS" > "$signing_file"
-          required=(FOCUSFLOW_SIGNING_STORE_BASE64 FOCUSFLOW_SIGNING_STORE_PASSWORD FOCUSFLOW_SIGNING_KEY_ALIAS FOCUSFLOW_SIGNING_KEY_PASSWORD)
+          required=(FOCUSFLOW_KEYSTORE_BASE64 FOCUSFLOW_SIGNING_STORE_PASSWORD FOCUSFLOW_SIGNING_KEY_ALIAS FOCUSFLOW_SIGNING_KEY_PASSWORD)
           for key in "${required[@]}"; do
-            grep -q "^${key}=" "$signing_file" || { echo "::error::Signing bundle is missing $key"; exit 1; }
+            test -n "${!key}" || { echo "::error::Missing repository secret: $key"; exit 1; }
           done
-          # 该 secret 由仓库所有者维护；只读取四个白名单字段，不执行其中任何内容。
-          value() { sed -n "s/^$1=//p" "$signing_file" | head -n 1; }
+          umask 077
           store="$RUNNER_TEMP/focusflow-release.jks"
-          printf '%s' "$(value FOCUSFLOW_SIGNING_STORE_BASE64)" | base64 --decode > "$store"
+          printf '%s' "$FOCUSFLOW_KEYSTORE_BASE64" | base64 --decode > "$store"
           test -s "$store" || { echo "::error::Signing keystore is empty"; exit 1; }
           echo "FOCUSFLOW_SIGNING_STORE_FILE=$store" >> "$GITHUB_ENV"
-          echo "FOCUSFLOW_SIGNING_STORE_PASSWORD=$(value FOCUSFLOW_SIGNING_STORE_PASSWORD)" >> "$GITHUB_ENV"
-          echo "FOCUSFLOW_SIGNING_KEY_ALIAS=$(value FOCUSFLOW_SIGNING_KEY_ALIAS)" >> "$GITHUB_ENV"
-          echo "FOCUSFLOW_SIGNING_KEY_PASSWORD=$(value FOCUSFLOW_SIGNING_KEY_PASSWORD)" >> "$GITHUB_ENV"
+          echo "FOCUSFLOW_SIGNING_STORE_PASSWORD=$FOCUSFLOW_SIGNING_STORE_PASSWORD" >> "$GITHUB_ENV"
+          echo "FOCUSFLOW_SIGNING_KEY_ALIAS=$FOCUSFLOW_SIGNING_KEY_ALIAS" >> "$GITHUB_ENV"
+          echo "FOCUSFLOW_SIGNING_KEY_PASSWORD=$FOCUSFLOW_SIGNING_KEY_PASSWORD" >> "$GITHUB_ENV"
 
       - name: Run unit tests
         run: gradle --no-daemon :app:testDebugUnitTest
