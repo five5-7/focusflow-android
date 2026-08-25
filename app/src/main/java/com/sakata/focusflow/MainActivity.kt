@@ -1619,16 +1619,6 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     }
 }
 
-private enum class ScheduleType(val label: String) {
-    COURSE("课程"),
-    LEARNING("学习／目标"),
-    EXERCISE("锻炼"),
-    ENTERTAINMENT("娱乐"),
-    REST("休息"),
-    TASK("弹性任务"),
-    COMPLETED("已完成")
-}
-
 @Composable private fun scheduleColor(type: ScheduleType): Color {
     val palette = LocalFocusFlowSchedulePalette.current
     return when (type) {
@@ -1667,57 +1657,7 @@ private fun Item.scheduleType(): ScheduleType = when {
     }
 }
 
-private const val TIMELINE_START_MINUTE = 6 * 60
-private const val TIMELINE_END_MINUTE = 24 * 60
 private val timelineHourHeight = 64.dp
-
-private data class TimelineEvent(
-    val key: String,
-    val title: String,
-    val detail: String,
-    val weekday: Int,
-    val startMinute: Int,
-    val endMinute: Int,
-    val type: ScheduleType,
-    val item: Item? = null,
-    val isConflict: Boolean = false
-)
-
-/** 把同一时间段互相重叠的课程合并为单一事件（覆盖整个冲突区间），其余事件原样保留。 */
-private fun mergeConflictingCourses(events: List<TimelineEvent>): List<TimelineEvent> {
-    val others = events.filter { it.type != ScheduleType.COURSE }
-    val courseEvents = events.filter { it.type == ScheduleType.COURSE }
-        .sortedWith(compareBy<TimelineEvent> { it.startMinute }.thenByDescending { it.endMinute })
-    if (courseEvents.size < 2) return events
-    val merged = mutableListOf<TimelineEvent>()
-    var i = 0
-    while (i < courseEvents.size) {
-        val group = mutableListOf(courseEvents[i])
-        var groupStart = courseEvents[i].startMinute
-        var groupEnd = courseEvents[i].endMinute
-        var j = i + 1
-        while (j < courseEvents.size && courseEvents[j].startMinute < groupEnd) {
-            group += courseEvents[j]
-            groupStart = minOf(groupStart, courseEvents[j].startMinute)
-            groupEnd = maxOf(groupEnd, courseEvents[j].endMinute)
-            j++
-        }
-        merged += if (group.size > 1) TimelineEvent(
-            key = group.joinToString("+") { it.key },
-            title = group.joinToString(" ／ ") { it.title },
-            detail = group.joinToString("；") { "${formatMinute(it.startMinute)}–${formatMinute(it.endMinute)} ${it.detail}" },
-            weekday = group.first().weekday,
-            startMinute = groupStart,
-            endMinute = groupEnd,
-            type = ScheduleType.COURSE,
-            isConflict = true
-        ) else group.first()
-        i = j
-    }
-    return merged + others
-}
-
-private data class TimelineEventLayout(val event: TimelineEvent, val lane: Int, val laneCount: Int)
 
 private fun Course.asTimelineEvent(index: Int = 0) = TimelineEvent(
     key = "course-$weekday-$startPeriod-$title-$index",
@@ -1742,36 +1682,6 @@ private fun Item.asTimelineEvent(): TimelineEvent? {
         type = if (done) ScheduleType.COMPLETED else scheduleType(),
         item = this
     )
-}
-
-private fun layoutTimelineEvents(events: List<TimelineEvent>): List<TimelineEventLayout> {
-    val visible = events.filter { it.endMinute > TIMELINE_START_MINUTE && it.startMinute < TIMELINE_END_MINUTE }.sortedWith(compareBy<TimelineEvent> { it.startMinute }.thenByDescending { it.endMinute })
-    val result = mutableListOf<TimelineEventLayout>()
-    var index = 0
-    while (index < visible.size) {
-        val group = mutableListOf(visible[index])
-        var groupEnd = visible[index].endMinute
-        var next = index + 1
-        while (next < visible.size && visible[next].startMinute < groupEnd) {
-            group += visible[next]
-            groupEnd = maxOf(groupEnd, visible[next].endMinute)
-            next++
-        }
-        val laneEnds = mutableListOf<Int>()
-        val assigned = group.map { event ->
-            val freeLane = laneEnds.indexOfFirst { it <= event.startMinute }
-            val lane = if (freeLane >= 0) freeLane else {
-                laneEnds.add(event.endMinute)
-                laneEnds.lastIndex
-            }
-            laneEnds[lane] = event.endMinute
-            event to lane
-        }
-        val laneCount = laneEnds.size.coerceAtLeast(1)
-        result += assigned.map { (event, lane) -> TimelineEventLayout(event, lane, laneCount) }
-        index = next
-    }
-    return result
 }
 
 @Composable private fun DailyScheduleTimeline(courses: List<Course>, tasks: List<Item>, onTaskDone: (Item) -> Unit, onDeleteItem: (Item) -> Unit) {
