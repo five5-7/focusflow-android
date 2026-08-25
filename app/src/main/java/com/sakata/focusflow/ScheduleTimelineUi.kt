@@ -47,7 +47,7 @@ internal fun Item.scheduleType(): ScheduleType = when {
 
 private val timelineHourHeight = 64.dp
 
-private fun Course.asTimelineEvent(index: Int = 0) = TimelineEvent(
+internal fun Course.asTimelineEvent(index: Int = 0) = TimelineEvent(
     key = "course-$weekday-$startPeriod-$title-$index",
     title = title,
     detail = "课程 · $building",
