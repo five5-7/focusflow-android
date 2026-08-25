@@ -59,17 +59,14 @@ GitHub Actions 会在每次 push 时自动跑单元测试并构建 debug APK（a
 
 ### CI 覆盖安装签名
 
-为保证 Actions 产物能覆盖安装已有 FocusFlow，仓库只使用一个名为
-`FOCUSFLOW_SIGNING_SECRETS` 的 GitHub Actions Secret。它的值为四行（不要提交到仓库）：
+为保证 Actions 产物能覆盖安装已有 FocusFlow，仓库使用下列四个 GitHub Actions Secrets（不要提交到仓库）：
 
-```text
-FOCUSFLOW_SIGNING_STORE_BASE64=<你的 .jks 文件 base64，单行>
-FOCUSFLOW_SIGNING_STORE_PASSWORD=<keystore 密码>
-FOCUSFLOW_SIGNING_KEY_ALIAS=<key alias>
-FOCUSFLOW_SIGNING_KEY_PASSWORD=<key 密码>
-```
+- `FOCUSFLOW_KEYSTORE_BASE64`：`.jks` 文件的单行 Base64
+- `FOCUSFLOW_SIGNING_STORE_PASSWORD`：keystore 密码
+- `FOCUSFLOW_SIGNING_KEY_ALIAS`：key alias
+- `FOCUSFLOW_SIGNING_KEY_PASSWORD`：key 密码
 
-工作流会在临时 Runner 中解码签名文件；Secret 缺失或格式不完整时构建会直接失败，绝不回退为 debug 签名。
+工作流会在临时 Runner 中解码签名文件；任一 Secret 缺失时构建会直接失败，绝不回退为 debug 签名。
 
 ## 模型（可选联网功能）
 
