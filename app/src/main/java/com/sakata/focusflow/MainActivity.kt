@@ -2094,7 +2094,6 @@ private fun scheduleWindowOptions(now: Long = System.currentTimeMillis()): List<
     )
 }
 
-private fun formatDateTime(time: Long): String = java.text.SimpleDateFormat("M月d日 HH:mm", java.util.Locale.CHINA).format(java.util.Date(time))
 private fun formatTime(time: Long): String = java.text.SimpleDateFormat("HH:mm", java.util.Locale.CHINA).format(java.util.Date(time))
 private fun formatActivityRemaining(milliseconds: Long): String {
     val totalSeconds = (milliseconds.coerceAtLeast(0) / 1_000L).toInt()
@@ -2192,34 +2191,7 @@ private fun todayAtMinute(minute: Int): Long = java.util.Calendar.getInstance().
     set(java.util.Calendar.SECOND, 0)
     set(java.util.Calendar.MILLISECOND, 0)
 }.timeInMillis
-private fun formatMinute(minute: Int): String = "%02d:%02d".format(minute / 60, minute % 60)
-private fun todayWeekday(): Int = when (java.util.Calendar.getInstance().get(java.util.Calendar.DAY_OF_WEEK)) {
-    java.util.Calendar.SUNDAY -> 7
-    else -> java.util.Calendar.getInstance().get(java.util.Calendar.DAY_OF_WEEK) - 1
-}
-private fun todayWeekday(time: Long): Int {
-    val calendar = java.util.Calendar.getInstance().apply { timeInMillis = time }
-    return when (calendar.get(java.util.Calendar.DAY_OF_WEEK)) {
-        java.util.Calendar.SUNDAY -> 7
-        else -> calendar.get(java.util.Calendar.DAY_OF_WEEK) - 1
-    }
-}
-private fun minuteOfDay(time: Long): Int {
-    val calendar = java.util.Calendar.getInstance().apply { timeInMillis = time }
-    return calendar.get(java.util.Calendar.HOUR_OF_DAY) * 60 + calendar.get(java.util.Calendar.MINUTE)
-}
 private fun periodForMinute(minute: Int): Int = (1..13).lastOrNull { CourseGapPlanner.periodStart(it) <= minute } ?: 1
-private fun isInCurrentWeek(time: Long): Boolean {
-    val weekStart = GoalPlanner.currentWeekKey()
-    val weekEnd = weekStart + 7 * 24 * 60 * 60_000L
-    return time >= weekStart && time < weekEnd
-}
-private fun isToday(time: Long): Boolean {
-    val target = java.util.Calendar.getInstance().apply { timeInMillis = time }
-    val today = java.util.Calendar.getInstance()
-    return target.get(java.util.Calendar.YEAR) == today.get(java.util.Calendar.YEAR) && target.get(java.util.Calendar.DAY_OF_YEAR) == today.get(java.util.Calendar.DAY_OF_YEAR)
-}
-
 /** 某时刻所在自然日的 [start, end) 毫秒范围。 */
 private fun dayRange(millis: Long): LongRange {
     val start = java.util.Calendar.getInstance().apply {
@@ -3093,51 +3065,6 @@ private fun formatHex(color: Color): String = "#%06X".format(color.toArgb() and 
     }
 }
 
-/** 带可视滚动条的整页滚动容器：右侧绘制细滚动条，提示下方还有内容。 */
-@Composable
-private fun ScrollableWithBar(modifier: Modifier = Modifier, scrollState: ScrollState, padding: androidx.compose.ui.unit.Dp = 20.dp, spacing: androidx.compose.ui.unit.Dp = 14.dp, content: @Composable ColumnScope.() -> Unit) {
-    Box(modifier.fillMaxSize()) {
-        Column(Modifier.fillMaxSize().verticalScroll(scrollState).padding(padding), verticalArrangement = Arrangement.spacedBy(spacing), content = content)
-        Canvas(Modifier.align(Alignment.CenterEnd).fillMaxHeight().width(6.dp).padding(vertical = 8.dp)) {
-            val max = scrollState.maxValue
-            if (max > 0) {
-                val track = size.height
-                val thumb = (track * track / (max + track)).coerceIn(24f, track)
-                val top = scrollState.value.toFloat() / max * (track - thumb)
-                drawRoundRect(
-                    color = Color(0x60727A80),
-                    topLeft = Offset(size.width - 3.dp.toPx(), top),
-                    size = androidx.compose.ui.geometry.Size(3.dp.toPx(), thumb),
-                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(1.5.dp.toPx())
-                )
-            }
-        }
-    }
-}
-
-/** 对话框内带可视滚动条的内容容器（内容超高时右侧显示细滚动条）。 */
-@Composable
-private fun ScrollableDialogBox(maxHeight: androidx.compose.ui.unit.Dp, spacing: androidx.compose.ui.unit.Dp = 8.dp, content: @Composable ColumnScope.() -> Unit) {
-    val scrollState = rememberScrollState()
-    Box(Modifier.heightIn(max = maxHeight)) {
-        Column(Modifier.heightIn(max = maxHeight).verticalScroll(scrollState), verticalArrangement = Arrangement.spacedBy(spacing), content = content)
-        Canvas(Modifier.align(Alignment.CenterEnd).fillMaxHeight().width(6.dp).padding(vertical = 8.dp)) {
-            val max = scrollState.maxValue
-            if (max > 0) {
-                val track = size.height
-                val thumb = (track * track / (max + track)).coerceIn(24f, track)
-                val top = scrollState.value.toFloat() / max * (track - thumb)
-                drawRoundRect(
-                    color = Color(0x60727A80),
-                    topLeft = Offset(size.width - 3.dp.toPx(), top),
-                    size = androidx.compose.ui.geometry.Size(3.dp.toPx(), thumb),
-                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(1.5.dp.toPx())
-                )
-            }
-        }
-    }
-}
-
 @Composable private fun PlanSubpageFrame(modifier: Modifier, title: String, titleAction: (@Composable () -> Unit)? = null, content: @Composable ColumnScope.() -> Unit) {
     ScrollableWithBar(modifier = modifier, scrollState = rememberScrollState(), spacing = 10.dp) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -3148,7 +3075,6 @@ private fun ScrollableDialogBox(maxHeight: androidx.compose.ui.unit.Dp, spacing:
     }
 }
 
-private fun weekdayName(day: Int) = listOf("", "周一", "周二", "周三", "周四", "周五", "周六", "周日")[day]
 
 private fun weekdayOf(millis: Long): Int {
     val calendar = java.util.Calendar.getInstance().apply { timeInMillis = millis }
@@ -3169,9 +3095,6 @@ private fun todayAgenda(courses: List<Course>, items: List<Item>, now: Long = Sy
         } }
     return (todayCourses + todayTasks).sortedBy { it.startMinute }
 }
-
-/** 空挡时间轴标记：间隙区间与净可用分钟数。 */
-private data class GapMarker(val startMinute: Int, val endMinute: Int, val minutes: Int)
 
 /** 某天的空挡标记：相邻课程之间的间隙（净分钟数 ≥10 才标记）。 */
 private fun gapMarkersFor(courses: List<Course>, day: Int, profile: CommuteProfile): List<GapMarker> {
