@@ -275,6 +275,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     var mealRecordsOpen by remember { mutableStateOf(false) }
     var planPage by remember { mutableStateOf<PlanPage?>(null) }
     var settingsSubPage by remember { mutableStateOf<SettingsSubPage?>(null) }
+    var settingsParentPage by remember { mutableStateOf<SettingsSubPage?>(null) }
     // 提升到 app 层：设置页主列表在子页面往返/切 tab 时保持滚动位置。
     val settingsScrollState = remember { ScrollState(0) }
     val suggestedNextStep = items
@@ -348,11 +349,15 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
         todayInboxOpen = false
         planPage = null
         settingsSubPage = null
+        settingsParentPage = null
         tab = index
     }
     BackHandler(enabled = tab == 0 && todayInboxOpen) { todayInboxOpen = false }
     BackHandler(enabled = tab == 2 && planPage != null) { planPage = null }
-    BackHandler(enabled = tab == 3 && settingsSubPage != null) { settingsSubPage = null }
+    BackHandler(enabled = tab == 3 && settingsSubPage != null) {
+        settingsSubPage = settingsParentPage
+        settingsParentPage = null
+    }
 
     LaunchedEffect(statusCheckInRequested) {
         if (statusCheckInRequested) {
@@ -509,6 +514,9 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                     onPause = { item -> saveItems(items.map { if (it.id == item.id) it.copy(kind = "暂停", detail = "已暂停；随时可在计划中恢复") else it }) },
                     onAbandon = { item -> saveItems(items.filterNot { it.id == item.id }) },
                     mealRecords = mealRecords,
+                    mealReminderEnabled = mealReminderEnabled,
+                    statusCheckInEnabled = statusCheckInSettings.enabled,
+                    windDownEnabled = windDownEnabled,
                     baselineProfile = baselineProfile,
                     courses = scheduleCourses,
                     mealSkipDays = mealSkipDays,
@@ -657,7 +665,15 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                     checkIns = statusCheckIns,
                     store = store
                 )
-                else -> SettingsScreen(Modifier.padding(padding), settingsScrollState, themeOption, commuteProfile, campusLifeEnabled, campusMapPackage, currentCampusPlace, improvementNotes, activitySettings, statusCheckInSettings, windDownEnabled = windDownEnabled, checkIns = statusCheckIns, baselineProfile, mealRecords, mealReminderEnabled, subPage = settingsSubPage, onSubPageChange = { settingsSubPage = it }, onThemeChange = { updated ->
+                else -> SettingsScreen(Modifier.padding(padding), settingsScrollState, themeOption, commuteProfile, campusLifeEnabled, campusMapPackage, currentCampusPlace, improvementNotes, activitySettings, statusCheckInSettings, windDownEnabled = windDownEnabled, checkIns = statusCheckIns, baselineProfile, mealRecords, mealReminderEnabled, subPage = settingsSubPage, onSubPageChange = { target ->
+                    if (target == null) {
+                        settingsSubPage = null
+                        settingsParentPage = null
+                    } else {
+                        if (settingsSubPage == SettingsSubPage.ADVANCED) settingsParentPage = SettingsSubPage.ADVANCED
+                        settingsSubPage = target
+                    }
+                }, onThemeChange = { updated ->
                     if (updated != FocusFlowThemeOption.CUSTOM) lastBuiltInTheme = updated
                     themeOption = updated
                     store.saveTheme(updated)
@@ -1300,6 +1316,9 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     onPause: (Item) -> Unit,
     onAbandon: (Item) -> Unit,
     mealRecords: List<MealRecord>,
+    mealReminderEnabled: Boolean,
+    statusCheckInEnabled: Boolean,
+    windDownEnabled: Boolean,
     baselineProfile: BaselineProfile,
     courses: List<Course>,
     mealSkipDays: Set<String>,
@@ -1318,6 +1337,20 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     val nextSuggestion = recommendNextAction(items, nextCommitment, energyLevel, goals, feedback, now)
     val completedToday = items.count { it.done && it.completedAt?.let(::isToday) == true }
     val completedThisWeek = items.count { it.done && it.completedAt?.let(::isInCurrentWeek) == true }
+    val visibility = FeatureVisibilityPolicy.daily(
+        FeatureUsageSnapshot(
+            baselineComplete = baselineProfile.isComplete,
+            mealRecordCount = mealRecords.size,
+            mealReminderEnabled = mealReminderEnabled,
+            goalCount = goals.size + if (items.any { !it.done && it.goalId != null }) 1 else 0,
+            confirmedCourseCount = courses.count { !it.needsConfirmation },
+            lifeStage = baselineProfile.lifeStage,
+            campusLifeEnabled = campusLifeEnabled,
+            statusCheckInEnabled = statusCheckInEnabled,
+            statusCheckInCount = checkIns.size,
+            windDownEnabled = windDownEnabled
+        )
+    )
     Box(modifier.fillMaxSize()) {
         AnimatedVisibility(
             visible = !inboxOpen,
@@ -1342,17 +1375,6 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
         val currentMinute = nowCal.get(java.util.Calendar.HOUR_OF_DAY) * 60 + nowCal.get(java.util.Calendar.MINUTE)
         val inClass = agenda.firstOrNull { it.isCourse && currentMinute in it.startMinute until (it.startMinute + 45) }
         val upcoming = agenda.filter { it.startMinute >= currentMinute - 5 }.take(3)
-        Card(Modifier.fillMaxWidth().clickable(onClick = onOpenSchedule), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))) {
-            Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Text("今天接下来", fontWeight = FontWeight.Bold)
-                    Text("日程 ›", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-                }
-                if (inClass != null) Text("现在：${inClass.title}（${inClass.subtitle}）", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
-                if (upcoming.isEmpty()) Text("今天没有其他安排了。", style = MaterialTheme.typography.bodySmall)
-                else upcoming.forEach { entry -> Text("${formatMinute(entry.startMinute)} · ${entry.title} — ${entry.subtitle}", style = MaterialTheme.typography.bodySmall) }
-            }
-        }
         Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
             Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (activeSession != null) {
@@ -1399,7 +1421,28 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                 }
             }
         }
-        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))) {
+        Card(Modifier.fillMaxWidth().clickable(onClick = onOpenSchedule), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))) {
+            Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Text("接下来", fontWeight = FontWeight.Bold)
+                    Text("日程 ›", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                }
+                if (inClass != null) Text("现在：${inClass.title}（${inClass.subtitle}）", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
+                if (upcoming.isEmpty()) Text("今天没有其他安排了。", style = MaterialTheme.typography.bodySmall)
+                else upcoming.forEach { entry -> Text("${formatMinute(entry.startMinute)} · ${entry.title} — ${entry.subtitle}", style = MaterialTheme.typography.bodySmall) }
+            }
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Text("收集箱", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            TextButton(onClick = { onInboxOpenChange(true) }) { Text("${inboxItems.size} 项  ›") }
+        }
+        if (inboxItems.isEmpty()) {
+            Text("暂时没有新想法，点底部 ＋ 随手记录。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        } else {
+            inboxItems.take(2).forEach { item -> InboxItemCard(item, onPickTime, onEdit, onShrink, onPause, onAbandon) }
+            if (inboxItems.size > 2) Text("还有 ${inboxItems.size - 2} 项，进入收集箱继续整理。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        if (visibility.energy) Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))) {
             Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text("当前精力", fontWeight = FontWeight.Bold)
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -1412,7 +1455,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
         }
         val todayGoalTasks = items.filter { !it.done && it.goalId != null && it.scheduledAt != null && weekdayOf(it.scheduledAt!!) == weekdayOf(now) }
         val goalsRemaining = goals.count { it.weeklyTarget > GoalPlanner.completedThisWeek(it) }
-        if (todayGoalTasks.isNotEmpty() || goalsRemaining > 0) {
+        if (visibility.goals && (todayGoalTasks.isNotEmpty() || goalsRemaining > 0)) {
             ElevatedCard {
                 Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -1442,20 +1485,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             Column(horizontalAlignment = Alignment.CenterHorizontally) { Text("$completedThisWeek", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold); Text("本周完成", style = MaterialTheme.typography.labelMedium) }
             Column(horizontalAlignment = Alignment.CenterHorizontally) { Text("${inboxItems.size}", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold); Text("待整理", style = MaterialTheme.typography.labelMedium) }
         } }
-        MealTodayCard(records = mealRecords, profile = baselineProfile, skipDays = mealSkipDays, now = now, onPrompt = onMealPrompt, onFinish = onMealFinish)
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Text("收集箱", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-            TextButton(onClick = { onInboxOpenChange(true) }) { Text("${inboxItems.size} 项  ›") }
-        }
-        Text("这里显示最近记录；进入副页面可集中编辑、安排或删除。", style = MaterialTheme.typography.bodySmall)
-        if (inboxItems.isEmpty()) {
-            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))) {
-                Text("暂时没有新想法，点底部 ＋ 随手记录。", Modifier.fillMaxWidth().padding(16.dp))
-            }
-        } else {
-            inboxItems.take(2).forEach { item -> InboxItemCard(item, onPickTime, onEdit, onShrink, onPause, onAbandon) }
-            if (inboxItems.size > 2) Text("还有 ${inboxItems.size - 2} 项，进入收集箱继续整理。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
+        if (visibility.meals) MealTodayCard(records = mealRecords, profile = baselineProfile, skipDays = mealSkipDays, now = now, onPrompt = onMealPrompt, onFinish = onMealFinish)
         val completedActivities = activityHistory.filter { it.actualEndAt?.let(::isToday) == true }
         if (completedActivities.isNotEmpty()) {
             ElevatedCard {
@@ -1469,7 +1499,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                 }
             }
         }
-        WindDownInsights.advice(baselineProfile, courses, items, checkIns, activityHistory, now)?.let { advice ->
+        if (visibility.windDown) WindDownInsights.advice(baselineProfile, courses, items, checkIns, activityHistory, now)?.let { advice ->
             Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f))) {
                 Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text("睡前减速", fontWeight = FontWeight.Bold)
@@ -1485,7 +1515,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                 }
             }
         }
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+        if (visibility.campus) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
             Text("校园生活 ${if (campusLifeEnabled) "开" else "关"} · 校内地点、空挡与路程估算", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Switch(checked = campusLifeEnabled, onCheckedChange = onCampusLifeEnabledChange)
         }
@@ -1898,6 +1928,7 @@ private fun todayAtMinute(minute: Int): Long = java.util.Calendar.getInstance().
     set(java.util.Calendar.MILLISECOND, 0)
 }.timeInMillis
 private fun periodForMinute(minute: Int): Int = (1..13).lastOrNull { CourseGapPlanner.periodStart(it) <= minute } ?: 1
+
 /** 某时刻所在自然日的 [start, end) 毫秒范围。 */
 private fun dayRange(millis: Long): LongRange {
     val start = java.util.Calendar.getInstance().apply {
@@ -1908,6 +1939,7 @@ private fun dayRange(millis: Long): LongRange {
 }
 
 private enum class SettingsSubPage(val title: String) {
+    ADVANCED("高级工具"),
     ROADMAP("版本路线图"), CAMPUS_PLACES("校园地点"), COMMUTE_PLACES("通勤与地点"), TUTORIAL_SEARCH("学习路径建议"),
     COURSE_VISION("课表识别（视觉模型）"), APP_DETECTION("前台应用检测"), STABILITY("稳定性与崩溃"),
     APPEARANCE("外观"), ACTIVITY_REMINDERS("日程与活动提醒"), QUIET_HOURS("提醒打扰控制"), CUSTOM_THEME("自定义主题")
@@ -2008,12 +2040,19 @@ internal fun recommendForWindow(goals: List<Goal>, items: List<Item>, minutes: I
             PlanPage.GOALS -> PlanGoalsSection(
                 goals = goals,
                 resources = resources,
-                tutorialSearch = tutorialSearch,
                 planningCourses = planningCourses,
                 profile = profile,
                 items = items,
                 feedback = feedback,
                 autoPlanMessage = autoPlanMessage,
+                onAddGoal = onAddGoal,
+                onAutoPlanGoals = onAutoPlanGoals,
+                onScheduleGoal = onScheduleGoal
+            )
+            PlanPage.TOOLBOX -> PlanToolboxSection(
+                resources = resources,
+                goals = goals,
+                tutorialSearch = tutorialSearch,
                 onAddResource = onAddResource,
                 onVideoAnalysis = onVideoAnalysis,
                 onSearchTutorial = onSearchTutorial,
@@ -2021,10 +2060,7 @@ internal fun recommendForWindow(goals: List<Goal>, items: List<Item>, minutes: I
                 onDeselectResource = onDeselectResource,
                 onDeleteResource = onDeleteResource,
                 onSummarizeResource = onSummarizeResource,
-                onApplyStandardToAll = onApplyStandardToAll,
-                onAddGoal = onAddGoal,
-                onAutoPlanGoals = onAutoPlanGoals,
-                onScheduleGoal = onScheduleGoal
+                onApplyStandardToAll = onApplyStandardToAll
             )
             PlanPage.REVIEW -> {
                 if (goals.isEmpty()) Text("创建目标并积累完成记录后，这里会给出调整建议。", style = MaterialTheme.typography.bodySmall)
@@ -3035,7 +3071,6 @@ private fun DayGroupWizardDialog(existingGroups: List<DayGroup>, defaultWake: In
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     OutlinedButton(onClick = onOpenBaselineEditor) { Text("编辑") }
-                    TextButton(onClick = onOpenBaselineEvents) { Text("原始事件") }
                     TextButton(onClick = onResetBaseline) { Text("重建基线") }
                 }
                 if (baselineProfile.isComplete) {
@@ -3112,27 +3147,7 @@ private fun DayGroupWizardDialog(existingGroups: List<DayGroup>, defaultWake: In
             TextButton(onClick = onOpenMealRecords) { Text("就餐记录") }
         }
         HorizontalDivider()
-        SettingsSectionHeader("个人账目", onHelp = { helpBlock = SettingsBlock.EXPENSES })
-        val expense = ExpenseInsights.summarize(mealRecords)
-        if (expense.withAmountCount == 0) {
-            Text("在“吃完了吗”里填过金额后，这里会汇总支出。金额始终可选，不会自动记账。", style = MaterialTheme.typography.bodySmall)
-        } else {
-            Text("共 ${expense.withAmountCount} 笔金额草稿 · 合计 ¥${expense.totalAmount}；本月 ${expense.monthRecords} 笔 · ¥${expense.monthAmount}", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
-            if (expense.topCategories.isNotEmpty()) Text("分类：${expense.topCategories.joinToString(" · ") { "${it.first} ¥${it.second}" }}", style = MaterialTheme.typography.bodySmall)
-            if (expense.topLocations.isNotEmpty()) Text("常去：${expense.topLocations.joinToString(" · ") { "${it.name} ${it.count} 次 · 平均 ¥${it.averageAmount}" }}", style = MaterialTheme.typography.bodySmall)
-            if (expense.mealTypeAmounts.isNotEmpty()) Text("餐次：${expense.mealTypeAmounts.joinToString(" · ") { "${it.first} ¥${it.second}" }}", style = MaterialTheme.typography.bodySmall)
-            Text("只统计你填写的金额草稿；账目不会自动生成或推断。", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        HorizontalDivider()
-        PlanHubItem("通勤与地点", if (campusLifeEnabled) "校园生活 开" else "校园生活 关") { onSubPageChange(SettingsSubPage.COMMUTE_PLACES) }
-        HorizontalDivider()
-        PlanHubItem("学习路径建议", if (tutorialSearch.enabled) "已开启${if (tutorialSearch.apiKey.isNotBlank()) " · 已填 key" else ""}" else "未开启") { onSubPageChange(SettingsSubPage.TUTORIAL_SEARCH) }
-        HorizontalDivider()
-        PlanHubItem("课表识别（视觉模型）", if (courseVision.enabled) "已开启${if (tutorialSearch.apiKey.isNotBlank()) " · 已填 key" else " · 未填 key"}" else "未开启") { onSubPageChange(SettingsSubPage.COURSE_VISION) }
-        HorizontalDivider()
-        PlanHubItem("前台应用检测", if (gameDetectionEnabled) "已开启 · 应用分类" else "未开启") { onSubPageChange(SettingsSubPage.APP_DETECTION) }
-        HorizontalDivider()
-        PlanHubItem("稳定性与崩溃", "本地记录崩溃栈 · 可复制反馈") { onSubPageChange(SettingsSubPage.STABILITY) }
+        PlanHubItem("高级工具", "习惯数据、地点、AI、识别、应用检测与稳定性") { onSubPageChange(SettingsSubPage.ADVANCED) }
         HorizontalDivider()
         SettingsSectionHeader("改进清单", onHelp = { helpBlock = SettingsBlock.IMPROVEMENTS })
         TextButton(onClick = onAddImprovement) { Text("＋ 记录改进想法") }
@@ -3161,6 +3176,27 @@ private fun DayGroupWizardDialog(existingGroups: List<DayGroup>, defaultWake: In
                 }
             ) {
                 when (current) {
+                    SettingsSubPage.ADVANCED -> {
+                        Text("这些能力只在配置后参与日常流程；关闭或不配置时不会占用今日页空间。", style = MaterialTheme.typography.bodySmall)
+                        PlanHubItem("习惯原始事件", "查看用于形成作息建议的本地记录") { onOpenBaselineEvents() }
+                        val expense = ExpenseInsights.summarize(mealRecords)
+                        ElevatedCard {
+                            Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text("可选消费记录", fontWeight = FontWeight.Bold)
+                                if (expense.withAmountCount == 0) {
+                                    Text("就餐结束时可选填金额；没有记录时不会出现在日常流程。", style = MaterialTheme.typography.bodySmall)
+                                } else {
+                                    Text("${expense.withAmountCount} 笔草稿 · 合计 ¥${expense.totalAmount}；本月 ¥${expense.monthAmount}", style = MaterialTheme.typography.bodySmall)
+                                    if (expense.topCategories.isNotEmpty()) Text("分类：${expense.topCategories.joinToString(" · ") { "${it.first} ¥${it.second}" }}", style = MaterialTheme.typography.bodySmall)
+                                }
+                            }
+                        }
+                        PlanHubItem("通勤与地点", if (campusLifeEnabled) "校园生活 开" else "校园生活 关") { onSubPageChange(SettingsSubPage.COMMUTE_PLACES) }
+                        PlanHubItem("学习路径建议", if (tutorialSearch.enabled) "已开启${if (tutorialSearch.apiKey.isNotBlank()) " · 已填 key" else ""}" else "未开启") { onSubPageChange(SettingsSubPage.TUTORIAL_SEARCH) }
+                        PlanHubItem("课表识别（视觉模型）", if (courseVision.enabled) "已开启${if (tutorialSearch.apiKey.isNotBlank()) " · 已填 key" else " · 未填 key"}" else "未开启") { onSubPageChange(SettingsSubPage.COURSE_VISION) }
+                        PlanHubItem("前台应用检测", if (gameDetectionEnabled) "已开启 · 应用分类" else "未开启") { onSubPageChange(SettingsSubPage.APP_DETECTION) }
+                        PlanHubItem("稳定性与崩溃", "本地记录崩溃栈 · 可复制反馈") { onSubPageChange(SettingsSubPage.STABILITY) }
+                    }
                     SettingsSubPage.ROADMAP -> RoadmapSubpageContent()
                     SettingsSubPage.CAMPUS_PLACES -> CampusPlacesEditorContent(
                         allPlaces = campusPlaces,

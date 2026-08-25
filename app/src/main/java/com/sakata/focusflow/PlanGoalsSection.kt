@@ -21,47 +21,16 @@ import androidx.compose.ui.unit.dp
 internal fun PlanGoalsSection(
     goals: List<Goal>,
     resources: List<LearningResource>,
-    tutorialSearch: TutorialSearchSettings,
     planningCourses: List<Course>,
     profile: CommuteProfile,
     items: List<Item>,
     feedback: List<TaskFeedback>,
     autoPlanMessage: String?,
-    onAddResource: () -> Unit,
-    onVideoAnalysis: () -> Unit,
-    onSearchTutorial: () -> Unit,
-    onSelectResource: (LearningResource) -> Unit,
-    onDeselectResource: () -> Unit,
-    onDeleteResource: (LearningResource) -> Unit,
-    onSummarizeResource: (LearningResource) -> Unit,
-    onApplyStandardToAll: () -> Unit,
     onAddGoal: () -> Unit,
     onAutoPlanGoals: () -> Unit,
     onScheduleGoal: (Goal, GoalSuggestion) -> Unit
 ) {
     val context = LocalContext.current
-    Text("教程资料", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        TextButton(onClick = onAddResource) { Text("＋ 收集教程／链接") }
-        TextButton(onClick = onVideoAnalysis) { Text("＋ 视频分析") }
-    }
-    TextButton(
-        enabled = tutorialSearch.enabled && tutorialSearch.apiKey.isNotBlank(),
-        onClick = onSearchTutorial
-    ) { Text("学习路径建议") }
-
-    ResourcesPanel(
-        resources = resources,
-        goals = goals,
-        tutorialSearch = tutorialSearch,
-        onSelectResource = onSelectResource,
-        onDeselectResource = onDeselectResource,
-        onDeleteResource = onDeleteResource,
-        onSummarizeResource = onSummarizeResource,
-        onApplyStandardToAll = onApplyStandardToAll
-    )
-
-    HorizontalDivider()
     Row(
         Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -92,7 +61,7 @@ internal fun PlanGoalsSection(
 }
 
 @Composable
-private fun ResourcesPanel(
+internal fun ResourcesPanel(
     resources: List<LearningResource>,
     goals: List<Goal>,
     tutorialSearch: TutorialSearchSettings,

@@ -5,6 +5,7 @@ internal enum class PlanPage(val title: String) {
     GAPS("空挡建议"),
     GOALS("目标与执行"),
     REVIEW("本周回顾"),
+    TOOLBOX("资料工具箱"),
     PAUSED("暂停项目")
 }
 
@@ -29,15 +30,16 @@ internal object PlanHubSummary {
             "${snapshot.gapCount} 段可用空挡"
         },
         PlanPage.GOALS to if (snapshot.goalCount == 0) {
-            "尚未创建目标 · ${snapshot.resourceCount} 项教程资料"
+            "尚未创建目标"
         } else {
-            "${snapshot.goalCount} 个目标 · ${snapshot.resourceCount} 项教程资料"
+            "${snapshot.goalCount} 个目标"
         },
         PlanPage.REVIEW to if (snapshot.goalCount == 0) {
             "有目标后生成建议"
         } else {
             "本周 ${snapshot.completedThisWeek} / ${snapshot.weeklyTarget} 次 · 低压力建议"
         },
+        PlanPage.TOOLBOX to if (snapshot.resourceCount == 0) "教程、视频与 AI 工具" else "${snapshot.resourceCount} 项已确认资料",
         PlanPage.PAUSED to if (snapshot.pausedCount == 0) "暂无" else "${snapshot.pausedCount} 项"
     )
 
