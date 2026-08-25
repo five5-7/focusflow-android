@@ -50,6 +50,8 @@ jobs:
           # 允许旧配置中的 alias 不准确：仅当 keystore 内只有一个私钥时自动采用它。
           # 多私钥时不猜测，要求显式提供正确 alias，以免误签名。
           keytool -list -v -keystore "$store" -storepass "$FOCUSFLOW_SIGNING_STORE_PASSWORD" > "$RUNNER_TEMP/keystore-info.txt"
+          store_type="$(sed -n 's/^Keystore type: //p' "$RUNNER_TEMP/keystore-info.txt" | head -n 1)"
+          test -n "$store_type" || { echo "::error::Unable to identify keystore type"; exit 1; }
           mapfile -t private_aliases < <(awk -F': ' '/^Alias name: / { alias=$2 } /^Entry type: PrivateKeyEntry/ { print alias }' "$RUNNER_TEMP/keystore-info.txt")
           configured_alias="$FOCUSFLOW_SIGNING_KEY_ALIAS"
           if printf '%s\n' "${private_aliases[@]}" | grep -Fxq "$configured_alias"; then
@@ -61,10 +63,36 @@ jobs:
             echo "::error::Signing key alias does not match and the keystore has multiple private keys."
             exit 1
           fi
+          # 验证私钥密码；许多 Android keystore 使用与 store 相同的密码，
+          # 因此旧配置中的 key 密码失效时可无交互恢复这一标准情况。
+          cat > "$RUNNER_TEMP/CheckPrivateKey.java" <<'JAVA'
+          import java.io.FileInputStream;
+          import java.security.KeyStore;
+          public final class CheckPrivateKey {
+            public static void main(String[] args) throws Exception {
+              KeyStore store = KeyStore.getInstance(args[4]);
+              try (FileInputStream input = new FileInputStream(args[0])) {
+                store.load(input, args[1].toCharArray());
+              }
+              if (store.getKey(args[2], args[3].toCharArray()) == null) System.exit(1);
+            }
+          }
+          JAVA
+          javac -d "$RUNNER_TEMP" "$RUNNER_TEMP/CheckPrivateKey.java"
+          resolved_key_password="$FOCUSFLOW_SIGNING_KEY_PASSWORD"
+          if ! java -cp "$RUNNER_TEMP" CheckPrivateKey "$store" "$FOCUSFLOW_SIGNING_STORE_PASSWORD" "$resolved_alias" "$resolved_key_password" "$store_type"; then
+            if java -cp "$RUNNER_TEMP" CheckPrivateKey "$store" "$FOCUSFLOW_SIGNING_STORE_PASSWORD" "$resolved_alias" "$FOCUSFLOW_SIGNING_STORE_PASSWORD" "$store_type"; then
+              resolved_key_password="$FOCUSFLOW_SIGNING_STORE_PASSWORD"
+              echo "::warning::Configured key password was rejected; using the matching keystore password."
+            else
+              echo "::error::The configured signing key password cannot unlock the signing key."
+              exit 1
+            fi
+          fi
           echo "FOCUSFLOW_SIGNING_STORE_FILE=$store" >> "$GITHUB_ENV"
           echo "FOCUSFLOW_SIGNING_STORE_PASSWORD=$FOCUSFLOW_SIGNING_STORE_PASSWORD" >> "$GITHUB_ENV"
           echo "FOCUSFLOW_SIGNING_KEY_ALIAS=$resolved_alias" >> "$GITHUB_ENV"
-          echo "FOCUSFLOW_SIGNING_KEY_PASSWORD=$FOCUSFLOW_SIGNING_KEY_PASSWORD" >> "$GITHUB_ENV"
+          echo "FOCUSFLOW_SIGNING_KEY_PASSWORD=$resolved_key_password" >> "$GITHUB_ENV"
 
       - name: Run unit tests
         run: gradle --no-daemon :app:testDebugUnitTest
