@@ -1915,7 +1915,7 @@ private enum class SettingsSubPage(val title: String) {
 
 /** 空挡内容建议：这段空挡适合做什么（目标优先，其次弹性任务）。 */
 /** 按空挡匹配内容：未完成目标（时长能放下）优先，其次可安排的空闲弹性任务；目标按该时段历史完成率降序。 */
-private fun recommendForWindow(goals: List<Goal>, items: List<Item>, minutes: Int, store: PrototypeStore, weekday: Int, startMinute: Int): GapRecommendation? {
+internal fun recommendForWindow(goals: List<Goal>, items: List<Item>, minutes: Int, store: PrototypeStore, weekday: Int, startMinute: Int): GapRecommendation? {
     val goal = goals.filter { g -> GoalPlanner.completedThisWeek(g) < g.weeklyTarget && g.durationMinutes <= minutes }
         .sortedWith(compareByDescending<Goal> { PlanLearning.completionRate(store, weekday, startMinute / 60) ?: -1f }
             .thenByDescending { it.weeklyTarget - GoalPlanner.completedThisWeek(it) }
@@ -1992,106 +1992,20 @@ private fun recommendForWindow(goals: List<Goal>, items: List<Item>, minutes: In
                 onEditCourse = onEditCourse,
                 onIgnoreCourse = onIgnoreCourse
             )
-            PlanPage.GAPS -> {
-                if (profile.eBikeBattery == "偏低") {
-                    val chargeable = gaps.filter { it.minutesFree >= 60 }.sortedByDescending { it.minutesFree }.take(3)
-                    if (chargeable.isNotEmpty()) {
-                        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f))) {
-                            Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Text("电动车电量偏低", fontWeight = FontWeight.SemiBold)
-                                Text("建议在长空档充电。本周可用充电空档：${chargeable.joinToString("；") { "${weekdayName(it.from.weekday)} 第${it.from.endPeriod}–${it.to.startPeriod}节间（约 ${it.minutesFree} 分钟）" }}", style = MaterialTheme.typography.bodySmall)
-                            }
-                        }
-                    } else {
-                        Text("电动车电量偏低，但本周暂无 ≥60 分钟的充电空档，可考虑在周末或晚上充电。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-                    }
-                }
-                val freeWindowsForRec = CourseGapPlanner.freeWindows(planningCourses, occupied = occupiedByWeekday(items))
-                val recommendations = buildList {
-                    val seen = mutableSetOf<Pair<Int, String>>()
-                    gaps.filter { it.minutesFree >= 30 }.forEach { gap ->
-                        recommendForWindow(goals, items, gap.minutesFree, store, gap.from.weekday, gap.suggestedStartMinute)?.let { r ->
-                            if (seen.add(gap.from.weekday to r.title)) add(GapPlan(r, gap.from.weekday, gap.suggestedStartMinute, gap.minutesFree))
-                        }
-                    }
-                    freeWindowsForRec.filter { it.minutes >= 30 }.forEach { window ->
-                        recommendForWindow(goals, items, window.minutes, store, window.weekday, window.startMinute)?.let { r ->
-                            if (seen.add(window.weekday to r.title)) add(GapPlan(r, window.weekday, window.startMinute, window.minutes))
-                        }
-                    }
-                }
-                if (recommendations.isNotEmpty()) {
-                    Text("空挡适合做什么（内容建议）", fontWeight = FontWeight.SemiBold)
-                    recommendations.forEach { plan ->
-                        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f))) {
-                            Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Text("${weekdayName(plan.weekday)} ${GoalPlanner.displayTime(plan.startMinute)} · 可用 ${plan.minutes} 分钟", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Text("适合：${plan.recommendation.title}", fontWeight = FontWeight.SemiBold)
-                                val energy = CheckInInsights.slotEnergyFor(plan.startMinute, checkIns)
-                                val energyNote = when (energy) {
-                                    "偏低" -> " · 该时段你通常精力偏低，建议优先短任务或最低版本"
-                                    "充足" -> " · 该时段你通常精力充足，适合需要专注的任务"
-                                    else -> ""
-                                }
-                                val location = plan.recommendation.goal?.let { locationHintFor("${it.title} ${it.desiredOutcome}") } ?: locationHintFor(plan.recommendation.title)
-                                val locationNote = location?.let { " · 建议地点：$it" } ?: ""
-                                Text(plan.recommendation.reason + energyNote + locationNote, style = MaterialTheme.typography.bodySmall)
-                                Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
-                                    plan.recommendation.goal?.let { goal ->
-                                        Button(onClick = { onScheduleGoal(goal, GoalSuggestion(plan.weekday, plan.startMinute, plan.minutes)) }) { Text("排入") }
-                                    }
-                                    plan.recommendation.flexibleItem?.let { flexible ->
-                                        Button(onClick = { onScheduleFlexible(flexible, plan.weekday, plan.startMinute) }) { Text("排入") }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    HorizontalDivider()
-                }
-                Card(Modifier.fillMaxWidth().clickable { gapsTableExpanded = !gapsTableExpanded }) {
-                    Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("空挡课表视图", fontWeight = FontWeight.SemiBold)
-                        Text(if (gapsTableExpanded) "收起 ▴" else "展开 ▾", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-                    }
-                }
-                if (gapsTableExpanded) GapTimelineContent(planningCourses, profile)
-                if (gaps.isEmpty()) Text(if (confirmedCourses.isEmpty()) "先确认课程后再计算空挡。" else "目前没有可显示的同日课程间空挡。")
-                else {
-                    val usable = gaps.filter { it.minutesFree >= 10 }
-                    val fragments = gaps.filter { it.minutesFree < 10 }
-                    if (usable.isNotEmpty()) {
-                        usable.forEach { gap ->
-                            val fromEnd = CourseGapPlanner.periodStart(gap.from.endPeriod) + 45
-                            val toStart = CourseGapPlanner.periodStart(gap.to.startPeriod)
-                            ElevatedCard {
-                                Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                                    Text("${weekdayName(gap.from.weekday)} ${formatMinute(fromEnd)}–${formatMinute(toStart)}：${gap.from.title} → ${gap.to.title}", fontWeight = FontWeight.SemiBold)
-                                    Text("总 ${toStart - fromEnd} 分钟 · 路程约 ${gap.travelMinutes} 分钟 · 净可用 ${gap.minutesFree} 分钟")
-                                    Text(if (gap.minutesFree >= 15) "可用约 ${gap.minutesFree} 分钟，可用于弹性安排。" else "仅约 ${gap.minutesFree} 分钟，接近下限，暂不建议安排任务。", style = MaterialTheme.typography.bodySmall)
-                                }
-                            }
-                        }
-                    } else Text("没有可安排的空档。", style = MaterialTheme.typography.bodySmall)
-                    if (fragments.isNotEmpty()) {
-                        Text("碎片时间（不足 10 分钟，仅够通行与缓冲）", fontWeight = FontWeight.SemiBold)
-                        fragments.forEach { gap ->
-                            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))) {
-                                Text("${weekdayName(gap.from.weekday)} ${formatMinute(CourseGapPlanner.periodStart(gap.from.endPeriod) + 45)}–${formatMinute(CourseGapPlanner.periodStart(gap.to.startPeriod))}：${gap.from.title} → ${gap.to.title} · 仅 ${gap.minutesFree} 分钟", Modifier.fillMaxWidth().padding(12.dp), style = MaterialTheme.typography.bodySmall)
-                            }
-                        }
-                    }
-                }
-                val freeWindows = CourseGapPlanner.freeWindows(planningCourses, occupied = occupiedByWeekday(items))
-                if (freeWindows.isNotEmpty()) {
-                    Text("自由时段（非课间空挡，也可安排）", fontWeight = FontWeight.SemiBold)
-                    freeWindows.forEach { window ->
-                        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.35f))) {
-                            Text("${weekdayName(window.weekday)} ${formatMinute(window.startMinute)}–${formatMinute(window.endMinute)} · ${window.kind} · 净 ${window.minutes} 分钟", Modifier.fillMaxWidth().padding(12.dp), style = MaterialTheme.typography.bodySmall)
-                        }
-                    }
-                }
-            }
+            PlanPage.GAPS -> PlanGapsSection(
+                profile = profile,
+                gaps = gaps,
+                planningCourses = planningCourses,
+                confirmedCourseCount = confirmedCourses.size,
+                goals = goals,
+                items = items,
+                checkIns = checkIns,
+                store = store,
+                tableExpanded = gapsTableExpanded,
+                onTableExpandedChange = { gapsTableExpanded = it },
+                onScheduleGoal = onScheduleGoal,
+                onScheduleFlexible = onScheduleFlexible
+            )
             PlanPage.GOALS -> {
                 Text("教程资料", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -2693,7 +2607,7 @@ private fun gapMarkersFor(courses: List<Course>, day: Int, profile: CommuteProfi
 
 /** 空挡课表视图：与日程一致的周时间轴课表，课程色块同课表，间隙标注净可用分钟数（≥60 分钟高亮）。 */
 @Composable
-private fun GapTimelineContent(courses: List<Course>, profile: CommuteProfile) {
+internal fun GapTimelineContent(courses: List<Course>, profile: CommuteProfile) {
     val confirmed = courses.filter { !it.needsConfirmation }
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 2.dp, vertical = 10.dp)) {
@@ -2769,7 +2683,7 @@ private fun recordGameItemEnd(context: Context, store: PrototypeStore, sessionId
 }
 
 /** 本周日程里已有安排（有固定时间的任务/事项）按星期几的占用分钟段；dayOnly 与仅时间范围的任务不算固定占用。 */
-private fun occupiedByWeekday(items: List<Item>, weekKey: Long = GoalPlanner.currentWeekKey()): Map<Int, List<IntRange>> {
+internal fun occupiedByWeekday(items: List<Item>, weekKey: Long = GoalPlanner.currentWeekKey()): Map<Int, List<IntRange>> {
     val weekEnd = weekKey + 7 * 24 * 60 * 60 * 1000L
     val calendar = java.util.Calendar.getInstance()
     return items.mapNotNull { item ->
