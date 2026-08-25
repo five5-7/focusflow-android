@@ -86,10 +86,10 @@ object HelpCatalog {
             "明确的到点提醒：到达约定时间时使用更醒目的提醒。",
             "提前预告：约定结束前 N 分钟提醒一次。",
             "连续延长提示上限：到点转场时可延长的次数。",
-            "如果 ColorOS 延迟到点提醒，可在系统的“闹钟和提醒”及电池设置中允许 FocusFlow；未授权精确提醒时仍会自动使用普通后台提醒。",
+            "如果系统延迟到点提醒，可在系统的“闹钟和提醒”及电池设置中允许 FocusFlow；未授权精确提醒时仍会自动使用普通后台提醒。",
             "应用冷启动及每次回到前台时，会检查 Android 公开的总通知、日程渠道和饭点渠道状态；未开启时在应用内提醒。",
-            "ColorOS 请长按 FocusFlow 图标 → 应用信息 → 通知管理，先开“允许通知”，再分别进入“FocusFlow 任务提醒”和“饭点提醒”开启横幅／悬浮。厂商单独的横幅开关不对应用公开，因此仍需手动确认。",
-            "ColorOS 精确闹钟页可能没有授权开关，届时 FocusFlow 自动改用普通后台提醒。"
+            "长按 FocusFlow 图标 → 应用信息 → 通知（或通知管理），先开“允许通知”，再分别检查“FocusFlow 任务提醒”和“饭点提醒”。设置页会按三星、小米／Redmi／POCO、华为／荣耀、OPPO／realme／OnePlus、vivo／iQOO、Pixel／原生 Android 显示补充路径。",
+            "不同系统可能把弹出方式称为横幅、悬浮通知、顶部预览、在屏幕上弹出或显示为弹出窗口。厂商单独的开关通常不对应用公开，因此仍需手动确认；精确闹钟不可用时 FocusFlow 会自动改用普通后台提醒。"
         )),
         SettingsBlock.QUIET_HOURS to HelpSection("提醒打扰控制", listOf(
             "免打扰时段：按你设定的起止时间（支持跨天，如 23:00–07:00）静音低打扰类提醒（状态询问、饭点提醒、睡前减速）；活动到点和任务提醒保持时间敏感，不会被静音。",
@@ -231,8 +231,8 @@ fun WelcomeIntroDialog(onDismiss: () -> Unit) {
                 Text("• 设置：高频提醒、外观和作息在主页；地点、AI、识别和应用检测收在高级工具。", style = MaterialTheme.typography.bodySmall)
                 Text("底部 ＋ 号：", fontWeight = FontWeight.SemiBold)
                 Text("“快速记录”记想法；“安排空闲活动”给游戏／学习／运动等安排时间，到点提醒开始与收尾（游戏/视频可检测前台）。", style = MaterialTheme.typography.bodySmall)
-                Text("通知与 ColorOS：", fontWeight = FontWeight.SemiBold)
-                Text("首次启动可申请通知权限。应用打开时会检查总通知和日程／饭点渠道；如有异常可点“查看说明”。ColorOS 的横幅／悬浮需在应用信息 → 通知管理中手动确认。", style = MaterialTheme.typography.bodySmall)
+                Text("通知与设备适配：", fontWeight = FontWeight.SemiBold)
+                Text("首次启动可申请通知权限。应用打开时会检查总通知和日程／饭点渠道；如有异常可点“查看说明”。不同 Android 系统可能把弹出方式称为横幅、悬浮、顶部预览或弹出窗口，设置页会按当前设备显示补充路径。", style = MaterialTheme.typography.bodySmall)
                 Text("可选设置：", fontWeight = FontWeight.SemiBold)
                 Text("习惯基线只在你需要饭点、睡前或作息建议时填；上学时再导入课表；长期任务再建目标。资料、AI、地图和前台检测均不是核心流程必需项。", style = MaterialTheme.typography.bodySmall)
                 Text("所有数据只保存在本机；建议只用你确认过的数据生成，数据不足时不打扰。", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
