@@ -104,12 +104,12 @@ jobs:
         run: echo "VERSION_NAME=$(sed -n 's/.*versionName = \"\(.*\)\"/\1/p' app/build.gradle.kts | head -1)" >> "$GITHUB_ENV"
 
       - name: Name APK with version
-        run: cp app/build/outputs/apk/debug/app-debug.apk "FocusFlow-$VERSION_NAME.apk"
+        run: cp app/build/outputs/apk/debug/app-debug.apk "FocusFlow-$VERSION_NAME-run-$GITHUB_RUN_NUMBER.apk"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: FocusFlow-${{ env.VERSION_NAME }}-apk
-          path: FocusFlow-${{ env.VERSION_NAME }}.apk
+          name: FocusFlow-${{ env.VERSION_NAME }}-run-${{ github.run_number }}-apk
+          path: FocusFlow-${{ env.VERSION_NAME }}-run-${{ github.run_number }}.apk
           if-no-files-found: error
           retention-days: 7

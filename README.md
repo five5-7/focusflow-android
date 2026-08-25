@@ -55,7 +55,7 @@ gradle :app:testDebugUnitTest
 
 ## 发布
 
-GitHub Actions 会在每次 push 时自动跑单元测试并构建稳定签名 APK（artifact）。真机验收后，再把同一产物上传至 **Releases**。
+GitHub Actions 会在每次 push 时自动跑单元测试并构建稳定签名 APK（artifact）。APK 和 artifact 名称会包含 Actions run 编号，避免误装同为 6.2.0 的旧候选包。真机验收后，再把同一产物上传至 **Releases**。
 
 ### CI 覆盖安装签名
 
