@@ -242,6 +242,8 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     var autoPlanMessage by remember { mutableStateOf<String?>(null) }
     var goals by remember { mutableStateOf(store.loadGoals()) }
     var addGoalOpen by remember { mutableStateOf(false) }
+    var editGoalTarget by remember { mutableStateOf<Goal?>(null) }
+    var goalFinderSuggestion by remember { mutableStateOf("") }
     var resources by remember { mutableStateOf(store.loadResources()) }
     var addResourceOpen by remember { mutableStateOf(false) }
     var summaryTarget by remember { mutableStateOf<LearningResource?>(null) }
@@ -575,13 +577,10 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                     },
                     onEditCourse = { courseEditor = it },
                     goals = goals,
-                    onAddGoal = { addGoalOpen = true },
+                    onAddGoal = { goalFinderSuggestion = ""; addGoalOpen = true },
+                    onEditGoal = { goal -> goalFinderSuggestion = ""; editGoalTarget = goal },
                     onScheduleGoal = { goal, suggestion ->
-                        val guide = buildString {
-                            if (goal.resourceTitle.isNotBlank()) append(" · 教程：${goal.resourceTitle}${goal.resourceUnit.takeIf { it.isNotBlank() }?.let { "（$it）" } ?: ""}")
-                            if (goal.minimumVersion.isNotBlank()) append(" · 最低版本：${goal.minimumVersion}")
-                        }
-                        val scheduled = Item(title = goal.title, detail = "${goal.metricType}：${goal.metricTarget.ifBlank { "本次完成" }} · ${weekdayName(suggestion.weekday)} ${GoalPlanner.displayTime(suggestion.startMinute)}$guide", kind = "任务", scheduledAt = GoalPlanner.nextOccurrence(suggestion.weekday, suggestion.startMinute), goalId = goal.id, durationMinutes = goal.durationMinutes)
+                        val scheduled = Item(title = goal.title, detail = goalTaskDetail(goal, suggestion.weekday, suggestion.startMinute), kind = "任务", scheduledAt = GoalPlanner.nextOccurrence(suggestion.weekday, suggestion.startMinute), goalId = goal.id, durationMinutes = goal.durationMinutes)
                         saveItems(listOf(scheduled) + items)
                         store.appendBaselineEvent(BaselineRecorder.event(BaselineEventType.TASK_SCHEDULED, "${goal.title} · ${weekdayName(suggestion.weekday)} ${GoalPlanner.displayTime(suggestion.startMinute)}"))
                         ReminderScheduler.scheduleTaskReminder(context, scheduled)
@@ -598,7 +597,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                     onSelectResource = { resource ->
                         resources = resources.map { it.copy(selected = it.id == resource.id) }
                         store.saveResources(resources)
-                        scope.launch { snackbarHostState.showSnackbar("已设为标准：《${resource.title}》") }
+                        scope.launch { snackbarHostState.showSnackbar("已标记常用资料：《${resource.title}》") }
                     },
                     onDeleteResource = { resource ->
                         resources = resources.filterNot { it.id == resource.id }
@@ -607,17 +606,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                     onDeselectResource = {
                         resources = resources.map { it.copy(selected = false) }
                         store.saveResources(resources)
-                        scope.launch { snackbarHostState.showSnackbar("已取消标准") }
-                    },
-                    onApplyStandardToAll = {
-                        resources.firstOrNull { it.selected }?.let { standard ->
-                            val unlinked = goals.count { it.resourceTitle.isBlank() }
-                            if (unlinked > 0) {
-                                goals = goals.map { if (it.resourceTitle.isBlank()) it.copy(resourceTitle = standard.title) else it }
-                                store.saveGoals(goals)
-                                scope.launch { snackbarHostState.showSnackbar("已把《${standard.title}》关联到 $unlinked 个目标") }
-                            }
-                        }
+                        scope.launch { snackbarHostState.showSnackbar("已取消常用标记") }
                     },
                     onSummarizeResource = { summaryTarget = it },
                     onAutoPlanGoals = {
@@ -1049,20 +1038,24 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             ensurePlaceForCourse(edited)
             courseEditor = null
         } }
-        if (addGoalOpen) GoalEditorDialog(
-            resources.firstOrNull { it.selected },
+        if (addGoalOpen || editGoalTarget != null) GoalEditorDialog(
+            initialGoal = editGoalTarget,
+            resources = resources,
+            suggestedFirstAction = goalFinderSuggestion,
             courses = if (baselineProfile.lifeStage == LifeStage.HOLIDAY) emptyList() else courses,
             profile = commuteProfile,
             items = items,
-            onDismiss = { addGoalOpen = false },
+            onDismiss = { addGoalOpen = false; editGoalTarget = null; goalFinderSuggestion = "" },
             onOpenFinder = { goalTitle, goalOutcome ->
                 finderContext = listOf(goalTitle, goalOutcome).filter { it.isNotBlank() }.joinToString(" ")
                 tutorialFinderOpen = true
             }
         ) { goal ->
-            goals = goals + goal
+            goals = if (editGoalTarget == null) goals + goal else goals.map { if (it.id == goal.id) goal else it }
             store.saveGoals(goals)
             addGoalOpen = false
+            editGoalTarget = null
+            goalFinderSuggestion = ""
         }
         if (addResourceOpen) ResourceEditorDialog(onDismiss = { addResourceOpen = false }) { resource ->
             resources = resources + resource
@@ -1080,12 +1073,10 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             initialContext = finderContext,
             onDismiss = { tutorialFinderOpen = false },
             onLoadingChange = { globalLoading = it },
-            onSaveTutorial = { title, url ->
-                val resource = LearningResource(title = title, url = url, selected = true)
-                resources = resources.map { it.copy(selected = false) } + resource
-                store.saveResources(resources)
+            onUseSuggestion = { action ->
+                goalFinderSuggestion = action
                 tutorialFinderOpen = false
-                scope.launch { snackbarHostState.showSnackbar("已保存并设为标准：《$title》") }
+                scope.launch { snackbarHostState.showSnackbar("已填入候选第一步，请确认后保存目标") }
             }
         )
         if (videoAnalysisOpen) VideoAnalysisDialog(
@@ -1965,7 +1956,7 @@ internal fun recommendForWindow(goals: List<Goal>, items: List<Item>, minutes: I
     return null
 }
 
-@Composable private fun PlansScreen(modifier: Modifier, items: List<Item>, courses: List<Course>, profile: CommuteProfile, lifeStage: LifeStage?, page: PlanPage?, onPageChange: (PlanPage?) -> Unit, onResume: (Item) -> Unit, onConfirmCourse: (Course) -> Unit, onIgnoreCourse: (Course) -> Unit, onClearAwaitingCourses: () -> Unit, onAddCourse: () -> Unit, courseImportRunning: Boolean, courseImportMessage: String?, onImportCourses: () -> Unit, onEditCourse: (Course) -> Unit, goals: List<Goal>, onAddGoal: () -> Unit, onScheduleGoal: (Goal, GoalSuggestion) -> Unit, onScheduleFlexible: (Item, Int, Int) -> Unit, resources: List<LearningResource>, onAddResource: () -> Unit, onSelectResource: (LearningResource) -> Unit, onDeleteResource: (LearningResource) -> Unit, onDeselectResource: () -> Unit, onApplyStandardToAll: () -> Unit, onSummarizeResource: (LearningResource) -> Unit, onAutoPlanGoals: () -> Unit, autoPlanMessage: String?, tutorialSearch: TutorialSearchSettings, courseVision: CourseVisionSettings, onSearchTutorial: () -> Unit, onVideoAnalysis: () -> Unit, feedback: List<TaskFeedback>, gameSessions: List<GameSessionRecord>, checkIns: List<StatusCheckIn>, store: PrototypeStore) {
+@Composable private fun PlansScreen(modifier: Modifier, items: List<Item>, courses: List<Course>, profile: CommuteProfile, lifeStage: LifeStage?, page: PlanPage?, onPageChange: (PlanPage?) -> Unit, onResume: (Item) -> Unit, onConfirmCourse: (Course) -> Unit, onIgnoreCourse: (Course) -> Unit, onClearAwaitingCourses: () -> Unit, onAddCourse: () -> Unit, courseImportRunning: Boolean, courseImportMessage: String?, onImportCourses: () -> Unit, onEditCourse: (Course) -> Unit, goals: List<Goal>, onAddGoal: () -> Unit, onEditGoal: (Goal) -> Unit, onScheduleGoal: (Goal, GoalSuggestion) -> Unit, onScheduleFlexible: (Item, Int, Int) -> Unit, resources: List<LearningResource>, onAddResource: () -> Unit, onSelectResource: (LearningResource) -> Unit, onDeleteResource: (LearningResource) -> Unit, onDeselectResource: () -> Unit, onSummarizeResource: (LearningResource) -> Unit, onAutoPlanGoals: () -> Unit, autoPlanMessage: String?, tutorialSearch: TutorialSearchSettings, courseVision: CourseVisionSettings, onSearchTutorial: () -> Unit, onVideoAnalysis: () -> Unit, feedback: List<TaskFeedback>, gameSessions: List<GameSessionRecord>, checkIns: List<StatusCheckIn>, store: PrototypeStore) {
     // 假期阶段：空挡与目标建议不把课程当作安排（课程管理页仍用完整列表）。
     val planningCourses = if (lifeStage == LifeStage.HOLIDAY) emptyList<Course>() else courses
     var gapsTableExpanded by remember { mutableStateOf(false) }
@@ -2046,12 +2037,12 @@ internal fun recommendForWindow(goals: List<Goal>, items: List<Item>, minutes: I
                 feedback = feedback,
                 autoPlanMessage = autoPlanMessage,
                 onAddGoal = onAddGoal,
+                onEditGoal = onEditGoal,
                 onAutoPlanGoals = onAutoPlanGoals,
                 onScheduleGoal = onScheduleGoal
             )
             PlanPage.TOOLBOX -> PlanToolboxSection(
                 resources = resources,
-                goals = goals,
                 tutorialSearch = tutorialSearch,
                 onAddResource = onAddResource,
                 onVideoAnalysis = onVideoAnalysis,
@@ -2059,8 +2050,7 @@ internal fun recommendForWindow(goals: List<Goal>, items: List<Item>, minutes: I
                 onSelectResource = onSelectResource,
                 onDeselectResource = onDeselectResource,
                 onDeleteResource = onDeleteResource,
-                onSummarizeResource = onSummarizeResource,
-                onApplyStandardToAll = onApplyStandardToAll
+                onSummarizeResource = onSummarizeResource
             )
             PlanPage.REVIEW -> {
                 if (goals.isEmpty()) Text("创建目标并积累完成记录后，这里会给出调整建议。", style = MaterialTheme.typography.bodySmall)
@@ -2647,15 +2637,6 @@ internal fun occupiedByWeekday(items: List<Item>, weekKey: Long = GoalPlanner.cu
     }.groupBy({ it.first }, { it.second })
 }
 
-/** 目标任务详情：度量 + 时间 + 教程指引 + 最低版本（排计划与手动安排共用）。 */
-private fun goalTaskDetail(goal: Goal, weekday: Int, startMinute: Int): String {
-    val guide = buildString {
-        if (goal.resourceTitle.isNotBlank()) append(" · 教程：${goal.resourceTitle}${goal.resourceUnit.takeIf { it.isNotBlank() }?.let { "（$it）" } ?: ""}")
-        if (goal.minimumVersion.isNotBlank()) append(" · 最低版本：${goal.minimumVersion}")
-    }
-    return "${goal.metricType}：${goal.metricTarget.ifBlank { "本次完成" }} · ${weekdayName(weekday)} ${GoalPlanner.displayTime(startMinute)}$guide"
-}
-
 internal fun coursesOverlap(a: Course, b: Course): Boolean =
     a.weekday == b.weekday && a.startPeriod <= b.endPeriod && b.startPeriod <= a.endPeriod
 
@@ -2695,14 +2676,16 @@ internal fun coursesOverlap(a: Course, b: Course): Boolean =
     )
 }
 
-@Composable private fun GoalEditorDialog(selectedResource: LearningResource?, courses: List<Course>, profile: CommuteProfile, items: List<Item>, onDismiss: () -> Unit, onOpenFinder: (String, String) -> Unit, onSave: (Goal) -> Unit) {
-    var title by remember { mutableStateOf("") }
-    var weekly by remember { mutableStateOf("3") }
-    var duration by remember { mutableStateOf("30") }
-    var metricType by remember { mutableStateOf("时长") }
-    var metricTarget by remember { mutableStateOf("30 分钟") }
-    var desiredOutcome by remember { mutableStateOf("") }
-    var resourceUnit by remember { mutableStateOf("") }
+@Composable private fun GoalEditorDialog(initialGoal: Goal?, resources: List<LearningResource>, suggestedFirstAction: String, courses: List<Course>, profile: CommuteProfile, items: List<Item>, onDismiss: () -> Unit, onOpenFinder: (String, String) -> Unit, onSave: (Goal) -> Unit) {
+    var title by remember(initialGoal?.id) { mutableStateOf(initialGoal?.title.orEmpty()) }
+    var weekly by remember(initialGoal?.id) { mutableStateOf(initialGoal?.weeklyTarget?.toString() ?: "3") }
+    var duration by remember(initialGoal?.id) { mutableStateOf(initialGoal?.durationMinutes?.toString() ?: "30") }
+    var metricType by remember(initialGoal?.id) { mutableStateOf(initialGoal?.metricType ?: "时长") }
+    var metricTarget by remember(initialGoal?.id) { mutableStateOf(initialGoal?.metricTarget ?: "30 分钟") }
+    var desiredOutcome by remember(initialGoal?.id) { mutableStateOf(initialGoal?.desiredOutcome.orEmpty()) }
+    var resourceTitle by remember(initialGoal?.id) { mutableStateOf(initialGoal?.resourceTitle.orEmpty()) }
+    var resourceUnit by remember(initialGoal?.id) { mutableStateOf(initialGoal?.resourceUnit.orEmpty()) }
+    var firstAction by remember(initialGoal?.id, suggestedFirstAction) { mutableStateOf(suggestedFirstAction.ifBlank { initialGoal?.firstAction.orEmpty() }) }
     val weeklyNumber = weekly.toIntOrNull()
     val durationNumber = duration.toIntOrNull()
     val suggestedMinimum = GoalPlanner.suggestedMinimum(metricType, metricTarget, durationNumber ?: 30)
@@ -2719,7 +2702,7 @@ internal fun coursesOverlap(a: Course, b: Course): Boolean =
     }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("新增目标") },
+        title = { Text(if (initialGoal == null) "新增目标" else "编辑目标") },
         text = { Column(Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("先描述你希望得到的结果；详细计划可以稍后由应用根据空档生成。")
             OutlinedTextField(value = title, onValueChange = { title = it }, label = { Text("目标名称") }, singleLine = true)
@@ -2732,6 +2715,7 @@ internal fun coursesOverlap(a: Course, b: Course): Boolean =
             Text("完成标准")
             Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) { listOf("时长", "次数", "成果").forEach { type -> FilterChip(selected = metricType == type, onClick = { metricType = type }, label = { Text(type) }) } }
             OutlinedTextField(value = metricTarget, onValueChange = { metricTarget = it }, label = { Text("例如：20 道题／读完一节／30 分钟") }, singleLine = true)
+            OutlinedTextField(value = firstAction, onValueChange = { firstAction = it }, label = { Text("第一步行动（例如：打开题库先做第 1 题）") }, minLines = 2)
             Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) { Column(Modifier.padding(12.dp)) {
                 Text("建议最低版本", fontWeight = FontWeight.SemiBold)
                 Text(suggestedMinimum)
@@ -2740,12 +2724,23 @@ internal fun coursesOverlap(a: Course, b: Course): Boolean =
             if (title.isNotBlank() || desiredOutcome.isNotBlank()) {
                 OutlinedButton(onClick = { onOpenFinder(title.trim(), desiredOutcome.trim()) }, modifier = Modifier.fillMaxWidth()) { Text("搜学习教程（AI 建议 / 手动搜索）") }
             }
-            selectedResource?.let { resource ->
-                Text("当前教程：${resource.title}", style = MaterialTheme.typography.bodySmall)
+            Text("执行资料（可选，每个目标独立选择）", fontWeight = FontWeight.SemiBold)
+            if (resources.isEmpty()) {
+                Text("资料库为空；不添加资料也能正常执行。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            } else {
+                resources.forEach { resource ->
+                    FilterChip(
+                        selected = resourceTitle == resource.title,
+                        onClick = { resourceTitle = if (resourceTitle == resource.title) "" else resource.title },
+                        label = { Text(resource.title) }
+                    )
+                }
+            }
+            if (resourceTitle.isNotBlank()) {
                 OutlinedTextField(value = resourceUnit, onValueChange = { resourceUnit = it }, label = { Text("教程章节／练习（可选）") }, singleLine = true)
             }
         } },
-        confirmButton = { Button(enabled = title.isNotBlank() && desiredOutcome.isNotBlank() && metricTarget.isNotBlank() && weeklyNumber != null && durationNumber != null && weeklyNumber in 1..7 && durationNumber in 5..240, onClick = { onSave(Goal(title = title, weeklyTarget = weeklyNumber ?: 1, durationMinutes = durationNumber ?: 5, metricType = metricType, metricTarget = metricTarget, minimumVersion = suggestedMinimum, resourceTitle = selectedResource?.title ?: "", resourceUnit = resourceUnit, desiredOutcome = desiredOutcome)) }) { Text("创建") } },
+        confirmButton = { Button(enabled = title.isNotBlank() && desiredOutcome.isNotBlank() && metricTarget.isNotBlank() && weeklyNumber != null && durationNumber != null && weeklyNumber in 1..7 && durationNumber in 5..240, onClick = { onSave(Goal(id = initialGoal?.id ?: System.currentTimeMillis(), title = title, weeklyTarget = weeklyNumber ?: 1, durationMinutes = durationNumber ?: 5, metricType = metricType, metricTarget = metricTarget, minimumVersion = suggestedMinimum, resourceTitle = resourceTitle, resourceUnit = resourceUnit, completedThisWeek = initialGoal?.completedThisWeek ?: 0, minimumCompletionsThisWeek = initialGoal?.minimumCompletionsThisWeek ?: 0, completionWeekKey = initialGoal?.completionWeekKey ?: GoalPlanner.currentWeekKey(), desiredOutcome = desiredOutcome, firstAction = firstAction)) }) { Text(if (initialGoal == null) "创建" else "保存") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }
     )
 }
@@ -2753,11 +2748,13 @@ internal fun coursesOverlap(a: Course, b: Course): Boolean =
 @Composable private fun ResourceEditorDialog(onDismiss: () -> Unit, onSave: (LearningResource) -> Unit) {
     var title by remember { mutableStateOf("") }
     var url by remember { mutableStateOf("") }
+    var note by remember { mutableStateOf("") }
     AlertDialog(onDismissRequest = onDismiss, title = { Text("收集教程") }, text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("先收集，再决定哪一份作为标准。")
+        Text("只保存你已经确认过的真实链接、材料或笔记；保存后再到目标编辑器中按目标关联。")
         OutlinedTextField(value = title, onValueChange = { title = it }, label = { Text("教程名称") }, singleLine = true)
         OutlinedTextField(value = url, onValueChange = { url = it }, label = { Text("链接（可选）") }, singleLine = true)
-    } }, confirmButton = { Button(enabled = title.isNotBlank(), onClick = { onSave(LearningResource(title = title, url = url)) }) { Text("保存") } }, dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } })
+        OutlinedTextField(value = note, onValueChange = { note = it }, label = { Text("材料说明或笔记（链接为空时必填）") }, minLines = 2)
+    } }, confirmButton = { Button(enabled = LearningResourcePolicy.canSave(title, url, note), onClick = { onSave(LearningResource(title = title.trim(), url = url.trim(), summary = note.trim())) }) { Text("确认保存") } }, dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } })
 }
 
 /** 按星期自动命名：连续段合并为“周一至周四”，其余逐列（如“周五”“周六、周日”）。 */
@@ -3578,7 +3575,7 @@ private fun DayGroupWizardDialog(existingGroups: List<DayGroup>, defaultWake: In
                             Text(if (tutorialSearch.apiKey.isBlank()) "填写 key 后，在“目标与执行”里可为学习目标生成学习路径建议。" else "key 已保存本机；在“目标与执行”里可生成学习路径建议。", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             HorizontalDivider()
                             Text("视频分析模型（一站式整理视频教程）", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                            Text("在“目标与执行 → 教程资料 → ＋ 视频分析”里粘贴视频字幕/简介生成要点并保存为教程；模型模式同前（免费/推荐/自定义）。", style = MaterialTheme.typography.bodySmall)
+                            Text("在“计划 → 资料工具箱 → 视频分析”里确认视频链接或材料后生成候选要点并保存；模型模式同前（免费/推荐/自定义）。", style = MaterialTheme.typography.bodySmall)
                             Text("常用模型（点选即切换，也可手填）", style = MaterialTheme.typography.labelMedium)
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
                                 VIDEO_ANALYSIS_MODEL_PRESETS.forEach { (id, label) ->

@@ -27,6 +27,7 @@ internal fun PlanGoalsSection(
     feedback: List<TaskFeedback>,
     autoPlanMessage: String?,
     onAddGoal: () -> Unit,
+    onEditGoal: (Goal) -> Unit,
     onAutoPlanGoals: () -> Unit,
     onScheduleGoal: (Goal, GoalSuggestion) -> Unit
 ) {
@@ -55,6 +56,7 @@ internal fun PlanGoalsSection(
             onOpenResource = { url ->
                 runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
             },
+            onEditGoal = onEditGoal,
             onScheduleGoal = onScheduleGoal
         )
     }
@@ -63,15 +65,13 @@ internal fun PlanGoalsSection(
 @Composable
 internal fun ResourcesPanel(
     resources: List<LearningResource>,
-    goals: List<Goal>,
     tutorialSearch: TutorialSearchSettings,
     onSelectResource: (LearningResource) -> Unit,
     onDeselectResource: () -> Unit,
     onDeleteResource: (LearningResource) -> Unit,
-    onSummarizeResource: (LearningResource) -> Unit,
-    onApplyStandardToAll: () -> Unit
+    onSummarizeResource: (LearningResource) -> Unit
 ) {
-    val standard = resources.firstOrNull { it.selected }
+    val favorite = resources.firstOrNull { it.selected }
     var expanded by remember { mutableStateOf(false) }
     Card {
         Column(
@@ -86,7 +86,7 @@ internal fun ResourcesPanel(
             ) {
                 Text(
                     "已收集 ${resources.size} 项" +
-                        (standard?.let { " · 当前标准：${it.title}" } ?: ""),
+                        (favorite?.let { " · 常用：${it.title}" } ?: ""),
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.weight(1f),
                     maxLines = 1,
@@ -100,26 +100,9 @@ internal fun ResourcesPanel(
             }
             if (expanded) {
                 ResourceSetupHint(tutorialSearch)
-                StandardResourceCard(standard)
-                standard?.let {
-                    val unlinked = goals.count { goal -> goal.resourceTitle.isBlank() }
-                    if (unlinked > 0) {
-                        Row(
-                            Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                "有 $unlinked 个目标未关联教程",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            TextButton(onClick = onApplyStandardToAll) { Text("全部应用当前标准") }
-                        }
-                    }
-                }
+                FavoriteResourceCard(favorite)
                 Text(
-                    "「设为标准」的作用：新建目标时自动作为该目标的教程依据（目标卡显示“依据”并可直接打开链接），安排目标任务时任务详情会带上教程提示。",
+                    "常用标记只帮助你在资料库里定位，不会自动套用到任何目标。请在目标编辑器中为每个目标单独选择资料。",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -152,10 +135,10 @@ private fun ResourceSetupHint(settings: TutorialSearchSettings) {
 }
 
 @Composable
-private fun StandardResourceCard(standard: LearningResource?) {
+private fun FavoriteResourceCard(favorite: LearningResource?) {
     Card(
         colors = CardDefaults.cardColors(
-            containerColor = if (standard != null) {
+            containerColor = if (favorite != null) {
                 MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f)
             } else {
                 MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
@@ -167,15 +150,11 @@ private fun StandardResourceCard(standard: LearningResource?) {
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             Text(
-                standard?.let { "当前标准：${it.title}" } ?: "未设置标准",
+                favorite?.let { "常用资料：${it.title}" } ?: "尚未标记常用资料",
                 fontWeight = FontWeight.SemiBold
             )
             Text(
-                if (standard != null) {
-                    "新建目标会自动作为它的教程依据；安排目标任务时任务详情带教程提示。"
-                } else {
-                    "新建目标不会自动带教程依据；可先收集教程并设为标准。"
-                },
+                "目标资料彼此独立；这个标记不会改变已有或新建目标。",
                 style = MaterialTheme.typography.bodySmall
             )
         }
@@ -206,9 +185,9 @@ private fun ResourceCard(
                     Text(resource.url, style = MaterialTheme.typography.bodySmall)
                 }
                 if (resource.selected) {
-                    TextButton(onClick = onDeselect) { Text("取消标准") }
+                    TextButton(onClick = onDeselect) { Text("取消常用") }
                 } else {
-                    TextButton(onClick = { onSelect(resource) }) { Text("设为标准") }
+                    TextButton(onClick = { onSelect(resource) }) { Text("标记常用") }
                 }
                 TextButton(onClick = { onDelete(resource) }) { Text("删除") }
             }
@@ -235,6 +214,7 @@ private fun GoalExecutionCard(
     items: List<Item>,
     feedback: List<TaskFeedback>,
     onOpenResource: (String) -> Unit,
+    onEditGoal: (Goal) -> Unit,
     onScheduleGoal: (Goal, GoalSuggestion) -> Unit
 ) {
     val suggestions = GoalPlanner.suggestions(goal, planningCourses, profile, occupiedByWeekday(items))
@@ -243,7 +223,10 @@ private fun GoalExecutionCard(
             Modifier.fillMaxWidth().padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(5.dp)
         ) {
-            Text(goal.title, fontWeight = FontWeight.SemiBold)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text(goal.title, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                TextButton(onClick = { onEditGoal(goal) }) { Text("编辑") }
+            }
             val completed = GoalPlanner.completedThisWeek(goal)
             val pending = items.count { it.goalId == goal.id && it.kind == "任务" && !it.done }
             val remaining = (goal.weeklyTarget - completed - pending).coerceAtLeast(0)
@@ -256,6 +239,9 @@ private fun GoalExecutionCard(
             )
             if (goal.minimumVersion.isNotBlank()) {
                 Text("最低版本：${goal.minimumVersion}", style = MaterialTheme.typography.bodySmall)
+            }
+            if (goal.firstAction.isNotBlank()) {
+                Text("第一步：${goal.firstAction}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
             }
             GoalResourceRow(goal, resources, onOpenResource)
             feedback.filter { it.goalId == goal.id && it.barrier != "无" }

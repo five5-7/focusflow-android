@@ -25,7 +25,8 @@ object StoredGoalsCodec {
                 completedThisWeek = goal.optInt("completedThisWeek", 0),
                 minimumCompletionsThisWeek = goal.optInt("minimumCompletionsThisWeek", 0),
                 completionWeekKey = goal.optLong("completionWeekKey", defaultWeekKey),
-                desiredOutcome = goal.optString("desiredOutcome", "")
+                desiredOutcome = goal.optString("desiredOutcome", ""),
+                firstAction = goal.optString("firstAction", "")
             )
         }
     }.getOrDefault(emptyList())
@@ -45,6 +46,7 @@ object StoredGoalsCodec {
             put("minimumCompletionsThisWeek", goal.minimumCompletionsThisWeek)
             put("completionWeekKey", goal.completionWeekKey)
             put("desiredOutcome", goal.desiredOutcome)
+            put("firstAction", goal.firstAction)
         }) }
     }.toString()
 

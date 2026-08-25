@@ -17,6 +17,7 @@ class StoredGoalsCodecTest {
         assertEquals("时长", goal.metricType)
         assertEquals("", goal.resourceTitle)
         assertEquals("", goal.desiredOutcome)
+        assertEquals("", goal.firstAction)
         assertEquals(1234L, goal.completionWeekKey)
     }
 
@@ -35,10 +36,26 @@ class StoredGoalsCodecTest {
             completedThisWeek = 2,
             minimumCompletionsThisWeek = 1,
             completionWeekKey = 5678L,
-            desiredOutcome = "稳定通过模拟考试"
+            desiredOutcome = "稳定通过模拟考试",
+            firstAction = "先做一套模拟题并标记错题"
         )
 
         assertEquals(listOf(original), StoredGoalsCodec.decodeGoals(StoredGoalsCodec.encodeGoals(listOf(original))))
+    }
+
+    @Test
+    fun `two goals keep independent resources and first actions`() {
+        val goals = listOf(
+            Goal(title = "高数", weeklyTarget = 2, durationMinutes = 30, resourceTitle = "高数讲义", firstAction = "看例题 1"),
+            Goal(title = "科目一", weeklyTarget = 3, durationMinutes = 20, resourceTitle = "题库", firstAction = "做模拟题")
+        )
+
+        val restored = StoredGoalsCodec.decodeGoals(StoredGoalsCodec.encodeGoals(goals))
+
+        assertEquals("高数讲义", restored[0].resourceTitle)
+        assertEquals("看例题 1", restored[0].firstAction)
+        assertEquals("题库", restored[1].resourceTitle)
+        assertEquals("做模拟题", restored[1].firstAction)
     }
 
     @Test

@@ -18,8 +18,13 @@ data class RoadmapEntry(val version: String, val title: String, val summary: Str
 data class RoadmapVersion(val version: String, val entries: List<RoadmapEntry>)
 
 object RoadmapData {
-    /** 已实现版本演进（1.0 → 6.1.0），每版本浓缩 1–3 条，与 CHANGELOG.md 对应。 */
+    /** 已实现版本演进（1.0 → 6.2.0），每版本浓缩 1–3 条，与 CHANGELOG.md 对应。 */
     val evolution: List<RoadmapVersion> = listOf(
+        RoadmapVersion("6.2.0", listOf(
+            RoadmapEntry("6.2.0", "主流程与页面结构收敛", "今日核心闭环前置、可选模块按数据出现；计划资料工具箱与设置高级工具集中低频能力", RoadmapStatus.DONE),
+            RoadmapEntry("6.2.0", "目标级执行依据", "每个目标独立保存第一步、完成标准与资料；AI 只提供候选，确认后才保存", RoadmapStatus.DONE),
+            RoadmapEntry("6.2.0", "兼容安全网与渐进拆分", "保留旧数据格式，拆分日程/时间轴/计划页面并补充纯逻辑回归测试", RoadmapStatus.DONE)
+        )),
         RoadmapVersion("6.1.0", listOf(
             RoadmapEntry("6.1.0", "日程与饭点提醒闭环", "饭点忽略当日不重弹、过期不补发、跨日自动续排；日程提前提醒与重启恢复；通知权限和渠道设置入口", RoadmapStatus.DONE)
         )),
