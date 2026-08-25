@@ -1914,10 +1914,6 @@ private enum class SettingsSubPage(val title: String) {
 }
 
 /** 空挡内容建议：这段空挡适合做什么（目标优先，其次弹性任务）。 */
-private data class GapRecommendation(val title: String, val reason: String, val goal: Goal?, val flexibleItem: Item?)
-
-private data class GapPlan(val recommendation: GapRecommendation, val weekday: Int, val startMinute: Int, val minutes: Int)
-
 /** 按空挡匹配内容：未完成目标（时长能放下）优先，其次可安排的空闲弹性任务；目标按该时段历史完成率降序。 */
 private fun recommendForWindow(goals: List<Goal>, items: List<Item>, minutes: Int, store: PrototypeStore, weekday: Int, startMinute: Int): GapRecommendation? {
     val goal = goals.filter { g -> GoalPlanner.completedThisWeek(g) < g.weeklyTarget && g.durationMinutes <= minutes }
@@ -1935,21 +1931,6 @@ private fun recommendForWindow(goals: List<Goal>, items: List<Item>, minutes: In
         .sortedByDescending { it.durationMinutes }.firstOrNull()
     if (flexible != null) return GapRecommendation(flexible.title, "弹性任务 · 约 ${flexible.durationMinutes} 分钟", null, flexible)
     return null
-}
-
-/** 按目标/活动名关键词给地点提示（仅提示，非精确推荐；更具体的词优先匹配）。 */
-private fun locationHintFor(text: String): String? {
-    val t = text.lowercase()
-    return when {
-        listOf("游泳").any { t.contains(it) } -> "游泳馆"
-        listOf("实验").any { t.contains(it) } -> "实验楼"
-        listOf("讨论", "小组", "开会", "会议").any { t.contains(it) } -> "研讨室/教室"
-        listOf("跑步", "健身", "锻炼", "球", "操场", "跳绳", "骑行", "运动", "瑜伽").any { t.contains(it) } -> "操场/体育馆"
-        listOf("图书馆", "自习").any { t.contains(it) } -> "图书馆"
-        listOf("学习", "复习", "背", "刷题", "看书", "阅读", "作业", "单词", "论文", "课程", "上课").any { t.contains(it) } -> "图书馆/教学楼"
-        listOf("游戏", "娱乐", "追剧", "视频", "看剧").any { t.contains(it) } -> "宿舍"
-        else -> null
-    }
 }
 
 @Composable private fun PlansScreen(modifier: Modifier, items: List<Item>, courses: List<Course>, profile: CommuteProfile, lifeStage: LifeStage?, page: PlanPage?, onPageChange: (PlanPage?) -> Unit, onResume: (Item) -> Unit, onConfirmCourse: (Course) -> Unit, onIgnoreCourse: (Course) -> Unit, onClearAwaitingCourses: () -> Unit, onAddCourse: () -> Unit, courseImportRunning: Boolean, courseImportMessage: String?, onImportCourses: () -> Unit, onEditCourse: (Course) -> Unit, goals: List<Goal>, onAddGoal: () -> Unit, onScheduleGoal: (Goal, GoalSuggestion) -> Unit, onScheduleFlexible: (Item, Int, Int) -> Unit, resources: List<LearningResource>, onAddResource: () -> Unit, onSelectResource: (LearningResource) -> Unit, onDeleteResource: (LearningResource) -> Unit, onDeselectResource: () -> Unit, onApplyStandardToAll: () -> Unit, onSummarizeResource: (LearningResource) -> Unit, onAutoPlanGoals: () -> Unit, autoPlanMessage: String?, tutorialSearch: TutorialSearchSettings, courseVision: CourseVisionSettings, onSearchTutorial: () -> Unit, onVideoAnalysis: () -> Unit, feedback: List<TaskFeedback>, gameSessions: List<GameSessionRecord>, checkIns: List<StatusCheckIn>, store: PrototypeStore) {
@@ -1997,78 +1978,20 @@ private fun locationHintFor(text: String): String? {
             if (currentPage != null) {
                 PlanSubpageFrame(Modifier.fillMaxSize(), currentPage.title) {
                     when (currentPage) {
-            PlanPage.COURSES -> {
-                Text("从课表截图开始", fontWeight = FontWeight.Bold)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilledTonalButton(enabled = !courseImportRunning, onClick = onImportCourses) { Text(if (courseImportRunning) "正在识别…" else "选择课表截图") }
-                    TextButton(onClick = onAddCourse) { Text("手动新增") }
-                }
-                Text(if (courseVision.enabled && tutorialSearch.apiKey.isNotBlank()) "识别方式：硅基流动视觉模型（${courseVision.model}）" else "未开启视觉模型：请到设置开启并填写 key 后导入", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                courseImportMessage?.let { message ->
-                    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f))) {
-                        Text(message, Modifier.fillMaxWidth().padding(10.dp), style = MaterialTheme.typography.bodySmall)
-                    }
-                }
-                if (awaitingCourses.isNotEmpty()) {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                        Text("待确认课程", fontWeight = FontWeight.Bold)
-                        TextButton(onClick = onClearAwaitingCourses) { Text("全部忽略") }
-                    }
-                    awaitingCourses.forEach { course ->
-                        val conflictWith = confirmedCourses.firstOrNull { coursesOverlap(course, it) }
-                        Card(
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)),
-                            border = if (conflictWith != null) BorderStroke(1.dp, CONFLICT_TEXT_COLOR) else null
-                        ) {
-                            Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Text("${weekdayName(course.weekday)} · ${course.title}", fontWeight = FontWeight.SemiBold)
-                                Text("第 ${course.startPeriod}–${course.endPeriod} 节 · ${course.building}", style = MaterialTheme.typography.bodySmall)
-                                if (conflictWith != null) {
-                                    Text("⚠ 与已确认课程《${conflictWith.title}》时间冲突，确认后会产生冲突警示", color = CONFLICT_TEXT_COLOR, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
-                                }
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    TextButton(onClick = { onConfirmCourse(course) }) { Text("确认") }
-                                    TextButton(onClick = { onEditCourse(course) }) { Text("编辑并确认") }
-                                    TextButton(onClick = { onIgnoreCourse(course) }) { Text("忽略") }
-                                }
-                            }
-                        }
-                    }
-                } else Text("没有待确认课程。", style = MaterialTheme.typography.bodySmall)
-                HorizontalDivider()
-                Text("已确认课程", fontWeight = FontWeight.Bold)
-                if (confirmedCourses.isEmpty()) Text("确认课程后，它们会用于周日程和空挡计算。", style = MaterialTheme.typography.bodySmall)
-                else {
-                    val conflicting = confirmedCourses.filter { course -> confirmedCourses.any { other -> other != course && coursesOverlap(course, other) } }
-                    if (conflicting.isNotEmpty()) {
-                        Text("⚠ ${conflicting.size} 门课程时间冲突，请编辑修正", color = CONFLICT_TEXT_COLOR, fontWeight = FontWeight.SemiBold)
-                        conflicting.sortedWith(compareBy<Course> { it.weekday }.thenBy { it.startPeriod }).forEach { course ->
-                            Surface(shape = RoundedCornerShape(12.dp), color = CONFLICT_BLOCK_COLOR, border = BorderStroke(1.dp, CONFLICT_TEXT_COLOR)) {
-                                Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                    Column(Modifier.weight(1f)) {
-                                        Text("${weekdayName(course.weekday)} · ${course.title}", fontWeight = FontWeight.SemiBold, color = CONFLICT_TEXT_COLOR)
-                                        Text("第 ${course.startPeriod}–${course.endPeriod} 节 · ${course.building}", style = MaterialTheme.typography.bodySmall)
-                                        val overlapped = confirmedCourses.firstOrNull { other -> other != course && coursesOverlap(course, other) }
-                                        Text("与${overlapped?.let { "《${it.title}》" } ?: "另一门课"}重叠", style = MaterialTheme.typography.labelSmall, color = CONFLICT_TEXT_COLOR)
-                                    }
-                                    TextButton(onClick = { onEditCourse(course) }) { Text("编辑") }
-                                }
-                            }
-                        }
-                    }
-                    confirmedCourses.filterNot { it in conflicting }.sortedWith(compareBy<Course> { it.weekday }.thenBy { it.startPeriod }).forEach { course ->
-                        ElevatedCard {
-                            Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                Column(Modifier.weight(1f)) {
-                                    Text("${weekdayName(course.weekday)} · ${course.title}", fontWeight = FontWeight.SemiBold)
-                                    Text("第 ${course.startPeriod}–${course.endPeriod} 节 · ${course.building}", style = MaterialTheme.typography.bodySmall)
-                                }
-                                TextButton(onClick = { onEditCourse(course) }) { Text("编辑") }
-                            }
-                        }
-                    }
-                }
-            }
+            PlanPage.COURSES -> PlanCoursesSection(
+                awaitingCourses = awaitingCourses,
+                confirmedCourses = confirmedCourses,
+                courseImportRunning = courseImportRunning,
+                courseImportMessage = courseImportMessage,
+                tutorialSearch = tutorialSearch,
+                courseVision = courseVision,
+                onImportCourses = onImportCourses,
+                onAddCourse = onAddCourse,
+                onClearAwaitingCourses = onClearAwaitingCourses,
+                onConfirmCourse = onConfirmCourse,
+                onEditCourse = onEditCourse,
+                onIgnoreCourse = onIgnoreCourse
+            )
             PlanPage.GAPS -> {
                 if (profile.eBikeBattery == "偏低") {
                     val chargeable = gaps.filter { it.minutesFree >= 60 }.sortedByDescending { it.minutesFree }.take(3)
@@ -2869,7 +2792,7 @@ private fun goalTaskDetail(goal: Goal, weekday: Int, startMinute: Int): String {
     return "${goal.metricType}：${goal.metricTarget.ifBlank { "本次完成" }} · ${weekdayName(weekday)} ${GoalPlanner.displayTime(startMinute)}$guide"
 }
 
-private fun coursesOverlap(a: Course, b: Course): Boolean =
+internal fun coursesOverlap(a: Course, b: Course): Boolean =
     a.weekday == b.weekday && a.startPeriod <= b.endPeriod && b.startPeriod <= a.endPeriod
 
 @Composable private fun CourseEditorDialog(existing: Course?, places: List<CampusPlace>, onDismiss: () -> Unit, onSave: (Course) -> Unit) {
