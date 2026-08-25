@@ -2,7 +2,7 @@
 
 本地优先的 Android 日程与执行辅助应用（`com.sakata.focusflow`）。核心目标不是维护一张完整日历，而是**降低记录压力、按当前状态调整提醒、在错过计划后帮助恢复**。
 
-当前版本：**6.0.0**（versionCode 460）。完整更新记录见 [CHANGELOG.md](CHANGELOG.md)。
+当前版本：**6.1.0**（versionCode 461）。完整更新记录见 [CHANGELOG.md](CHANGELOG.md)。
 
 > 数据原则：只用你确认过的数据生成建议，数据不足时不打扰、不假装精确。数据只保存在本机。
 
@@ -12,7 +12,7 @@
 - 今日：状态与下一步、收集箱、今日餐点、睡前减速
 - 日程：日／周时间轴，任务与活动可改期、完成、删除
 - 计划：课表、空挡、目标与教程、每周回顾与 AI 周总结
-- 设置：提醒打扰控制、外观（含深色）、习惯基线、前台应用检测、稳定性与崩溃记录
+- 设置：日程与活动提醒、提醒打扰控制、外观（含深色）、习惯基线、前台应用检测、稳定性与崩溃记录
 
 **课表与空挡**
 - 课表截图识别（可选硅基流动视觉模型 Qwen3-VL）+ 手动录入，楼级自动归并、冲突提示
@@ -29,7 +29,7 @@
 
 **生活与习惯**
 - 习惯基线：生活阶段（假期/上学/考试周）+ 多方案 + 按星期分组作息
-- 饭点学习、睡前减速、精力记录（状态询问）
+- 饭点学习、睡前减速、精力记录（状态询问）；饭点忽略后当天不重弹，次日自动续排
 - 提醒打扰控制：免打扰时段 + 一次性静音
 
 **外观与稳定性**
@@ -56,6 +56,17 @@ gradle :app:testDebugUnitTest
 ## 发布
 
 GitHub Actions 会在每次 push 时自动跑单元测试并构建 debug APK（artifact）。正式发布请通过 **Releases** 上传手动签名的 APK。
+
+### CI 覆盖安装签名
+
+为保证 Actions 产物能覆盖安装已有 FocusFlow，仓库使用下列四个 GitHub Actions Secrets（不要提交到仓库）：
+
+- `FOCUSFLOW_KEYSTORE_BASE64`：`.jks` 文件的单行 Base64
+- `FOCUSFLOW_SIGNING_STORE_PASSWORD`：keystore 密码
+- `FOCUSFLOW_SIGNING_KEY_ALIAS`：key alias
+- `FOCUSFLOW_SIGNING_KEY_PASSWORD`：key 密码
+
+工作流会在临时 Runner 中解码签名文件；任一 Secret 缺失时构建会直接失败，绝不回退为 debug 签名。
 
 ## 模型（可选联网功能）
 

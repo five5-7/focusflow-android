@@ -253,7 +253,9 @@ class PrototypeStore(context: Context) {
         notificationsEnabled = preferences.getBoolean("activity_notifications", true),
         previewMinutes = preferences.getInt("activity_preview_minutes", 10).coerceIn(0, 60),
         maxExtensions = preferences.getInt("activity_max_extensions", 3).coerceIn(0, 10),
-        strongerEndReminder = preferences.getBoolean("activity_stronger_end_reminder", true)
+        strongerEndReminder = preferences.getBoolean("activity_stronger_end_reminder", true),
+        scheduleRemindersEnabled = preferences.getBoolean("schedule_reminders_enabled", true),
+        scheduleAdvanceMinutes = preferences.getInt("schedule_reminders_advance_minutes", 10).coerceIn(0, 60)
     )
 
     fun saveActivityReminderSettings(settings: ActivityReminderSettings) {
@@ -262,6 +264,8 @@ class PrototypeStore(context: Context) {
             .putInt("activity_preview_minutes", settings.previewMinutes)
             .putInt("activity_max_extensions", settings.maxExtensions)
             .putBoolean("activity_stronger_end_reminder", settings.strongerEndReminder)
+            .putBoolean("schedule_reminders_enabled", settings.scheduleRemindersEnabled)
+            .putInt("schedule_reminders_advance_minutes", settings.scheduleAdvanceMinutes.coerceIn(0, 60))
             .apply()
     }
 

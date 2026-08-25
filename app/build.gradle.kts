@@ -14,8 +14,8 @@ android {
         applicationId = "com.sakata.focusflow"
         minSdk = 26
         targetSdk = 35
-        versionCode = 460
-        versionName = "6.0.0"
+        versionCode = 461
+        versionName = "6.1.0"
     }
 
     compileOptions {
