@@ -25,6 +25,26 @@ class PrototypeStore(context: Context) {
         preferences.edit().putBoolean("dark_mode", enabled).apply()
     }
 
+    fun saveReminderTestScheduled(expectedAt: Long) {
+        preferences.edit()
+            .putLong("reminder_test_expected_at", expectedAt)
+            .remove("reminder_test_delivered_at")
+            .apply()
+    }
+
+    fun markReminderTestDelivered(deliveredAt: Long = System.currentTimeMillis()) {
+        preferences.edit().putLong("reminder_test_delivered_at", deliveredAt).apply()
+    }
+
+    fun loadReminderTestProbe(): ReminderTestProbe? {
+        val expectedAt = preferences.getLong("reminder_test_expected_at", 0L)
+        if (expectedAt <= 0L) return null
+        return ReminderTestProbe(
+            expectedAt = expectedAt,
+            deliveredAt = preferences.getLong("reminder_test_delivered_at", 0L).takeIf { it > 0L }
+        )
+    }
+
     /** 自定义主题 5 色（ARGB，全局配色分工）。无自定义记录时返回 null。 */
     fun loadCustomThemeColors(): FocusFlowThemeColors? = runCatching {
         preferences.getString("custom_theme_colors", null)?.let { json ->

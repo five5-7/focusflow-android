@@ -60,4 +60,15 @@ class TaskReminderPolicyTest {
         assertEquals(AlarmDeliveryMode.EXACT, TaskReminderPolicy.deliveryMode(35, true))
         assertEquals(AlarmDeliveryMode.INEXACT, TaskReminderPolicy.deliveryMode(35, false))
     }
+
+    @Test
+    fun `background test distinguishes on-time delayed and overdue delivery`() {
+        val expectedAt = now + 60_000L
+
+        assertEquals(ReminderTestResult.NONE, TaskReminderPolicy.testResult(null, now))
+        assertEquals(ReminderTestResult.PENDING, TaskReminderPolicy.testResult(ReminderTestProbe(expectedAt, null), expectedAt + 20_000L))
+        assertEquals(ReminderTestResult.ON_TIME, TaskReminderPolicy.testResult(ReminderTestProbe(expectedAt, expectedAt + 10_000L), expectedAt + 10_000L))
+        assertEquals(ReminderTestResult.DELAYED, TaskReminderPolicy.testResult(ReminderTestProbe(expectedAt, expectedAt + 45_000L), expectedAt + 45_000L))
+        assertEquals(ReminderTestResult.OVERDUE, TaskReminderPolicy.testResult(ReminderTestProbe(expectedAt, null), expectedAt + 31_000L))
+    }
 }

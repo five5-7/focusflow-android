@@ -18,6 +18,19 @@ enum class AlarmDeliveryMode {
     INEXACT
 }
 
+data class ReminderTestProbe(
+    val expectedAt: Long,
+    val deliveredAt: Long?
+)
+
+enum class ReminderTestResult {
+    NONE,
+    PENDING,
+    ON_TIME,
+    DELAYED,
+    OVERDUE
+}
+
 object TaskReminderPolicy {
     private val excludedKinds = setOf("收集箱", "暂停", "游戏", "活动")
 
@@ -69,4 +82,23 @@ object TaskReminderPolicy {
 
     fun deliveryMode(sdkInt: Int, canScheduleExactAlarms: Boolean): AlarmDeliveryMode =
         if (sdkInt < 31 || canScheduleExactAlarms) AlarmDeliveryMode.EXACT else AlarmDeliveryMode.INEXACT
+
+    fun testResult(probe: ReminderTestProbe?, now: Long = System.currentTimeMillis()): ReminderTestResult {
+        if (probe == null || probe.expectedAt <= 0L) return ReminderTestResult.NONE
+        val deliveredAt = probe.deliveredAt
+        if (deliveredAt != null) {
+            return if (deliveredAt <= probe.expectedAt + TEST_ON_TIME_TOLERANCE_MS) {
+                ReminderTestResult.ON_TIME
+            } else {
+                ReminderTestResult.DELAYED
+            }
+        }
+        return if (now <= probe.expectedAt + TEST_ON_TIME_TOLERANCE_MS) {
+            ReminderTestResult.PENDING
+        } else {
+            ReminderTestResult.OVERDUE
+        }
+    }
+
+    private const val TEST_ON_TIME_TOLERANCE_MS = 30_000L
 }

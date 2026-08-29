@@ -10,6 +10,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
 import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -3348,6 +3349,8 @@ private fun DayGroupWizardDialog(existingGroups: List<DayGroup>, defaultWake: In
                         val notificationGuidance = remember { NotificationGuidancePolicy.forDevice(Build.MANUFACTURER, Build.BRAND) }
                         var notifGranted by remember { mutableStateOf(context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) }
                         var exactAllowed by remember { mutableStateOf(Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && context.getSystemService(AlarmManager::class.java).canScheduleExactAlarms()) }
+                        var batteryUnrestricted by remember { mutableStateOf(context.getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(context.packageName)) }
+                        var reminderTestProbe by remember { mutableStateOf(settingsStore.loadReminderTestProbe()) }
                         var reminderDiagnosticsRevision by remember { mutableIntStateOf(0) }
                         var taskTestMessage by remember { mutableStateOf<String?>(null) }
                         val pendingTaskReminders = remember(activitySettings, reminderDiagnosticsRevision) {
@@ -3359,12 +3362,22 @@ private fun DayGroupWizardDialog(existingGroups: List<DayGroup>, defaultWake: In
                             ReminderScheduler.restoreTaskReminders(context)
                             reminderDiagnosticsRevision += 1
                         }
+                        LaunchedEffect(reminderTestProbe?.expectedAt) {
+                            repeat(120) {
+                                delay(1_000L)
+                                val latest = settingsStore.loadReminderTestProbe()
+                                if (latest != reminderTestProbe) reminderTestProbe = latest
+                                if (latest?.deliveredAt != null) return@LaunchedEffect
+                            }
+                        }
                         DisposableEffect(lifecycleOwner) {
                             val observer = LifecycleEventObserver { _, event ->
                                 if (event == Lifecycle.Event.ON_RESUME) {
                                     notifGranted = context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
                                     notificationHealth = NotificationChannelSettings.health(context)
                                     exactAllowed = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && context.getSystemService(AlarmManager::class.java).canScheduleExactAlarms()
+                                    batteryUnrestricted = context.getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(context.packageName)
+                                    reminderTestProbe = settingsStore.loadReminderTestProbe()
                                     ReminderScheduler.restoreTaskReminders(context)
                                     reminderDiagnosticsRevision += 1
                                 }
@@ -3424,6 +3437,16 @@ private fun DayGroupWizardDialog(existingGroups: List<DayGroup>, defaultWake: In
                                     style = MaterialTheme.typography.bodySmall,
                                     color = if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || exactAllowed) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
                                 )
+                                Text(
+                                    if (batteryUnrestricted) "电池后台：Android 检测为不受电池优化限制。" else "电池后台：仍受系统电池优化，后台提醒可能延迟。",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = if (batteryUnrestricted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+                                )
+                                Text(
+                                    "自启动：Android 没有统一的可读取开关，FocusFlow 将以下方后台实测结果判断是否能准时唤醒。",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                                 if (!activitySettings.scheduleRemindersEnabled) {
                                     Text("日程提醒已关闭。", style = MaterialTheme.typography.bodySmall)
                                 } else if (pendingTaskReminders.isEmpty()) {
@@ -3440,10 +3463,28 @@ private fun DayGroupWizardDialog(existingGroups: List<DayGroup>, defaultWake: In
                                     enabled = notifGranted,
                                     onClick = {
                                         val mode = ReminderScheduler.scheduleTaskReminderTest(context)
+                                        reminderTestProbe = settingsStore.loadReminderTestProbe()
                                         taskTestMessage = if (mode == AlarmDeliveryMode.EXACT) "已安排精确测试提醒，1 分钟后应出现。" else "已安排普通测试提醒；系统可能延迟触发。"
                                     }
                                 ) { Text("1 分钟后测试通知") }
                                 taskTestMessage?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary) }
+                                val testResult = TaskReminderPolicy.testResult(reminderTestProbe)
+                                val testResultText = when (testResult) {
+                                    ReminderTestResult.NONE -> "后台实测：尚未测试。"
+                                    ReminderTestResult.PENDING -> "后台实测：等待测试提醒送达，请退回桌面。"
+                                    ReminderTestResult.ON_TIME -> "后台实测：最近一次按时送达。"
+                                    ReminderTestResult.DELAYED -> {
+                                        val probe = reminderTestProbe
+                                        val delaySeconds = if (probe?.deliveredAt != null) ((probe.deliveredAt - probe.expectedAt) / 1_000L).coerceAtLeast(1L) else 0L
+                                        "后台实测：最近一次延迟约 $delaySeconds 秒；不能视为后台正常。"
+                                    }
+                                    ReminderTestResult.OVERDUE -> "后台实测：已超过预期 30 秒仍未送达；后台唤醒可能受限。"
+                                }
+                                Text(
+                                    testResultText,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = if (testResult == ReminderTestResult.ON_TIME) MaterialTheme.colorScheme.primary else if (testResult in setOf(ReminderTestResult.DELAYED, ReminderTestResult.OVERDUE)) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                             }
                         }
                         Text("提前预告：${activitySettings.previewMinutes} 分钟")

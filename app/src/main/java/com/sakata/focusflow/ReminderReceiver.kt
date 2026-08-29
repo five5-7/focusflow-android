@@ -82,6 +82,7 @@ class ReminderReceiver : BroadcastReceiver() {
                 return
             }
             ACTION_TASK_TEST -> {
+                store.markReminderTestDelivered()
                 showTaskTestNotification(context, manager)
                 return
             }
@@ -282,7 +283,7 @@ class ReminderReceiver : BroadcastReceiver() {
             NotificationCompat.Builder(context, CHANNEL_TASK)
                 .setSmallIcon(android.R.drawable.ic_popup_reminder)
                 .setContentTitle("FocusFlow 测试提醒")
-                .setContentText("日程提醒的权限、渠道与后台调度已成功工作。")
+                .setContentText("后台测试广播已送达；返回设置可查看是否准时。")
                 .setContentIntent(openApp)
                 .setAutoCancel(true)
                 .build()

@@ -221,13 +221,15 @@ object ReminderScheduler {
     /** 使用与真实日程相同的系统调度链路，帮助用户在一分钟内验证权限、渠道与后台触发。 */
     fun scheduleTaskReminderTest(context: Context, now: Long = System.currentTimeMillis()): AlarmDeliveryMode {
         cancelPending(context, TASK_TEST_REQUEST_CODE, ReminderReceiver.ACTION_TASK_TEST)
+        val expectedAt = now + 60_000L
+        PrototypeStore(context).saveReminderTestScheduled(expectedAt)
         val pending = PendingIntent.getBroadcast(
             context,
             TASK_TEST_REQUEST_CODE,
             Intent(context, ReminderReceiver::class.java).apply { action = ReminderReceiver.ACTION_TASK_TEST },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        return scheduleTimeSensitiveAlarm(context, now + 60_000L, pending)
+        return scheduleTimeSensitiveAlarm(context, expectedAt, pending)
     }
 
     fun cancelTaskReminder(context: Context, itemId: Long) {

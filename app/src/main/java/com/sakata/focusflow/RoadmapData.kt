@@ -21,7 +21,7 @@ object RoadmapData {
     /** 已实现版本演进（1.0 → 6.2.2），每版本浓缩 1–3 条，与 CHANGELOG.md 对应。 */
     val evolution: List<RoadmapVersion> = listOf(
         RoadmapVersion("6.2.2", listOf(
-            RoadmapEntry("6.2.2", "提前与到点双提醒", "提前预告不再消耗到点提醒；改期、完成和删除会同步更新两条闹钟，诊断分别显示下一次触发", RoadmapStatus.DONE)
+            RoadmapEntry("6.2.2", "提前与到点双提醒", "提前预告不再消耗到点提醒；诊断分别显示两次触发，并以实际送达时间判断后台是否准时", RoadmapStatus.DONE)
         )),
         RoadmapVersion("6.2.1", listOf(
             RoadmapEntry("6.2.1", "日程提醒可靠性与诊断", "定时任务优先使用精确提醒；设置页显示下一条提醒和调度模式，并提供 1 分钟测试通知", RoadmapStatus.DONE)
