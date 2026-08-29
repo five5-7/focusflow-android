@@ -1708,6 +1708,7 @@ private fun scheduleWindowOptions(now: Long = System.currentTimeMillis()): List<
     )
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable private fun InboxScheduleDialog(
     item: Item,
     items: List<Item>,
@@ -1738,15 +1739,35 @@ private fun scheduleWindowOptions(now: Long = System.currentTimeMillis()): List<
         text = {
             ScrollableDialogBox(maxHeight = 520.dp, spacing = 10.dp) {
                 Text(item.title.removePrefix("重新安排："), fontWeight = FontWeight.SemiBold)
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    maxItemsInEachRow = 2,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
                     listOf("推荐空档", "大致时间", "精确时间").forEach { option ->
-                        FilterChip(selected = mode == option, onClick = { mode = option }, label = { Text(option) })
+                        FilterChip(
+                            modifier = Modifier.weight(1f),
+                            selected = mode == option,
+                            onClick = { mode = option },
+                            label = { Text(option, maxLines = 1) }
+                        )
                     }
                 }
                 Text("预计用时", fontWeight = FontWeight.SemiBold)
-                Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    maxItemsInEachRow = 2,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
                     listOf(15, 30, 60, 90).forEach { minutes ->
-                        FilterChip(selected = duration == minutes, onClick = { duration = minutes }, label = { Text("$minutes 分") })
+                        FilterChip(
+                            modifier = Modifier.weight(1f),
+                            selected = duration == minutes,
+                            onClick = { duration = minutes },
+                            label = { Text("$minutes 分", maxLines = 1) }
+                        )
                     }
                 }
                 when (mode) {
@@ -3412,13 +3433,22 @@ private fun DayGroupWizardDialog(existingGroups: List<DayGroup>, defaultWake: In
                                 }
                             }
                         }
-                        SettingSwitch("活动提醒", "关闭后仍会保留活动记录和手动转场", activitySettings.notificationsEnabled) { onActivitySettingsChange(activitySettings.copy(notificationsEnabled = it)) }
+                        Text("活动结束提醒", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                        SettingSwitch("活动结束提醒", "关闭后仍会保留活动记录和手动转场", activitySettings.notificationsEnabled) { onActivitySettingsChange(activitySettings.copy(notificationsEnabled = it)) }
                         SettingSwitch("明确的到点提醒", "到达约定时间时使用更醒目的提醒", activitySettings.strongerEndReminder) { onActivitySettingsChange(activitySettings.copy(strongerEndReminder = it)) }
+                        Text("活动结束前预告：${activitySettings.previewMinutes} 分钟")
+                        Slider(
+                            value = activitySettings.previewMinutes.toFloat(),
+                            onValueChange = { onActivitySettingsChange(activitySettings.copy(previewMinutes = (it / 5).toInt() * 5)) },
+                            valueRange = 0f..30f,
+                            steps = 5
+                        )
                         HorizontalDivider()
-                        SettingSwitch("日程提醒", "课程以外的定时任务、目标安排会提前预告并在到点时再次提醒；重启后自动恢复", activitySettings.scheduleRemindersEnabled) {
+                        Text("日程开始提醒", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                        SettingSwitch("日程开始提醒", "课程以外的定时任务、目标安排会在开始前预告并在到点时再次提醒；重启后自动恢复", activitySettings.scheduleRemindersEnabled) {
                             onActivitySettingsChange(activitySettings.copy(scheduleRemindersEnabled = it))
                         }
-                        Text("日程默认提前：${activitySettings.scheduleAdvanceMinutes} 分钟")
+                        Text("日程开始前预告：${activitySettings.scheduleAdvanceMinutes} 分钟")
                         Slider(
                             value = activitySettings.scheduleAdvanceMinutes.toFloat(),
                             onValueChange = { onActivitySettingsChange(activitySettings.copy(scheduleAdvanceMinutes = (it / 5).toInt() * 5)) },
@@ -3491,13 +3521,6 @@ private fun DayGroupWizardDialog(existingGroups: List<DayGroup>, defaultWake: In
                                 )
                             }
                         }
-                        Text("提前预告：${activitySettings.previewMinutes} 分钟")
-                        Slider(
-                            value = activitySettings.previewMinutes.toFloat(),
-                            onValueChange = { onActivitySettingsChange(activitySettings.copy(previewMinutes = (it / 5).toInt() * 5)) },
-                            valueRange = 0f..30f,
-                            steps = 5
-                        )
                         Text("连续延长提示上限：${activitySettings.maxExtensions} 次")
                         Slider(
                             value = activitySettings.maxExtensions.toFloat(),
