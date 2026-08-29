@@ -3443,7 +3443,7 @@ private fun DayGroupWizardDialog(existingGroups: List<DayGroup>, defaultWake: In
                                     color = if (batteryUnrestricted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
                                 )
                                 Text(
-                                    "自启动：Android 没有统一的可读取开关，FocusFlow 将以下方后台实测结果判断是否能准时唤醒。",
+                                    "厂商后台／自启动：Android 没有统一的可读取接口，不能直接判断开关；FocusFlow 以下方实测结果判断是否能准时唤醒。",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -3464,7 +3464,11 @@ private fun DayGroupWizardDialog(existingGroups: List<DayGroup>, defaultWake: In
                                     onClick = {
                                         val mode = ReminderScheduler.scheduleTaskReminderTest(context)
                                         reminderTestProbe = settingsStore.loadReminderTestProbe()
-                                        taskTestMessage = if (mode == AlarmDeliveryMode.EXACT) "已安排精确测试提醒，1 分钟后应出现。" else "已安排普通测试提醒；系统可能延迟触发。"
+                                        taskTestMessage = when (mode) {
+                                            AlarmDeliveryMode.ALARM_CLOCK -> "已安排强唤醒测试，1 分钟后应出现；系统可能显示闹钟标识。"
+                                            AlarmDeliveryMode.EXACT -> "强唤醒被系统拒绝，已回退到精确测试提醒。"
+                                            AlarmDeliveryMode.INEXACT -> "强唤醒与精确提醒均不可用，已使用普通后台测试，可能延迟。"
+                                        }
                                     }
                                 ) { Text("1 分钟后测试通知") }
                                 taskTestMessage?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary) }

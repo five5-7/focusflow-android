@@ -214,7 +214,12 @@ object ReminderScheduler {
                 intent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
-            scheduleTimeSensitiveAlarm(context, reminder.triggerAt, pending)
+            scheduleTimeSensitiveAlarm(
+                context = context,
+                triggerAt = reminder.triggerAt,
+                pending = pending,
+                preferAlarmClock = reminder.stage == TaskReminderStage.DUE
+            )
         }
     }
 
@@ -229,7 +234,7 @@ object ReminderScheduler {
             Intent(context, ReminderReceiver::class.java).apply { action = ReminderReceiver.ACTION_TASK_TEST },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        return scheduleTimeSensitiveAlarm(context, expectedAt, pending)
+        return scheduleTimeSensitiveAlarm(context, expectedAt, pending, preferAlarmClock = true)
     }
 
     fun cancelTaskReminder(context: Context, itemId: Long) {
@@ -384,8 +389,27 @@ object ReminderScheduler {
         return ((itemId + offset) % Int.MAX_VALUE).toInt()
     }
 
-    private fun scheduleTimeSensitiveAlarm(context: Context, triggerAt: Long, pending: PendingIntent): AlarmDeliveryMode {
+    private fun scheduleTimeSensitiveAlarm(
+        context: Context,
+        triggerAt: Long,
+        pending: PendingIntent,
+        preferAlarmClock: Boolean = false
+    ): AlarmDeliveryMode {
         val manager = context.getSystemService(AlarmManager::class.java)
+        if (preferAlarmClock) {
+            val showIntent = PendingIntent.getActivity(
+                context,
+                ALARM_CLOCK_SHOW_REQUEST_CODE,
+                Intent(context, MainActivity::class.java),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            try {
+                manager.setAlarmClock(AlarmManager.AlarmClockInfo(triggerAt, showIntent), pending)
+                return AlarmDeliveryMode.ALARM_CLOCK
+            } catch (_: SecurityException) {
+                // 厂商拒绝强路径时继续走精确／普通后台提醒，不能静默丢失。
+            }
+        }
         val mode = TaskReminderPolicy.deliveryMode(
             sdkInt = Build.VERSION.SDK_INT,
             canScheduleExactAlarms = Build.VERSION.SDK_INT < Build.VERSION_CODES.S || manager.canScheduleExactAlarms()
@@ -405,6 +429,7 @@ object ReminderScheduler {
     }
 
     private const val TASK_TEST_REQUEST_CODE = 2_900_001
+    private const val ALARM_CLOCK_SHOW_REQUEST_CODE = 2_900_002
 
     private fun mealRequestCode(type: MealType): Int = 3_000_001 + type.ordinal
 

@@ -14,6 +14,7 @@ enum class TaskReminderStage {
 }
 
 enum class AlarmDeliveryMode {
+    ALARM_CLOCK,
     EXACT,
     INEXACT
 }
