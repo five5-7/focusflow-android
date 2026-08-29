@@ -206,8 +206,19 @@ object ReminderScheduler {
         }
         val requestCode = ((item.id + 10_000L) % Int.MAX_VALUE).toInt()
         val pending = PendingIntent.getBroadcast(context, requestCode, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        context.getSystemService(AlarmManager::class.java)
-            .setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, maxOf(triggerAt, now + 1_000L), pending)
+        scheduleTimeSensitiveAlarm(context, maxOf(triggerAt, now + 1_000L), pending)
+    }
+
+    /** 使用与真实日程相同的系统调度链路，帮助用户在一分钟内验证权限、渠道与后台触发。 */
+    fun scheduleTaskReminderTest(context: Context, now: Long = System.currentTimeMillis()): AlarmDeliveryMode {
+        cancelPending(context, TASK_TEST_REQUEST_CODE, ReminderReceiver.ACTION_TASK_TEST)
+        val pending = PendingIntent.getBroadcast(
+            context,
+            TASK_TEST_REQUEST_CODE,
+            Intent(context, ReminderReceiver::class.java).apply { action = ReminderReceiver.ACTION_TASK_TEST },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        return scheduleTimeSensitiveAlarm(context, now + 60_000L, pending)
     }
 
     fun cancelTaskReminder(context: Context, itemId: Long) {
@@ -353,6 +364,28 @@ object ReminderScheduler {
     }
 
     private fun taskRequestCode(itemId: Long): Int = ((itemId + 10_000L) % Int.MAX_VALUE).toInt()
+
+    private fun scheduleTimeSensitiveAlarm(context: Context, triggerAt: Long, pending: PendingIntent): AlarmDeliveryMode {
+        val manager = context.getSystemService(AlarmManager::class.java)
+        val mode = TaskReminderPolicy.deliveryMode(
+            sdkInt = Build.VERSION.SDK_INT,
+            canScheduleExactAlarms = Build.VERSION.SDK_INT < Build.VERSION_CODES.S || manager.canScheduleExactAlarms()
+        )
+        if (mode == AlarmDeliveryMode.EXACT) {
+            try {
+                manager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pending)
+                return AlarmDeliveryMode.EXACT
+            } catch (_: SecurityException) {
+                // 权限可能在检查后被系统撤销；仍保留普通后台提醒，不能静默丢失。
+            }
+        }
+        run {
+            manager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pending)
+        }
+        return AlarmDeliveryMode.INEXACT
+    }
+
+    private const val TASK_TEST_REQUEST_CODE = 2_900_001
 
     private fun mealRequestCode(type: MealType): Int = 3_000_001 + type.ordinal
 
