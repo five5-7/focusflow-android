@@ -3350,8 +3350,8 @@ private fun DayGroupWizardDialog(existingGroups: List<DayGroup>, defaultWake: In
                         var exactAllowed by remember { mutableStateOf(Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && context.getSystemService(AlarmManager::class.java).canScheduleExactAlarms()) }
                         var reminderDiagnosticsRevision by remember { mutableIntStateOf(0) }
                         var taskTestMessage by remember { mutableStateOf<String?>(null) }
-                        val nextTaskReminder = remember(activitySettings, reminderDiagnosticsRevision) {
-                            TaskReminderPolicy.nextReminder(settingsStore.loadItems(), activitySettings)
+                        val pendingTaskReminders = remember(activitySettings, reminderDiagnosticsRevision) {
+                            TaskReminderPolicy.pendingReminders(settingsStore.loadItems(), activitySettings)
                         }
                         val notificationPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
                             notifGranted = context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
@@ -3402,7 +3402,7 @@ private fun DayGroupWizardDialog(existingGroups: List<DayGroup>, defaultWake: In
                         SettingSwitch("活动提醒", "关闭后仍会保留活动记录和手动转场", activitySettings.notificationsEnabled) { onActivitySettingsChange(activitySettings.copy(notificationsEnabled = it)) }
                         SettingSwitch("明确的到点提醒", "到达约定时间时使用更醒目的提醒", activitySettings.strongerEndReminder) { onActivitySettingsChange(activitySettings.copy(strongerEndReminder = it)) }
                         HorizontalDivider()
-                        SettingSwitch("日程提醒", "课程以外的定时任务、目标安排会在开始前提醒；重启后自动恢复", activitySettings.scheduleRemindersEnabled) {
+                        SettingSwitch("日程提醒", "课程以外的定时任务、目标安排会提前预告并在到点时再次提醒；重启后自动恢复", activitySettings.scheduleRemindersEnabled) {
                             onActivitySettingsChange(activitySettings.copy(scheduleRemindersEnabled = it))
                         }
                         Text("日程默认提前：${activitySettings.scheduleAdvanceMinutes} 分钟")
@@ -3424,11 +3424,18 @@ private fun DayGroupWizardDialog(existingGroups: List<DayGroup>, defaultWake: In
                                     style = MaterialTheme.typography.bodySmall,
                                     color = if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || exactAllowed) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
                                 )
-                                Text(
-                                    nextTaskReminder?.let { "下一条：${it.title} · ${formatDateTime(it.triggerAt)} 提醒（${formatDateTime(it.startsAt)} 开始）" }
-                                        ?: if (activitySettings.scheduleRemindersEnabled) "目前没有未来的定时任务提醒。" else "日程提醒已关闭。",
-                                    style = MaterialTheme.typography.bodySmall
-                                )
+                                if (!activitySettings.scheduleRemindersEnabled) {
+                                    Text("日程提醒已关闭。", style = MaterialTheme.typography.bodySmall)
+                                } else if (pendingTaskReminders.isEmpty()) {
+                                    Text("目前没有未来的定时任务提醒。", style = MaterialTheme.typography.bodySmall)
+                                } else {
+                                    pendingTaskReminders.firstOrNull { it.stage == TaskReminderStage.ADVANCE }?.let {
+                                        Text("下一次提前提醒：${it.title} · ${formatDateTime(it.triggerAt)}", style = MaterialTheme.typography.bodySmall)
+                                    }
+                                    pendingTaskReminders.firstOrNull { it.stage == TaskReminderStage.DUE }?.let {
+                                        Text("下一次到点提醒：${it.title} · ${formatDateTime(it.triggerAt)}", style = MaterialTheme.typography.bodySmall)
+                                    }
+                                }
                                 OutlinedButton(
                                     enabled = notifGranted,
                                     onClick = {

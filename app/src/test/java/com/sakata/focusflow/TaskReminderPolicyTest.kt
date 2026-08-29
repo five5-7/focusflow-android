@@ -20,15 +20,31 @@ class TaskReminderPolicyTest {
 
         assertEquals(4L, result?.itemId)
         assertEquals(now + 10 * 60_000L, result?.triggerAt)
+        assertEquals(TaskReminderStage.ADVANCE, result?.stage)
     }
 
     @Test
     fun `reminder due inside advance window is scheduled immediately`() {
         val item = Item(id = 5, title = "马上开始", detail = "", kind = "任务", scheduledAt = now + 5 * 60_000L)
 
-        val result = TaskReminderPolicy.nextReminder(listOf(item), ActivityReminderSettings(scheduleAdvanceMinutes = 10), now)
+        val reminders = TaskReminderPolicy.pendingReminders(listOf(item), ActivityReminderSettings(scheduleAdvanceMinutes = 10), now)
 
-        assertEquals(now + 1_000L, result?.triggerAt)
+        assertEquals(2, reminders.size)
+        assertEquals(TaskReminderStage.ADVANCE, reminders[0].stage)
+        assertEquals(now + 1_000L, reminders[0].triggerAt)
+        assertEquals(TaskReminderStage.DUE, reminders[1].stage)
+        assertEquals(now + 5 * 60_000L, reminders[1].triggerAt)
+    }
+
+    @Test
+    fun `zero advance schedules only at-time reminder`() {
+        val item = Item(id = 7, title = "到点开始", detail = "", kind = "任务", scheduledAt = now + 5 * 60_000L)
+
+        val reminders = TaskReminderPolicy.pendingReminders(listOf(item), ActivityReminderSettings(scheduleAdvanceMinutes = 0), now)
+
+        assertEquals(1, reminders.size)
+        assertEquals(TaskReminderStage.DUE, reminders.single().stage)
+        assertEquals(now + 5 * 60_000L, reminders.single().triggerAt)
     }
 
     @Test
