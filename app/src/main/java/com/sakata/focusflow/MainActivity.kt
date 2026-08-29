@@ -120,13 +120,14 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /** 精确闹钟走系统设置页申请；ColorOS 系（OPPO/realme/OnePlus）实测该页没有授权开关，直接放弃。 */
+    /** Android 12 的精确闹钟需要用户授权；Android 13+ 由 USE_EXACT_ALARM 按核心日程用途授予。 */
     private fun requestExactAlarmIfNeeded() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
-            !getSystemService(AlarmManager::class.java).canScheduleExactAlarms() &&
-            !isColorOsFamily()
+        if (Build.VERSION.SDK_INT in Build.VERSION_CODES.S..Build.VERSION_CODES.S_V2 &&
+            !getSystemService(AlarmManager::class.java).canScheduleExactAlarms()
         ) {
-            startActivity(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, Uri.parse("package:$packageName")))
+            runCatching {
+                startActivity(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, Uri.parse("package:$packageName")))
+            }
         }
     }
 
@@ -143,12 +144,6 @@ class MainActivity : ComponentActivity() {
         if (intent.getBooleanExtra(ReminderReceiver.EXTRA_OPEN_QUICK_CAPTURE, false)) quickCaptureRequested = true
     }
 }
-
-/** ColorOS 系品牌判断：OPPO/realme/OnePlus 的精确闹钟授权页实测无开关，属"不支持的功能"，不再引导申请。 */
-private fun isColorOsFamily(): Boolean =
-    listOf(Build.MANUFACTURER, Build.BRAND).any {
-        it.equals("oppo", ignoreCase = true) || it.equals("realme", ignoreCase = true) || it.equals("oneplus", ignoreCase = true)
-    }
 
 @Composable
 private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: MealType?, mealFinishRequested: MealType?, quickCaptureRequested: Boolean, permissionOnboardingPending: Boolean, onRequestHandled: () -> Unit) {
@@ -3459,10 +3454,12 @@ private fun DayGroupWizardDialog(existingGroups: List<DayGroup>, defaultWake: In
                             steps = 5
                         )
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                            OutlinedButton(onClick = {
-                                if (!isColorOsFamily()) context.startActivity(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, Uri.parse("package:${context.packageName}")))
-                            }) {
-                                Text(if (isColorOsFamily()) "此设备可能不支持精确提醒" else if (exactAllowed) "管理精确提醒权限" else "允许精确提醒")
+                            when {
+                                exactAllowed -> Text("精确提醒已由系统启用，无需额外设置。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                                Build.VERSION.SDK_INT <= Build.VERSION_CODES.S_V2 -> OutlinedButton(onClick = {
+                                    runCatching { context.startActivity(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, Uri.parse("package:${context.packageName}"))) }
+                                }) { Text("允许精确提醒") }
+                                else -> Text("系统未授予精确提醒，已使用普通后台提醒。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                             }
                         }
                     }
