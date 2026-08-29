@@ -3352,9 +3352,16 @@ private fun DayGroupWizardDialog(existingGroups: List<DayGroup>, defaultWake: In
                         val notificationGuidance = remember { NotificationGuidancePolicy.forDevice(Build.MANUFACTURER, Build.BRAND) }
                         var notifGranted by remember { mutableStateOf(context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) }
                         var exactAllowed by remember { mutableStateOf(Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && context.getSystemService(AlarmManager::class.java).canScheduleExactAlarms()) }
+                        var reminderDiagnosticsRevision by remember { mutableIntStateOf(0) }
+                        var taskTestMessage by remember { mutableStateOf<String?>(null) }
+                        val nextTaskReminder = remember(activitySettings, reminderDiagnosticsRevision) {
+                            TaskReminderPolicy.nextReminder(store.loadItems(), activitySettings)
+                        }
                         val notificationPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
                             notifGranted = context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
                             notificationHealth = NotificationChannelSettings.health(context)
+                            ReminderScheduler.restoreTaskReminders(context)
+                            reminderDiagnosticsRevision += 1
                         }
                         DisposableEffect(lifecycleOwner) {
                             val observer = LifecycleEventObserver { _, event ->
@@ -3362,6 +3369,8 @@ private fun DayGroupWizardDialog(existingGroups: List<DayGroup>, defaultWake: In
                                     notifGranted = context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
                                     notificationHealth = NotificationChannelSettings.health(context)
                                     exactAllowed = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && context.getSystemService(AlarmManager::class.java).canScheduleExactAlarms()
+                                    ReminderScheduler.restoreTaskReminders(context)
+                                    reminderDiagnosticsRevision += 1
                                 }
                             }
                             lifecycleOwner.lifecycle.addObserver(observer)
@@ -3386,11 +3395,11 @@ private fun DayGroupWizardDialog(existingGroups: List<DayGroup>, defaultWake: In
                                 shape = RoundedCornerShape(12.dp)
                             ) {
                                 Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    Text("ColorOS 手动开启路径", fontWeight = FontWeight.SemiBold)
-                                    Text("1. 长按桌面上的 FocusFlow 图标，打开“应用信息”。", style = MaterialTheme.typography.bodySmall)
-                                    Text("2. 进入“通知管理”，先开启“允许通知”。", style = MaterialTheme.typography.bodySmall)
-                                    Text("3. 分别进入“FocusFlow 任务提醒”和“饭点提醒”，开启横幅／悬浮通知。", style = MaterialTheme.typography.bodySmall)
-                                    Text("应用每次回到前台都会检测 Android 公开的总通知和渠道状态。ColorOS 单独的“横幅／悬浮”开关不对应用公开；如果此处显示已开启但仍无横幅，请按上述路径手动确认。", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(notificationGuidance.title, fontWeight = FontWeight.SemiBold)
+                                    notificationGuidance.steps.forEachIndexed { index, step ->
+                                        Text("${index + 1}. $step", style = MaterialTheme.typography.bodySmall)
+                                    }
+                                    Text(notificationGuidance.limitation, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                             }
                         }
@@ -3407,6 +3416,33 @@ private fun DayGroupWizardDialog(existingGroups: List<DayGroup>, defaultWake: In
                             valueRange = 0f..30f,
                             steps = 5
                         )
+                        Surface(
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text("日程提醒诊断", fontWeight = FontWeight.SemiBold)
+                                Text(
+                                    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || exactAllowed) "当前使用精确提醒。"
+                                    else "当前使用普通后台提醒，系统省电策略可能造成延迟。",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || exactAllowed) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+                                )
+                                Text(
+                                    nextTaskReminder?.let { "下一条：${it.title} · ${formatDateTime(it.triggerAt)} 提醒（${formatDateTime(it.startsAt)} 开始）" }
+                                        ?: if (activitySettings.scheduleRemindersEnabled) "目前没有未来的定时任务提醒。" else "日程提醒已关闭。",
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                                OutlinedButton(
+                                    enabled = notifGranted,
+                                    onClick = {
+                                        val mode = ReminderScheduler.scheduleTaskReminderTest(context)
+                                        taskTestMessage = if (mode == AlarmDeliveryMode.EXACT) "已安排精确测试提醒，1 分钟后应出现。" else "已安排普通测试提醒；系统可能延迟触发。"
+                                    }
+                                ) { Text("1 分钟后测试通知") }
+                                taskTestMessage?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary) }
+                            }
+                        }
                         Text("提前预告：${activitySettings.previewMinutes} 分钟")
                         Slider(
                             value = activitySettings.previewMinutes.toFloat(),

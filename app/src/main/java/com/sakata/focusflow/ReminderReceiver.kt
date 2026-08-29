@@ -80,6 +80,10 @@ class ReminderReceiver : BroadcastReceiver() {
                 )
                 return
             }
+            ACTION_TASK_TEST -> {
+                showTaskTestNotification(context, manager)
+                return
+            }
             ACTION_MEAL_REMINDER -> {
                 if (suppressNow(store, intent.action)) return
                 val type = MealType.fromLabel(intent.getStringExtra(EXTRA_MEAL_TYPE) ?: "")
@@ -259,6 +263,22 @@ class ReminderReceiver : BroadcastReceiver() {
             .setAutoCancel(true)
         if (task?.goalId != null) notification.addAction(0, "最低版本", taskActionIntent(context, ACTION_TASK_MINIMUM, taskId, id, 13))
         manager.notify(id, notification.build())
+    }
+
+    private fun showTaskTestNotification(context: Context, manager: NotificationManager) {
+        if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
+        ensureChannel(manager, CHANNEL_TASK, "FocusFlow 任务提醒")
+        val openApp = PendingIntent.getActivity(context, 0, Intent(context, MainActivity::class.java), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        manager.notify(
+            TASK_TEST_NOTIFICATION_ID,
+            NotificationCompat.Builder(context, CHANNEL_TASK)
+                .setSmallIcon(android.R.drawable.ic_popup_reminder)
+                .setContentTitle("FocusFlow 测试提醒")
+                .setContentText("日程提醒的权限、渠道与后台调度已成功工作。")
+                .setContentIntent(openApp)
+                .setAutoCancel(true)
+                .build()
+        )
     }
 
     private fun showStatusCheckInNotification(
@@ -549,6 +569,7 @@ class ReminderReceiver : BroadcastReceiver() {
         const val ACTION_SNOOZE = "com.sakata.focusflow.SNOOZE_ACTIVITY"
         const val ACTION_SKIP = "com.sakata.focusflow.SKIP_ACTIVITY"
         const val ACTION_TASK_DUE = "com.sakata.focusflow.TASK_DUE"
+        const val ACTION_TASK_TEST = "com.sakata.focusflow.TASK_TEST"
         const val ACTION_TASK_COMPLETE = "com.sakata.focusflow.TASK_COMPLETE"
         const val ACTION_TASK_SNOOZE = "com.sakata.focusflow.TASK_SNOOZE"
         const val ACTION_TASK_SKIP = "com.sakata.focusflow.TASK_SKIP"
@@ -596,6 +617,7 @@ class ReminderReceiver : BroadcastReceiver() {
             "focusflow_status_check_in_v1", "focusflow_wind_down", "focusflow_meal_reminders"
         )
         private const val STATUS_CHECK_IN_NOTIFICATION_ID = 2_900_002
+        private const val TASK_TEST_NOTIFICATION_ID = 2_900_003
         private const val WIND_DOWN_NOTIFICATION_ID = 2_900_004
         private const val MEAL_NOTIFICATION_BASE = 3_100_000
     }

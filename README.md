@@ -2,7 +2,7 @@
 
 本地优先的 Android 日程与执行辅助应用（`com.sakata.focusflow`）。核心目标不是维护一张完整日历，而是**降低记录压力、按当前状态调整提醒、在错过计划后帮助恢复**。
 
-当前版本：**6.2.0**（versionCode 462）。完整更新记录见 [CHANGELOG.md](CHANGELOG.md)。
+当前版本：**6.2.1**（versionCode 463）。完整更新记录见 [CHANGELOG.md](CHANGELOG.md)。
 
 > 数据原则：只用你确认过的数据生成建议，数据不足时不打扰、不假装精确。数据只保存在本机。
 
@@ -55,7 +55,7 @@ gradle :app:testDebugUnitTest
 
 ## 发布
 
-GitHub Actions 会在每次 push 时自动跑单元测试并构建稳定签名 APK（artifact）。APK 和 artifact 名称会包含 Actions run 编号，避免误装同为 6.2.0 的旧候选包。真机验收后，再把同一产物上传至 **Releases**。
+GitHub Actions 会在每次 push 时自动跑单元测试并构建稳定签名 APK（artifact）。APK 和 artifact 名称会包含 Actions run 编号，避免误装同版本的旧候选包。真机验收后，再把同一产物上传至 **Releases**。
 
 ### CI 覆盖安装签名
 
