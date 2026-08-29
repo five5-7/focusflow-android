@@ -70,17 +70,19 @@ class ReminderReceiver : BroadcastReceiver() {
             ACTION_ACTIVITY_END -> {
                 if (sessionId >= 0) store.markSessionAwaitingConfirmation(sessionId)
             }
-            ACTION_TASK_DUE -> {
+            ACTION_TASK_ADVANCE, ACTION_TASK_DUE -> {
                 showTaskNotification(
                     context,
                     manager,
                     intent.getStringExtra(EXTRA_TASK_TITLE) ?: "日程任务",
                     intent.getLongExtra(EXTRA_TASK_ID, -1L),
-                    intent.getLongExtra(EXTRA_TASK_START_AT, 0L)
+                    intent.getLongExtra(EXTRA_TASK_START_AT, 0L),
+                    dueNow = intent.action == ACTION_TASK_DUE
                 )
                 return
             }
             ACTION_TASK_TEST -> {
+                store.markReminderTestDelivered()
                 showTaskTestNotification(context, manager)
                 return
             }
@@ -131,6 +133,7 @@ class ReminderReceiver : BroadcastReceiver() {
                 if (notificationId >= 0) manager.cancel(notificationId)
                 val taskId = intent.getLongExtra(EXTRA_TASK_ID, -1L)
                 if (taskId >= 0) store.findItem(taskId)?.let { task ->
+                    ReminderScheduler.cancelTaskReminder(context, taskId)
                     store.updateItem(taskId) { it.copy(done = true, completionLevel = "完整完成", completedAt = System.currentTimeMillis()) }
                     task.goalId?.let { store.markGoalCompleted(it) }
                     task.scheduledAt?.let { time ->
@@ -145,6 +148,7 @@ class ReminderReceiver : BroadcastReceiver() {
                 if (notificationId >= 0) manager.cancel(notificationId)
                 val taskId = intent.getLongExtra(EXTRA_TASK_ID, -1L)
                 if (taskId >= 0) store.findItem(taskId)?.let { task ->
+                    ReminderScheduler.cancelTaskReminder(context, taskId)
                     store.updateItem(taskId) { it.copy(done = true, completionLevel = "最低版本", completedAt = System.currentTimeMillis()) }
                     task.goalId?.let { store.markGoalCompleted(it, minimum = true) }
                 }
@@ -163,7 +167,10 @@ class ReminderReceiver : BroadcastReceiver() {
             ACTION_TASK_SKIP -> {
                 if (notificationId >= 0) manager.cancel(notificationId)
                 val taskId = intent.getLongExtra(EXTRA_TASK_ID, -1L)
-                if (taskId >= 0) store.updateItem(taskId) { item -> item.copy(title = if (item.title.startsWith("重新安排：")) item.title else "重新安排：${item.title}", kind = "收集箱", detail = "这次没有做；可以改期、缩短、暂停或放弃", scheduledAt = null) }
+                if (taskId >= 0) {
+                    ReminderScheduler.cancelTaskReminder(context, taskId)
+                    store.updateItem(taskId) { item -> item.copy(title = if (item.title.startsWith("重新安排：")) item.title else "重新安排：${item.title}", kind = "收集箱", detail = "这次没有做；可以改期、缩短、暂停或放弃", scheduledAt = null) }
+                }
                 return
             }
             ACTION_GAME_START -> {
@@ -245,23 +252,25 @@ class ReminderReceiver : BroadcastReceiver() {
             .build())
     }
 
-    private fun showTaskNotification(context: Context, manager: NotificationManager, title: String, taskId: Long, startsAt: Long) {
+    private fun showTaskNotification(context: Context, manager: NotificationManager, title: String, taskId: Long, startsAt: Long, dueNow: Boolean) {
         if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
+        val task = PrototypeStore(context).findItem(taskId) ?: return
+        // 改期与完成可能正好和旧广播交错；以当前存储状态为准，避免幽灵通知。
+        if (task.done || task.scheduledAt != startsAt || task.kind in setOf("收集箱", "暂停", "游戏", "活动")) return
         ensureChannel(manager, CHANNEL_TASK, "FocusFlow 任务提醒")
         val openApp = PendingIntent.getActivity(context, 0, Intent(context, MainActivity::class.java), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        val id = (System.currentTimeMillis() % Int.MAX_VALUE).toInt()
-        val task = PrototypeStore(context).findItem(taskId)
+        val id = ((taskId + 40_000L) % Int.MAX_VALUE).toInt()
         val minutes = ((startsAt - System.currentTimeMillis()) / 60_000L).toInt().coerceAtLeast(0)
-        val timing = if (minutes <= 1) "现在该开始了。" else "约 $minutes 分钟后开始。"
+        val timing = if (dueNow) "现在该开始了。" else if (minutes <= 1) "即将开始。" else "约 $minutes 分钟后开始。"
         val notification = NotificationCompat.Builder(context, CHANNEL_TASK)
             .setSmallIcon(android.R.drawable.ic_popup_reminder)
-            .setContentTitle("日程提醒：$title")
+            .setContentTitle(if (dueNow) "到点了：$title" else "即将开始：$title")
             .setContentText("$timing 可开始、稍后或改期。")
             .setContentIntent(openApp)
             .addAction(0, "完整完成", taskActionIntent(context, ACTION_TASK_COMPLETE, taskId, id, 11))
             .addAction(0, "稍后 1 小时", taskActionIntent(context, ACTION_TASK_SNOOZE, taskId, id, 12))
             .setAutoCancel(true)
-        if (task?.goalId != null) notification.addAction(0, "最低版本", taskActionIntent(context, ACTION_TASK_MINIMUM, taskId, id, 13))
+        if (task.goalId != null) notification.addAction(0, "最低版本", taskActionIntent(context, ACTION_TASK_MINIMUM, taskId, id, 13))
         manager.notify(id, notification.build())
     }
 
@@ -274,7 +283,7 @@ class ReminderReceiver : BroadcastReceiver() {
             NotificationCompat.Builder(context, CHANNEL_TASK)
                 .setSmallIcon(android.R.drawable.ic_popup_reminder)
                 .setContentTitle("FocusFlow 测试提醒")
-                .setContentText("日程提醒的权限、渠道与后台调度已成功工作。")
+                .setContentText("后台测试广播已送达；返回设置可查看是否准时。")
                 .setContentIntent(openApp)
                 .setAutoCancel(true)
                 .build()
@@ -568,6 +577,7 @@ class ReminderReceiver : BroadcastReceiver() {
         const val ACTION_COMPLETE = "com.sakata.focusflow.COMPLETE_ACTIVITY"
         const val ACTION_SNOOZE = "com.sakata.focusflow.SNOOZE_ACTIVITY"
         const val ACTION_SKIP = "com.sakata.focusflow.SKIP_ACTIVITY"
+        const val ACTION_TASK_ADVANCE = "com.sakata.focusflow.TASK_ADVANCE"
         const val ACTION_TASK_DUE = "com.sakata.focusflow.TASK_DUE"
         const val ACTION_TASK_TEST = "com.sakata.focusflow.TASK_TEST"
         const val ACTION_TASK_COMPLETE = "com.sakata.focusflow.TASK_COMPLETE"

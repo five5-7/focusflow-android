@@ -4,12 +4,32 @@ data class PendingTaskReminder(
     val itemId: Long,
     val title: String,
     val startsAt: Long,
-    val triggerAt: Long
+    val triggerAt: Long,
+    val stage: TaskReminderStage
 )
 
+enum class TaskReminderStage {
+    ADVANCE,
+    DUE
+}
+
 enum class AlarmDeliveryMode {
+    ALARM_CLOCK,
     EXACT,
     INEXACT
+}
+
+data class ReminderTestProbe(
+    val expectedAt: Long,
+    val deliveredAt: Long?
+)
+
+enum class ReminderTestResult {
+    NONE,
+    PENDING,
+    ON_TIME,
+    DELAYED,
+    OVERDUE
 }
 
 object TaskReminderPolicy {
@@ -19,29 +39,67 @@ object TaskReminderPolicy {
         items: List<Item>,
         settings: ActivityReminderSettings,
         now: Long = System.currentTimeMillis()
-    ): PendingTaskReminder? {
-        if (!settings.scheduleRemindersEnabled) return null
+    ): PendingTaskReminder? = pendingReminders(items, settings, now).firstOrNull()
+
+    fun pendingReminders(
+        items: List<Item>,
+        settings: ActivityReminderSettings,
+        now: Long = System.currentTimeMillis()
+    ): List<PendingTaskReminder> {
+        if (!settings.scheduleRemindersEnabled) return emptyList()
         return items.asSequence()
             .filter { item ->
                 !item.done &&
                     item.kind !in excludedKinds &&
                     item.scheduledAt?.let { it > now } == true
             }
-            .map { item ->
+            .flatMap { item ->
                 val startsAt = requireNotNull(item.scheduledAt)
-                PendingTaskReminder(
-                    itemId = item.id,
-                    title = item.title.removePrefix("重新安排："),
-                    startsAt = startsAt,
-                    triggerAt = maxOf(
-                        startsAt - settings.scheduleAdvanceMinutes.coerceIn(0, 60) * 60_000L,
-                        now + 1_000L
+                val title = item.title.removePrefix("重新安排：")
+                val reminders = mutableListOf(
+                    PendingTaskReminder(
+                        itemId = item.id,
+                        title = title,
+                        startsAt = startsAt,
+                        triggerAt = startsAt,
+                        stage = TaskReminderStage.DUE
                     )
                 )
+                val advanceMinutes = settings.scheduleAdvanceMinutes.coerceIn(0, 60)
+                if (advanceMinutes > 0) {
+                    reminders += PendingTaskReminder(
+                        itemId = item.id,
+                        title = title,
+                        startsAt = startsAt,
+                        triggerAt = maxOf(startsAt - advanceMinutes * 60_000L, now + 1_000L),
+                        stage = TaskReminderStage.ADVANCE
+                    )
+                }
+                reminders.asSequence()
             }
-            .minByOrNull { it.triggerAt }
+            .sortedWith(compareBy<PendingTaskReminder> { it.triggerAt }.thenBy { it.stage })
+            .toList()
     }
 
     fun deliveryMode(sdkInt: Int, canScheduleExactAlarms: Boolean): AlarmDeliveryMode =
         if (sdkInt < 31 || canScheduleExactAlarms) AlarmDeliveryMode.EXACT else AlarmDeliveryMode.INEXACT
+
+    fun testResult(probe: ReminderTestProbe?, now: Long = System.currentTimeMillis()): ReminderTestResult {
+        if (probe == null || probe.expectedAt <= 0L) return ReminderTestResult.NONE
+        val deliveredAt = probe.deliveredAt
+        if (deliveredAt != null) {
+            return if (deliveredAt <= probe.expectedAt + TEST_ON_TIME_TOLERANCE_MS) {
+                ReminderTestResult.ON_TIME
+            } else {
+                ReminderTestResult.DELAYED
+            }
+        }
+        return if (now <= probe.expectedAt + TEST_ON_TIME_TOLERANCE_MS) {
+            ReminderTestResult.PENDING
+        } else {
+            ReminderTestResult.OVERDUE
+        }
+    }
+
+    private const val TEST_ON_TIME_TOLERANCE_MS = 30_000L
 }

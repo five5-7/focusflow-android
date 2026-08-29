@@ -194,35 +194,54 @@ object ReminderScheduler {
         val scheduledAt = item.scheduledAt ?: return
         cancelTaskReminder(context, item.id)
         if (!settings.scheduleRemindersEnabled || item.done || item.kind in setOf("收集箱", "暂停", "游戏", "活动")) return
-        val now = System.currentTimeMillis()
-        val triggerAt = scheduledAt - settings.scheduleAdvanceMinutes.coerceIn(0, 60) * 60_000L
         // 不补发已经开始的日程；否则一次重启会把旧安排集中推送。
+        val now = System.currentTimeMillis()
         if (scheduledAt <= now) return
-        val intent = Intent(context, ReminderReceiver::class.java).apply {
-            action = ReminderReceiver.ACTION_TASK_DUE
-            putExtra(ReminderReceiver.EXTRA_TASK_ID, item.id)
-            putExtra(ReminderReceiver.EXTRA_TASK_TITLE, item.title.removePrefix("重新安排："))
-            putExtra(ReminderReceiver.EXTRA_TASK_START_AT, scheduledAt)
+        TaskReminderPolicy.pendingReminders(listOf(item), settings, now).forEach { reminder ->
+            val actionName = when (reminder.stage) {
+                TaskReminderStage.ADVANCE -> ReminderReceiver.ACTION_TASK_ADVANCE
+                TaskReminderStage.DUE -> ReminderReceiver.ACTION_TASK_DUE
+            }
+            val intent = Intent(context, ReminderReceiver::class.java).apply {
+                action = actionName
+                putExtra(ReminderReceiver.EXTRA_TASK_ID, item.id)
+                putExtra(ReminderReceiver.EXTRA_TASK_TITLE, reminder.title)
+                putExtra(ReminderReceiver.EXTRA_TASK_START_AT, scheduledAt)
+            }
+            val pending = PendingIntent.getBroadcast(
+                context,
+                taskRequestCode(item.id, reminder.stage),
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            scheduleTimeSensitiveAlarm(
+                context = context,
+                triggerAt = reminder.triggerAt,
+                pending = pending,
+                preferAlarmClock = reminder.stage == TaskReminderStage.DUE
+            )
         }
-        val requestCode = ((item.id + 10_000L) % Int.MAX_VALUE).toInt()
-        val pending = PendingIntent.getBroadcast(context, requestCode, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        scheduleTimeSensitiveAlarm(context, maxOf(triggerAt, now + 1_000L), pending)
     }
 
     /** 使用与真实日程相同的系统调度链路，帮助用户在一分钟内验证权限、渠道与后台触发。 */
     fun scheduleTaskReminderTest(context: Context, now: Long = System.currentTimeMillis()): AlarmDeliveryMode {
         cancelPending(context, TASK_TEST_REQUEST_CODE, ReminderReceiver.ACTION_TASK_TEST)
+        val expectedAt = now + 60_000L
+        PrototypeStore(context).saveReminderTestScheduled(expectedAt)
         val pending = PendingIntent.getBroadcast(
             context,
             TASK_TEST_REQUEST_CODE,
             Intent(context, ReminderReceiver::class.java).apply { action = ReminderReceiver.ACTION_TASK_TEST },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        return scheduleTimeSensitiveAlarm(context, now + 60_000L, pending)
+        return scheduleTimeSensitiveAlarm(context, expectedAt, pending, preferAlarmClock = true)
     }
 
     fun cancelTaskReminder(context: Context, itemId: Long) {
-        cancelPending(context, taskRequestCode(itemId), ReminderReceiver.ACTION_TASK_DUE)
+        // 先清理 6.2.1 的单闹钟 request code，再清理 6.2.2 的提前／到点双闹钟。
+        cancelPending(context, legacyTaskRequestCode(itemId), ReminderReceiver.ACTION_TASK_DUE)
+        cancelPending(context, taskRequestCode(itemId, TaskReminderStage.ADVANCE), ReminderReceiver.ACTION_TASK_ADVANCE)
+        cancelPending(context, taskRequestCode(itemId, TaskReminderStage.DUE), ReminderReceiver.ACTION_TASK_DUE)
     }
 
     /** 设备重启/应用更新后恢复未来日程，已开始或已完成项目不补发。 */
@@ -363,10 +382,34 @@ object ReminderScheduler {
         pending?.let { context.getSystemService(AlarmManager::class.java).cancel(it) }
     }
 
-    private fun taskRequestCode(itemId: Long): Int = ((itemId + 10_000L) % Int.MAX_VALUE).toInt()
+    private fun legacyTaskRequestCode(itemId: Long): Int = ((itemId + 10_000L) % Int.MAX_VALUE).toInt()
 
-    private fun scheduleTimeSensitiveAlarm(context: Context, triggerAt: Long, pending: PendingIntent): AlarmDeliveryMode {
+    private fun taskRequestCode(itemId: Long, stage: TaskReminderStage): Int {
+        val offset = if (stage == TaskReminderStage.ADVANCE) 20_000L else 30_000L
+        return ((itemId + offset) % Int.MAX_VALUE).toInt()
+    }
+
+    private fun scheduleTimeSensitiveAlarm(
+        context: Context,
+        triggerAt: Long,
+        pending: PendingIntent,
+        preferAlarmClock: Boolean = false
+    ): AlarmDeliveryMode {
         val manager = context.getSystemService(AlarmManager::class.java)
+        if (preferAlarmClock) {
+            val showIntent = PendingIntent.getActivity(
+                context,
+                ALARM_CLOCK_SHOW_REQUEST_CODE,
+                Intent(context, MainActivity::class.java),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            try {
+                manager.setAlarmClock(AlarmManager.AlarmClockInfo(triggerAt, showIntent), pending)
+                return AlarmDeliveryMode.ALARM_CLOCK
+            } catch (_: SecurityException) {
+                // 厂商拒绝强路径时继续走精确／普通后台提醒，不能静默丢失。
+            }
+        }
         val mode = TaskReminderPolicy.deliveryMode(
             sdkInt = Build.VERSION.SDK_INT,
             canScheduleExactAlarms = Build.VERSION.SDK_INT < Build.VERSION_CODES.S || manager.canScheduleExactAlarms()
@@ -386,6 +429,7 @@ object ReminderScheduler {
     }
 
     private const val TASK_TEST_REQUEST_CODE = 2_900_001
+    private const val ALARM_CLOCK_SHOW_REQUEST_CODE = 2_900_002
 
     private fun mealRequestCode(type: MealType): Int = 3_000_001 + type.ordinal
 

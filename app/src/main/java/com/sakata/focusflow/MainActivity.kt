@@ -10,6 +10,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
 import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -1707,6 +1708,7 @@ private fun scheduleWindowOptions(now: Long = System.currentTimeMillis()): List<
     )
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable private fun InboxScheduleDialog(
     item: Item,
     items: List<Item>,
@@ -1737,15 +1739,35 @@ private fun scheduleWindowOptions(now: Long = System.currentTimeMillis()): List<
         text = {
             ScrollableDialogBox(maxHeight = 520.dp, spacing = 10.dp) {
                 Text(item.title.removePrefix("重新安排："), fontWeight = FontWeight.SemiBold)
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    maxItemsInEachRow = 2,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
                     listOf("推荐空档", "大致时间", "精确时间").forEach { option ->
-                        FilterChip(selected = mode == option, onClick = { mode = option }, label = { Text(option) })
+                        FilterChip(
+                            modifier = Modifier.weight(1f),
+                            selected = mode == option,
+                            onClick = { mode = option },
+                            label = { Text(option, maxLines = 1) }
+                        )
                     }
                 }
                 Text("预计用时", fontWeight = FontWeight.SemiBold)
-                Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    maxItemsInEachRow = 2,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
                     listOf(15, 30, 60, 90).forEach { minutes ->
-                        FilterChip(selected = duration == minutes, onClick = { duration = minutes }, label = { Text("$minutes 分") })
+                        FilterChip(
+                            modifier = Modifier.weight(1f),
+                            selected = duration == minutes,
+                            onClick = { duration = minutes },
+                            label = { Text("$minutes 分", maxLines = 1) }
+                        )
                     }
                 }
                 when (mode) {
@@ -3348,10 +3370,12 @@ private fun DayGroupWizardDialog(existingGroups: List<DayGroup>, defaultWake: In
                         val notificationGuidance = remember { NotificationGuidancePolicy.forDevice(Build.MANUFACTURER, Build.BRAND) }
                         var notifGranted by remember { mutableStateOf(context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) }
                         var exactAllowed by remember { mutableStateOf(Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && context.getSystemService(AlarmManager::class.java).canScheduleExactAlarms()) }
+                        var batteryUnrestricted by remember { mutableStateOf(context.getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(context.packageName)) }
+                        var reminderTestProbe by remember { mutableStateOf(settingsStore.loadReminderTestProbe()) }
                         var reminderDiagnosticsRevision by remember { mutableIntStateOf(0) }
                         var taskTestMessage by remember { mutableStateOf<String?>(null) }
-                        val nextTaskReminder = remember(activitySettings, reminderDiagnosticsRevision) {
-                            TaskReminderPolicy.nextReminder(settingsStore.loadItems(), activitySettings)
+                        val pendingTaskReminders = remember(activitySettings, reminderDiagnosticsRevision) {
+                            TaskReminderPolicy.pendingReminders(settingsStore.loadItems(), activitySettings)
                         }
                         val notificationPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
                             notifGranted = context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
@@ -3359,12 +3383,22 @@ private fun DayGroupWizardDialog(existingGroups: List<DayGroup>, defaultWake: In
                             ReminderScheduler.restoreTaskReminders(context)
                             reminderDiagnosticsRevision += 1
                         }
+                        LaunchedEffect(reminderTestProbe?.expectedAt) {
+                            repeat(120) {
+                                delay(1_000L)
+                                val latest = settingsStore.loadReminderTestProbe()
+                                if (latest != reminderTestProbe) reminderTestProbe = latest
+                                if (latest?.deliveredAt != null) return@LaunchedEffect
+                            }
+                        }
                         DisposableEffect(lifecycleOwner) {
                             val observer = LifecycleEventObserver { _, event ->
                                 if (event == Lifecycle.Event.ON_RESUME) {
                                     notifGranted = context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
                                     notificationHealth = NotificationChannelSettings.health(context)
                                     exactAllowed = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && context.getSystemService(AlarmManager::class.java).canScheduleExactAlarms()
+                                    batteryUnrestricted = context.getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(context.packageName)
+                                    reminderTestProbe = settingsStore.loadReminderTestProbe()
                                     ReminderScheduler.restoreTaskReminders(context)
                                     reminderDiagnosticsRevision += 1
                                 }
@@ -3399,13 +3433,22 @@ private fun DayGroupWizardDialog(existingGroups: List<DayGroup>, defaultWake: In
                                 }
                             }
                         }
-                        SettingSwitch("活动提醒", "关闭后仍会保留活动记录和手动转场", activitySettings.notificationsEnabled) { onActivitySettingsChange(activitySettings.copy(notificationsEnabled = it)) }
+                        Text("活动结束提醒", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                        SettingSwitch("活动结束提醒", "关闭后仍会保留活动记录和手动转场", activitySettings.notificationsEnabled) { onActivitySettingsChange(activitySettings.copy(notificationsEnabled = it)) }
                         SettingSwitch("明确的到点提醒", "到达约定时间时使用更醒目的提醒", activitySettings.strongerEndReminder) { onActivitySettingsChange(activitySettings.copy(strongerEndReminder = it)) }
+                        Text("活动结束前预告：${activitySettings.previewMinutes} 分钟")
+                        Slider(
+                            value = activitySettings.previewMinutes.toFloat(),
+                            onValueChange = { onActivitySettingsChange(activitySettings.copy(previewMinutes = (it / 5).toInt() * 5)) },
+                            valueRange = 0f..30f,
+                            steps = 5
+                        )
                         HorizontalDivider()
-                        SettingSwitch("日程提醒", "课程以外的定时任务、目标安排会在开始前提醒；重启后自动恢复", activitySettings.scheduleRemindersEnabled) {
+                        Text("日程开始提醒", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                        SettingSwitch("日程开始提醒", "课程以外的定时任务、目标安排会在开始前预告并在到点时再次提醒；重启后自动恢复", activitySettings.scheduleRemindersEnabled) {
                             onActivitySettingsChange(activitySettings.copy(scheduleRemindersEnabled = it))
                         }
-                        Text("日程默认提前：${activitySettings.scheduleAdvanceMinutes} 分钟")
+                        Text("日程开始前预告：${activitySettings.scheduleAdvanceMinutes} 分钟")
                         Slider(
                             value = activitySettings.scheduleAdvanceMinutes.toFloat(),
                             onValueChange = { onActivitySettingsChange(activitySettings.copy(scheduleAdvanceMinutes = (it / 5).toInt() * 5)) },
@@ -3425,27 +3468,59 @@ private fun DayGroupWizardDialog(existingGroups: List<DayGroup>, defaultWake: In
                                     color = if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || exactAllowed) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
                                 )
                                 Text(
-                                    nextTaskReminder?.let { "下一条：${it.title} · ${formatDateTime(it.triggerAt)} 提醒（${formatDateTime(it.startsAt)} 开始）" }
-                                        ?: if (activitySettings.scheduleRemindersEnabled) "目前没有未来的定时任务提醒。" else "日程提醒已关闭。",
-                                    style = MaterialTheme.typography.bodySmall
+                                    if (batteryUnrestricted) "电池后台：Android 检测为不受电池优化限制。" else "电池后台：仍受系统电池优化，后台提醒可能延迟。",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = if (batteryUnrestricted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
                                 )
+                                Text(
+                                    "厂商后台／自启动：Android 没有统一的可读取接口，不能直接判断开关；FocusFlow 以下方实测结果判断是否能准时唤醒。",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                if (!activitySettings.scheduleRemindersEnabled) {
+                                    Text("日程提醒已关闭。", style = MaterialTheme.typography.bodySmall)
+                                } else if (pendingTaskReminders.isEmpty()) {
+                                    Text("目前没有未来的定时任务提醒。", style = MaterialTheme.typography.bodySmall)
+                                } else {
+                                    pendingTaskReminders.firstOrNull { it.stage == TaskReminderStage.ADVANCE }?.let {
+                                        Text("下一次提前提醒：${it.title} · ${formatDateTime(it.triggerAt)}", style = MaterialTheme.typography.bodySmall)
+                                    }
+                                    pendingTaskReminders.firstOrNull { it.stage == TaskReminderStage.DUE }?.let {
+                                        Text("下一次到点提醒：${it.title} · ${formatDateTime(it.triggerAt)}", style = MaterialTheme.typography.bodySmall)
+                                    }
+                                }
                                 OutlinedButton(
                                     enabled = notifGranted,
                                     onClick = {
                                         val mode = ReminderScheduler.scheduleTaskReminderTest(context)
-                                        taskTestMessage = if (mode == AlarmDeliveryMode.EXACT) "已安排精确测试提醒，1 分钟后应出现。" else "已安排普通测试提醒；系统可能延迟触发。"
+                                        reminderTestProbe = settingsStore.loadReminderTestProbe()
+                                        taskTestMessage = when (mode) {
+                                            AlarmDeliveryMode.ALARM_CLOCK -> "已安排强唤醒测试，1 分钟后应出现；系统可能显示闹钟标识。"
+                                            AlarmDeliveryMode.EXACT -> "强唤醒被系统拒绝，已回退到精确测试提醒。"
+                                            AlarmDeliveryMode.INEXACT -> "强唤醒与精确提醒均不可用，已使用普通后台测试，可能延迟。"
+                                        }
                                     }
                                 ) { Text("1 分钟后测试通知") }
                                 taskTestMessage?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary) }
+                                val testResult = TaskReminderPolicy.testResult(reminderTestProbe)
+                                val testResultText = when (testResult) {
+                                    ReminderTestResult.NONE -> "后台实测：尚未测试。"
+                                    ReminderTestResult.PENDING -> "后台实测：等待测试提醒送达，请退回桌面。"
+                                    ReminderTestResult.ON_TIME -> "后台实测：最近一次按时送达。"
+                                    ReminderTestResult.DELAYED -> {
+                                        val probe = reminderTestProbe
+                                        val delaySeconds = if (probe?.deliveredAt != null) ((probe.deliveredAt - probe.expectedAt) / 1_000L).coerceAtLeast(1L) else 0L
+                                        "后台实测：最近一次延迟约 $delaySeconds 秒；不能视为后台正常。"
+                                    }
+                                    ReminderTestResult.OVERDUE -> "后台实测：已超过预期 30 秒仍未送达；后台唤醒可能受限。"
+                                }
+                                Text(
+                                    testResultText,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = if (testResult == ReminderTestResult.ON_TIME) MaterialTheme.colorScheme.primary else if (testResult in setOf(ReminderTestResult.DELAYED, ReminderTestResult.OVERDUE)) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                             }
                         }
-                        Text("提前预告：${activitySettings.previewMinutes} 分钟")
-                        Slider(
-                            value = activitySettings.previewMinutes.toFloat(),
-                            onValueChange = { onActivitySettingsChange(activitySettings.copy(previewMinutes = (it / 5).toInt() * 5)) },
-                            valueRange = 0f..30f,
-                            steps = 5
-                        )
                         Text("连续延长提示上限：${activitySettings.maxExtensions} 次")
                         Slider(
                             value = activitySettings.maxExtensions.toFloat(),
