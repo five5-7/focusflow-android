@@ -537,8 +537,8 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                     onReviewActivity = { activeSession?.let { transitionTarget = it } },
                     onPickTime = { item -> inboxScheduleTarget = item },
                     onEdit = { item -> inboxEditTarget = item },
-                    onShrink = { item -> saveItems(items.map { if (it.id == item.id) it.copy(title = item.title.removePrefix("重新安排："), kind = "收集箱", detail = "短版：先做 10 分钟；准备好后再安排", scheduledAt = null, dayOnly = false, durationMinutes = 10, windowStartAt = null, windowEndAt = null) else it }) },
-                    onReturnToInbox = { item -> saveItems(items.map { if (it.id == item.id) it.copy(kind = "收集箱", scheduledAt = null, dayOnly = false, windowStartAt = null, windowEndAt = null, detail = "已放回收集箱；准备好后再安排") else it }) },
+                    onShrink = { item -> saveItems(items.map { if (it.id == item.id) it.copy(title = item.title.removePrefix("重新安排："), kind = "收集箱", detail = "短版：先做 15 分钟；准备好后再安排", recoverySourceScheduledAt = item.recoverySourceScheduledAt ?: item.scheduledAt, scheduledAt = null, dayOnly = false, durationMinutes = 15, windowStartAt = null, windowEndAt = null) else it }) },
+                    onReturnToInbox = { item -> saveItems(items.map { if (it.id == item.id) it.copy(kind = "收集箱", recoverySourceScheduledAt = item.recoverySourceScheduledAt ?: item.scheduledAt, scheduledAt = null, dayOnly = false, windowStartAt = null, windowEndAt = null, detail = "已放回收集箱；准备好后再安排") else it }) },
                     onPause = { item -> saveItems(items.map { if (it.id == item.id) it.copy(kind = "暂停", detail = "已暂停；随时可在计划中恢复") else it }) },
                     onAbandon = { item -> saveItems(items.filterNot { it.id == item.id }) },
                     mealRecords = mealRecords,
@@ -1476,7 +1476,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             }
         }
         if (recoveryCandidates.isNotEmpty()) {
-            ElevatedCard(colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.48f))) {
+            ElevatedCard(colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
                 Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("需要恢复的安排", fontWeight = FontWeight.Bold)
                     Text("错过或反复改期不等于失败；选一个更容易继续的下一步。", style = MaterialTheme.typography.bodySmall)
@@ -1489,7 +1489,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                TextButton(onClick = { onShrink(candidate.item) }) { Text("缩小任务") }
+                                TextButton(onClick = { onShrink(candidate.item) }) { Text("缩为 15 分钟") }
                                 TextButton(onClick = { onReplanSuggestion(candidate.item) }) { Text("重新安排") }
                                 TextButton(onClick = { onReturnToInbox(candidate.item) }) { Text("放回收集箱") }
                             }

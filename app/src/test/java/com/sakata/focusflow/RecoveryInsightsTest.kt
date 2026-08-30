@@ -54,4 +54,17 @@ class RecoveryInsightsTest {
         assertNull(result.completionPercent)
         assertNull(result.frequentReschedulePeriod)
     }
+
+    @Test fun `weekly summary keeps an inbox task that came from this weeks plan`() {
+        val source = WeekReview.weekStartOf(now) + 9 * 60 * 60_000L
+        val result = RecoveryInsights.weeklySummary(
+            listOf(Item(title = "放回收集箱", detail = "", kind = "收集箱", recoverySourceScheduledAt = source, durationMinutes = 15)),
+            now
+        )
+
+        assertEquals(1, result.plannedCount)
+        assertEquals(0, result.completedCount)
+        assertEquals(1, result.missedCount)
+        assertEquals(0, result.completionPercent)
+    }
 }

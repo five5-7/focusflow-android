@@ -38,11 +38,13 @@ object RecoveryInsights {
     fun weeklySummary(items: List<Item>, now: Long = System.currentTimeMillis()): WeeklyExecutionSummary {
         val start = WeekReview.weekStartOf(now)
         val planned = items.filter { item ->
-            item.kind !in setOf("收集箱", "暂停") && item.scheduledAt?.let { it in start until start + WEEK_MILLIS } == true
+            sequenceOf(item.scheduledAt, item.recoverySourceScheduledAt).filterNotNull().any { it in start until start + WEEK_MILLIS }
         }
-        val completed = planned.count { it.done }
+        val completed = planned.count { it.done && it.completedAt?.let { time -> time in start until start + WEEK_MILLIS } == true }
         val rescheduled = items.filter { item -> item.lastRescheduledAt?.let { it in start until start + WEEK_MILLIS } == true }
-        val missed = planned.count { !it.done && (it.scheduledAt ?: now) + it.durationMinutes.coerceAtLeast(1) * 60_000L < now }
+        val missed = planned.count { item ->
+            !item.done && (item.scheduledAt ?: item.recoverySourceScheduledAt ?: now) + item.durationMinutes.coerceAtLeast(1) * 60_000L < now
+        }
         val period = rescheduled.mapNotNull(Item::lastRescheduledAt)
             .map(::dayPeriod)
             .groupingBy { it }.eachCount()

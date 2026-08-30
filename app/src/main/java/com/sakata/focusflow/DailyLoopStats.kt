@@ -16,11 +16,11 @@ data class DailyLoopSummary(
 object DailyLoopStats {
     fun summarize(items: List<Item>, now: Long = System.currentTimeMillis()): DailyLoopSummary {
         val planned = items.filter { item ->
-            item.kind !in setOf("收集箱", "暂停") && item.scheduledAt?.let { sameDay(it, now) } == true
+            sequenceOf(item.scheduledAt, item.recoverySourceScheduledAt).filterNotNull().any { sameDay(it, now) }
         }
         return DailyLoopSummary(
             plannedCount = planned.size,
-            completedPlannedCount = planned.count { it.done },
+            completedPlannedCount = planned.count { it.done && it.completedAt?.let { time -> sameDay(time, now) } == true },
             completedCount = items.count { it.done && it.completedAt?.let { time -> sameDay(time, now) } == true },
             rescheduledCount = items.count { it.lastRescheduledAt?.let { time -> sameDay(time, now) } == true },
             inboxCount = items.count { !it.done && it.kind == "收集箱" }
