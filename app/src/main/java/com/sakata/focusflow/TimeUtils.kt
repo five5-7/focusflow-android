@@ -41,3 +41,17 @@ private fun calendarWeekday(calendar: Calendar): Int =
         Calendar.SUNDAY -> 7
         else -> calendar.get(Calendar.DAY_OF_WEEK) - 1
     }
+
+/** 某时刻所在自然日的 [start, end) 毫秒范围。 */
+internal fun dayRange(millis: Long): LongRange {
+    val start = java.util.Calendar.getInstance().apply {
+        timeInMillis = millis
+        set(java.util.Calendar.HOUR_OF_DAY, 0); set(java.util.Calendar.MINUTE, 0); set(java.util.Calendar.SECOND, 0); set(java.util.Calendar.MILLISECOND, 0)
+    }.timeInMillis
+    return start until (start + 24 * 60 * 60 * 1000L)
+}
+
+internal fun weekdayOf(millis: Long): Int {
+    val calendar = java.util.Calendar.getInstance().apply { timeInMillis = millis }
+    return when (calendar.get(java.util.Calendar.DAY_OF_WEEK)) { java.util.Calendar.SUNDAY -> 7 else -> calendar.get(java.util.Calendar.DAY_OF_WEEK) - 1 }
+}
