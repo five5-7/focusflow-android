@@ -4,13 +4,62 @@ import android.content.Context
 import androidx.compose.ui.graphics.Color
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
 
 /** 自定义主题预设：命名配色存档，用于保存／切换多套自定义配色。 */
 data class ThemePreset(val name: String, val colors: FocusFlowThemeColors)
 
 /** Deliberately small offline persistence for the first test build. */
 class PrototypeStore(context: Context) {
+    private val appContext = context.applicationContext
     private val preferences = context.getSharedPreferences("focusflow", Context.MODE_PRIVATE)
+
+    /** 损坏数据备份目录：解析失败的 prefs 原始串先落盘，再返回空默认——后续保存覆盖也不丢原始数据。 */
+    private val corruptDir: File by lazy { File(appContext.filesDir, CorruptionBackup.DIR_NAME) }
+
+    /**
+     * 数据版本锚点（只读）：本仓库 prefs 数据当前按 data_version = 1 组织；旧版本无此键，视为 1。
+     * 归位规则：将来引入数据迁移时——先读 data_version，≥ 目标版本则跳过；按一次性标记键逐项迁移并置位，
+     * 完成后把 data_version 抬到目标值（写此键允许，但迁移逻辑必须先在下方注册表登记）。
+     *
+     * 迁移注册表（一次性布尔标记 → 用途）：
+     *   task_history_migrated_v65_0 → 6.5 存量 items 补齐任务事件（migrateTaskHistory，已完成）。
+     */
+    val dataVersion: Int = preferences.getInt("data_version", 1)
+
+    /**
+     * 列表/集合型 JSON 存档的损坏保护：解码结果为空（或解码本身失败）而原始串非常规空容器，
+     * 判定为损坏——备份原始串后返回默认空值。正常路径与原先行为完全一致。
+     */
+    private inline fun <T> decodeGuarded(
+        key: String,
+        fallback: T,
+        decode: (String) -> T,
+        isDamaged: (T) -> Boolean
+    ): T {
+        val raw = preferences.getString(key, null) ?: return fallback
+        val decoded = runCatching { decode(raw) }.getOrNull()
+        if (decoded == null || isDamaged(decoded)) {
+            if (CorruptionBackup.shouldBackup(raw)) CorruptionBackup.backup(corruptDir, key, raw)
+            return fallback
+        }
+        return decoded
+    }
+
+    /** 对象型 JSON 存档的损坏保护：解码失败 → 备份原始串后返回默认值。 */
+    private inline fun <T> decodeObjectGuarded(
+        key: String,
+        fallback: T?,
+        decode: (String) -> T
+    ): T? {
+        val raw = preferences.getString(key, null) ?: return fallback
+        val decoded = runCatching { decode(raw) }.getOrNull()
+        if (decoded == null) {
+            if (CorruptionBackup.shouldBackup(raw)) CorruptionBackup.backup(corruptDir, key, raw)
+            return fallback
+        }
+        return decoded
+    }
 
     fun loadTheme(): FocusFlowThemeOption =
         FocusFlowThemeOption.fromStorageKey(preferences.getString("app_theme", null))
@@ -46,8 +95,8 @@ class PrototypeStore(context: Context) {
     }
 
     /** 自定义主题 5 色（ARGB，全局配色分工）。无自定义记录时返回 null。 */
-    fun loadCustomThemeColors(): FocusFlowThemeColors? = runCatching {
-        preferences.getString("custom_theme_colors", null)?.let { json ->
+    fun loadCustomThemeColors(): FocusFlowThemeColors? =
+        decodeObjectGuarded("custom_theme_colors", null, { json ->
             val value = JSONObject(json)
             FocusFlowThemeColors(
                 primaryAction = Color(value.getLong("primaryAction")),
@@ -59,8 +108,7 @@ class PrototypeStore(context: Context) {
                 warning = Color(value.getLong("warning")),
                 text = Color(value.optLong("text", 0xFF182124))
             )
-        }
-    }.getOrNull()
+        })
 
     fun saveCustomThemeColors(colors: FocusFlowThemeColors) {
         preferences.edit().putString("custom_theme_colors", JSONObject().apply {
@@ -75,8 +123,8 @@ class PrototypeStore(context: Context) {
     }
 
     /** 自定义主题预设：多套命名配色存档。无预设时返回空列表。 */
-    fun loadThemePresets(): List<ThemePreset> = runCatching {
-        preferences.getString("theme_presets", null)?.let { json ->
+    fun loadThemePresets(): List<ThemePreset> =
+        decodeGuarded("theme_presets", emptyList(), { json ->
             JSONArray(json).let { arr ->
                 (0 until arr.length()).map { i ->
                     val item = arr.getJSONObject(i)
@@ -95,8 +143,7 @@ class PrototypeStore(context: Context) {
                     )
                 }
             }
-        } ?: emptyList()
-    }.getOrElse { emptyList() }
+        }, { it.isEmpty() })
 
     fun saveThemePresets(presets: List<ThemePreset>) {
         preferences.edit().putString("theme_presets", JSONArray().apply {
@@ -140,7 +187,7 @@ class PrototypeStore(context: Context) {
     }
 
     fun loadStatusCheckIns(limit: Int = 90): List<StatusCheckIn> =
-        StatusCheckInCodec.decode(preferences.getString("status_checkins", "[]") ?: "[]")
+        decodeGuarded("status_checkins", emptyList(), { StatusCheckInCodec.decode(it) }, { it.isEmpty() })
             .takeLast(limit.coerceIn(1, 365))
 
     fun saveStatusCheckIn(checkIn: StatusCheckIn) {
@@ -154,7 +201,12 @@ class PrototypeStore(context: Context) {
     fun loadLatestStatusCheckIn(): StatusCheckIn? = loadStatusCheckIns(1).lastOrNull()
 
     fun loadItems(): List<Item> {
-        val result = ItemsCodec.decode(preferences.getString("items", "[]") ?: "[]")
+        val raw = preferences.getString("items", null) ?: return emptyList()
+        val result = ItemsCodec.decode(raw)
+        if (result.items.isEmpty() && CorruptionBackup.shouldBackup(raw)) {
+            CorruptionBackup.backup(corruptDir, "items", raw)
+            return emptyList()
+        }
         if (result.idsNormalized) saveItems(result.items)
         return result.items
     }
@@ -273,6 +325,7 @@ class PrototypeStore(context: Context) {
         campusMode = preferences.getString("campus_mode", "步行") ?: "步行",
         buildingBufferMinutes = preferences.getInt("building_buffer_minutes", 3),
         eBikeBattery = preferences.getString("ebike_battery", "未知") ?: "未知",
+        // 路由校准/观测键不套损坏保护：空为合法状态，可回退 legacy 观测。
         routeCalibrations = CommuteRouteCodec.decodeCalibrations(preferences.getString("route_calibrations", "{}") ?: "{}"),
         routeObservations = CommuteRouteCodec.decodeObservations(preferences.getString("route_observations", "{}") ?: "{}").ifEmpty {
             CommuteRouteCodec.legacyObservations(preferences.getString("route_calibrations", "{}") ?: "{}")
@@ -299,15 +352,14 @@ class PrototypeStore(context: Context) {
 
     /** 被用户删除（隐藏）的内置默认地点名；可从“已隐藏地点”恢复。 */
     fun loadHiddenPlaces(): Set<String> =
-        StringArrayCodec.decodeNonBlank(preferences.getString("hidden_places", "[]") ?: "[]").toSet()
+        decodeGuarded("hidden_places", emptySet(), { StringArrayCodec.decodeNonBlank(it).toSet() }, { it.isEmpty() })
 
     fun saveHiddenPlaces(hidden: Set<String>) {
         preferences.edit().putString("hidden_places", StringArrayCodec.encode(hidden.take(100))).apply()
     }
 
-    fun loadCampusMapPackage(): CampusMapPackage? = runCatching {
-        preferences.getString("campus_map_package", null)?.let(CampusMapPackageCodec::parse)
-    }.getOrNull()
+    fun loadCampusMapPackage(): CampusMapPackage? =
+        decodeObjectGuarded("campus_map_package", null, { CampusMapPackageCodec.parse(it) })
 
     fun saveCampusMapPackage(mapPackage: CampusMapPackage?) {
         preferences.edit().apply {
@@ -326,13 +378,14 @@ class PrototypeStore(context: Context) {
     }
 
     /** 用户自定义地点（本地退化版地点管理），与内置目录/地点包合并后作为全部地点列表。 */
-    fun loadCustomPlaces(): List<CampusPlace> = runCatching {
-        val values = JSONArray(preferences.getString("custom_places", "[]") ?: "[]")
-        val seen = mutableSetOf<String>()
-        List(values.length()) { index ->
-            runCatching { CampusMapPackageCodec.parsePlace(values.getJSONObject(index)) }.getOrNull()
-        }.filterNotNull().filter { seen.add(it.name.lowercase()) }.takeLast(100)
-    }.getOrDefault(emptyList())
+    fun loadCustomPlaces(): List<CampusPlace> =
+        decodeGuarded("custom_places", emptyList(), { json ->
+            val values = JSONArray(json)
+            val seen = mutableSetOf<String>()
+            List(values.length()) { index ->
+                runCatching { CampusMapPackageCodec.parsePlace(values.getJSONObject(index)) }.getOrNull()
+            }.filterNotNull().filter { seen.add(it.name.lowercase()) }.takeLast(100)
+        }, { it.isEmpty() })
 
     fun saveCustomPlaces(places: List<CampusPlace>) {
         val values = JSONArray()
@@ -349,16 +402,15 @@ class PrototypeStore(context: Context) {
         }.apply()
     }
 
-    fun loadCampusCenter(): CampusCenter = runCatching {
-        preferences.getString("campus_center", null)?.let { json ->
+    fun loadCampusCenter(): CampusCenter =
+        decodeObjectGuarded("campus_center", AmapWebApi.defaultCampusCenter(), { json ->
             val value = JSONObject(json)
             CampusCenter(
                 lat = value.optDouble("lat", AmapWebApi.ZIJINGANG_CENTER.first),
                 lng = value.optDouble("lng", AmapWebApi.ZIJINGANG_CENTER.second),
                 city = value.optString("city", "杭州").ifBlank { "杭州" }
             )
-        }
-    }.getOrNull() ?: AmapWebApi.defaultCampusCenter()
+        }) ?: AmapWebApi.defaultCampusCenter()
 
     fun saveCampusCenter(center: CampusCenter) {
         preferences.edit().putString("campus_center", JSONObject().apply {
@@ -425,16 +477,17 @@ class PrototypeStore(context: Context) {
     }
 
     /** 课表识别发现的新地点（楼级文字，尚未加入地点目录），最多 50 个；加载时自动剥校区前缀并归并到楼级。 */
-    fun loadPendingPlaces(): List<String> = runCatching {
-        val values = JSONArray(preferences.getString("pending_places", "[]") ?: "[]")
-        List(values.length()) { index -> values.optString(index, "") }
-            .filter { it.isNotBlank() }
-            .mapNotNull { value ->
-                val stripped = CourseScreenshotParser.stripCampusPrefix(value).trim()
-                CourseScreenshotParser.buildingFromRoom(stripped) ?: stripped.takeIf { it.isNotBlank() }
-            }
-            .distinct()
-    }.getOrDefault(emptyList())
+    fun loadPendingPlaces(): List<String> =
+        decodeGuarded("pending_places", emptyList(), { json ->
+            val values = JSONArray(json)
+            List(values.length()) { index -> values.optString(index, "") }
+                .filter { it.isNotBlank() }
+                .mapNotNull { value ->
+                    val stripped = CourseScreenshotParser.stripCampusPrefix(value).trim()
+                    CourseScreenshotParser.buildingFromRoom(stripped) ?: stripped.takeIf { it.isNotBlank() }
+                }
+                .distinct()
+        }, { it.isEmpty() })
 
     fun savePendingPlaces(places: List<String>) {
         val values = JSONArray()
@@ -444,16 +497,17 @@ class PrototypeStore(context: Context) {
 
     fun hasCourseSetup(): Boolean = preferences.getBoolean("course_setup_done", false)
 
-    fun loadCourses(): List<Course> = runCatching {
-        val values = JSONArray(preferences.getString("courses", "[]") ?: "[]")
-        List(values.length()) { index ->
-            val course = values.getJSONObject(index)
-            Course(
-                title = course.getString("title"), weekday = course.getInt("weekday"), startPeriod = course.getInt("startPeriod"), endPeriod = course.getInt("endPeriod"),
-                building = course.getString("building"), zone = CampusZone.valueOf(course.getString("zone")), needsConfirmation = course.optBoolean("needsConfirmation", false)
-            )
-        }
-    }.getOrDefault(emptyList())
+    fun loadCourses(): List<Course> =
+        decodeGuarded("courses", emptyList(), { json ->
+            val values = JSONArray(json)
+            List(values.length()) { index ->
+                val course = values.getJSONObject(index)
+                Course(
+                    title = course.getString("title"), weekday = course.getInt("weekday"), startPeriod = course.getInt("startPeriod"), endPeriod = course.getInt("endPeriod"),
+                    building = course.getString("building"), zone = CampusZone.valueOf(course.getString("zone")), needsConfirmation = course.optBoolean("needsConfirmation", false)
+                )
+            }
+        }, { it.isEmpty() })
 
     fun saveCourses(courses: List<Course>) {
         val values = JSONArray()
@@ -464,7 +518,8 @@ class PrototypeStore(context: Context) {
         preferences.edit().putBoolean("course_setup_done", true).putString("courses", values.toString()).apply()
     }
 
-    fun loadGoals(): List<Goal> = StoredGoalsCodec.decodeGoals(preferences.getString("goals", "[]") ?: "[]")
+    fun loadGoals(): List<Goal> =
+        decodeGuarded("goals", emptyList(), { StoredGoalsCodec.decodeGoals(it) }, { it.isEmpty() })
 
     fun saveGoals(goals: List<Goal>) {
         preferences.edit().putString("goals", StoredGoalsCodec.encodeGoals(goals)).apply()
@@ -477,14 +532,15 @@ class PrototypeStore(context: Context) {
         } else if (minimum) goal.copy(minimumCompletionsThisWeek = 1, completionWeekKey = key) else goal.copy(completedThisWeek = 1, minimumCompletionsThisWeek = 0, completionWeekKey = key) })
     }
 
-    fun loadResources(): List<LearningResource> = StoredGoalsCodec.decodeResources(preferences.getString("resources", "[]") ?: "[]")
+    fun loadResources(): List<LearningResource> =
+        decodeGuarded("resources", emptyList(), { StoredGoalsCodec.decodeResources(it) }, { it.isEmpty() })
 
     fun saveResources(resources: List<LearningResource>) {
         preferences.edit().putString("resources", StoredGoalsCodec.encodeResources(resources)).apply()
     }
 
     fun loadFeedback(): List<TaskFeedback> =
-        TaskFeedbackCodec.decode(preferences.getString("feedback", "[]") ?: "[]")
+        decodeGuarded("feedback", emptyList(), { TaskFeedbackCodec.decode(it) }, { it.isEmpty() })
 
     fun addFeedback(feedback: TaskFeedback) {
         val all = (loadFeedback() + feedback).takeLast(200)
@@ -492,7 +548,7 @@ class PrototypeStore(context: Context) {
     }
 
     fun loadImprovementNotes(): List<ImprovementNote> =
-        ImprovementNoteCodec.decode(preferences.getString("improvement_notes", "[]") ?: "[]")
+        decodeGuarded("improvement_notes", emptyList(), { ImprovementNoteCodec.decode(it) }, { it.isEmpty() })
 
     fun saveImprovementNotes(notes: List<ImprovementNote>) {
         preferences.edit().putString("improvement_notes", ImprovementNoteCodec.encode(notes.takeLast(100))).apply()
@@ -525,20 +581,20 @@ class PrototypeStore(context: Context) {
         preferences.edit().putBoolean("baseline_where_to_find_shown", shown).apply()
     }
 
-    fun loadBaselineProfile(): BaselineProfile = runCatching {
-        val value = preferences.getString("baseline_profile", null) ?: return@runCatching BaselineProfile()
-        BaselineProfileCodec.parse(JSONObject(value))
-    }.getOrDefault(BaselineProfile())
+    fun loadBaselineProfile(): BaselineProfile =
+        decodeObjectGuarded("baseline_profile", BaselineProfile(), { json -> BaselineProfileCodec.parse(JSONObject(json)) })
+            ?: BaselineProfile()
 
     fun saveBaselineProfile(profile: BaselineProfile) {
         preferences.edit().putString("baseline_profile", BaselineProfileCodec.encode(profile)).apply()
     }
 
     /** 已另存的生活模式方案（同阶段多种作息共存，可切换/删除）。 */
-    fun loadBaselineVariants(): List<BaselineProfile> = runCatching {
-        val values = JSONArray(preferences.getString("baseline_variants", "[]") ?: "[]")
-        List(values.length()) { index -> values.optJSONObject(index)?.let(BaselineProfileCodec::parse) }.filterNotNull()
-    }.getOrDefault(emptyList())
+    fun loadBaselineVariants(): List<BaselineProfile> =
+        decodeGuarded("baseline_variants", emptyList(), { json ->
+            val values = JSONArray(json)
+            List(values.length()) { index -> values.optJSONObject(index)?.let(BaselineProfileCodec::parse) }.filterNotNull()
+        }, { it.isEmpty() })
 
     fun saveBaselineVariants(variants: List<BaselineProfile>) {
         val values = JSONArray()
@@ -552,7 +608,7 @@ class PrototypeStore(context: Context) {
     }
 
     fun loadBaselineEvents(limit: Int = 200): List<BaselineEvent> =
-        BaselineEventsCodec.decode(preferences.getString("baseline_events", "[]") ?: "[]")
+        decodeGuarded("baseline_events", emptyList(), { BaselineEventsCodec.decode(it) }, { it.isEmpty() })
             .takeLast(limit.coerceIn(1, 500))
 
     fun clearBaselineEvents() {
@@ -565,7 +621,7 @@ class PrototypeStore(context: Context) {
     }
 
     fun loadTaskEvents(limit: Int = 1000): List<TaskEvent> =
-        TaskEventCodec.decode(preferences.getString("task_events", "[]") ?: "[]")
+        decodeGuarded("task_events", emptyList(), { TaskEventCodec.decode(it) }, { it.isEmpty() })
             .takeLast(limit.coerceIn(1, 1000))
 
     /** 6.5 一次性迁移：已执行过则直接返回 false；否则按存量 items 补齐可推断事件并置位标记。 */
@@ -585,7 +641,7 @@ class PrototypeStore(context: Context) {
     }
 
     fun loadMealRecords(limit: Int = 200): List<MealRecord> =
-        MealRecordsCodec.decode(preferences.getString("meal_records", "[]") ?: "[]")
+        decodeGuarded("meal_records", emptyList(), { MealRecordsCodec.decode(it) }, { it.isEmpty() })
             .takeLast(limit.coerceIn(1, 500))
 
     fun appendMealRecord(record: MealRecord) {
@@ -640,7 +696,7 @@ class PrototypeStore(context: Context) {
 
     /** 用户手动设定的应用分类：包名 → 分类名（AppCategory.name）。 */
     fun loadAppCategories(): Map<String, String> =
-        AppCategoriesCodec.decode(preferences.getString("app_categories", "{}") ?: "{}")
+        decodeGuarded("app_categories", emptyMap(), { AppCategoriesCodec.decode(it) }, { it.isEmpty() })
 
     fun saveAppCategories(categories: Map<String, String>) {
         preferences.edit().putString("app_categories", AppCategoriesCodec.encode(categories)).apply()
@@ -648,14 +704,14 @@ class PrototypeStore(context: Context) {
 
     /** 被用户忽略（从应用分类列表隐藏）的应用包名；可从“已忽略应用”恢复。 */
     fun loadHiddenApps(): Set<String> =
-        StringArrayCodec.decodeNonBlank(preferences.getString("hidden_apps", "[]") ?: "[]").toSet()
+        decodeGuarded("hidden_apps", emptySet(), { StringArrayCodec.decodeNonBlank(it).toSet() }, { it.isEmpty() })
 
     fun saveHiddenApps(hidden: Set<String>) {
         preferences.edit().putString("hidden_apps", StringArrayCodec.encode(hidden.take(300))).apply()
     }
 
     fun loadGameSessions(): List<GameSessionRecord> =
-        GameSessionsCodec.decode(preferences.getString("game_sessions", "[]") ?: "[]")
+        decodeGuarded("game_sessions", emptyList(), { GameSessionsCodec.decode(it) }, { it.isEmpty() })
 
     fun saveGameSessions(sessions: List<GameSessionRecord>) {
         preferences.edit().putString("game_sessions", GameSessionsCodec.encode(sessions.takeLast(200))).apply()
@@ -697,32 +753,33 @@ class PrototypeStore(context: Context) {
 
     /** 当天标记“今天不需要”的餐次，格式为 “yyyy-MM-dd:类型标签”。 */
     fun loadMealSkipDays(): Set<String> =
-        StringArrayCodec.decodeStrict(preferences.getString("meal_skip_days", "[]") ?: "[]").toSet()
+        decodeGuarded("meal_skip_days", emptySet(), { StringArrayCodec.decodeStrict(it).toSet() }, { it.isEmpty() })
 
     fun saveMealSkipDays(skipDays: Set<String>) {
         preferences.edit().putString("meal_skip_days", StringArrayCodec.encode(skipDays)).apply()
     }
 
-    private fun loadSessions(): List<ActivitySession> = runCatching {
-        val values = JSONArray(preferences.getString("sessions", "[]") ?: "[]")
-        List(values.length()) { index ->
-            val item = values.getJSONObject(index)
-            val name = item.getString("name")
-            val id = item.getLong("id")
-            ActivitySession(
-                id = id,
-                name = name,
-                category = item.optString("category", name),
-                plannedStartAt = item.optLong("plannedStartAt", id),
-                actualStartAt = item.optLong("actualStartAt", id),
-                endsAt = item.getLong("endsAt"),
-                nextStep = item.optString("nextStep"),
-                status = item.optString("status", ActivitySession.STATUS_ACTIVE),
-                extensionCount = item.optInt("extensionCount"),
-                extensionReason = item.optString("extensionReason"),
-                actualEndAt = item.optLong("actualEndAt").takeIf { it > 0 },
-                endChoice = item.optString("endChoice")
-            )
-        }
-    }.getOrDefault(emptyList())
+    private fun loadSessions(): List<ActivitySession> =
+        decodeGuarded("sessions", emptyList(), { json ->
+            val values = JSONArray(json)
+            List(values.length()) { index ->
+                val item = values.getJSONObject(index)
+                val name = item.getString("name")
+                val id = item.getLong("id")
+                ActivitySession(
+                    id = id,
+                    name = name,
+                    category = item.optString("category", name),
+                    plannedStartAt = item.optLong("plannedStartAt", id),
+                    actualStartAt = item.optLong("actualStartAt", id),
+                    endsAt = item.getLong("endsAt"),
+                    nextStep = item.optString("nextStep"),
+                    status = item.optString("status", ActivitySession.STATUS_ACTIVE),
+                    extensionCount = item.optInt("extensionCount"),
+                    extensionReason = item.optString("extensionReason"),
+                    actualEndAt = item.optLong("actualEndAt").takeIf { it > 0 },
+                    endChoice = item.optString("endChoice")
+                )
+            }
+        }, { it.isEmpty() })
 }
