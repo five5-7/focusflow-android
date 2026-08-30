@@ -32,7 +32,7 @@ class RecoveryInsightsTest {
         val monday = WeekReview.weekStartOf(now)
         fun at(day: Int, hour: Int) = monday + day * 24 * 60 * 60_000L + hour * 60 * 60_000L
         val items = listOf(
-            Item(title = "完成", detail = "", kind = "任务", scheduledAt = at(0, 9), done = true),
+            Item(title = "完成", detail = "", kind = "任务", scheduledAt = at(0, 9), done = true, completedAt = at(0, 10)),
             Item(title = "错过", detail = "", kind = "任务", scheduledAt = at(1, 9), durationMinutes = 30),
             Item(title = "未来", detail = "", kind = "任务", scheduledAt = at(5, 9)),
             Item(title = "改期一", detail = "", kind = "任务", scheduledAt = at(5, 10), lastRescheduledAt = at(1, 14)),
