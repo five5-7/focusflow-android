@@ -139,78 +139,28 @@ class PrototypeStore(context: Context) {
             .apply()
     }
 
-    fun loadStatusCheckIns(limit: Int = 90): List<StatusCheckIn> = runCatching {
-        val values = JSONArray(preferences.getString("status_checkins", "[]") ?: "[]")
-        List(values.length()) { index ->
-            val value = values.getJSONObject(index)
-            StatusCheckIn(
-                energy = value.optString("energy", "正常").takeIf { it in StatusCheckInCatalog.energies } ?: "正常",
-                activity = value.optString("activity", "其他").takeIf { it in StatusCheckInCatalog.activities } ?: "其他",
-                recordedAt = value.optLong("recordedAt", System.currentTimeMillis())
-            )
-        }.takeLast(limit.coerceIn(1, 365))
-    }.getOrDefault(emptyList())
+    fun loadStatusCheckIns(limit: Int = 90): List<StatusCheckIn> =
+        StatusCheckInCodec.decode(preferences.getString("status_checkins", "[]") ?: "[]")
+            .takeLast(limit.coerceIn(1, 365))
 
     fun saveStatusCheckIn(checkIn: StatusCheckIn) {
         val all = (loadStatusCheckIns(365) + checkIn).takeLast(365)
-        val values = JSONArray()
-        all.forEach { value -> values.put(JSONObject().apply {
-            put("energy", value.energy)
-            put("activity", value.activity)
-            put("recordedAt", value.recordedAt)
-        }) }
         preferences.edit()
-            .putString("status_checkins", values.toString())
+            .putString("status_checkins", StatusCheckInCodec.encode(all))
             .putString("energy_level", checkIn.energy)
             .apply()
     }
 
     fun loadLatestStatusCheckIn(): StatusCheckIn? = loadStatusCheckIns(1).lastOrNull()
 
-    fun loadItems(): List<Item> = runCatching {
-        val values = JSONArray(preferences.getString("items", "[]") ?: "[]")
-        val parsed = List(values.length()) { index ->
-            val item = values.getJSONObject(index)
-            Item(
-                id = item.getLong("id"), title = item.getString("title"), detail = item.getString("detail"), kind = item.getString("kind"),
-                done = item.optBoolean("done"), scheduledAt = item.optLong("scheduledAt").takeIf { it > 0 }, dayOnly = item.optBoolean("dayOnly"),
-                goalId = item.optLong("goalId").takeIf { it > 0 }, completionLevel = item.optString("completionLevel"), completedAt = item.optLong("completedAt").takeIf { it > 0 },
-                durationMinutes = item.optInt("durationMinutes", 60).coerceIn(5, 360), windowStartAt = item.optLong("windowStartAt").takeIf { it > 0 }, windowEndAt = item.optLong("windowEndAt").takeIf { it > 0 },
-                rescheduleCount = item.optInt("rescheduleCount", 0).coerceAtLeast(0), lastRescheduledAt = item.optLong("lastRescheduledAt").takeIf { it > 0 },
-                recoverySourceScheduledAt = item.optLong("recoverySourceScheduledAt").takeIf { it > 0 },
-                priority = ItemPriority.fromKey(item.optString("priority")).storageKey
-            )
-        }
-        val firstByOriginalId = mutableMapOf<Long, Item>()
-        val assignedIds = mutableSetOf<Long>()
-        val normalized = parsed.map { item ->
-            val first = firstByOriginalId.putIfAbsent(item.id, item)
-            if (first == null && item.id > 0 && assignedIds.add(item.id)) {
-                item
-            } else {
-                var replacementId = newItemId()
-                while (!assignedIds.add(replacementId)) replacementId = newItemId()
-                val accidentallyCompletedTogether = first?.let {
-                    it.done && item.done && it.completedAt != null && it.completedAt == item.completedAt
-                } == true
-                item.copy(
-                    id = replacementId,
-                    done = if (accidentallyCompletedTogether) false else item.done,
-                    completionLevel = if (accidentallyCompletedTogether) "" else item.completionLevel,
-                    completedAt = if (accidentallyCompletedTogether) null else item.completedAt
-                )
-            }
-        }
-        if (normalized != parsed) saveItems(normalized)
-        normalized
-    }.getOrDefault(emptyList())
+    fun loadItems(): List<Item> {
+        val result = ItemsCodec.decode(preferences.getString("items", "[]") ?: "[]")
+        if (result.idsNormalized) saveItems(result.items)
+        return result.items
+    }
 
     fun saveItems(items: List<Item>) {
-        val values = JSONArray()
-        items.forEach { item -> values.put(JSONObject().apply {
-            put("id", item.id); put("title", item.title); put("detail", item.detail); put("kind", item.kind); put("done", item.done); put("scheduledAt", item.scheduledAt ?: 0); put("dayOnly", item.dayOnly); put("goalId", item.goalId ?: 0); put("completionLevel", item.completionLevel); put("completedAt", item.completedAt ?: 0); put("durationMinutes", item.durationMinutes); put("windowStartAt", item.windowStartAt ?: 0); put("windowEndAt", item.windowEndAt ?: 0); put("rescheduleCount", item.rescheduleCount); put("lastRescheduledAt", item.lastRescheduledAt ?: 0); put("recoverySourceScheduledAt", item.recoverySourceScheduledAt ?: 0); put("priority", item.priority)
-        }) }
-        preferences.edit().putString("items", values.toString()).apply()
+        preferences.edit().putString("items", ItemsCodec.encode(items)).apply()
     }
 
     fun saveSession(session: ActivitySession) {
@@ -323,54 +273,21 @@ class PrototypeStore(context: Context) {
         campusMode = preferences.getString("campus_mode", "步行") ?: "步行",
         buildingBufferMinutes = preferences.getInt("building_buffer_minutes", 3),
         eBikeBattery = preferences.getString("ebike_battery", "未知") ?: "未知",
-        routeCalibrations = runCatching {
-            val values = JSONObject(preferences.getString("route_calibrations", "{}") ?: "{}")
-            val parsed = mutableMapOf<String, Int>()
-            val keys = values.keys()
-            while (keys.hasNext()) {
-                val key = keys.next()
-                values.optInt(key).takeIf { it in 1..180 }?.let { parsed[key] = it }
-            }
-            parsed
-        }.getOrDefault(emptyMap()),
-        routeObservations = runCatching {
-            val values = JSONObject(preferences.getString("route_observations", "{}") ?: "{}")
-            val parsed = mutableMapOf<String, List<Int>>()
-            val keys = values.keys()
-            while (keys.hasNext()) {
-                val key = keys.next()
-                val entries = values.optJSONArray(key) ?: continue
-                val minutes = List(entries.length()) { entries.optInt(it) }.filter { it in 1..180 }.takeLast(12)
-                if (minutes.isNotEmpty()) parsed[key] = minutes
-            }
-            parsed
-        }.getOrDefault(emptyMap()).ifEmpty {
-            runCatching {
-                val legacy = JSONObject(preferences.getString("route_calibrations", "{}") ?: "{}")
-                val parsed = mutableMapOf<String, List<Int>>()
-                val keys = legacy.keys()
-                while (keys.hasNext()) {
-                    val key = keys.next()
-                    legacy.optInt(key).takeIf { it in 1..180 }?.let { parsed[key] = listOf(it) }
-                }
-                parsed
-            }.getOrDefault(emptyMap())
+        routeCalibrations = CommuteRouteCodec.decodeCalibrations(preferences.getString("route_calibrations", "{}") ?: "{}"),
+        routeObservations = CommuteRouteCodec.decodeObservations(preferences.getString("route_observations", "{}") ?: "{}").ifEmpty {
+            CommuteRouteCodec.legacyObservations(preferences.getString("route_calibrations", "{}") ?: "{}")
         }
     )
 
     fun saveCommuteProfile(profile: CommuteProfile) {
-        val observations = JSONObject()
-        profile.routeObservations.forEach { (key, values) ->
-            observations.put(key, JSONArray().apply { values.takeLast(12).forEach { put(it) } })
-        }
         preferences.edit()
             .putBoolean("commute_enabled", profile.enabled)
             .putInt("commute_one_way_minutes", profile.oneWayMinutes)
             .putString("campus_mode", profile.campusMode)
             .putInt("building_buffer_minutes", profile.buildingBufferMinutes)
             .putString("ebike_battery", profile.eBikeBattery)
-            .putString("route_calibrations", JSONObject(profile.routeCalibrations).toString())
-            .putString("route_observations", observations.toString())
+            .putString("route_calibrations", CommuteRouteCodec.encodeCalibrations(profile.routeCalibrations))
+            .putString("route_observations", CommuteRouteCodec.encodeObservations(profile.routeObservations))
             .apply()
     }
 
@@ -381,15 +298,11 @@ class PrototypeStore(context: Context) {
     }
 
     /** 被用户删除（隐藏）的内置默认地点名；可从“已隐藏地点”恢复。 */
-    fun loadHiddenPlaces(): Set<String> = runCatching {
-        val values = JSONArray(preferences.getString("hidden_places", "[]") ?: "[]")
-        List(values.length()) { index -> values.optString(index, "") }.filter { it.isNotBlank() }.toSet()
-    }.getOrDefault(emptySet())
+    fun loadHiddenPlaces(): Set<String> =
+        StringArrayCodec.decodeNonBlank(preferences.getString("hidden_places", "[]") ?: "[]").toSet()
 
     fun saveHiddenPlaces(hidden: Set<String>) {
-        val values = JSONArray()
-        hidden.take(100).forEach { values.put(it) }
-        preferences.edit().putString("hidden_places", values.toString()).apply()
+        preferences.edit().putString("hidden_places", StringArrayCodec.encode(hidden.take(100))).apply()
     }
 
     fun loadCampusMapPackage(): CampusMapPackage? = runCatching {
@@ -570,37 +483,19 @@ class PrototypeStore(context: Context) {
         preferences.edit().putString("resources", StoredGoalsCodec.encodeResources(resources)).apply()
     }
 
-    fun loadFeedback(): List<TaskFeedback> = runCatching {
-        val values = JSONArray(preferences.getString("feedback", "[]") ?: "[]")
-        List(values.length()) { index ->
-            val feedback = values.getJSONObject(index)
-            TaskFeedback(feedback.getLong("id"), feedback.getLong("goalId"), feedback.getString("completionLevel"), feedback.getString("difficulty"), feedback.getString("barrier"), feedback.getLong("createdAt"))
-        }
-    }.getOrDefault(emptyList())
+    fun loadFeedback(): List<TaskFeedback> =
+        TaskFeedbackCodec.decode(preferences.getString("feedback", "[]") ?: "[]")
 
     fun addFeedback(feedback: TaskFeedback) {
         val all = (loadFeedback() + feedback).takeLast(200)
-        val values = JSONArray()
-        all.forEach { value -> values.put(JSONObject().apply {
-            put("id", value.id); put("goalId", value.goalId); put("completionLevel", value.completionLevel); put("difficulty", value.difficulty); put("barrier", value.barrier); put("createdAt", value.createdAt)
-        }) }
-        preferences.edit().putString("feedback", values.toString()).apply()
+        preferences.edit().putString("feedback", TaskFeedbackCodec.encode(all)).apply()
     }
 
-    fun loadImprovementNotes(): List<ImprovementNote> = runCatching {
-        val values = JSONArray(preferences.getString("improvement_notes", "[]") ?: "[]")
-        List(values.length()) { index ->
-            val note = values.getJSONObject(index)
-            ImprovementNote(note.getLong("id"), note.getString("text"), note.getLong("createdAt"))
-        }
-    }.getOrDefault(emptyList())
+    fun loadImprovementNotes(): List<ImprovementNote> =
+        ImprovementNoteCodec.decode(preferences.getString("improvement_notes", "[]") ?: "[]")
 
     fun saveImprovementNotes(notes: List<ImprovementNote>) {
-        val values = JSONArray()
-        notes.takeLast(100).forEach { note -> values.put(JSONObject().apply {
-            put("id", note.id); put("text", note.text); put("createdAt", note.createdAt)
-        }) }
-        preferences.edit().putString("improvement_notes", values.toString()).apply()
+        preferences.edit().putString("improvement_notes", ImprovementNoteCodec.encode(notes.takeLast(100))).apply()
     }
 
     fun loadOnboardingDone(): Boolean = preferences.getBoolean("baseline_onboarding_done", false)
@@ -632,123 +527,33 @@ class PrototypeStore(context: Context) {
 
     fun loadBaselineProfile(): BaselineProfile = runCatching {
         val value = preferences.getString("baseline_profile", null) ?: return@runCatching BaselineProfile()
-        baselineProfileFromJson(JSONObject(value))
+        BaselineProfileCodec.parse(JSONObject(value))
     }.getOrDefault(BaselineProfile())
 
     fun saveBaselineProfile(profile: BaselineProfile) {
-        preferences.edit().putString("baseline_profile", baselineProfileToJson(profile).toString()).apply()
+        preferences.edit().putString("baseline_profile", BaselineProfileCodec.encode(profile)).apply()
     }
 
     /** 已另存的生活模式方案（同阶段多种作息共存，可切换/删除）。 */
     fun loadBaselineVariants(): List<BaselineProfile> = runCatching {
         val values = JSONArray(preferences.getString("baseline_variants", "[]") ?: "[]")
-        List(values.length()) { index -> values.optJSONObject(index)?.let(::baselineProfileFromJson) }.filterNotNull()
+        List(values.length()) { index -> values.optJSONObject(index)?.let(BaselineProfileCodec::parse) }.filterNotNull()
     }.getOrDefault(emptyList())
 
     fun saveBaselineVariants(variants: List<BaselineProfile>) {
         val values = JSONArray()
-        variants.take(8).forEach { profile -> values.put(baselineProfileToJson(profile)) }
+        variants.take(8).forEach { values.put(BaselineProfileCodec.toJson(it)) }
         preferences.edit().putString("baseline_variants", values.toString()).apply()
-    }
-
-    private fun baselineProfileFromJson(json: JSONObject): BaselineProfile = BaselineProfile(
-        lifeStage = LifeStage.fromKey(json.optString("lifeStage", "")),
-        wakeMinute = json.optInt("wakeMinute", -1),
-        sleepMinute = json.optInt("sleepMinute", -1),
-        meals = runCatching {
-            val values = json.optJSONArray("meals") ?: JSONArray()
-            List(values.length()) { index ->
-                val meal = values.getJSONObject(index)
-                MealTimeline(
-                    type = MealType.fromLabel(meal.getString("type")) ?: return@List MealTimeline(MealType.BREAKFAST, 480),
-                    typicalStartMinute = meal.optInt("typicalStartMinute", 480).coerceIn(0, 24 * 60 - 1),
-                    typicalMinutes = meal.optInt("typicalMinutes", 20).coerceIn(5, 120)
-                )
-            }
-        }.getOrDefault(emptyList()),
-        entertainmentWindow = json.optString("entertainmentWindow", ""),
-        variantName = json.optString("variantName", ""),
-        dayGroups = runCatching {
-            val values = json.optJSONArray("dayGroups") ?: JSONArray()
-            List(values.length()) { index ->
-                val group = values.getJSONObject(index)
-                val days = group.optJSONArray("days")?.let { daysArray -> List(daysArray.length()) { i -> daysArray.optInt(i, 0) }.filter { it in 1..7 }.toSet() } ?: emptySet()
-                val meals = runCatching {
-                    val mealValues = group.optJSONArray("meals") ?: JSONArray()
-                    List(mealValues.length()) { i ->
-                        val meal = mealValues.getJSONObject(i)
-                        MealTimeline(
-                            type = MealType.fromLabel(meal.getString("type")) ?: return@List MealTimeline(MealType.BREAKFAST, 480),
-                            typicalStartMinute = meal.optInt("typicalStartMinute", 480).coerceIn(0, 24 * 60 - 1),
-                            typicalMinutes = meal.optInt("typicalMinutes", 20).coerceIn(5, 120)
-                        )
-                    }
-                }.getOrDefault(emptyList())
-                DayGroup(group.optString("label", ""), days, group.optInt("wakeMinute", -1), group.optInt("sleepMinute", -1), meals)
-            }
-        }.getOrDefault(emptyList())
-    )
-
-    private fun baselineProfileToJson(profile: BaselineProfile): JSONObject {
-        val meals = JSONArray()
-        profile.meals.forEach { meal -> meals.put(JSONObject().apply {
-            put("type", meal.type.label)
-            put("typicalStartMinute", meal.typicalStartMinute)
-            put("typicalMinutes", meal.typicalMinutes)
-        }) }
-        val groups = JSONArray()
-        profile.dayGroups.forEach { group ->
-            groups.put(JSONObject().apply {
-                put("label", group.label)
-                val days = JSONArray()
-                group.days.sorted().forEach { days.put(it) }
-                put("days", days)
-                put("wakeMinute", group.wakeMinute)
-                put("sleepMinute", group.sleepMinute)
-                val groupMeals = JSONArray()
-                group.meals.forEach { meal -> groupMeals.put(JSONObject().apply {
-                    put("type", meal.type.label)
-                    put("typicalStartMinute", meal.typicalStartMinute)
-                    put("typicalMinutes", meal.typicalMinutes)
-                }) }
-                put("meals", groupMeals)
-            })
-        }
-        return JSONObject().apply {
-            put("lifeStage", profile.lifeStage?.storageKey ?: "")
-            put("wakeMinute", profile.wakeMinute)
-            put("sleepMinute", profile.sleepMinute)
-            put("meals", meals)
-            put("entertainmentWindow", profile.entertainmentWindow)
-            put("variantName", profile.variantName)
-            put("dayGroups", groups)
-        }
     }
 
     fun appendBaselineEvent(event: BaselineEvent) {
         val all = (loadBaselineEvents(500) + event).takeLast(500)
-        val values = JSONArray()
-        all.forEach { value -> values.put(JSONObject().apply {
-            put("id", value.id)
-            put("type", value.type.storageKey)
-            put("recordedAt", value.recordedAt)
-            put("payload", value.payload)
-        }) }
-        preferences.edit().putString("baseline_events", values.toString()).apply()
+        preferences.edit().putString("baseline_events", BaselineEventsCodec.encode(all)).apply()
     }
 
-    fun loadBaselineEvents(limit: Int = 200): List<BaselineEvent> = runCatching {
-        val values = JSONArray(preferences.getString("baseline_events", "[]") ?: "[]")
-        List(values.length()) { index ->
-            val value = values.getJSONObject(index)
-            BaselineEvent(
-                id = value.getLong("id"),
-                type = BaselineEventType.entries.firstOrNull { it.storageKey == value.optString("type") } ?: BaselineEventType.LIFE_STAGE_SET,
-                recordedAt = value.optLong("recordedAt", 0),
-                payload = value.optString("payload", "")
-            )
-        }.takeLast(limit.coerceIn(1, 500))
-    }.getOrDefault(emptyList())
+    fun loadBaselineEvents(limit: Int = 200): List<BaselineEvent> =
+        BaselineEventsCodec.decode(preferences.getString("baseline_events", "[]") ?: "[]")
+            .takeLast(limit.coerceIn(1, 500))
 
     fun clearBaselineEvents() {
         preferences.edit().remove("baseline_events").apply()
@@ -779,47 +584,13 @@ class PrototypeStore(context: Context) {
             .apply()
     }
 
-    fun loadMealRecords(limit: Int = 200): List<MealRecord> = runCatching {
-        val values = JSONArray(preferences.getString("meal_records", "[]") ?: "[]")
-        List(values.length()) { index ->
-            val value = values.getJSONObject(index)
-            MealRecord(
-                id = value.getLong("id"),
-                mealType = MealType.fromLabel(value.optString("mealType", "")) ?: MealType.LUNCH,
-                lifeStage = value.optString("lifeStage", ""),
-                startedAt = value.optLong("startedAt", 0),
-                endedAt = value.optLong("endedAt").takeIf { it > 0 },
-                location = value.optString("location", ""),
-                category = value.optString("category", ""),
-                merchant = value.optString("merchant", ""),
-                amount = value.optInt("amount", -1),
-                payMethod = value.optString("payMethod", ""),
-                rating = value.optInt("rating", 0).coerceIn(0, 5),
-                note = value.optString("note", ""),
-                recordedAt = value.optLong("recordedAt", value.optLong("startedAt", 0))
-            )
-        }.takeLast(limit.coerceIn(1, 500))
-    }.getOrDefault(emptyList())
+    fun loadMealRecords(limit: Int = 200): List<MealRecord> =
+        MealRecordsCodec.decode(preferences.getString("meal_records", "[]") ?: "[]")
+            .takeLast(limit.coerceIn(1, 500))
 
     fun appendMealRecord(record: MealRecord) {
         val all = (loadMealRecords(500) + record).takeLast(500)
-        val values = JSONArray()
-        all.forEach { value -> values.put(JSONObject().apply {
-            put("id", value.id)
-            put("mealType", value.mealType.label)
-            put("lifeStage", value.lifeStage)
-            put("startedAt", value.startedAt)
-            put("endedAt", value.endedAt ?: 0)
-            put("location", value.location)
-            put("category", value.category)
-            put("merchant", value.merchant)
-            put("amount", value.amount)
-            put("payMethod", value.payMethod)
-            put("rating", value.rating)
-            put("note", value.note)
-            put("recordedAt", value.recordedAt)
-        }) }
-        preferences.edit().putString("meal_records", values.toString()).apply()
+        preferences.edit().putString("meal_records", MealRecordsCodec.encode(all)).apply()
     }
 
     fun updateMealRecordEnd(id: Long, endedAt: Long, draft: MealDraft = MealDraft()) {
@@ -835,44 +606,12 @@ class PrototypeStore(context: Context) {
                 note = if (draft.note.isNotBlank()) draft.note else it.note
             ) else it
         }
-        val values = JSONArray()
-        updated.forEach { value -> values.put(JSONObject().apply {
-            put("id", value.id)
-            put("mealType", value.mealType.label)
-            put("lifeStage", value.lifeStage)
-            put("startedAt", value.startedAt)
-            put("endedAt", value.endedAt ?: 0)
-            put("location", value.location)
-            put("category", value.category)
-            put("merchant", value.merchant)
-            put("amount", value.amount)
-            put("payMethod", value.payMethod)
-            put("rating", value.rating)
-            put("note", value.note)
-            put("recordedAt", value.recordedAt)
-        }) }
-        preferences.edit().putString("meal_records", values.toString()).apply()
+        preferences.edit().putString("meal_records", MealRecordsCodec.encode(updated)).apply()
     }
 
     fun deleteMealRecord(id: Long) {
         val remaining = loadMealRecords(500).filterNot { it.id == id }
-        val values = JSONArray()
-        remaining.forEach { value -> values.put(JSONObject().apply {
-            put("id", value.id)
-            put("mealType", value.mealType.label)
-            put("lifeStage", value.lifeStage)
-            put("startedAt", value.startedAt)
-            put("endedAt", value.endedAt ?: 0)
-            put("location", value.location)
-            put("category", value.category)
-            put("merchant", value.merchant)
-            put("amount", value.amount)
-            put("payMethod", value.payMethod)
-            put("rating", value.rating)
-            put("note", value.note)
-            put("recordedAt", value.recordedAt)
-        }) }
-        preferences.edit().putString("meal_records", values.toString()).apply()
+        preferences.edit().putString("meal_records", MealRecordsCodec.encode(remaining)).apply()
     }
 
     fun loadMealReminderEnabled(): Boolean = preferences.getBoolean("meal_reminder_enabled", true)
@@ -900,56 +639,26 @@ class PrototypeStore(context: Context) {
     }
 
     /** 用户手动设定的应用分类：包名 → 分类名（AppCategory.name）。 */
-    fun loadAppCategories(): Map<String, String> = runCatching {
-        val obj = JSONObject(preferences.getString("app_categories", "{}") ?: "{}")
-        obj.keys().asSequence().associateWith { obj.optString(it, "") }.filterValues { it.isNotBlank() }
-    }.getOrDefault(emptyMap())
+    fun loadAppCategories(): Map<String, String> =
+        AppCategoriesCodec.decode(preferences.getString("app_categories", "{}") ?: "{}")
 
     fun saveAppCategories(categories: Map<String, String>) {
-        val obj = JSONObject()
-        categories.forEach { (pkg, category) -> if (category.isNotBlank()) obj.put(pkg, category) }
-        preferences.edit().putString("app_categories", obj.toString()).apply()
+        preferences.edit().putString("app_categories", AppCategoriesCodec.encode(categories)).apply()
     }
 
     /** 被用户忽略（从应用分类列表隐藏）的应用包名；可从“已忽略应用”恢复。 */
-    fun loadHiddenApps(): Set<String> = runCatching {
-        val values = JSONArray(preferences.getString("hidden_apps", "[]") ?: "[]")
-        List(values.length()) { values.optString(it, "") }.filter { it.isNotBlank() }.toSet()
-    }.getOrDefault(emptySet())
+    fun loadHiddenApps(): Set<String> =
+        StringArrayCodec.decodeNonBlank(preferences.getString("hidden_apps", "[]") ?: "[]").toSet()
 
     fun saveHiddenApps(hidden: Set<String>) {
-        val values = JSONArray()
-        hidden.take(300).forEach { values.put(it) }
-        preferences.edit().putString("hidden_apps", values.toString()).apply()
+        preferences.edit().putString("hidden_apps", StringArrayCodec.encode(hidden.take(300))).apply()
     }
 
-    fun loadGameSessions(): List<GameSessionRecord> = runCatching {
-        val values = JSONArray(preferences.getString("game_sessions", "[]") ?: "[]")
-        List(values.length()) { index ->
-            val session = values.getJSONObject(index)
-            GameSessionRecord(
-                id = session.getLong("id"),
-                title = session.getString("title"),
-                category = session.optString("category", "游戏").takeIf { it.isNotBlank() } ?: "游戏",
-                packageName = session.optString("packageName", "").takeIf { it.isNotBlank() },
-                plannedStartAt = session.getLong("plannedStartAt"),
-                plannedEndAt = session.getLong("plannedEndAt"),
-                actualEndAt = if (session.has("actualEndAt") && !session.isNull("actualEndAt")) session.getLong("actualEndAt") else null,
-                endedOnTime = session.optBoolean("endedOnTime", false),
-                overrunMinutes = session.optInt("overrunMinutes", 0),
-                remindStart = session.optBoolean("remindStart", false)
-            )
-        }
-    }.getOrDefault(emptyList())
+    fun loadGameSessions(): List<GameSessionRecord> =
+        GameSessionsCodec.decode(preferences.getString("game_sessions", "[]") ?: "[]")
 
     fun saveGameSessions(sessions: List<GameSessionRecord>) {
-        val values = JSONArray()
-        sessions.takeLast(200).forEach { session -> values.put(JSONObject().apply {
-            put("id", session.id); put("title", session.title); put("category", session.category); put("packageName", session.packageName ?: ""); put("plannedStartAt", session.plannedStartAt); put("plannedEndAt", session.plannedEndAt)
-            session.actualEndAt?.let { put("actualEndAt", it) }
-            put("endedOnTime", session.endedOnTime); put("overrunMinutes", session.overrunMinutes); put("remindStart", session.remindStart)
-        }) }
-        preferences.edit().putString("game_sessions", values.toString()).apply()
+        preferences.edit().putString("game_sessions", GameSessionsCodec.encode(sessions.takeLast(200))).apply()
     }
 
     /** 更新一条游戏会话（前台检测/通知动作记录实际结束等）。 */
@@ -987,15 +696,11 @@ class PrototypeStore(context: Context) {
     }
 
     /** 当天标记“今天不需要”的餐次，格式为 “yyyy-MM-dd:类型标签”。 */
-    fun loadMealSkipDays(): Set<String> = runCatching {
-        val values = JSONArray(preferences.getString("meal_skip_days", "[]") ?: "[]")
-        List(values.length()) { index -> values.getString(index) }.toSet()
-    }.getOrDefault(emptySet())
+    fun loadMealSkipDays(): Set<String> =
+        StringArrayCodec.decodeStrict(preferences.getString("meal_skip_days", "[]") ?: "[]").toSet()
 
     fun saveMealSkipDays(skipDays: Set<String>) {
-        val values = JSONArray()
-        skipDays.forEach { values.put(it) }
-        preferences.edit().putString("meal_skip_days", values.toString()).apply()
+        preferences.edit().putString("meal_skip_days", StringArrayCodec.encode(skipDays)).apply()
     }
 
     private fun loadSessions(): List<ActivitySession> = runCatching {
