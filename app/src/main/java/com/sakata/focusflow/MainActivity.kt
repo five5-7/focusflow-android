@@ -1874,7 +1874,7 @@ private fun scheduleWindowOptions(now: Long = System.currentTimeMillis()): List<
     )
 }
 
-/** 任意分钟时长选择：常用快捷 chips + 自定义输入，统一 5–360；非法输入回调 null。 */
+/** 任意分钟时长选择：少量常用快捷 chips + 自定义输入，统一 5–360；非法输入回调 null。 */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun DurationPicker(initialMinutes: Int, onChange: (Int?) -> Unit) {
@@ -1887,7 +1887,7 @@ private fun DurationPicker(initialMinutes: Int, onChange: (Int?) -> Unit) {
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            listOf(5, 10, 15, 20, 25, 30, 45, 60, 75, 90).forEach { minutes ->
+            listOf(15, 30, 60, 90).forEach { minutes ->
                 FilterChip(
                     modifier = Modifier.weight(1f),
                     selected = parsed == minutes,
