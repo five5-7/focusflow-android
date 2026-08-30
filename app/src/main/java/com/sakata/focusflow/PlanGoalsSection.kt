@@ -28,8 +28,10 @@ internal fun PlanGoalsSection(
     autoPlanMessage: String?,
     onAddGoal: () -> Unit,
     onEditGoal: (Goal) -> Unit,
-    onAutoPlanGoals: () -> Unit,
-    onScheduleGoal: (Goal, GoalSuggestion) -> Unit
+    onDeleteGoal: (Goal) -> Unit,
+    onScheduleGoal: (Goal, GoalSuggestion) -> Unit,
+    onChooseTime: (Goal) -> Unit,
+    onAutoPlanGoals: () -> Unit
 ) {
     val context = LocalContext.current
     Row(
@@ -57,7 +59,9 @@ internal fun PlanGoalsSection(
                 runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
             },
             onEditGoal = onEditGoal,
-            onScheduleGoal = onScheduleGoal
+            onDeleteGoal = onDeleteGoal,
+            onScheduleGoal = onScheduleGoal,
+            onChooseTime = onChooseTime
         )
     }
 }
@@ -215,7 +219,9 @@ private fun GoalExecutionCard(
     feedback: List<TaskFeedback>,
     onOpenResource: (String) -> Unit,
     onEditGoal: (Goal) -> Unit,
-    onScheduleGoal: (Goal, GoalSuggestion) -> Unit
+    onDeleteGoal: (Goal) -> Unit,
+    onScheduleGoal: (Goal, GoalSuggestion) -> Unit,
+    onChooseTime: (Goal) -> Unit
 ) {
     val suggestions = GoalPlanner.suggestions(goal, planningCourses, profile, occupiedByWeekday(items))
     ElevatedCard {
@@ -226,6 +232,9 @@ private fun GoalExecutionCard(
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Text(goal.title, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
                 TextButton(onClick = { onEditGoal(goal) }) { Text("编辑") }
+                TextButton(onClick = { onDeleteGoal(goal) }) {
+                    Text("删除", color = MaterialTheme.colorScheme.error)
+                }
             }
             val completed = GoalPlanner.completedThisWeek(goal)
             val pending = items.count { it.goalId == goal.id && it.kind == "任务" && !it.done }
@@ -273,8 +282,15 @@ private fun GoalExecutionCard(
                                 "${GoalPlanner.displayTime(suggestion.startMinute)}，" +
                                 "可用 ${suggestion.freeMinutes} 分钟"
                         )
-                        Button(onClick = { onScheduleGoal(goal, suggestion) }) {
-                            Text("安排第 ${completed + pending + 1} / ${goal.weeklyTarget} 次")
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Button(onClick = { onScheduleGoal(goal, suggestion) }) {
+                                Text("安排第 ${completed + pending + 1} / ${goal.weeklyTarget} 次")
+                            }
+                            TextButton(onClick = { onChooseTime(goal) }) { Text("自定义时间") }
                         }
                     }
                 }

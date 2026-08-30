@@ -22,6 +22,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Date
+import java.util.Locale
 
 @Composable
 internal fun scheduleColor(type: ScheduleType): Color {
@@ -150,8 +154,17 @@ internal fun WeeklyScheduleTimeline(
 ) {
     val courseEvents = courses.mapIndexed { index, course -> course.asTimelineEvent(index) } +
         commuteTimelineEvents(courses, profile)
+    // 未来 7 天视图：从今天 00:00 起共 7 天；7 天恰好覆盖每个星期几一次，列与星期几一一对应。
+    val dayStart = Calendar.getInstance().apply {
+        set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
+    }.timeInMillis
+    val weekEnd = dayStart + 7 * 24 * 60 * 60_000L
+    val weekdays = (0..6).map { index -> todayWeekday(dayStart + index * 24 * 60 * 60_000L) }
+    val weekDates = (0..6).map { index ->
+        SimpleDateFormat("M/d", Locale.CHINA).format(Date(dayStart + index * 24 * 60 * 60_000L))
+    }
     val taskEvents = items
-        .filter { !it.dayOnly && it.scheduledAt?.let(::isInCurrentWeek) == true }
+        .filter { !it.dayOnly && it.scheduledAt?.let { time -> time >= dayStart && time < weekEnd } == true }
         .mapNotNull {
             it.asTimelineEvent()?.copy(
                 conflictNote = taskConflictNote(it, courses, items, profile)
@@ -177,30 +190,35 @@ internal fun WeeklyScheduleTimeline(
         Column(Modifier.fillMaxWidth().padding(horizontal = 2.dp, vertical = 10.dp)) {
             Row(Modifier.fillMaxWidth()) {
                 Spacer(Modifier.width(40.dp))
-                (1..7).forEach { day ->
+                (0..6).forEach { index ->
                     Surface(
                         modifier = Modifier.weight(1f).padding(horizontal = 0.5.dp),
-                        color = if (day == todayWeekday()) {
+                        color = if (index == 0) {
                             MaterialTheme.colorScheme.primaryContainer
                         } else {
                             Color.Transparent
                         },
                         shape = RoundedCornerShape(10.dp)
                     ) {
-                        Text(
-                            weekdayName(day),
-                            Modifier.padding(vertical = 8.dp),
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                            fontWeight = FontWeight.SemiBold
-                        )
+                        Column(
+                            Modifier.padding(vertical = 5.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                weekdayName(weekdays[index]),
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(weekDates[index], style = MaterialTheme.typography.labelSmall)
+                        }
                     }
                 }
             }
             Row(Modifier.fillMaxWidth()) {
                 TimelineTimeAxis(40.dp)
-                (1..7).forEach { day ->
+                (0..6).forEach { index ->
                     TimelineDayLane(
-                        (courseEvents + taskEvents).filter { it.weekday == day },
+                        (courseEvents + taskEvents).filter { it.weekday == weekdays[index] },
                         Modifier.weight(1f),
                         showLabels = true,
                         compactBlocks = true,

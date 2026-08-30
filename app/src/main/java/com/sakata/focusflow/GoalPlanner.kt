@@ -63,7 +63,13 @@ object GoalPlanner {
     fun completedThisWeek(goal: Goal): Int = if (goal.completionWeekKey == currentWeekKey()) goal.completedThisWeek else 0
     fun minimumCompletedThisWeek(goal: Goal): Int = if (goal.completionWeekKey == currentWeekKey()) goal.minimumCompletionsThisWeek else 0
     /** occupied：日程里已有安排按星期几的占用分钟段，建议会避开这些时段。 */
-    fun suggestions(goal: Goal, courses: List<Course>, profile: CommuteProfile, occupied: Map<Int, List<IntRange>> = emptyMap()): List<GoalSuggestion> {
+    fun suggestions(
+        goal: Goal,
+        courses: List<Course>,
+        profile: CommuteProfile,
+        occupied: Map<Int, List<IntRange>> = emptyMap(),
+        nowMillis: Long = System.currentTimeMillis()
+    ): List<GoalSuggestion> {
         val confirmed = courses.filter { !it.needsConfirmation }
         val gapSuggestions = CourseGapPlanner.gaps(confirmed, profile, occupied)
             .filter { it.minutesFree >= goal.durationMinutes }
@@ -81,14 +87,18 @@ object GoalPlanner {
                     suggestion.startMinute < CourseGapPlanner.periodEnd(course.endPeriod)
             }
         }
-        val calendar = Calendar.getInstance()
-        val currentDay = when (calendar.get(Calendar.DAY_OF_WEEK)) { Calendar.SUNDAY -> 7 else -> calendar.get(Calendar.DAY_OF_WEEK) - 1 }
-        val currentMinute = calendar.get(Calendar.HOUR_OF_DAY) * 60 + calendar.get(Calendar.MINUTE)
         return (gapSuggestions + freeSuggestions + fallbackSuggestions)
             .distinctBy { it.weekday to it.startMinute }
-            .filter { it.weekday > currentDay || (it.weekday == currentDay && it.startMinute > currentMinute + 15) }
+            // 跨周取「从 now 起未来 7 天内最近一次出现」：周日晚上也能看到下周的空档
+            .filter { suggestion ->
+                val occurrence = nextOccurrence(suggestion.weekday, suggestion.startMinute, nowMillis)
+                occurrence > nowMillis + 15 * 60_000L && occurrence <= nowMillis + 7 * 24 * 60 * 60_000L
+            }
             .filterNot { overlapsOccupied(it, goal.durationMinutes, occupied) }
-            .sortedWith(compareBy<GoalSuggestion> { it.weekday }.thenBy { it.startMinute })
+            .sortedWith(
+                compareBy<GoalSuggestion> { nextOccurrence(it.weekday, it.startMinute, nowMillis) }
+                    .thenBy { it.weekday }.thenBy { it.startMinute }
+            )
     }
 
     /** 建议时段 [start, start+duration) 是否与已有安排重叠。 */
@@ -97,15 +107,16 @@ object GoalPlanner {
         return occupied[suggestion.weekday].orEmpty().any { it.first < end && suggestion.startMinute < it.last + 1 }
     }
 
-    fun nextOccurrence(weekday: Int, minuteOfDay: Int): Long {
+    fun nextOccurrence(weekday: Int, minuteOfDay: Int, nowMillis: Long = System.currentTimeMillis()): Long {
         val calendar = Calendar.getInstance()
+        calendar.timeInMillis = nowMillis
         val currentDay = when (calendar.get(Calendar.DAY_OF_WEEK)) { Calendar.SUNDAY -> 7 else -> calendar.get(Calendar.DAY_OF_WEEK) - 1 }
         var days = (weekday - currentDay + 7) % 7
         calendar.set(Calendar.HOUR_OF_DAY, minuteOfDay / 60)
         calendar.set(Calendar.MINUTE, minuteOfDay % 60)
         calendar.set(Calendar.SECOND, 0)
         calendar.set(Calendar.MILLISECOND, 0)
-        if (days == 0 && calendar.timeInMillis <= System.currentTimeMillis()) days = 7
+        if (days == 0 && calendar.timeInMillis <= nowMillis) days = 7
         calendar.add(Calendar.DAY_OF_YEAR, days)
         return calendar.timeInMillis
     }

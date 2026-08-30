@@ -66,7 +66,7 @@ internal fun ScheduleScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                if (scheduleMode == "日") "今天" else "本周",
+                if (scheduleMode == "日") "今天" else "未来 7 天",
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold
             )
