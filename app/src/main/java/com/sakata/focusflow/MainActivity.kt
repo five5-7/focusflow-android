@@ -318,7 +318,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
         .filter { !it.done && it.kind != "收集箱" && it.kind != "暂停" }
         .sortedWith(compareBy<Item> { it.scheduledAt ?: Long.MAX_VALUE }.thenBy { it.title })
         .firstOrNull()
-    val upcomingCommitment = nextActivityCommitment(items, courses)
+    val upcomingCommitment = NextActionPlanner.nextCommitment(items, courses)
     val suggestedNextStepName = upcomingCommitment?.title ?: suggestedNextStep?.title.orEmpty()
     // 全部地点：内置目录或地点包为基底，自定义地点按名去重合并（同名自定义胜出）。
     val basePlaces = campusMapPackage?.places?.takeIf { it.isNotEmpty() } ?: ZijingangTravel.places
@@ -1529,9 +1529,10 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
         }
     }
     val inboxItems = items.filter { !it.done && it.kind == "收集箱" }
-    val nextSuggestion = recommendNextAction(items, nextCommitment, energyLevel, goals, feedback, now)
+    val nextSuggestion = NextActionPlanner.recommend(items, nextCommitment, energyLevel, goals, feedback, now, courses, commuteProfile)
     val dailySummary = DailyLoopStats.summarize(items, now, taskEvents)
-    val recoveryCandidates = RecoveryInsights.candidates(items, now)
+    // 6.9：已推荐去执行的任务不再重复出现在「需要恢复的安排」——推荐/恢复双入口去重（只影响 UI 展示）。
+    val recoveryCandidates = RecoveryInsights.candidates(items, now).filter { it.item.id != nextSuggestion?.item?.id }
     val completedTodayItems = if (taskEvents.isEmpty()) {
         items.filter { it.done && it.completedAt?.let(::isToday) == true }.sortedByDescending { it.completedAt }.map {
             TaskRecorder.event(TaskEventType.TASK_COMPLETED, it.id, it.title, extra = it.completionLevel, at = it.completedAt ?: 0)
@@ -2440,88 +2441,6 @@ private data class ActivityLaunchPreset(
     val nextStep: String,
     val minimumVersion: Boolean
 )
-
-private data class NextActionSuggestion(
-    val item: Item,
-    val reason: String,
-    val minimumVersion: String? = null,
-    val minimumMinutes: Int = 10
-)
-
-private fun recommendNextAction(items: List<Item>, nextCommitment: ActivityCommitment?, energyLevel: String = "正常", goals: List<Goal> = emptyList(), feedback: List<TaskFeedback> = emptyList(), now: Long = System.currentTimeMillis()): NextActionSuggestion? {
-    val candidates = items.filter { !it.done && it.kind !in setOf("收集箱", "暂停", "计划") }
-    fun recommendation(item: Item, baseReason: String): NextActionSuggestion {
-        val goal = item.goalId?.let { id -> goals.firstOrNull { it.id == id } }
-        val minimum = goal?.minimumVersion?.takeIf { it.isNotBlank() }
-        val commonBarrier = goal?.let { current ->
-            feedback.filter { it.goalId == current.id && it.barrier != "无" }.takeLast(12)
-                .groupingBy(TaskFeedback::barrier).eachCount().maxByOrNull { it.value }?.key
-        }
-        val recommendMinimum = minimum != null && (energyLevel == "偏低" || commonBarrier in setOf("时间不够", "精力不足"))
-        val reason = if (recommendMinimum) "$baseReason 结合当前精力或近期反馈，也可以先做“$minimum”。" else baseReason
-        return NextActionSuggestion(item, reason, minimum, (goal?.durationMinutes?.div(3) ?: 10).coerceIn(5, 15))
-    }
-    val scheduled = candidates.filter { it.scheduledAt != null }
-    val overdue = scheduled.filter { (it.scheduledAt ?: Long.MAX_VALUE) < now }.maxByOrNull { it.scheduledAt ?: Long.MIN_VALUE }
-    if (overdue != null) {
-        return recommendation(overdue, "原定 ${formatDateTime(overdue.scheduledAt ?: now)}，尚未确认完成；现在不合适时可以重新安排。")
-    }
-    val expiredWindow = candidates.filter { it.scheduledAt == null && (it.windowEndAt ?: Long.MAX_VALUE) < now }.maxByOrNull { it.windowEndAt ?: Long.MIN_VALUE }
-    if (expiredWindow != null) {
-        return recommendation(expiredWindow, "原先保留到 ${formatDateTime(expiredWindow.windowEndAt ?: now)} 的弹性范围已经过去；可以重新选择范围或直接开始。")
-    }
-
-    val upcoming = scheduled.filter { (it.scheduledAt ?: Long.MIN_VALUE) >= now }.minByOrNull { it.scheduledAt ?: Long.MAX_VALUE }
-    val minutesUntilUpcoming = upcoming?.scheduledAt?.let { ((it - now) / 60_000L).toInt().coerceAtLeast(0) }
-    if (upcoming != null && minutesUntilUpcoming != null && minutesUntilUpcoming <= 90) {
-        return recommendation(upcoming, "${formatTime(upcoming.scheduledAt ?: now)} 开始，是最近的固定安排（约 $minutesUntilUpcoming 分钟后）。")
-    }
-
-    val flexible = candidates.filter {
-        it.scheduledAt == null && (it.windowStartAt == null || it.windowStartAt <= now) && (it.windowEndAt == null || it.windowEndAt >= now)
-    }
-    val minutesBeforeCommitment = nextCommitment?.let { ((it.startsAt - now) / 60_000L).toInt().coerceAtLeast(0) }
-    val usableMinutes = minutesBeforeCommitment?.minus(15)?.coerceAtLeast(0)
-    val fittingCandidates = flexible.filter { usableMinutes == null || it.durationMinutes <= usableMinutes }
-    val fitting = when (energyLevel) {
-        "偏低" -> fittingCandidates.sortedWith(compareBy<Item> { if (it.durationMinutes <= 30) 0 else 1 }.thenBy { it.durationMinutes }).firstOrNull()
-        "充足" -> fittingCandidates.sortedWith(compareByDescending<Item> { it.goalId != null }.thenByDescending { it.durationMinutes }).firstOrNull()
-        else -> fittingCandidates.sortedWith(compareByDescending<Item> { it.goalId != null }.thenBy { it.durationMinutes }).firstOrNull()
-    }
-    if (fitting != null) {
-        val reason = if (minutesBeforeCommitment == null) {
-            when (energyLevel) {
-                "偏低" -> "当前精力偏低；优先选择预计 ${fitting.durationMinutes} 分钟、较容易启动的一项。"
-                "充足" -> "当前精力充足；优先推进较完整或与目标相关的一项。"
-                else -> "当前没有临近的固定安排；这项任务可以直接开始。"
-            }
-        } else {
-            "距离 ${nextCommitment.title} 约 $minutesBeforeCommitment 分钟；按当前精力选择本项，预计 ${fitting.durationMinutes} 分钟并保留 15 分钟缓冲。"
-        }
-        return recommendation(fitting, reason)
-    }
-
-    if (upcoming != null) {
-        return recommendation(upcoming, "今天下一项固定安排在 ${formatTime(upcoming.scheduledAt ?: now)}；当前空档不足以稳妥放入其他任务。")
-    }
-    return flexible.minByOrNull(Item::durationMinutes)?.let { recommendation(it, "当前没有临近固定安排；先从预计用时较短的一项开始。") }
-}
-
-private fun nextActivityCommitment(items: List<Item>, courses: List<Course>, now: Long = System.currentTimeMillis()): ActivityCommitment? {
-    val taskCommitments = items.mapNotNull { item -> item.scheduledAt?.takeIf { !item.done && it > now }?.let { ActivityCommitment(item.title, it) } }
-    val courseCommitments = courses.filter { !it.needsConfirmation && it.weekday == todayWeekday() }.mapNotNull { course ->
-        val startsAt = todayAtMinute(CourseGapPlanner.periodStart(course.startPeriod))
-        startsAt.takeIf { it > now }?.let { ActivityCommitment("${course.title}（${course.building}）", it) }
-    }
-    return (taskCommitments + courseCommitments).minByOrNull(ActivityCommitment::startsAt)
-}
-private fun todayAtMinute(minute: Int): Long = java.util.Calendar.getInstance().apply {
-    set(java.util.Calendar.HOUR_OF_DAY, minute / 60)
-    set(java.util.Calendar.MINUTE, minute % 60)
-    set(java.util.Calendar.SECOND, 0)
-    set(java.util.Calendar.MILLISECOND, 0)
-}.timeInMillis
-private fun periodForMinute(minute: Int): Int = (1..13).lastOrNull { CourseGapPlanner.periodStart(it) <= minute } ?: 1
 
 /** 某时刻所在自然日的 [start, end) 毫秒范围。 */
 private fun dayRange(millis: Long): LongRange {

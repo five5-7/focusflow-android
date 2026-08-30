@@ -18,8 +18,11 @@ data class RoadmapEntry(val version: String, val title: String, val summary: Str
 data class RoadmapVersion(val version: String, val entries: List<RoadmapEntry>)
 
 object RoadmapData {
-    /** 已实现版本演进（1.0 → 6.8.0），每版本浓缩 1–3 条，与 CHANGELOG.md 对应。 */
+    /** 已实现版本演进（1.0 → 6.9.0），每版本浓缩 1–3 条，与 CHANGELOG.md 对应。 */
     val evolution: List<RoadmapVersion> = listOf(
+        RoadmapVersion("6.9.0", listOf(
+            RoadmapEntry("6.9.0", "「下一件合适的事」推荐精化", "推荐引擎抽出为纯 Kotlin 可测模块；同档位高优先级优先且理由标注；今日剩余空挡放不下的任务不硬推（卡片改展示下一固定安排并说明空档不足）；恢复建议卡与现在做什么建议去重；15 例单元测试", RoadmapStatus.DONE)
+        )),
         RoadmapVersion("6.8.0", listOf(
             RoadmapEntry("6.8.0", "收集箱归入已有计划", "收集箱项一键归入已有目标（免目标编辑器整套问题），移出收集箱进入弹性安排，保留时长/优先级，完成后计入目标每周次数与回顾；归入事件只计日程变化不进完成率分母，统计零污染", RoadmapStatus.DONE)
         )),
