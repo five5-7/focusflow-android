@@ -537,7 +537,8 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                     onReviewActivity = { activeSession?.let { transitionTarget = it } },
                     onPickTime = { item -> inboxScheduleTarget = item },
                     onEdit = { item -> inboxEditTarget = item },
-                    onShrink = { item -> saveItems(items.map { if (it.id == item.id) it.copy(title = item.title.removePrefix("重新安排："), kind = "任务", detail = "短版：先做 10 分钟 · 今天有空时") else it }) },
+                    onShrink = { item -> saveItems(items.map { if (it.id == item.id) it.copy(title = item.title.removePrefix("重新安排："), kind = "收集箱", detail = "短版：先做 10 分钟；准备好后再安排", scheduledAt = null, dayOnly = false, durationMinutes = 10, windowStartAt = null, windowEndAt = null) else it }) },
+                    onReturnToInbox = { item -> saveItems(items.map { if (it.id == item.id) it.copy(kind = "收集箱", scheduledAt = null, dayOnly = false, windowStartAt = null, windowEndAt = null, detail = "已放回收集箱；准备好后再安排") else it }) },
                     onPause = { item -> saveItems(items.map { if (it.id == item.id) it.copy(kind = "暂停", detail = "已暂停；随时可在计划中恢复") else it }) },
                     onAbandon = { item -> saveItems(items.filterNot { it.id == item.id }) },
                     mealRecords = mealRecords,
@@ -1350,6 +1351,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     onPickTime: (Item) -> Unit,
     onEdit: (Item) -> Unit,
     onShrink: (Item) -> Unit,
+    onReturnToInbox: (Item) -> Unit,
     onPause: (Item) -> Unit,
     onAbandon: (Item) -> Unit,
     mealRecords: List<MealRecord>,
@@ -1373,6 +1375,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     val inboxItems = items.filter { !it.done && it.kind == "收集箱" }
     val nextSuggestion = recommendNextAction(items, nextCommitment, energyLevel, goals, feedback, now)
     val dailySummary = DailyLoopStats.summarize(items, now)
+    val recoveryCandidates = RecoveryInsights.candidates(items, now)
     val completedTodayItems = items
         .filter { it.done && it.completedAt?.let(::isToday) == true }
         .sortedByDescending { it.completedAt }
@@ -1470,6 +1473,30 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                 if (inClass != null) Text("现在：${inClass.title}（${inClass.subtitle}）", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
                 if (upcoming.isEmpty()) Text("今天没有其他安排了。", style = MaterialTheme.typography.bodySmall)
                 else upcoming.forEach { entry -> Text("${formatMinute(entry.startMinute)} · ${entry.title} — ${entry.subtitle}", style = MaterialTheme.typography.bodySmall) }
+            }
+        }
+        if (recoveryCandidates.isNotEmpty()) {
+            ElevatedCard(colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.48f))) {
+                Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("需要恢复的安排", fontWeight = FontWeight.Bold)
+                    Text("错过或反复改期不等于失败；选一个更容易继续的下一步。", style = MaterialTheme.typography.bodySmall)
+                    recoveryCandidates.take(3).forEach { candidate ->
+                        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            Text(candidate.item.title.removePrefix("重新安排："), fontWeight = FontWeight.SemiBold)
+                            Text(
+                                if (candidate.reason == RecoveryReason.MISSED) "原安排已错过" else "已改期 ${candidate.item.rescheduleCount} 次",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                TextButton(onClick = { onShrink(candidate.item) }) { Text("缩小任务") }
+                                TextButton(onClick = { onReplanSuggestion(candidate.item) }) { Text("重新安排") }
+                                TextButton(onClick = { onReturnToInbox(candidate.item) }) { Text("放回收集箱") }
+                            }
+                        }
+                    }
+                    if (recoveryCandidates.size > 3) Text("还有 ${recoveryCandidates.size - 3} 项可到日程继续处理。", style = MaterialTheme.typography.labelSmall)
+                }
             }
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -2158,6 +2185,35 @@ internal fun recommendForWindow(goals: List<Goal>, items: List<Item>, minutes: I
                 onSummarizeResource = onSummarizeResource
             )
             PlanPage.REVIEW -> {
+                val executionSummary = RecoveryInsights.weeklySummary(items)
+                ElevatedCard(colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f))) {
+                    Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("本周执行概览", fontWeight = FontWeight.Bold)
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(executionSummary.completionPercent?.let { "$it%" } ?: "—", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                                Text("计划完成率", style = MaterialTheme.typography.labelSmall)
+                            }
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("${executionSummary.rescheduledCount}", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                                Text("改期", style = MaterialTheme.typography.labelSmall)
+                            }
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("${executionSummary.missedCount}", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                                Text("待恢复", style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
+                        Text(
+                            if (executionSummary.plannedCount == 0) "本周尚无定时安排；有计划后再显示完成率。"
+                            else "已完成 ${executionSummary.completedCount}/${executionSummary.plannedCount} 项日程。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        executionSummary.frequentReschedulePeriod?.let { period ->
+                            Text("本周改期较常发生在$period；下周可尝试缩短该时段任务或预留缓冲。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                        }
+                    }
+                }
                 if (goals.isEmpty()) Text("创建目标并积累完成记录后，这里会给出调整建议。", style = MaterialTheme.typography.bodySmall)
                 else {
                     val totalFull = goals.sumOf { GoalPlanner.completedThisWeek(it) }
