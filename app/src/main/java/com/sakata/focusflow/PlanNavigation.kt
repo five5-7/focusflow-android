@@ -5,6 +5,7 @@ internal enum class PlanPage(val title: String) {
     GAPS("空挡建议"),
     GOALS("目标与执行"),
     REVIEW("本周回顾"),
+    HISTORY("历史记录"),
     TOOLBOX("资料工具箱"),
     PAUSED("暂停项目")
 }
@@ -18,7 +19,9 @@ internal data class PlanHubSnapshot(
     val resourceCount: Int = 0,
     val completedThisWeek: Int = 0,
     val weeklyTarget: Int = 0,
-    val pausedCount: Int = 0
+    val pausedCount: Int = 0,
+    val historyCompletedCount: Int = 0,
+    val historyRescheduledCount: Int = 0
 )
 
 internal object PlanHubSummary {
@@ -38,6 +41,11 @@ internal object PlanHubSummary {
             "有目标后生成建议"
         } else {
             "本周 ${snapshot.completedThisWeek} / ${snapshot.weeklyTarget} 次 · 低压力建议"
+        },
+        PlanPage.HISTORY to if (snapshot.historyCompletedCount == 0 && snapshot.historyRescheduledCount == 0) {
+            "暂无记录"
+        } else {
+            "近 7 天完成 ${snapshot.historyCompletedCount} 项 · 改期 ${snapshot.historyRescheduledCount} 次"
         },
         PlanPage.TOOLBOX to if (snapshot.resourceCount == 0) "教程、视频与 AI 工具" else "${snapshot.resourceCount} 项已确认资料",
         PlanPage.PAUSED to if (snapshot.pausedCount == 0) "暂无" else "${snapshot.pausedCount} 项"

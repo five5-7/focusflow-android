@@ -292,8 +292,9 @@ class PrototypeStore(context: Context) {
     }
 
     fun addReplanItem(activityName: String) {
-        val updated = listOf(Item(title = "重新安排：$activityName", detail = "刚才跳过了本次活动；可以改期、缩短或暂停", kind = "收集箱")) + loadItems()
-        saveItems(updated)
+        val item = Item(title = "重新安排：$activityName", detail = "刚才跳过了本次活动；可以改期、缩短或暂停", kind = "收集箱")
+        saveItems(listOf(item) + loadItems())
+        appendTaskEvent(TaskRecorder.event(TaskEventType.TASK_CREATED, item.id, item.title))
     }
 
     fun updateItem(id: Long, transform: (Item) -> Item) {
@@ -304,12 +305,14 @@ class PrototypeStore(context: Context) {
 
     fun recoverMissedGoalTasks(): List<Item> {
         val cutoff = System.currentTimeMillis() - 2 * 60 * 60_000L
-        val recovered = loadItems().map { item ->
+        val all = loadItems()
+        val recovered = all.map { item ->
             if (item.goalId != null && item.kind == "任务" && !item.done && (item.scheduledAt ?: Long.MAX_VALUE) < cutoff) {
+                appendTaskEvent(TaskRecorder.event(TaskEventType.TASK_TO_INBOX, item.id, item.title, extra = "错过自动放回"))
                 item.copy(title = if (item.title.startsWith("重新安排：")) item.title else "重新安排：${item.title}", kind = "收集箱", detail = "上次目标安排未确认；可改期、缩短、暂停或放弃", scheduledAt = null)
             } else item
         }
-        if (recovered != loadItems()) saveItems(recovered)
+        if (recovered != all) saveItems(recovered)
         return recovered
     }
 
@@ -748,6 +751,23 @@ class PrototypeStore(context: Context) {
 
     fun clearBaselineEvents() {
         preferences.edit().remove("baseline_events").apply()
+    }
+
+    fun appendTaskEvent(event: TaskEvent) {
+        val all = (loadTaskEvents(1000) + event).takeLast(1000)
+        preferences.edit().putString("task_events", TaskEventCodec.encode(all)).apply()
+    }
+
+    fun loadTaskEvents(limit: Int = 1000): List<TaskEvent> =
+        TaskEventCodec.decode(preferences.getString("task_events", "[]") ?: "[]")
+            .takeLast(limit.coerceIn(1, 1000))
+
+    /** 6.5 一次性迁移：已执行过则直接返回 false；否则按存量 items 补齐可推断事件并置位标记。 */
+    fun migrateTaskHistory(): Boolean {
+        if (preferences.getBoolean("task_history_migrated_v65_0", false)) return false
+        TaskHistoryMigration.buildEvents(loadItems()).forEach(::appendTaskEvent)
+        preferences.edit().putBoolean("task_history_migrated_v65_0", true).apply()
+        return true
     }
 
     fun resetBaseline() {

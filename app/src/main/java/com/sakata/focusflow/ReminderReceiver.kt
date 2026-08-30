@@ -135,6 +135,7 @@ class ReminderReceiver : BroadcastReceiver() {
                 if (taskId >= 0) store.findItem(taskId)?.let { task ->
                     ReminderScheduler.cancelTaskReminder(context, taskId)
                     store.updateItem(taskId) { it.copy(done = true, completionLevel = "完整完成", completedAt = System.currentTimeMillis()) }
+                    store.appendTaskEvent(TaskRecorder.event(TaskEventType.TASK_COMPLETED, task.id, task.title, extra = "完整完成"))
                     task.goalId?.let { store.markGoalCompleted(it) }
                     task.scheduledAt?.let { time ->
                         val cal = java.util.Calendar.getInstance().apply { timeInMillis = time }
@@ -150,6 +151,7 @@ class ReminderReceiver : BroadcastReceiver() {
                 if (taskId >= 0) store.findItem(taskId)?.let { task ->
                     ReminderScheduler.cancelTaskReminder(context, taskId)
                     store.updateItem(taskId) { it.copy(done = true, completionLevel = "最低版本", completedAt = System.currentTimeMillis()) }
+                    store.appendTaskEvent(TaskRecorder.event(TaskEventType.TASK_COMPLETED, task.id, task.title, extra = "最低版本"))
                     task.goalId?.let { store.markGoalCompleted(it, minimum = true) }
                 }
                 return
@@ -160,6 +162,7 @@ class ReminderReceiver : BroadcastReceiver() {
                 store.findItem(taskId)?.let { item ->
                     val delayed = item.copy(scheduledAt = System.currentTimeMillis() + 60 * 60_000L, detail = "已延后一小时；到时再问你")
                     store.updateItem(taskId) { delayed }
+                    store.appendTaskEvent(TaskRecorder.event(TaskEventType.TASK_RESCHEDULED, item.id, item.title, scheduledAt = delayed.scheduledAt ?: 0, extra = "延后一小时"))
                     ReminderScheduler.scheduleTaskReminder(context, delayed)
                 }
                 return
@@ -170,6 +173,9 @@ class ReminderReceiver : BroadcastReceiver() {
                 if (taskId >= 0) {
                     ReminderScheduler.cancelTaskReminder(context, taskId)
                     store.updateItem(taskId) { item -> item.copy(title = if (item.title.startsWith("重新安排：")) item.title else "重新安排：${item.title}", kind = "收集箱", detail = "这次没有做；可以改期、缩短、暂停或放弃", scheduledAt = null) }
+                    store.findItem(taskId)?.let { updated ->
+                        store.appendTaskEvent(TaskRecorder.event(TaskEventType.TASK_TO_INBOX, updated.id, updated.title.removePrefix("重新安排："), extra = "跳过"))
+                    }
                 }
                 return
             }
