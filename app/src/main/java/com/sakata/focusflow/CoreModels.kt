@@ -26,7 +26,9 @@ data class Item(
     val windowStartAt: Long? = null,
     val windowEndAt: Long? = null,
     val rescheduleCount: Int = 0,
-    val lastRescheduledAt: Long? = null
+    val lastRescheduledAt: Long? = null,
+    /** 恢复操作清除 scheduledAt 前保留的计划时间，仅用于统计兼容。 */
+    val recoverySourceScheduledAt: Long? = null
 )
 
 data class CommuteProfile(

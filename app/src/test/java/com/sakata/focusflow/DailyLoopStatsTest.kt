@@ -36,6 +36,30 @@ class DailyLoopStatsTest {
         assertEquals(null, result.completionPercent)
     }
 
+    @Test
+    fun `returning a missed task to inbox keeps the original plan in completion rate`() {
+        val items = listOf(
+            Item(title = "完成日程", detail = "", kind = "任务", scheduledAt = now - 60_000, done = true, completedAt = now),
+            Item(title = "放回收集箱", detail = "", kind = "收集箱", recoverySourceScheduledAt = now - 120_000)
+        )
+
+        val result = DailyLoopStats.summarize(items, now)
+
+        assertEquals(2, result.plannedCount)
+        assertEquals(1, result.completedPlannedCount)
+        assertEquals(50, result.completionPercent)
+        assertEquals(1, result.inboxCount)
+    }
+
+    @Test
+    fun `deleting an item does not erase todays reschedule event`() {
+        val events = listOf(BaselineRecorder.event(BaselineEventType.TASK_RESCHEDULED, "已删除任务", now))
+
+        val result = DailyLoopStats.summarize(emptyList(), now, events)
+
+        assertEquals(1, result.rescheduledCount)
+    }
+
     private fun tomorrow(): Long = Calendar.getInstance().apply {
         timeInMillis = now
         add(Calendar.DAY_OF_YEAR, 1)
