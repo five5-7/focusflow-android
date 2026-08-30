@@ -541,6 +541,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                     onReturnToInbox = { item -> saveItems(items.map { if (it.id == item.id) it.copy(kind = "收集箱", recoverySourceScheduledAt = item.recoverySourceScheduledAt ?: item.scheduledAt, scheduledAt = null, dayOnly = false, windowStartAt = null, windowEndAt = null, detail = "已放回收集箱；准备好后再安排") else it }) },
                     onPause = { item -> saveItems(items.map { if (it.id == item.id) it.copy(kind = "暂停", detail = "已暂停；随时可在计划中恢复") else it }) },
                     onAbandon = { item -> saveItems(items.filterNot { it.id == item.id }) },
+                    baselineEvents = store.loadBaselineEvents(500),
                     mealRecords = mealRecords,
                     mealReminderEnabled = mealReminderEnabled,
                     statusCheckInEnabled = statusCheckInSettings.enabled,
@@ -1354,6 +1355,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     onReturnToInbox: (Item) -> Unit,
     onPause: (Item) -> Unit,
     onAbandon: (Item) -> Unit,
+    baselineEvents: List<BaselineEvent>,
     mealRecords: List<MealRecord>,
     mealReminderEnabled: Boolean,
     statusCheckInEnabled: Boolean,
@@ -1374,7 +1376,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     }
     val inboxItems = items.filter { !it.done && it.kind == "收集箱" }
     val nextSuggestion = recommendNextAction(items, nextCommitment, energyLevel, goals, feedback, now)
-    val dailySummary = DailyLoopStats.summarize(items, now)
+    val dailySummary = DailyLoopStats.summarize(items, now, baselineEvents)
     val recoveryCandidates = RecoveryInsights.candidates(items, now)
     val completedTodayItems = items
         .filter { it.done && it.completedAt?.let(::isToday) == true }
@@ -2185,7 +2187,7 @@ internal fun recommendForWindow(goals: List<Goal>, items: List<Item>, minutes: I
                 onSummarizeResource = onSummarizeResource
             )
             PlanPage.REVIEW -> {
-                val executionSummary = RecoveryInsights.weeklySummary(items)
+                val executionSummary = RecoveryInsights.weeklySummary(items, events = store.loadBaselineEvents(500))
                 ElevatedCard(colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f))) {
                     Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("本周执行概览", fontWeight = FontWeight.Bold)

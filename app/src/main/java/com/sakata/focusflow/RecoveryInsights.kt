@@ -35,23 +35,25 @@ object RecoveryInsights {
                 .thenBy { it.item.scheduledAt ?: Long.MAX_VALUE })
             .toList()
 
-    fun weeklySummary(items: List<Item>, now: Long = System.currentTimeMillis()): WeeklyExecutionSummary {
+    fun weeklySummary(items: List<Item>, now: Long = System.currentTimeMillis(), events: List<BaselineEvent> = emptyList()): WeeklyExecutionSummary {
         val start = WeekReview.weekStartOf(now)
         val planned = items.filter { item ->
             sequenceOf(item.scheduledAt, item.recoverySourceScheduledAt).filterNotNull().any { it in start until start + WEEK_MILLIS }
         }
         val completed = planned.count { it.done && it.completedAt?.let { time -> time in start until start + WEEK_MILLIS } == true }
-        val rescheduled = items.filter { item -> item.lastRescheduledAt?.let { it in start until start + WEEK_MILLIS } == true }
+        val rescheduleTimes = if (events.isNotEmpty()) events
+            .filter { it.type == BaselineEventType.TASK_RESCHEDULED && it.recordedAt in start until start + WEEK_MILLIS }
+            .map(BaselineEvent::recordedAt)
+        else items.mapNotNull(Item::lastRescheduledAt).filter { it in start until start + WEEK_MILLIS }
         val missed = planned.count { item ->
             !item.done && (item.scheduledAt ?: item.recoverySourceScheduledAt ?: now) + item.durationMinutes.coerceAtLeast(1) * 60_000L < now
         }
-        val period = rescheduled.mapNotNull(Item::lastRescheduledAt)
-            .map(::dayPeriod)
+        val period = rescheduleTimes.map(::dayPeriod)
             .groupingBy { it }.eachCount()
             .maxByOrNull { it.value }
             ?.takeIf { it.value >= 2 }
             ?.key
-        return WeeklyExecutionSummary(planned.size, completed, rescheduled.size, missed, period)
+        return WeeklyExecutionSummary(planned.size, completed, rescheduleTimes.size, missed, period)
     }
 
     private fun dayPeriod(time: Long): String = when (Calendar.getInstance().apply { timeInMillis = time }.get(Calendar.HOUR_OF_DAY)) {

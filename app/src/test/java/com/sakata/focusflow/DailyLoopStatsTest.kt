@@ -51,6 +51,15 @@ class DailyLoopStatsTest {
         assertEquals(1, result.inboxCount)
     }
 
+    @Test
+    fun `deleting an item does not erase todays reschedule event`() {
+        val events = listOf(BaselineRecorder.event(BaselineEventType.TASK_RESCHEDULED, "已删除任务", now))
+
+        val result = DailyLoopStats.summarize(emptyList(), now, events)
+
+        assertEquals(1, result.rescheduledCount)
+    }
+
     private fun tomorrow(): Long = Calendar.getInstance().apply {
         timeInMillis = now
         add(Calendar.DAY_OF_YEAR, 1)

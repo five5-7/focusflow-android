@@ -67,4 +67,17 @@ class RecoveryInsightsTest {
         assertEquals(1, result.missedCount)
         assertEquals(0, result.completionPercent)
     }
+
+    @Test fun `weekly reschedules survive task deletion through event history`() {
+        val monday = WeekReview.weekStartOf(now)
+        val events = listOf(
+            BaselineRecorder.event(BaselineEventType.TASK_RESCHEDULED, "已删除一", monday + 14 * 60 * 60_000L),
+            BaselineRecorder.event(BaselineEventType.TASK_RESCHEDULED, "已删除二", monday + 15 * 60 * 60_000L)
+        )
+
+        val result = RecoveryInsights.weeklySummary(emptyList(), now, events)
+
+        assertEquals(2, result.rescheduledCount)
+        assertEquals("下午", result.frequentReschedulePeriod)
+    }
 }

@@ -14,7 +14,7 @@ data class DailyLoopSummary(
 }
 
 object DailyLoopStats {
-    fun summarize(items: List<Item>, now: Long = System.currentTimeMillis()): DailyLoopSummary {
+    fun summarize(items: List<Item>, now: Long = System.currentTimeMillis(), events: List<BaselineEvent> = emptyList()): DailyLoopSummary {
         val planned = items.filter { item ->
             sequenceOf(item.scheduledAt, item.recoverySourceScheduledAt).filterNotNull().any { sameDay(it, now) }
         }
@@ -22,7 +22,8 @@ object DailyLoopStats {
             plannedCount = planned.size,
             completedPlannedCount = planned.count { it.done && it.completedAt?.let { time -> sameDay(time, now) } == true },
             completedCount = items.count { it.done && it.completedAt?.let { time -> sameDay(time, now) } == true },
-            rescheduledCount = items.count { it.lastRescheduledAt?.let { time -> sameDay(time, now) } == true },
+            rescheduledCount = if (events.isNotEmpty()) events.count { it.type == BaselineEventType.TASK_RESCHEDULED && sameDay(it.recordedAt, now) }
+                else items.count { it.lastRescheduledAt?.let { time -> sameDay(time, now) } == true },
             inboxCount = items.count { !it.done && it.kind == "收集箱" }
         )
     }
