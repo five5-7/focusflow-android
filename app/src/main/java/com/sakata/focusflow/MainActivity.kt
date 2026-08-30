@@ -555,6 +555,17 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                     energyLevel = energyLevel,
                     onPlanFlexible = { flexiblePlanTarget = it },
                     onAdjustFlexible = { inboxScheduleTarget = it },
+                    onStartTask = { item ->
+                        activityPreset = ActivityLaunchPreset(
+                            name = item.title,
+                            category = if (item.goalId != null) "学习" else "自定义",
+                            minutes = item.durationMinutes.coerceIn(5, 360),
+                            nextStep = upcomingCommitment?.title.orEmpty(),
+                            minimumVersion = false
+                        )
+                        activityOpen = true
+                    },
+                    onRescheduleTask = { item -> rescheduleTarget = item },
                     onTaskDone = { item ->
                         if (item.kind == "游戏" || item.kind == "活动") recordGameItemEnd(context, store, item.id)
                         if (item.goalId == null) saveItems(items.map { if (it.id == item.id) it.copy(done = true, completionLevel = "完成", completedAt = System.currentTimeMillis()) else it }) else completionTarget = item
@@ -965,7 +976,17 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             }
         ) }
         rescheduleTarget?.let { item -> RescheduleTimeDialog(item, onDismiss = { rescheduleTarget = null }) { scheduledAt, duration, label ->
-            val delayed = item.copy(kind = "任务", detail = "已改期至$label；届时会再次出现", scheduledAt = scheduledAt, durationMinutes = duration, dayOnly = false, windowStartAt = null, windowEndAt = null)
+            val delayed = item.copy(
+                kind = "任务",
+                detail = "已改期至$label；届时会再次出现",
+                scheduledAt = scheduledAt,
+                durationMinutes = duration,
+                dayOnly = false,
+                windowStartAt = null,
+                windowEndAt = null,
+                rescheduleCount = item.rescheduleCount + 1,
+                lastRescheduledAt = System.currentTimeMillis()
+            )
             saveItems(items.map { if (it.id == item.id) delayed else it })
             store.appendBaselineEvent(BaselineRecorder.event(BaselineEventType.TASK_RESCHEDULED, "${item.title.removePrefix("重新安排：")} → $label"))
             ReminderScheduler.scheduleTaskReminder(context, delayed)
@@ -1351,7 +1372,10 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     }
     val inboxItems = items.filter { !it.done && it.kind == "收集箱" }
     val nextSuggestion = recommendNextAction(items, nextCommitment, energyLevel, goals, feedback, now)
-    val completedToday = items.count { it.done && it.completedAt?.let(::isToday) == true }
+    val dailySummary = DailyLoopStats.summarize(items, now)
+    val completedTodayItems = items
+        .filter { it.done && it.completedAt?.let(::isToday) == true }
+        .sortedByDescending { it.completedAt }
     val completedThisWeek = items.count { it.done && it.completedAt?.let(::isInCurrentWeek) == true }
     val visibility = FeatureVisibilityPolicy.daily(
         FeatureUsageSnapshot(
@@ -1496,11 +1520,46 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                 }
             }
         }
-        ElevatedCard { Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) { Text("$completedToday", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold); Text("今日完成", style = MaterialTheme.typography.labelMedium) }
-            Column(horizontalAlignment = Alignment.CenterHorizontally) { Text("$completedThisWeek", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold); Text("本周完成", style = MaterialTheme.typography.labelMedium) }
-            Column(horizontalAlignment = Alignment.CenterHorizontally) { Text("${inboxItems.size}", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold); Text("待整理", style = MaterialTheme.typography.labelMedium) }
-        } }
+        ElevatedCard {
+            Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(dailySummary.completionPercent?.let { "$it%" } ?: "—", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                        Text("计划完成率", style = MaterialTheme.typography.labelMedium)
+                    }
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("${dailySummary.completedCount}", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                        Text("今日完成", style = MaterialTheme.typography.labelMedium)
+                    }
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("${dailySummary.rescheduledCount}", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                        Text("今日改期", style = MaterialTheme.typography.labelMedium)
+                    }
+                }
+                Text(
+                    if (dailySummary.plannedCount == 0) "今天尚未安排定时任务；完成率会在安排后开始计算。"
+                    else "已完成 ${dailySummary.completedPlannedCount}/${dailySummary.plannedCount} 项日程 · 本周共完成 $completedThisWeek 项 · 收集箱 ${dailySummary.inboxCount} 项",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+        if (completedTodayItems.isNotEmpty()) {
+            ElevatedCard {
+                Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                    Text("今日完成记录", fontWeight = FontWeight.Bold)
+                    completedTodayItems.take(4).forEach { item ->
+                        Text(
+                            "${item.completedAt?.let(::formatTime).orEmpty()} · ${item.title}" +
+                                item.completionLevel.takeIf(String::isNotBlank)?.let { " · $it" }.orEmpty(),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    if (completedTodayItems.size > 4) Text("还有 ${completedTodayItems.size - 4} 项已完成，日程中仍会灰色保留。", style = MaterialTheme.typography.labelSmall)
+                }
+            }
+        }
         if (visibility.meals) MealTodayCard(records = mealRecords, profile = baselineProfile, skipDays = mealSkipDays, now = now, onPrompt = onMealPrompt, onFinish = onMealFinish)
         val completedActivities = activityHistory.filter { it.actualEndAt?.let(::isToday) == true }
         if (completedActivities.isNotEmpty()) {

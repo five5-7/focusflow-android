@@ -76,6 +76,8 @@ private fun Item.asTimelineEvent(): TimelineEvent? {
 internal fun DailyScheduleTimeline(
     courses: List<Course>,
     tasks: List<Item>,
+    onStartTask: (Item) -> Unit,
+    onRescheduleTask: (Item) -> Unit,
     onTaskDone: (Item) -> Unit,
     onDeleteItem: (Item) -> Unit
 ) {
@@ -99,6 +101,8 @@ internal fun DailyScheduleTimeline(
         TimelineEventDialog(
             it,
             onDismiss = { selected = null },
+            onStartTask = { item -> selected = null; onStartTask(item) },
+            onRescheduleTask = { item -> selected = null; onRescheduleTask(item) },
             onTaskDone = { item -> selected = null; onTaskDone(item) },
             onDeleteItem = { item -> selected = null; onDeleteItem(item) }
         )
@@ -109,6 +113,8 @@ internal fun DailyScheduleTimeline(
 internal fun WeeklyScheduleTimeline(
     courses: List<Course>,
     items: List<Item>,
+    onStartTask: (Item) -> Unit,
+    onRescheduleTask: (Item) -> Unit,
     onTaskDone: (Item) -> Unit,
     onDeleteItem: (Item) -> Unit
 ) {
@@ -194,6 +200,8 @@ internal fun WeeklyScheduleTimeline(
         TimelineEventDialog(
             it,
             onDismiss = { selected = null },
+            onStartTask = { item -> selected = null; onStartTask(item) },
+            onRescheduleTask = { item -> selected = null; onRescheduleTask(item) },
             onTaskDone = { item -> selected = null; onTaskDone(item) },
             onDeleteItem = { item -> selected = null; onDeleteItem(item) }
         )
@@ -372,6 +380,8 @@ private fun TimelineLegend() {
 private fun TimelineEventDialog(
     event: TimelineEvent,
     onDismiss: () -> Unit,
+    onStartTask: (Item) -> Unit,
+    onRescheduleTask: (Item) -> Unit,
     onTaskDone: (Item) -> Unit,
     onDeleteItem: (Item) -> Unit
 ) {
@@ -403,12 +413,18 @@ private fun TimelineEventDialog(
         },
         confirmButton = {
             event.item?.takeIf { !it.done }?.let { item ->
-                Button(onClick = { onTaskDone(item) }) { Text("完成") }
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Button(onClick = { onStartTask(item) }) { Text("开始") }
+                    OutlinedButton(onClick = { onTaskDone(item) }) { Text("完成") }
+                }
             } ?: TextButton(onClick = onDismiss) { Text("关闭") }
         },
         dismissButton = {
             if (event.item?.done == false) {
                 Row {
+                    TextButton(onClick = { event.item?.let(onRescheduleTask); onDismiss() }) {
+                        Text("改期")
+                    }
                     TextButton(onClick = { event.item?.let(onDeleteItem); onDismiss() }) {
                         Text("删除", color = MaterialTheme.colorScheme.error)
                     }
