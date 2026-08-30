@@ -509,3 +509,47 @@ private fun TimelineEventDialog(
         }
     )
 }
+
+private fun gapMarkersFor(courses: List<Course>, day: Int, profile: CommuteProfile): List<GapMarker> {
+    val daily = courses.filter { it.weekday == day }.sortedBy { it.startPeriod }
+    if (daily.size < 2) return emptyList()
+    return daily.zipWithNext().mapNotNull { (from, to) ->
+        val start = CourseGapPlanner.periodEnd(from.endPeriod)
+        val end = CourseGapPlanner.periodStart(to.startPeriod)
+        val net = end - start - ZijingangTravel.estimateMinutes(from.zone, to.zone, profile)
+        if (net >= 10) GapMarker(start, end, net) else null
+    }
+}
+/** 空挡课表视图：与日程一致的周时间轴课表，课程色块同课表，间隙标注净可用分钟数（≥60 分钟高亮）。 */
+@Composable
+internal fun GapTimelineContent(courses: List<Course>, profile: CommuteProfile) {
+    val confirmed = courses.filter { !it.needsConfirmation }
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 2.dp, vertical = 10.dp)) {
+            Row(Modifier.fillMaxWidth()) {
+                Spacer(Modifier.width(40.dp))
+                (1..7).forEach { day ->
+                    Surface(
+                        modifier = Modifier.weight(1f).padding(horizontal = 0.5.dp),
+                        color = if (day == todayWeekday()) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+                        shape = RoundedCornerShape(10.dp)
+                    ) { Text(weekdayName(day), Modifier.padding(vertical = 8.dp), textAlign = androidx.compose.ui.text.style.TextAlign.Center, fontWeight = FontWeight.SemiBold) }
+                }
+            }
+            Row(Modifier.fillMaxWidth()) {
+                TimelineTimeAxis(40.dp)
+                (1..7).forEach { day ->
+                    TimelineDayLane(
+                        events = confirmed.filter { it.weekday == day }.mapIndexed { index, course -> course.asTimelineEvent(index) },
+                        gapMarkers = gapMarkersFor(confirmed, day, profile),
+                        modifier = Modifier.weight(1f),
+                        showLabels = false,
+                        compactBlocks = true,
+                        onSelect = {}
+                    )
+                }
+            }
+        }
+    }
+    Text("课程色块同课表；间隙显示扣除路程后的净可用分钟数（≥60 分钟深色高亮，适合安排目标或充电）。", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+}

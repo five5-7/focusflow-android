@@ -131,3 +131,21 @@ object ScheduleOccupation {
     fun minuteOfDay(time: Long): Int = Calendar.getInstance().apply { timeInMillis = time }
         .let { it.get(Calendar.HOUR_OF_DAY) * 60 + it.get(Calendar.MINUTE) }
 }
+
+/** 本周日程里已有安排（有固定时间的任务/事项）按星期几的占用分钟段；dayOnly 与仅时间范围的任务不算固定占用。 */
+internal fun occupiedByWeekday(items: List<Item>, weekKey: Long = GoalPlanner.currentWeekKey()): Map<Int, List<IntRange>> {
+    val weekEnd = weekKey + 7 * 24 * 60 * 60 * 1000L
+    val calendar = java.util.Calendar.getInstance()
+    return items.mapNotNull { item ->
+        val at = item.scheduledAt ?: return@mapNotNull null
+        if (item.dayOnly || at < weekKey || at >= weekEnd) return@mapNotNull null
+        calendar.timeInMillis = at
+        val weekday = ScheduleOccupation.weekdayOf(at)
+        val startMinute = calendar.get(java.util.Calendar.HOUR_OF_DAY) * 60 + calendar.get(java.util.Calendar.MINUTE)
+        val duration = item.durationMinutes.coerceAtLeast(15)
+        weekday to (startMinute until startMinute + duration)
+    }.groupBy({ it.first }, { it.second })
+}
+
+internal fun coursesOverlap(a: Course, b: Course): Boolean =
+    a.weekday == b.weekday && a.startPeriod <= b.endPeriod && b.startPeriod <= a.endPeriod

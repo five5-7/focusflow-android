@@ -2460,23 +2460,7 @@ private enum class SettingsSubPage(val title: String) {
 
 /** 空挡内容建议：这段空挡适合做什么（目标优先，其次弹性任务）。 */
 /** 按空挡匹配内容：未完成目标（时长能放下）优先，其次可安排的空闲弹性任务；目标按该时段历史完成率降序。 */
-internal fun recommendForWindow(goals: List<Goal>, items: List<Item>, minutes: Int, store: PrototypeStore, weekday: Int, startMinute: Int): GapRecommendation? {
-    val goal = goals.filter { g -> GoalPlanner.completedThisWeek(g) < g.weeklyTarget && g.durationMinutes <= minutes }
-        .sortedWith(compareByDescending<Goal> { PlanLearning.completionRate(store, weekday, startMinute / 60) ?: -1f }
-            .thenByDescending { it.weeklyTarget - GoalPlanner.completedThisWeek(it) }
-            .thenByDescending { it.durationMinutes })
-        .firstOrNull()
-    if (goal != null) {
-        val remaining = goal.weeklyTarget - GoalPlanner.completedThisWeek(goal)
-        val rate = PlanLearning.completionRate(store, weekday, startMinute / 60)
-        val rateNote = if (rate != null && rate >= 0.6f) " · 该时段完成率较高" else ""
-        return GapRecommendation(goal.title, "目标还剩 $remaining 次 · 每次 ${goal.durationMinutes} 分钟$rateNote", goal, null)
-    }
-    val flexible = items.filter { it.kind == "任务" && it.scheduledAt == null && it.durationMinutes <= minutes }
-        .sortedByDescending { it.durationMinutes }.firstOrNull()
-    if (flexible != null) return GapRecommendation(flexible.title, "弹性任务 · 约 ${flexible.durationMinutes} 分钟", null, flexible)
-    return null
-}
+
 
 @Composable private fun PlansScreen(modifier: Modifier, items: List<Item>, courses: List<Course>, profile: CommuteProfile, lifeStage: LifeStage?, page: PlanPage?, onPageChange: (PlanPage?) -> Unit, onResume: (Item) -> Unit, onConfirmCourse: (Course) -> Unit, onIgnoreCourse: (Course) -> Unit, onClearAwaitingCourses: () -> Unit, onAddCourse: () -> Unit, courseImportRunning: Boolean, courseImportMessage: String?, onImportCourses: () -> Unit, onEditCourse: (Course) -> Unit, goals: List<Goal>, onAddGoal: () -> Unit, onEditGoal: (Goal) -> Unit, onDeleteGoal: (Goal) -> Unit, onScheduleGoal: (Goal, GoalSuggestion) -> Unit, onChooseGoalTime: (Goal) -> Unit, onScheduleFlexible: (Item, Int, Int) -> Unit, resources: List<LearningResource>, onAddResource: () -> Unit, onSelectResource: (LearningResource) -> Unit, onDeleteResource: (LearningResource) -> Unit, onDeselectResource: () -> Unit, onSummarizeResource: (LearningResource) -> Unit, onAutoPlanGoals: () -> Unit, autoPlanMessage: String?, tutorialSearch: TutorialSearchSettings, courseVision: CourseVisionSettings, onSearchTutorial: () -> Unit, onVideoAnalysis: () -> Unit, feedback: List<TaskFeedback>, gameSessions: List<GameSessionRecord>, checkIns: List<StatusCheckIn>, taskEvents: List<TaskEvent>, store: PrototypeStore) {
     // 假期阶段：空挡与目标建议不把课程当作安排（课程管理页仍用完整列表）。
@@ -3096,50 +3080,7 @@ private fun todayAgenda(courses: List<Course>, items: List<Item>, now: Long = Sy
 }
 
 /** 某天的空挡标记：相邻课程之间的间隙（净分钟数 ≥10 才标记）。 */
-private fun gapMarkersFor(courses: List<Course>, day: Int, profile: CommuteProfile): List<GapMarker> {
-    val daily = courses.filter { it.weekday == day }.sortedBy { it.startPeriod }
-    if (daily.size < 2) return emptyList()
-    return daily.zipWithNext().mapNotNull { (from, to) ->
-        val start = CourseGapPlanner.periodEnd(from.endPeriod)
-        val end = CourseGapPlanner.periodStart(to.startPeriod)
-        val net = end - start - ZijingangTravel.estimateMinutes(from.zone, to.zone, profile)
-        if (net >= 10) GapMarker(start, end, net) else null
-    }
-}
 
-/** 空挡课表视图：与日程一致的周时间轴课表，课程色块同课表，间隙标注净可用分钟数（≥60 分钟高亮）。 */
-@Composable
-internal fun GapTimelineContent(courses: List<Course>, profile: CommuteProfile) {
-    val confirmed = courses.filter { !it.needsConfirmation }
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 2.dp, vertical = 10.dp)) {
-            Row(Modifier.fillMaxWidth()) {
-                Spacer(Modifier.width(40.dp))
-                (1..7).forEach { day ->
-                    Surface(
-                        modifier = Modifier.weight(1f).padding(horizontal = 0.5.dp),
-                        color = if (day == todayWeekday()) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
-                        shape = RoundedCornerShape(10.dp)
-                    ) { Text(weekdayName(day), Modifier.padding(vertical = 8.dp), textAlign = androidx.compose.ui.text.style.TextAlign.Center, fontWeight = FontWeight.SemiBold) }
-                }
-            }
-            Row(Modifier.fillMaxWidth()) {
-                TimelineTimeAxis(40.dp)
-                (1..7).forEach { day ->
-                    TimelineDayLane(
-                        events = confirmed.filter { it.weekday == day }.mapIndexed { index, course -> course.asTimelineEvent(index) },
-                        gapMarkers = gapMarkersFor(confirmed, day, profile),
-                        modifier = Modifier.weight(1f),
-                        showLabels = false,
-                        compactBlocks = true,
-                        onSelect = {}
-                    )
-                }
-            }
-        }
-    }
-    Text("课程色块同课表；间隙显示扣除路程后的净可用分钟数（≥60 分钟深色高亮，适合安排目标或充电）。", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-}
 
 /** 本地判断：某时间点安排 durationMinutes 是否与课程/通勤/已有安排冲突（自动排计划用）。 */
 private fun slotFree(
@@ -3179,24 +3120,6 @@ private fun recordGameItemEnd(context: Context, store: PrototypeStore, sessionId
         ReminderScheduler.cancelGameReminders(context, sessionId)
     }
 }
-
-/** 本周日程里已有安排（有固定时间的任务/事项）按星期几的占用分钟段；dayOnly 与仅时间范围的任务不算固定占用。 */
-internal fun occupiedByWeekday(items: List<Item>, weekKey: Long = GoalPlanner.currentWeekKey()): Map<Int, List<IntRange>> {
-    val weekEnd = weekKey + 7 * 24 * 60 * 60 * 1000L
-    val calendar = java.util.Calendar.getInstance()
-    return items.mapNotNull { item ->
-        val at = item.scheduledAt ?: return@mapNotNull null
-        if (item.dayOnly || at < weekKey || at >= weekEnd) return@mapNotNull null
-        calendar.timeInMillis = at
-        val weekday = weekdayOf(at)
-        val startMinute = calendar.get(java.util.Calendar.HOUR_OF_DAY) * 60 + calendar.get(java.util.Calendar.MINUTE)
-        val duration = item.durationMinutes.coerceAtLeast(15)
-        weekday to (startMinute until startMinute + duration)
-    }.groupBy({ it.first }, { it.second })
-}
-
-internal fun coursesOverlap(a: Course, b: Course): Boolean =
-    a.weekday == b.weekday && a.startPeriod <= b.endPeriod && b.startPeriod <= a.endPeriod
 
 @Composable private fun CourseEditorDialog(existing: Course?, places: List<CampusPlace>, onDismiss: () -> Unit, onSave: (Course) -> Unit) {
     var title by remember { mutableStateOf(existing?.title ?: "") }
@@ -3504,22 +3427,6 @@ private fun DayGroupWizardDialog(existingGroups: List<DayGroup>, defaultWake: In
         confirmButton = { Button(onClick = { onSave(activity, if (activity == "娱乐") remind else null) }) { Text("保存") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("暂不记录") } }
     )
-}
-
-@Composable private fun CampusPlacesScreen(modifier: Modifier, profile: CommuteProfile) {
-    Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("紫金港地点", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
-        Text("只按教学楼与区域估计，不要求精确到教室。初始数值会在你实际使用后校正。")
-        val sample = ZijingangTravel.estimateMinutes(CampusZone.WEST_TEACHING, CampusZone.LIBRARY, profile)
-        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) { Column(Modifier.padding(16.dp)) {
-            Text("示例：西教学区 → 图书馆", fontWeight = FontWeight.Bold)
-            Text("按${profile.campusMode}估计约 $sample 分钟（已含楼内缓冲）。")
-        } }
-        ZijingangTravel.places.groupBy { it.kind }.forEach { (kind, places) ->
-            Text(kind, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            Text(places.joinToString(" · ") { it.name })
-        }
-    }
 }
 
 @Composable private fun SettingsScreen(modifier: Modifier, settingsScrollState: ScrollState, themeOption: FocusFlowThemeOption, commuteProfile: CommuteProfile, campusLifeEnabled: Boolean, campusMapPackage: CampusMapPackage?, currentCampusPlace: String?, improvementNotes: List<ImprovementNote>, activitySettings: ActivityReminderSettings, statusCheckInSettings: StatusCheckInSettings, windDownEnabled: Boolean, checkIns: List<StatusCheckIn>, baselineProfile: BaselineProfile, mealRecords: List<MealRecord>, mealReminderEnabled: Boolean, subPage: SettingsSubPage?, onSubPageChange: (SettingsSubPage?) -> Unit, onThemeChange: (FocusFlowThemeOption) -> Unit, customThemeColors: FocusFlowThemeColors, onCustomThemeColorsChange: (FocusFlowThemeColors) -> Unit, themePresets: List<ThemePreset>, onThemePresetsChange: (List<ThemePreset>) -> Unit, onRestoreDefaultTheme: () -> Unit, onCommuteChange: (CommuteProfile) -> Unit, onCampusLifeEnabledChange: (Boolean) -> Unit, onCampusMapPackageChange: (CampusMapPackage?) -> Unit, onCurrentCampusPlaceChange: (String?) -> Unit, allPlaces: List<CampusPlace>, customPlaces: List<CampusPlace>, onCustomPlacesChange: (List<CampusPlace>) -> Unit, hiddenPlaces: Set<String>, onToggleHiddenPlace: (String) -> Unit, amapKey: String, onAmapKeyChange: (String) -> Unit, campusCenter: CampusCenter, onCampusCenterChange: (CampusCenter) -> Unit, tutorialSearch: TutorialSearchSettings, onTutorialSearchSettingsChange: (TutorialSearchSettings) -> Unit, courseVision: CourseVisionSettings, onCourseVisionSettingsChange: (CourseVisionSettings) -> Unit, courseVisionGuideOpen: Boolean, onCourseVisionGuideOpenChange: (Boolean) -> Unit, pendingPlaces: List<String>, onAddPendingPlace: (String) -> Unit, onRemovePendingPlace: (String) -> Unit, onActivitySettingsChange: (ActivityReminderSettings) -> Unit, quietHours: QuietHoursSettings, onQuietHoursChange: (QuietHoursSettings) -> Unit, quickCaptureEnabled: Boolean, onQuickCaptureEnabledChange: (Boolean) -> Unit, onStatusCheckInSettingsChange: (StatusCheckInSettings) -> Unit, onWindDownEnabledChange: (Boolean) -> Unit, onAddImprovement: () -> Unit, onOpenBaselineEditor: () -> Unit, onOpenBaselineEvents: () -> Unit, onResetBaseline: () -> Unit, onOpenFeatureIntro: () -> Unit, baselineVariants: List<BaselineProfile>, onSaveBaselineVariant: (String) -> Unit, onSwitchBaselineVariant: (BaselineProfile) -> Unit, onDeleteBaselineVariant: (BaselineProfile) -> Unit, onDayGroupsChange: (List<DayGroup>) -> Unit, baselineVariantNameOpen: Boolean, onBaselineVariantNameOpenChange: (Boolean) -> Unit, onMealReminderEnabledChange: (Boolean) -> Unit, onOpenMealRecords: () -> Unit, recordBaselineEvent: (BaselineEventType, String) -> Unit, gameDetectionEnabled: Boolean, onGameDetectionEnabledChange: (Boolean) -> Unit, appCategories: Map<String, String>, onAppCategoriesChange: (Map<String, String>) -> Unit, hiddenApps: Set<String>, onToggleHiddenApp: (String) -> Unit, videoAnalysisModel: String, onVideoAnalysisModelChange: (String) -> Unit, darkMode: Boolean, onDarkModeChange: (Boolean) -> Unit, onGlobalLoadingChange: (Boolean) -> Unit) {
