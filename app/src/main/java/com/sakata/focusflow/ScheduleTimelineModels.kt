@@ -8,6 +8,8 @@ internal enum class ScheduleType(val label: String) {
     LEARNING("学习／目标"),
     EXERCISE("锻炼"),
     ENTERTAINMENT("娱乐"),
+    ACTIVITY("活动"),
+    COMMUTE("通勤"),
     REST("休息"),
     TASK("弹性任务"),
     COMPLETED("已完成")
@@ -22,7 +24,9 @@ internal data class TimelineEvent(
     val endMinute: Int,
     val type: ScheduleType,
     val item: Item? = null,
-    val isConflict: Boolean = false
+    val isConflict: Boolean = false,
+    /** 与课程/通勤/其他任务重叠的说明；非课程冲突块用它做红字提示而不是整块红底。 */
+    val conflictNote: String? = null
 )
 
 internal data class TimelineEventLayout(

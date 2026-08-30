@@ -91,6 +91,8 @@ data class FocusFlowSchedulePalette(
     val learning: Color,
     val exercise: Color,
     val entertainment: Color,
+    val activity: Color,
+    val commute: Color,
     val rest: Color,
     val task: Color,
     val completed: Color
@@ -149,6 +151,8 @@ fun focusFlowThemeSpec(option: FocusFlowThemeOption, customColors: FocusFlowThem
                 learning = Color(0xFF7654A8),
                 exercise = Color(0xFF2F8F5B),
                 entertainment = Color(0xFFC95878),
+                activity = Color(0xFFBF4A38),
+                commute = Color(0xFF5B8CA8),
                 rest = Color(0xFF667885),
                 task = Color(0xFFB5661D),
                 completed = Color(0xFF94A3B8)
@@ -190,6 +194,8 @@ private fun builtInSpec(option: FocusFlowThemeOption): FocusFlowThemeSpec {
                 learning = Color(0xFF7654A8),
                 exercise = Color(0xFF2F8F5B),
                 entertainment = Color(0xFFC95878),
+                activity = Color(0xFFBF4A38),
+                commute = Color(0xFF5B8CA8),
                 rest = Color(0xFF667885),
                 task = Color(0xFFB5661D),
                 completed = Color(0xFF94A3B8)
@@ -223,6 +229,8 @@ private fun builtInSpec(option: FocusFlowThemeOption): FocusFlowThemeSpec {
                 learning = Color(0xFF6671A8),
                 exercise = Color(0xFF328153),
                 entertainment = Color(0xFFB65C73),
+                activity = Color(0xFFBF5544),
+                commute = Color(0xFF6C7F94),
                 rest = Color(0xFF687B78),
                 task = Color(0xFF9A6B27),
                 completed = Color(0xFF91A29B)
@@ -256,6 +264,8 @@ private fun builtInSpec(option: FocusFlowThemeOption): FocusFlowThemeSpec {
                 learning = Color(0xFF8A5F91),
                 exercise = Color(0xFF55845A),
                 entertainment = Color(0xFFC85F66),
+                activity = Color(0xFFC25535),
+                commute = Color(0xFF7285A0),
                 rest = Color(0xFF7B706D),
                 task = Color(0xFFB7652B),
                 completed = Color(0xFFA99A93)
@@ -289,6 +299,8 @@ private fun builtInSpec(option: FocusFlowThemeOption): FocusFlowThemeSpec {
                 learning = Color(0xFF7A58A3),
                 exercise = Color(0xFF4E8068),
                 entertainment = Color(0xFFB85A83),
+                activity = Color(0xFFC25B3F),
+                commute = Color(0xFF6E8199),
                 rest = Color(0xFF726B82),
                 task = Color(0xFFA66C35),
                 completed = Color(0xFF9B94A3)

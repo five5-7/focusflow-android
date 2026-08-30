@@ -49,6 +49,19 @@ class ScheduleTimelineModelsTest {
         assertFalse(layouts.single().event.isConflict)
     }
 
+    @Test
+    fun `activity kind maps to activity type before title heuristics`() {
+        fun item(title: String, kind: String, goalId: Long? = null) =
+            Item(title = title, detail = "", kind = kind, goalId = goalId)
+
+        assertEquals(ScheduleType.ACTIVITY, item("游戏", "游戏").scheduleType())
+        assertEquals(ScheduleType.ACTIVITY, item("晚间放松", "活动").scheduleType())
+        assertEquals(ScheduleType.EXERCISE, item("锻炼两小时", "任务").scheduleType())
+        assertEquals(ScheduleType.LEARNING, item("学习计划", "任务", goalId = 1L).scheduleType())
+        assertEquals(ScheduleType.REST, item("洗漱睡觉", "习惯").scheduleType())
+        assertEquals(ScheduleType.TASK, item("批改作业", "任务").scheduleType())
+    }
+
     private fun event(key: String, start: Int, end: Int, type: ScheduleType) = TimelineEvent(
         key = key,
         title = key,

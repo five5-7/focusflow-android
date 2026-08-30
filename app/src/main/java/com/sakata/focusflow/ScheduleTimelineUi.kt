@@ -31,6 +31,8 @@ internal fun scheduleColor(type: ScheduleType): Color {
         ScheduleType.LEARNING -> palette.learning
         ScheduleType.EXERCISE -> palette.exercise
         ScheduleType.ENTERTAINMENT -> palette.entertainment
+        ScheduleType.ACTIVITY -> palette.activity
+        ScheduleType.COMMUTE -> palette.commute
         ScheduleType.REST -> palette.rest
         ScheduleType.TASK -> palette.task
         ScheduleType.COMPLETED -> palette.completed
@@ -38,9 +40,10 @@ internal fun scheduleColor(type: ScheduleType): Color {
 }
 
 internal fun Item.scheduleType(): ScheduleType = when {
+    kind == "活动" || kind == "游戏" -> ScheduleType.ACTIVITY
     title.contains("锻炼") || title.contains("拉伸") -> ScheduleType.EXERCISE
-    title.contains("游戏") || title.contains("娱乐") -> ScheduleType.ENTERTAINMENT
-    title.contains("睡前") || kind == "习惯" -> ScheduleType.REST
+    kind == "习惯" -> ScheduleType.REST
+    title.contains("睡前") -> ScheduleType.REST
     goalId != null -> ScheduleType.LEARNING
     else -> ScheduleType.TASK
 }
