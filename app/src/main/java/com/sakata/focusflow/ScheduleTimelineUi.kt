@@ -99,6 +99,7 @@ internal fun DailyScheduleTimeline(
     profile: CommuteProfile,
     onStartTask: (Item) -> Unit,
     onRescheduleTask: (Item) -> Unit,
+    onReturnToInbox: (Item) -> Unit,
     onTaskDone: (Item) -> Unit,
     onDeleteItem: (Item) -> Unit
 ) {
@@ -129,6 +130,7 @@ internal fun DailyScheduleTimeline(
             onDismiss = { selected = null },
             onStartTask = { item -> selected = null; onStartTask(item) },
             onRescheduleTask = { item -> selected = null; onRescheduleTask(item) },
+            onReturnToInbox = { item -> selected = null; onReturnToInbox(item) },
             onTaskDone = { item -> selected = null; onTaskDone(item) },
             onDeleteItem = { item -> selected = null; onDeleteItem(item) }
         )
@@ -142,6 +144,7 @@ internal fun WeeklyScheduleTimeline(
     profile: CommuteProfile,
     onStartTask: (Item) -> Unit,
     onRescheduleTask: (Item) -> Unit,
+    onReturnToInbox: (Item) -> Unit,
     onTaskDone: (Item) -> Unit,
     onDeleteItem: (Item) -> Unit
 ) {
@@ -235,6 +238,7 @@ internal fun WeeklyScheduleTimeline(
             onDismiss = { selected = null },
             onStartTask = { item -> selected = null; onStartTask(item) },
             onRescheduleTask = { item -> selected = null; onRescheduleTask(item) },
+            onReturnToInbox = { item -> selected = null; onReturnToInbox(item) },
             onTaskDone = { item -> selected = null; onTaskDone(item) },
             onDeleteItem = { item -> selected = null; onDeleteItem(item) }
         )
@@ -423,6 +427,7 @@ private fun TimelineEventDialog(
     onDismiss: () -> Unit,
     onStartTask: (Item) -> Unit,
     onRescheduleTask: (Item) -> Unit,
+    onReturnToInbox: (Item) -> Unit,
     onTaskDone: (Item) -> Unit,
     onDeleteItem: (Item) -> Unit
 ) {
@@ -470,14 +475,17 @@ private fun TimelineEventDialog(
         },
         dismissButton = {
             if (event.item?.done == false) {
+                // 去掉「关闭」：点弹窗外同效；「放回收集箱」补齐「日程 → 收集箱」闭环。
                 Row {
                     TextButton(onClick = { event.item?.let(onRescheduleTask); onDismiss() }) {
                         Text("改期")
                     }
+                    TextButton(onClick = { event.item?.let(onReturnToInbox); onDismiss() }) {
+                        Text("放回收集箱")
+                    }
                     TextButton(onClick = { event.item?.let(onDeleteItem); onDismiss() }) {
                         Text("删除", color = MaterialTheme.colorScheme.error)
                     }
-                    TextButton(onClick = onDismiss) { Text("关闭") }
                 }
             }
         }

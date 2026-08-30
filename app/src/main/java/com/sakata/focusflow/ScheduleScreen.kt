@@ -31,6 +31,7 @@ internal fun ScheduleScreen(
     onAdjustFlexible: (Item) -> Unit,
     onStartTask: (Item) -> Unit,
     onRescheduleTask: (Item) -> Unit,
+    onReturnToInbox: (Item) -> Unit,
     onTaskDone: (Item) -> Unit,
     onDeleteItem: (Item) -> Unit
 ) {
@@ -100,7 +101,7 @@ internal fun ScheduleScreen(
                     }
                 }
             }
-            DailyScheduleTimeline(todayCourses, todaySchedule, profile, onStartTask, onRescheduleTask, onTaskDone, onDeleteItem)
+            DailyScheduleTimeline(todayCourses, todaySchedule, profile, onStartTask, onRescheduleTask, onReturnToInbox, onTaskDone, onDeleteItem)
         } else {
             WeeklyScheduleTimeline(
                 courses.filter { !it.needsConfirmation },
@@ -108,6 +109,7 @@ internal fun ScheduleScreen(
                 profile,
                 onStartTask,
                 onRescheduleTask,
+                onReturnToInbox,
                 onTaskDone,
                 onDeleteItem
             )

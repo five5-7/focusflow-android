@@ -13,6 +13,8 @@ enum class TaskEventType(val label: String, val storageKey: String) {
     /** 预留：当前无触发入口；为语义完整的 6.5 事件模型定义。 */
     TASK_UNCOMPLETED("取消完成", "task_uncompleted"),
     TASK_TO_INBOX("放回收集箱", "task_to_inbox"),
+    /** 收集箱项转换为目标（6.7）。scheduledAt 恒为 0：转换不产生日程计划。 */
+    TASK_CONVERTED("转为目标", "task_converted"),
     TASK_DELETED("删除任务", "task_deleted"),
     TASK_RESTORED("恢复任务", "task_restored");
 
@@ -157,6 +159,7 @@ object TaskHistory {
         TaskEventType.TASK_SCHEDULED,
         TaskEventType.TASK_RESCHEDULED,
         TaskEventType.TASK_TO_INBOX,
+        TaskEventType.TASK_CONVERTED,
         TaskEventType.TASK_DELETED,
         TaskEventType.TASK_RESTORED
     )
@@ -200,7 +203,8 @@ object TaskHistory {
         events.sortedByDescending { it.recordedAt }.take(limit.coerceAtLeast(1))
 }
 
-/** 6.5 一次性迁移：把存量 items 可可靠推断的事件补齐。不制造无法推断的假统计。 */
+/** 6.5 一次性迁移：把存量 items 可可靠推断的事件补齐。不制造无法推断的假统计。
+ * 6.7 转换事件（TASK_CONVERTED）无法从存量状态推断，也不在此补造。 */
 object TaskHistoryMigration {
     fun buildEvents(items: List<Item>): List<TaskEvent> = buildList {
         for (item in items) {

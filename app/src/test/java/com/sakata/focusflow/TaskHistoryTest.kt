@@ -104,6 +104,26 @@ class TaskHistoryTest {
     }
 
     @Test
+    fun `convert does not add planned count but counts as schedule change`() {
+        val events = listOf(TaskRecorder.event(TaskEventType.TASK_CONVERTED, itemId = 1, title = "a", at = dayAt(0)))
+        val summary = TaskHistory.daySummary(events, dayStartOf(now))
+        assertEquals(0, summary.scheduledCount)
+        assertEquals(1, summary.scheduleChangesCount)
+        assertEquals(0, summary.rescheduledCount)
+    }
+
+    @Test
+    fun `converted after scheduled keeps original planned day`() {
+        val events = listOf(
+            TaskRecorder.event(TaskEventType.TASK_SCHEDULED, itemId = 1, title = "a", scheduledAt = dayAt(0), at = dayAt(-1)),
+            TaskRecorder.event(TaskEventType.TASK_CONVERTED, itemId = 1, title = "a", at = dayAt(0))
+        )
+        val summary = TaskHistory.daySummary(events, dayStartOf(now))
+        assertEquals(1, summary.scheduledCount)
+        assertEquals(1, summary.scheduleChangesCount)
+    }
+
+    @Test
     fun `lastDays returns seven entries oldest to newest ending today`() {
         val events = listOf(TaskRecorder.event(TaskEventType.TASK_COMPLETED, itemId = 1, title = "a", at = now))
         val days = TaskHistory.lastDays(events, days = 7, now = now)
