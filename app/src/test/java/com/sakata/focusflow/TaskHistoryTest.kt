@@ -113,6 +113,15 @@ class TaskHistoryTest {
     }
 
     @Test
+    fun `attached to plan does not add planned count but counts as schedule change`() {
+        val events = listOf(TaskRecorder.event(TaskEventType.TASK_ATTACHED_TO_PLAN, itemId = 1, title = "a", at = dayAt(0)))
+        val summary = TaskHistory.daySummary(events, dayStartOf(now))
+        assertEquals(0, summary.scheduledCount)
+        assertEquals(1, summary.scheduleChangesCount)
+        assertEquals(0, summary.rescheduledCount)
+    }
+
+    @Test
     fun `converted after scheduled keeps original planned day`() {
         val events = listOf(
             TaskRecorder.event(TaskEventType.TASK_SCHEDULED, itemId = 1, title = "a", scheduledAt = dayAt(0), at = dayAt(-1)),

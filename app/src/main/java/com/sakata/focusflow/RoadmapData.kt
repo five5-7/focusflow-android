@@ -18,8 +18,11 @@ data class RoadmapEntry(val version: String, val title: String, val summary: Str
 data class RoadmapVersion(val version: String, val entries: List<RoadmapEntry>)
 
 object RoadmapData {
-    /** 已实现版本演进（1.0 → 6.7.0），每版本浓缩 1–3 条，与 CHANGELOG.md 对应。 */
+    /** 已实现版本演进（1.0 → 6.8.0），每版本浓缩 1–3 条，与 CHANGELOG.md 对应。 */
     val evolution: List<RoadmapVersion> = listOf(
+        RoadmapVersion("6.8.0", listOf(
+            RoadmapEntry("6.8.0", "收集箱归入已有计划", "收集箱项一键归入已有目标（免目标编辑器整套问题），移出收集箱进入弹性安排，保留时长/优先级，完成后计入目标每周次数与回顾；归入事件只计日程变化不进完成率分母，统计零污染", RoadmapStatus.DONE)
+        )),
         RoadmapVersion("6.7.0", listOf(
             RoadmapEntry("6.7.0", "收集箱 → 日程 → 计划完整流转", "收集箱项编辑完整体（时长+优先级）并显示信息行；快速输入自然语言解析（“晚上看半小时高数”）与预览式弹窗、直接安排预置精确时间；一键转成目标；时间轴弹窗新增放回收集箱；统计零污染（编辑不记事件、转换只计日程变化）", RoadmapStatus.DONE)
         )),

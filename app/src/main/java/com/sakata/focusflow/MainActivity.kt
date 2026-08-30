@@ -165,6 +165,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     var flexiblePlanTarget by remember { mutableStateOf<Item?>(null) }
     var inboxEditTarget by remember { mutableStateOf<Item?>(null) }
     var convertTarget by remember { mutableStateOf<Item?>(null) }
+    var attachTarget by remember { mutableStateOf<Item?>(null) }
     var schedulePresetExact by remember { mutableStateOf<Long?>(null) }
     var gameSessions by remember { mutableStateOf(store.loadGameSessions()) }
     var gameDetectionEnabled by remember { mutableStateOf(store.loadGameDetectionEnabled()) }
@@ -574,6 +575,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                     onPickTime = { item -> inboxScheduleTarget = item },
                     onEdit = { item -> inboxEditTarget = item },
                     onConvertToGoal = { item -> convertTarget = item },
+                    onAttachToPlan = { item -> attachTarget = item },
                     onShrink = { item ->
                         saveItems(items.map { if (it.id == item.id) it.copy(title = item.title.removePrefix("重新安排："), kind = "收集箱", detail = "短版：先做 15 分钟；准备好后再安排", recoverySourceScheduledAt = item.recoverySourceScheduledAt ?: item.scheduledAt, scheduledAt = null, dayOnly = false, durationMinutes = 15, windowStartAt = null, windowEndAt = null) else it })
                         recordTaskEvent(TaskRecorder.event(TaskEventType.TASK_TO_INBOX, item.id, item.title.removePrefix("重新安排："), extra = "缩为 15 分钟"))
@@ -1232,6 +1234,25 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             recordTaskEvent(TaskRecorder.event(TaskEventType.TASK_CONVERTED, item.id, item.title, extra = goal.title))
             convertTarget = null
         } }
+        attachTarget?.let { item -> AttachToPlanDialog(
+            goals = goals,
+            onDismiss = { attachTarget = null },
+            onAttach = { goal ->
+                val attached = item.copy(
+                    title = item.title.removePrefix("重新安排："),
+                    kind = "任务",
+                    detail = "属于目标：${goal.title} · 尚未安排具体时间",
+                    goalId = goal.id,
+                    scheduledAt = null,
+                    dayOnly = false,
+                    windowStartAt = null,
+                    windowEndAt = null
+                )
+                saveItems(items.map { if (it.id == item.id) attached else it })
+                recordTaskEvent(TaskRecorder.event(TaskEventType.TASK_ATTACHED_TO_PLAN, item.id, item.title.removePrefix("重新安排："), scheduledAt = 0, extra = goal.title))
+                attachTarget = null
+            }
+        ) }
         if (addResourceOpen) ResourceEditorDialog(onDismiss = { addResourceOpen = false }) { resource ->
             resources = resources + resource
             store.saveResources(resources)
@@ -1481,6 +1502,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     onPickTime: (Item) -> Unit,
     onEdit: (Item) -> Unit,
     onConvertToGoal: (Item) -> Unit,
+    onAttachToPlan: (Item) -> Unit,
     onShrink: (Item) -> Unit,
     onReturnToInbox: (Item) -> Unit,
     onApplyAdjustment: (Item, DayAdjustment) -> Unit,
@@ -1649,7 +1671,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
         if (inboxItems.isEmpty()) {
             Text("暂时没有新想法，点底部 ＋ 随手记录。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         } else {
-            inboxItems.take(2).forEach { item -> InboxItemCard(item, onPickTime, onEdit, onConvertToGoal, onShrink, onPause, onAbandon) }
+            inboxItems.take(2).forEach { item -> InboxItemCard(item, onPickTime, onEdit, onConvertToGoal, onAttachToPlan, onShrink, onPause, onAbandon) }
             if (inboxItems.size > 2) Text("还有 ${inboxItems.size - 2} 项，进入收集箱继续整理。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         if (visibility.energy) Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))) {
@@ -1778,7 +1800,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                         Text("暂时没有新想法，点底部 ＋ 随手记录。", Modifier.fillMaxWidth().padding(16.dp))
                     }
                 } else {
-                    inboxItems.forEach { item -> InboxItemCard(item, onPickTime, onEdit, onConvertToGoal, onShrink, onPause, onAbandon) }
+                    inboxItems.forEach { item -> InboxItemCard(item, onPickTime, onEdit, onConvertToGoal, onAttachToPlan, onShrink, onPause, onAbandon) }
                 }
             }
         }
@@ -1834,7 +1856,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     }
 }
 
-@Composable private fun InboxItemCard(item: Item, onPickTime: (Item) -> Unit, onEdit: (Item) -> Unit, onConvertToGoal: (Item) -> Unit, onShrink: (Item) -> Unit, onPause: (Item) -> Unit, onAbandon: (Item) -> Unit) {
+@Composable private fun InboxItemCard(item: Item, onPickTime: (Item) -> Unit, onEdit: (Item) -> Unit, onConvertToGoal: (Item) -> Unit, onAttachToPlan: (Item) -> Unit, onShrink: (Item) -> Unit, onPause: (Item) -> Unit, onAbandon: (Item) -> Unit) {
     ElevatedCard { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text(item.title, fontWeight = FontWeight.SemiBold)
         Text(item.detail)
@@ -1846,9 +1868,10 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                 OutlinedButton(onClick = { onConvertToGoal(item) }) { Text("转成目标") }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(onClick = { onAttachToPlan(item) }) { Text("转为计划的一部分") }
                 TextButton(onClick = { onAbandon(item) }, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("删除") }
             }
-            Text("安排后会从收集箱移到日程。", style = MaterialTheme.typography.bodySmall)
+            Text("安排后会从收集箱移到日程，转为计划的一部分后进入弹性安排。", style = MaterialTheme.typography.bodySmall)
         } else {
             Text("这次不做也没关系。请选择下一步：", style = MaterialTheme.typography.bodySmall)
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {

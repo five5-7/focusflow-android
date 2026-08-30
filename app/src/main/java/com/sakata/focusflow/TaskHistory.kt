@@ -15,6 +15,8 @@ enum class TaskEventType(val label: String, val storageKey: String) {
     TASK_TO_INBOX("放回收集箱", "task_to_inbox"),
     /** 收集箱项转换为目标（6.7）。scheduledAt 恒为 0：转换不产生日程计划。 */
     TASK_CONVERTED("转为目标", "task_converted"),
+    /** 收集箱项归入已有目标（6.8）。scheduledAt 恒为 0：归入不产生日程计划。 */
+    TASK_ATTACHED_TO_PLAN("归入计划", "task_attached_to_plan"),
     TASK_DELETED("删除任务", "task_deleted"),
     TASK_RESTORED("恢复任务", "task_restored");
 
@@ -160,6 +162,7 @@ object TaskHistory {
         TaskEventType.TASK_RESCHEDULED,
         TaskEventType.TASK_TO_INBOX,
         TaskEventType.TASK_CONVERTED,
+        TaskEventType.TASK_ATTACHED_TO_PLAN,
         TaskEventType.TASK_DELETED,
         TaskEventType.TASK_RESTORED
     )

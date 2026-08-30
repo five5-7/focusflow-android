@@ -50,6 +50,17 @@ class TaskEventCodecTest {
     }
 
     @Test
+    fun `attached to plan round trip`() {
+        val events = listOf(TaskEvent(itemId = 7, type = TaskEventType.TASK_ATTACHED_TO_PLAN, recordedAt = 1000, title = "高数", extra = "深度学习"))
+        val decoded = TaskEventCodec.decode(TaskEventCodec.encode(events))
+        assertEquals(1, decoded.size)
+        assertEquals(TaskEventType.TASK_ATTACHED_TO_PLAN, decoded[0].type)
+        assertEquals("高数", decoded[0].title)
+        assertEquals("深度学习", decoded[0].extra)
+        assertEquals(0, decoded[0].scheduledAt)
+    }
+
+    @Test
     fun `invalid recordedAt entry is dropped`() {
         val json = """[{"type":"task_completed","recordedAt":0}]"""
         assertTrue(TaskEventCodec.decode(json).isEmpty())
