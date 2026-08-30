@@ -2642,7 +2642,10 @@ internal fun recommendForWindow(goals: List<Goal>, items: List<Item>, minutes: I
             PlanPage.HISTORY -> PlanHistorySection(taskEvents)
             PlanPage.REVIEW -> {
                 val executionSummary = RecoveryInsights.weeklySummary(items, System.currentTimeMillis(), taskEvents)
-                ElevatedCard(colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f))) {
+                Card(
+                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+                ) {
                     Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("本周执行概览", fontWeight = FontWeight.Bold)
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
