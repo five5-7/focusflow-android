@@ -45,4 +45,39 @@ class CourseScheduleTest {
         assertEquals(7, windows.size)
         assertTrue(windows.all { it.kind == "整天空闲" })
     }
+
+    @Test fun mergeRecognized_dedupsExisting() {
+        val existing = Course("高数", 1, 1, 2, "西1教学楼", CampusZone.WEST_TEACHING, needsConfirmation = false)
+        val merge = mergeRecognizedCourses(listOf(existing), listOf(existing))
+        assertEquals(0, merge.added.size)
+        assertEquals(0, merge.conflicts.size)
+        assertEquals("识别到的课程都已存在，没有重复添加。", merge.message)
+    }
+
+    @Test fun mergeRecognized_keepsConflictAsPendingAndMentions() {
+        val confirmed = Course("高数", 1, 1, 2, "西1教学楼", CampusZone.WEST_TEACHING, needsConfirmation = false)
+        val conflict = Course("新课程", 1, 2, 3, "西1教学楼", CampusZone.WEST_TEACHING)
+        val merge = mergeRecognizedCourses(listOf(confirmed), listOf(conflict))
+        assertEquals(1, merge.added.size)
+        assertEquals(1, merge.conflicts.size)
+        assertTrue(merge.message.contains("有 1 门与已确认课程时间冲突"))
+        assertTrue(merge.message.contains("已生成 1 门待确认课程"))
+        assertTrue(merge.message.contains("请核对后再确认"))
+    }
+
+    @Test fun mergeRecognized_notesInnerOverlap() {
+        val a = Course("课程A", 1, 1, 2, "西1教学楼", CampusZone.WEST_TEACHING)
+        val b = Course("课程B", 1, 2, 3, "西1教学楼", CampusZone.WEST_TEACHING)
+        val merge = mergeRecognizedCourses(emptyList(), listOf(a, b))
+        assertEquals(2, merge.added.size)
+        assertEquals(0, merge.conflicts.size)
+        // 实现按「冲突门数」计数：每门与其它门重叠均 +1（与识别提示原逻辑一致）
+        assertEquals(2, merge.innerConflicts)
+        assertTrue(merge.message.contains("其中 2 门互相时间重叠"))
+    }
+
+    @Test fun mergeRecognized_emptyInputMessage() {
+        val merge = mergeRecognizedCourses(emptyList(), emptyList())
+        assertTrue(merge.message.contains("没有找到可解析的课程"))
+    }
 }

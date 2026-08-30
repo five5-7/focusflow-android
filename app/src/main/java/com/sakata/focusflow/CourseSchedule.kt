@@ -12,6 +12,38 @@ data class Course(
 
 data class CourseGap(val from: Course, val to: Course, val minutesFree: Int, val travelMinutes: Int, val suggestedStartMinute: Int)
 
+/** 课表识别结果合并计算：去重后新增的待确认课程、与已确认课程的冲突、互相冲突数与提示文案。 */
+data class RecognizeMerge(
+    val added: List<Course>,
+    val conflicts: List<Course>,
+    val innerConflicts: Int,
+    val message: String
+)
+
+/** 统一处理识别结果：去重、保留冲突为待确认课程并生成提示（只算不改；保存与状态更新由调用点执行）。 */
+fun mergeRecognizedCourses(courses: List<Course>, recognized: List<Course>): RecognizeMerge {
+    val existing = courses.map { listOf(it.weekday, it.startPeriod, it.endPeriod, it.title.trim()) }.toSet()
+    val added = recognized.filterNot { listOf(it.weekday, it.startPeriod, it.endPeriod, it.title.trim()) in existing }
+    val confirmed = courses.filter { !it.needsConfirmation }
+    val conflicts = added.filter { new -> confirmed.any { coursesOverlap(new, it) } }
+    val innerConflicts = added.count { new -> added.any { other -> other != new && coursesOverlap(new, other) } }
+    val message = when {
+        recognized.isEmpty() -> "没有找到可解析的课程。请使用能看到课程名称、星期和节次的截图。"
+        added.isEmpty() -> "识别到的课程都已存在，没有重复添加。"
+        else -> {
+            val parts = mutableListOf<String>()
+            if (conflicts.isNotEmpty()) {
+                val details = conflicts.take(3).joinToString("；") { "${weekdayName(it.weekday)} ${it.startPeriod}–${it.endPeriod} 节 ${it.title}" }
+                parts += "有 ${conflicts.size} 门与已确认课程时间冲突，已保留为待确认，请核对后再确认：$details${if (conflicts.size > 3) " 等" else ""}"
+            }
+            parts += "已生成 ${added.size} 门待确认课程，请逐项编辑、确认或忽略"
+            if (innerConflicts > 0) parts += "其中 $innerConflicts 门互相时间重叠，确认前请核对"
+            parts.joinToString("。") + "。"
+        }
+    }
+    return RecognizeMerge(added, conflicts, innerConflicts, message)
+}
+
 /** 自由时段：课间空挡之外的可用时间——课后到晚上的整块空闲、没有课的整天。 */
 data class FreeWindow(
     val weekday: Int,

@@ -323,33 +323,16 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     // 全部地点：内置目录或地点包为基底，自定义地点按名去重合并（同名自定义胜出）。
     val basePlaces = campusMapPackage?.places?.takeIf { it.isNotEmpty() } ?: ZijingangTravel.places
     val campusPlaces = if (campusLifeEnabled) basePlaces.filterNot { b -> customPlaces.any { it.name.lowercase() == b.name.lowercase() } || b.name.lowercase() in hiddenPlaces } + customPlaces else ZijingangTravel.places
-    /** 统一处理识别结果：去重、保留冲突为待确认课程并生成提示。 */
+    /** 统一处理识别结果：去重、保留冲突为待确认课程并生成提示（计算在 CourseSchedule，只保留保存/状态副作用）。 */
     fun applyRecognizedCourses(recognized: List<Course>) {
-        val existing = courses.map { listOf(it.weekday, it.startPeriod, it.endPeriod, it.title.trim()) }.toSet()
-        val added = recognized.filterNot { listOf(it.weekday, it.startPeriod, it.endPeriod, it.title.trim()) in existing }
-        val confirmed = courses.filter { !it.needsConfirmation }
-        val conflicts = added.filter { new -> confirmed.any { coursesOverlap(new, it) } }
+        val merge = mergeRecognizedCourses(courses, recognized)
         // 与已确认课程冲突的识别结果也保留为待确认：应用已有冲突警示机制，由用户决定确认/编辑/忽略。
-        if (added.isNotEmpty()) {
-            val updated = courses + added
+        if (merge.added.isNotEmpty()) {
+            val updated = courses + merge.added
             courses = updated
             store.saveCourses(updated)
         }
-        val innerConflicts = added.count { new -> added.any { other -> other != new && coursesOverlap(new, other) } }
-        courseImportMessage = when {
-            recognized.isEmpty() -> "没有找到可解析的课程。请使用能看到课程名称、星期和节次的截图。"
-            added.isEmpty() -> "识别到的课程都已存在，没有重复添加。"
-            else -> {
-                val parts = mutableListOf<String>()
-                if (conflicts.isNotEmpty()) {
-                    val details = conflicts.take(3).joinToString("；") { "${weekdayName(it.weekday)} ${it.startPeriod}–${it.endPeriod} 节 ${it.title}" }
-                    parts += "有 ${conflicts.size} 门与已确认课程时间冲突，已保留为待确认，请核对后再确认：$details${if (conflicts.size > 3) " 等" else ""}"
-                }
-                parts += "已生成 ${added.size} 门待确认课程，请逐项编辑、确认或忽略"
-                if (innerConflicts > 0) parts += "其中 $innerConflicts 门互相时间重叠，确认前请核对"
-                parts.joinToString("。") + "。"
-            }
-        }
+        courseImportMessage = merge.message
         courseImportRunning = false
         globalLoading = false
     }
@@ -391,8 +374,24 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
 
     /** 放回收集箱：清掉时间与范围，保留原调度日记忆；三处共用（回收卡 / 快速改期建议 / 时间轴弹窗）。 */
     fun returnToInbox(item: Item) {
-        saveItems(items.map { if (it.id == item.id) it.copy(kind = "收集箱", recoverySourceScheduledAt = item.recoverySourceScheduledAt ?: item.scheduledAt, scheduledAt = null, dayOnly = false, windowStartAt = null, windowEndAt = null, detail = "已放回收集箱；准备好后再安排") else it })
-        recordTaskEvent(TaskRecorder.event(TaskEventType.TASK_TO_INBOX, item.id, item.title.removePrefix("重新安排：")))
+        val result = TaskActions.returnToInbox(items, item)
+        saveItems(result.items)
+        recordTaskEvent(result.event!!)
+    }
+    /** 改期保存的完整动作：数据变换在 TaskActions，事件/基线/提醒/游戏会话同步在 FApp 层（原 saveDelayedItem）。 */
+    fun applyDelayed(item: Item, scheduledAt: Long, duration: Int, label: String, priority: String) {
+        val plan = TaskActions.planDelayed(items, item, scheduledAt, duration, label, priority)
+        saveItems(plan.items)
+        store.appendBaselineEvent(BaselineRecorder.event(BaselineEventType.TASK_RESCHEDULED, plan.baselinePayload))
+        recordTaskEvent(plan.event)
+        ReminderScheduler.scheduleTaskReminder(context, plan.delayedItem)
+        if (item.kind == "游戏" || item.kind == "活动") {
+            store.loadGameSessions().firstOrNull { it.id == item.id && it.isOpen() }?.let { session ->
+                val updated = session.copy(plannedStartAt = scheduledAt, plannedEndAt = scheduledAt + duration * 60_000L)
+                store.updateGameSession(item.id) { updated }
+                ReminderScheduler.scheduleGameReminders(context, updated)
+            }
+        }
     }
     /** 目标任务安排（算法建议点击与自定义时间共用）：写入日程、记事件、建提醒。 */
     val scheduleGoalItem = { goal: Goal, at: Long ->
@@ -548,8 +547,9 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                     onTaskDone = { item ->
                         if (item.kind == "游戏" || item.kind == "活动") recordGameItemEnd(context, store, item.id)
                         if (item.goalId == null) {
-                            saveItems(items.map { if (it.id == item.id) it.copy(done = true, completionLevel = "完成", completedAt = System.currentTimeMillis()) else it })
-                            recordTaskEvent(TaskRecorder.event(TaskEventType.TASK_COMPLETED, item.id, item.title, extra = "完成"))
+                            val result = TaskActions.completeNow(items, item)
+                            saveItems(result.items)
+                            recordTaskEvent(result.event!!)
                         } else completionTarget = item
                     },
                     goals = goals,
@@ -577,8 +577,9 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                     onConvertToGoal = { item -> convertTarget = item },
                     onAttachToPlan = { item -> attachTarget = item },
                     onShrink = { item ->
-                        saveItems(items.map { if (it.id == item.id) it.copy(title = item.title.removePrefix("重新安排："), kind = "收集箱", detail = "短版：先做 15 分钟；准备好后再安排", recoverySourceScheduledAt = item.recoverySourceScheduledAt ?: item.scheduledAt, scheduledAt = null, dayOnly = false, durationMinutes = 15, windowStartAt = null, windowEndAt = null) else it })
-                        recordTaskEvent(TaskRecorder.event(TaskEventType.TASK_TO_INBOX, item.id, item.title.removePrefix("重新安排："), extra = "缩为 15 分钟"))
+                        val result = TaskActions.shrinkToInbox(items, item)
+                        saveItems(result.items)
+                        recordTaskEvent(result.event!!)
                     },
                     onReturnToInbox = { item -> returnToInbox(item) },
                     onApplyAdjustment = { item, adjustment ->
@@ -586,19 +587,18 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                             AdjustAction.BACK_TO_INBOX -> returnToInbox(item)
                             AdjustAction.REARRANGE -> rescheduleTarget = item
                             else -> adjustment.targetTime?.let { at ->
-                                saveDelayedItem(
-                                    context, store, items, item, at, adjustment.durationMinutes,
-                                    "${formatDateTime(at)} · ${adjustment.durationMinutes}分钟",
-                                    item.priority,
-                                    save = { saveItems(it) }, record = { recordTaskEvent(it) }
-                                )
+                                applyDelayed(item, at, adjustment.durationMinutes, "${formatDateTime(at)} · ${adjustment.durationMinutes}分钟", item.priority)
                             }
                         }
                     },
-                    onPause = { item -> saveItems(items.map { if (it.id == item.id) it.copy(kind = "暂停", detail = "已暂停；随时可在计划中恢复") else it }) },
+                    onPause = { item ->
+                        val result = TaskActions.pause(items, item)
+                        saveItems(result.items)
+                    },
                     onAbandon = { item ->
-                        saveItems(items.filterNot { it.id == item.id })
-                        recordTaskEvent(TaskRecorder.event(TaskEventType.TASK_DELETED, item.id, item.title, extra = "放弃"))
+                        val result = TaskActions.abandon(items, item)
+                        saveItems(result.items)
+                        recordTaskEvent(result.event!!)
                     },
                     baselineEvents = store.loadBaselineEvents(500),
                     taskEvents = taskEvents,
@@ -632,13 +632,15 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                     onTaskDone = { item ->
                         if (item.kind == "游戏" || item.kind == "活动") recordGameItemEnd(context, store, item.id)
                         if (item.goalId == null) {
-                            saveItems(items.map { if (it.id == item.id) it.copy(done = true, completionLevel = "完成", completedAt = System.currentTimeMillis()) else it })
-                            recordTaskEvent(TaskRecorder.event(TaskEventType.TASK_COMPLETED, item.id, item.title, extra = "完成"))
+                            val result = TaskActions.completeNow(items, item)
+                            saveItems(result.items)
+                            recordTaskEvent(result.event!!)
                         } else completionTarget = item
                     },
                     onDeleteItem = { item ->
-                        saveItems(items.filterNot { it.id == item.id })
-                        recordTaskEvent(TaskRecorder.event(TaskEventType.TASK_DELETED, item.id, item.title))
+                        val result = TaskActions.deleteItem(items, item)
+                        saveItems(result.items)
+                        recordTaskEvent(result.event!!)
                         if (item.kind == "游戏" || item.kind == "活动") {
                             store.saveGameSessions(store.loadGameSessions().filterNot { it.id == item.id })
                             ReminderScheduler.cancelGameReminders(context, item.id)
@@ -650,8 +652,9 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                     page = planPage,
                                     onPageChange = { planPage = it; if (it == PlanPage.REVIEW) gameSessions = store.loadGameSessions(); if (it == PlanPage.HISTORY) taskEvents = store.loadTaskEvents() },
                     onResume = { item ->
-                        saveItems(items.map { if (it.id == item.id) it.copy(kind = "任务", detail = "已恢复；今天有空时再做", scheduledAt = null) else it })
-                        recordTaskEvent(TaskRecorder.event(TaskEventType.TASK_RESTORED, item.id, item.title.removePrefix("重新安排：")))
+                        val result = TaskActions.resume(items, item)
+                        saveItems(result.items)
+                        recordTaskEvent(result.event!!)
                     },
                     onConfirmCourse = { course ->
                         courseImportMessage = null
@@ -720,40 +723,18 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                     },
                     onSummarizeResource = { summaryTarget = it },
                     onAutoPlanGoals = {
-                        val remainingByGoal = goals.mapNotNull { goal ->
-                            val remaining = goal.weeklyTarget - GoalPlanner.completedThisWeek(goal)
-                            if (remaining > 0) goal to remaining else null
+                        val plan = GoalPlanner.autoPlan(
+                            goals, scheduleCourses, items, commuteProfile,
+                            completionRate = { weekday, startHour -> PlanLearning.completionRate(store, weekday, startHour) }
+                        )
+                        // 完成率学习排序在纯计算内完成；学习记录发生在保存之前（与原内联顺序一致）。
+                        plan.learnedSlots.forEach { (weekday, startHour) -> PlanLearning.recordScheduled(store, weekday, startHour) }
+                        if (plan.newItems.isNotEmpty()) {
+                            saveItems(plan.newItems + items)
+                            plan.newItems.forEach { ReminderScheduler.scheduleTaskReminder(context, it) }
+                            plan.newItems.forEach { recordTaskEvent(TaskRecorder.event(TaskEventType.TASK_SCHEDULED, it.id, it.title, scheduledAt = it.scheduledAt ?: 0)) }
                         }
-                        if (remainingByGoal.isEmpty()) {
-                            autoPlanMessage = "所有目标本周次数都已排满或完成，无需再排。"
-                        } else {
-                            val newItems = mutableListOf<Item>()
-                            remainingByGoal.forEach { (goal, remaining) ->
-                                var scheduled = 0
-                                // 完成率学习：优先历史完成率高的时段（未知时段排最后）。
-                                val suggestions = GoalPlanner.suggestions(goal, scheduleCourses, commuteProfile, occupiedByWeekday(items))
-                                    .sortedWith(compareByDescending<GoalSuggestion> { PlanLearning.completionRate(store, it.weekday, it.startMinute / 60) ?: -1f }.thenBy { it.startMinute })
-                                for (suggestion in suggestions) {
-                                    if (scheduled >= remaining) break
-                                    val target = GoalPlanner.nextOccurrence(suggestion.weekday, suggestion.startMinute)
-                                    // 与之前已排的目标任务也避让，防止同一次自动排内重复占用同一时段。
-                                    if (slotFree(target, goal.durationMinutes, scheduleCourses, items + newItems, commuteProfile)) {
-                                        newItems += Item(title = goal.title, detail = goalTaskDetail(goal, suggestion.weekday, suggestion.startMinute), kind = "任务", scheduledAt = target, goalId = goal.id, durationMinutes = goal.durationMinutes)
-                                        PlanLearning.recordScheduled(store, suggestion.weekday, suggestion.startMinute / 60)
-                                        scheduled++
-                                    }
-                                }
-                            }
-                            if (newItems.isEmpty()) {
-                                autoPlanMessage = "未来一周空挡都被课程或已有安排占用，没有可排的时段；可先确认课程或调整目标时长。"
-                            } else {
-                                saveItems(newItems + items)
-                                newItems.forEach { ReminderScheduler.scheduleTaskReminder(context, it) }
-                                newItems.forEach { recordTaskEvent(TaskRecorder.event(TaskEventType.TASK_SCHEDULED, it.id, it.title, scheduledAt = it.scheduledAt ?: 0)) }
-                                val byDay = newItems.groupBy { it.scheduledAt?.let(::weekdayOf) }.mapNotNull { (day, list) -> day?.let { "${weekdayName(it)} ${list.size} 个" } }.joinToString("、")
-                                autoPlanMessage = "已把 ${newItems.size} 个目标任务排进未来一周空挡（避开课程与已有安排）：$byDay。可在日程里查看或调整。"
-                            }
-                        }
+                        autoPlanMessage = plan.message
                     },
                     autoPlanMessage = autoPlanMessage,
                     tutorialSearch = tutorialSearch,
@@ -1077,7 +1058,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             }
         ) }
         rescheduleTarget?.let { item -> RescheduleTimeDialog(item, items, courses, commuteProfile, onDismiss = { rescheduleTarget = null }) { scheduledAt, duration, label, priority ->
-            saveDelayedItem(context, store, items, item, scheduledAt, duration, label, priority, save = { saveItems(it) }, record = { recordTaskEvent(it) })
+            applyDelayed(item, scheduledAt, duration, label, priority)
             rescheduleTarget = null
         } }
         goalScheduleTarget?.let { goal -> GoalScheduleDialog(
@@ -1100,17 +1081,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             onDismiss = { inboxScheduleTarget = null; schedulePresetExact = null },
             onSchedule = { startsAt, duration, label, priority ->
                 val isNew = items.none { it.id == item.id } // 「直接安排」流：新项未落盘，确认时才创建
-                val scheduled = item.copy(
-                    title = item.title.removePrefix("重新安排："),
-                    kind = "任务",
-                    detail = "已安排：$label · $duration 分钟；可随时改期",
-                    scheduledAt = startsAt,
-                    durationMinutes = duration,
-                    dayOnly = false,
-                    windowStartAt = null,
-                    windowEndAt = null,
-                    priority = priority
-                )
+                val scheduled = TaskActions.scheduledShape(item, startsAt, duration, label, priority)
                 saveItems(if (isNew) listOf(scheduled) + items else items.map { if (it.id == item.id) scheduled else it })
                 if (isNew) recordTaskEvent(TaskRecorder.event(TaskEventType.TASK_CREATED, scheduled.id, scheduled.title, scheduledAt = 0))
                 store.appendBaselineEvent(BaselineRecorder.event(BaselineEventType.TASK_SCHEDULED, "${item.title.removePrefix("重新安排：")} · $label"))
@@ -1121,17 +1092,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             },
             onKeepWindow = { start, end, duration, label, priority ->
                 val isNew = items.none { it.id == item.id }
-                val flexible = item.copy(
-                    title = item.title.removePrefix("重新安排："),
-                    kind = "任务",
-                    detail = "弹性范围：$label · 预计 $duration 分钟；尚未锁定具体时刻",
-                    scheduledAt = null,
-                    durationMinutes = duration,
-                    dayOnly = false,
-                    windowStartAt = start,
-                    windowEndAt = end,
-                    priority = priority
-                )
+                val flexible = TaskActions.flexibleShape(item, start, end, duration, label, priority)
                 saveItems(if (isNew) listOf(flexible) + items else items.map { if (it.id == item.id) flexible else it })
                 if (isNew) recordTaskEvent(TaskRecorder.event(TaskEventType.TASK_CREATED, flexible.id, flexible.title, scheduledAt = 0))
                 store.appendBaselineEvent(BaselineRecorder.event(BaselineEventType.TASK_SCHEDULED, "${item.title.removePrefix("重新安排：")} · 弹性范围 $label"))
@@ -1169,28 +1130,22 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             saveItems(items.map { if (it.id == item.id) it.copy(title = title, detail = detail, durationMinutes = durationMinutes, priority = priority) else it })
             inboxEditTarget = null
         } }
-        // 自填教学楼自动进入地点库：地点库独立于课程，之后可在地点管理里修改分区/用途。
-        fun ensurePlaceForCourse(course: Course) {
-            val name = course.building.trim()
-            if (name.isBlank() || name == "地点待确认") return
-            val known = campusPlaces.any { CourseScreenshotParser.normalize(it.name) == CourseScreenshotParser.normalize(name) }
-            if (!known) {
-                val zone = CourseScreenshotParser.zoneByPrefix(name)
-                val updated = customPlaces.filterNot { it.name.lowercase() == name.lowercase() } + CampusPlace(name = name, zone = zone, kind = "教学楼")
-                customPlaces = updated
-                store.saveCustomPlaces(updated)
-            }
+        // 自填教学楼自动进入地点库：地点库独立于课程，之后可在地点管理里修改分区/用途（计算在 CampusPlacesEditor）。
+        fun ensureCoursePlaceInLibrary(course: Course) {
+            val updated = ensurePlaceForCourse(course, campusPlaces, customPlaces) ?: return
+            customPlaces = updated
+            store.saveCustomPlaces(updated)
         }
         if (addCourseOpen) CourseEditorDialog(null, campusPlaces, onDismiss = { addCourseOpen = false }) { course ->
             courses = courses + course.copy(needsConfirmation = false)
             store.saveCourses(courses)
-            ensurePlaceForCourse(course)
+            ensureCoursePlaceInLibrary(course)
             addCourseOpen = false
         }
         courseEditor?.let { original -> CourseEditorDialog(original, campusPlaces, onDismiss = { courseEditor = null }) { edited ->
             courses = courses.map { if (it == original) edited.copy(needsConfirmation = false) else it }
             store.saveCourses(courses)
-            ensurePlaceForCourse(edited)
+            ensureCoursePlaceInLibrary(edited)
             courseEditor = null
         } }
         if (addGoalOpen || editGoalTarget != null) GoalEditorDialog(
@@ -1230,26 +1185,18 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             goals = goals + goal
             store.saveGoals(goals)
             // 转换后条目不再作为任务保留：目标将自行派生效任务（GoalPlanner）。
-            saveItems(items.filterNot { it.id == item.id })
-            recordTaskEvent(TaskRecorder.event(TaskEventType.TASK_CONVERTED, item.id, item.title, extra = goal.title))
+            val result = TaskActions.convertToGoal(items, item, goal.title)
+            saveItems(result.items)
+            recordTaskEvent(result.event!!)
             convertTarget = null
         } }
         attachTarget?.let { item -> AttachToPlanDialog(
             goals = goals,
             onDismiss = { attachTarget = null },
             onAttach = { goal ->
-                val attached = item.copy(
-                    title = item.title.removePrefix("重新安排："),
-                    kind = "任务",
-                    detail = "属于目标：${goal.title} · 尚未安排具体时间",
-                    goalId = goal.id,
-                    scheduledAt = null,
-                    dayOnly = false,
-                    windowStartAt = null,
-                    windowEndAt = null
-                )
-                saveItems(items.map { if (it.id == item.id) attached else it })
-                recordTaskEvent(TaskRecorder.event(TaskEventType.TASK_ATTACHED_TO_PLAN, item.id, item.title.removePrefix("重新安排："), scheduledAt = 0, extra = goal.title))
+                val result = TaskActions.attachToGoal(items, item, goal)
+                saveItems(result.items)
+                recordTaskEvent(result.event!!)
                 attachTarget = null
             }
         ) }
@@ -1300,9 +1247,10 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             }
         ) }
         completionTarget?.let { item -> CompletionDialog(item, goals.firstOrNull { it.id == item.goalId }, onDismiss = { completionTarget = null }) { level ->
-            saveItems(items.map { if (it.id == item.id) it.copy(done = true, completionLevel = level, completedAt = System.currentTimeMillis()) else it })
+            val result = TaskActions.completeWithLevel(items, item, level)
+            saveItems(result.items)
             store.appendBaselineEvent(BaselineRecorder.event(BaselineEventType.TASK_COMPLETED, "${item.title} · $level"))
-            recordTaskEvent(TaskRecorder.event(TaskEventType.TASK_COMPLETED, item.id, item.title, extra = level))
+            recordTaskEvent(result.event!!)
             // 完成率学习：记录该目标任务所在时段完成一次。
             item.scheduledAt?.let { time ->
                 val cal = java.util.Calendar.getInstance().apply { timeInMillis = time }
@@ -1473,84 +1421,13 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
 }
 
 
-/**
- * 把一项已排任务改期保存：事件记录 + 任务提醒重排 + 游戏项同步。
- * 改期弹窗与动态调整"执行建议"共用；保存器由调用方注入（FocusFlowApp 本地作用域）。
- */
-private fun saveDelayedItem(
-    context: Context,
-    store: PrototypeStore,
-    items: List<Item>,
-    item: Item,
-    scheduledAt: Long,
-    duration: Int,
-    label: String,
-    priority: String,
-    save: (List<Item>) -> Unit,
-    record: (TaskEvent) -> Unit
-) {
-    val delayed = item.copy(
-        kind = "任务",
-        detail = "已改期至$label；届时会再次出现",
-        scheduledAt = scheduledAt,
-        durationMinutes = duration,
-        dayOnly = false,
-        windowStartAt = null,
-        windowEndAt = null,
-        priority = priority,
-        rescheduleCount = item.rescheduleCount + 1,
-        lastRescheduledAt = System.currentTimeMillis()
-    )
-    save(items.map { if (it.id == item.id) delayed else it })
-    store.appendBaselineEvent(BaselineRecorder.event(BaselineEventType.TASK_RESCHEDULED, "${item.title.removePrefix("重新安排：")} → $label"))
-    record(TaskRecorder.event(TaskEventType.TASK_RESCHEDULED, item.id, item.title.removePrefix("重新安排："), scheduledAt = scheduledAt, extra = label))
-    ReminderScheduler.scheduleTaskReminder(context, delayed)
-    if (item.kind == "游戏" || item.kind == "活动") {
-        store.loadGameSessions().firstOrNull { it.id == item.id && it.isOpen() }?.let { session ->
-            val updated = session.copy(plannedStartAt = scheduledAt, plannedEndAt = scheduledAt + duration * 60_000L)
-            store.updateGameSession(item.id) { updated }
-            ReminderScheduler.scheduleGameReminders(context, updated)
-        }
-    }
-}
-
-
-/** 空挡内容建议：这段空挡适合做什么（目标优先，其次弹性任务）。 */
-/** 按空挡匹配内容：未完成目标（时长能放下）优先，其次可安排的空闲弹性任务；目标按该时段历史完成率降序。 */
-
-
-/** 某天的空挡标记：相邻课程之间的间隙（净分钟数 ≥10 才标记）。 */
-
-
-/** 本地判断：某时间点安排 durationMinutes 是否与课程/通勤/已有安排冲突（自动排计划用）。 */
-private fun slotFree(
-    target: Long,
-    durationMinutes: Int,
-    courses: List<Course>,
-    items: List<Item>,
-    profile: CommuteProfile? = null
-): Boolean {
-    val weekday = ScheduleOccupation.weekdayOf(target)
-    val minute = ScheduleOccupation.minuteOfDay(target)
-    val end = minute + durationMinutes.coerceIn(5, 360)
-    return !ScheduleOccupation.overlaps(
-        minute, end,
-        ScheduleOccupation.dayOccupied(weekday, courses, items, profile)
-    )
-}
-
-/** 已安装的可启动应用（包名、应用名、分类：用户设置 → 内置清单 → 应用名自动识别）。 */
-
-/** 手动结束一个游戏安排时，记录实际结束（与通知“结束”动作同逻辑）。 */
+/** 手动结束一个游戏安排时，记录实际结束（与通知「结束」动作同逻辑）。 */
 private fun recordGameItemEnd(context: Context, store: PrototypeStore, sessionId: Long) {
-    store.loadGameSessions().firstOrNull { it.id == sessionId && it.isOpen() }?.let { session ->
-        val now = System.currentTimeMillis()
-        val overrun = ((now - session.plannedEndAt) / 60_000L).toInt().coerceAtLeast(0)
-        store.updateGameSession(sessionId) { it.copy(actualEndAt = now, endedOnTime = overrun == 0, overrunMinutes = overrun) }
+    val updated = store.loadGameSessions().firstOrNull { it.id == sessionId }?.let { GameStats.endedSession(it) }
+    if (updated != null) {
+        store.updateGameSession(sessionId) { updated }
         ReminderScheduler.cancelGameReminders(context, sessionId)
     }
 }
 
-
-/** 添加本机应用：搜索已安装应用 → 选择分类（自动识别提示，可改）。 */
 

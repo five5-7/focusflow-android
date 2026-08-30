@@ -10,6 +10,16 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 
+/** 自填教学楼自动进入地点库的计算：返回需要新增/更新的自定义地点列表；null 表示无需变动（名空白、「地点待确认」或已存在）。 */
+fun ensurePlaceForCourse(course: Course, campusPlaces: List<CampusPlace>, customPlaces: List<CampusPlace>): List<CampusPlace>? {
+    val name = course.building.trim()
+    if (name.isBlank() || name == "地点待确认") return null
+    val known = campusPlaces.any { CourseScreenshotParser.normalize(it.name) == CourseScreenshotParser.normalize(name) }
+    if (known) return null
+    val zone = CourseScreenshotParser.zoneByPrefix(name)
+    return customPlaces.filterNot { it.name.lowercase() == name.lowercase() } + CampusPlace(name = name, zone = zone, kind = "教学楼")
+}
+
 /**
  * 校园地点子页面（3.9 校园地图流程的本地退化版 + 可选 API 优化）。
  * 内容区滚动由外层 PlanSubpageFrame 负责（同 RoadmapSubpageContent 模式）。

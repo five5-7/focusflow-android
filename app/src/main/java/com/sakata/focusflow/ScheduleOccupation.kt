@@ -149,3 +149,20 @@ internal fun occupiedByWeekday(items: List<Item>, weekKey: Long = GoalPlanner.cu
 
 internal fun coursesOverlap(a: Course, b: Course): Boolean =
     a.weekday == b.weekday && a.startPeriod <= b.endPeriod && b.startPeriod <= a.endPeriod
+
+/** 本地判断：某时间点安排 durationMinutes 是否与课程/通勤/已有安排冲突（自动排计划用）。 */
+internal fun slotFree(
+    target: Long,
+    durationMinutes: Int,
+    courses: List<Course>,
+    items: List<Item>,
+    profile: CommuteProfile? = null
+): Boolean {
+    val weekday = ScheduleOccupation.weekdayOf(target)
+    val minute = ScheduleOccupation.minuteOfDay(target)
+    val end = minute + durationMinutes.coerceIn(5, 360)
+    return !ScheduleOccupation.overlaps(
+        minute, end,
+        ScheduleOccupation.dayOccupied(weekday, courses, items, profile)
+    )
+}
