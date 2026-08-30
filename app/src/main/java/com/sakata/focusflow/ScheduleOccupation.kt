@@ -10,7 +10,8 @@ data class OccupiedBlock(
     val startMinute: Int,
     val endMinute: Int,
     val kind: String,
-    val title: String = ""
+    val title: String = "",
+    val weekday: Int = 0
 )
 
 /**
@@ -27,7 +28,7 @@ object ScheduleOccupation {
             OccupiedBlock(
                 CourseGapPlanner.periodStart(it.startPeriod),
                 CourseGapPlanner.periodEnd(it.endPeriod),
-                "course", it.title
+                "course", it.title, weekday
             )
         }
 
@@ -46,7 +47,7 @@ object ScheduleOccupation {
                     val nextStarts = CourseGapPlanner.periodStart(to.startPeriod)
                     val travel = ZijingangTravel.estimateMinutes(from.zone, to.zone, profile)
                     val end = minOf(classEnds + travel, nextStarts)
-                    if (end > classEnds) OccupiedBlock(classEnds, end, "commute", "通勤") else null
+                    if (end > classEnds) OccupiedBlock(classEnds, end, "commute", "通勤", from.weekday) else null
                 }
             }
     }
@@ -57,7 +58,7 @@ object ScheduleOccupation {
             other.id != excludeId && !other.done && other.scheduledAt != null && weekdayOf(other.scheduledAt) == weekday
         }.map {
             val start = minuteOfDay(requireNotNull(it.scheduledAt))
-            OccupiedBlock(start, start + it.durationMinutes.coerceIn(5, 360), "task", it.title)
+            OccupiedBlock(start, start + it.durationMinutes.coerceIn(5, 360), "task", it.title, weekday)
         }
 
     /** 共享占用的原始块（未加缓冲），用于「与什么重叠」的说明。 */

@@ -536,6 +536,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                     activeSession = activeSession,
                     activityHistory = activityHistory,
                     nextCommitment = upcomingCommitment,
+                    commuteProfile = commuteProfile,
                     onStartActivity = { activityPreset = null; activityOpen = true },
                     onStartSuggestion = { suggestion, minimumVersion ->
                         val minutes = if (minimumVersion) suggestion.minimumMinutes else suggestion.item.durationMinutes.coerceIn(5, 360)
@@ -560,6 +561,23 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                         saveItems(items.map { if (it.id == item.id) it.copy(kind = "收集箱", recoverySourceScheduledAt = item.recoverySourceScheduledAt ?: item.scheduledAt, scheduledAt = null, dayOnly = false, windowStartAt = null, windowEndAt = null, detail = "已放回收集箱；准备好后再安排") else it })
                         recordTaskEvent(TaskRecorder.event(TaskEventType.TASK_TO_INBOX, item.id, item.title.removePrefix("重新安排：")))
                     },
+                    onApplyAdjustment = { item, adjustment ->
+                        when (adjustment.action) {
+                            AdjustAction.BACK_TO_INBOX -> {
+                                saveItems(items.map { if (it.id == item.id) it.copy(kind = "收集箱", recoverySourceScheduledAt = item.recoverySourceScheduledAt ?: item.scheduledAt, scheduledAt = null, dayOnly = false, windowStartAt = null, windowEndAt = null, detail = "已放回收集箱；准备好后再安排") else it })
+                                recordTaskEvent(TaskRecorder.event(TaskEventType.TASK_TO_INBOX, item.id, item.title.removePrefix("重新安排：")))
+                            }
+                            AdjustAction.REARRANGE -> rescheduleTarget = item
+                            else -> adjustment.targetTime?.let { at ->
+                                saveDelayedItem(
+                                    context, store, items, item, at, adjustment.durationMinutes,
+                                    "${formatDateTime(at)} · ${adjustment.durationMinutes}分钟",
+                                    item.priority,
+                                    save = { saveItems(it) }, record = { recordTaskEvent(it) }
+                                )
+                            }
+                        }
+                    },
                     onPause = { item -> saveItems(items.map { if (it.id == item.id) it.copy(kind = "暂停", detail = "已暂停；随时可在计划中恢复") else it }) },
                     onAbandon = { item ->
                         saveItems(items.filterNot { it.id == item.id })
@@ -578,7 +596,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                     onMealFinish = { mealFinishOpen = it }
                 )
                 1 -> ScheduleScreen(
-                    Modifier.padding(padding), items, scheduleCourses,
+                    Modifier.padding(padding), items, scheduleCourses, commuteProfile,
                     energyLevel = energyLevel,
                     onPlanFlexible = { flexiblePlanTarget = it },
                     onAdjustFlexible = { inboxScheduleTarget = it },
@@ -699,7 +717,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                                     if (scheduled >= remaining) break
                                     val target = GoalPlanner.nextOccurrence(suggestion.weekday, suggestion.startMinute)
                                     // 与之前已排的目标任务也避让，防止同一次自动排内重复占用同一时段。
-                                    if (slotFree(target, goal.durationMinutes, scheduleCourses, items + newItems)) {
+                                    if (slotFree(target, goal.durationMinutes, scheduleCourses, items + newItems, commuteProfile)) {
                                         newItems += Item(title = goal.title, detail = goalTaskDetail(goal, suggestion.weekday, suggestion.startMinute), kind = "任务", scheduledAt = target, goalId = goal.id, durationMinutes = goal.durationMinutes)
                                         PlanLearning.recordScheduled(store, suggestion.weekday, suggestion.startMinute / 60)
                                         scheduled++
@@ -1014,38 +1032,18 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                 transitionTarget = null
             }
         ) }
-        rescheduleTarget?.let { item -> RescheduleTimeDialog(item, onDismiss = { rescheduleTarget = null }) { scheduledAt, duration, label ->
-            val delayed = item.copy(
-                kind = "任务",
-                detail = "已改期至$label；届时会再次出现",
-                scheduledAt = scheduledAt,
-                durationMinutes = duration,
-                dayOnly = false,
-                windowStartAt = null,
-                windowEndAt = null,
-                rescheduleCount = item.rescheduleCount + 1,
-                lastRescheduledAt = System.currentTimeMillis()
-            )
-            saveItems(items.map { if (it.id == item.id) delayed else it })
-            store.appendBaselineEvent(BaselineRecorder.event(BaselineEventType.TASK_RESCHEDULED, "${item.title.removePrefix("重新安排：")} → $label"))
-            recordTaskEvent(TaskRecorder.event(TaskEventType.TASK_RESCHEDULED, item.id, item.title.removePrefix("重新安排："), scheduledAt = scheduledAt, extra = label))
-            ReminderScheduler.scheduleTaskReminder(context, delayed)
-            if (item.kind == "游戏" || item.kind == "活动") {
-                store.loadGameSessions().firstOrNull { it.id == item.id && it.isOpen() }?.let { session ->
-                    val updated = session.copy(plannedStartAt = scheduledAt, plannedEndAt = scheduledAt + duration * 60_000L)
-                    store.updateGameSession(item.id) { updated }
-                    ReminderScheduler.scheduleGameReminders(context, updated)
-                }
-            }
+        rescheduleTarget?.let { item -> RescheduleTimeDialog(item, items, courses, commuteProfile, onDismiss = { rescheduleTarget = null }) { scheduledAt, duration, label, priority ->
+            saveDelayedItem(context, store, items, item, scheduledAt, duration, label, priority, save = { saveItems(it) }, record = { recordTaskEvent(it) })
             rescheduleTarget = null
         } }
         inboxScheduleTarget?.let { item -> InboxScheduleDialog(
             item = item,
             items = items,
             courses = courses,
+            profile = commuteProfile,
             energyLevel = energyLevel,
             onDismiss = { inboxScheduleTarget = null },
-            onSchedule = { startsAt, duration, label ->
+            onSchedule = { startsAt, duration, label, priority ->
                 val scheduled = item.copy(
                     title = item.title.removePrefix("重新安排："),
                     kind = "任务",
@@ -1054,7 +1052,8 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                     durationMinutes = duration,
                     dayOnly = false,
                     windowStartAt = null,
-                    windowEndAt = null
+                    windowEndAt = null,
+                    priority = priority
                 )
                 saveItems(items.map { if (it.id == item.id) scheduled else it })
                 store.appendBaselineEvent(BaselineRecorder.event(BaselineEventType.TASK_SCHEDULED, "${item.title.removePrefix("重新安排：")} · $label"))
@@ -1062,7 +1061,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                 ReminderScheduler.scheduleTaskReminder(context, scheduled)
                 inboxScheduleTarget = null
             },
-            onKeepWindow = { start, end, duration, label ->
+            onKeepWindow = { start, end, duration, label, priority ->
                 val flexible = item.copy(
                     title = item.title.removePrefix("重新安排："),
                     kind = "任务",
@@ -1071,7 +1070,8 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                     durationMinutes = duration,
                     dayOnly = false,
                     windowStartAt = start,
-                    windowEndAt = end
+                    windowEndAt = end,
+                    priority = priority
                 )
                 saveItems(items.map { if (it.id == item.id) flexible else it })
                 store.appendBaselineEvent(BaselineRecorder.event(BaselineEventType.TASK_SCHEDULED, "${item.title.removePrefix("重新安排：")} · 弹性范围 $label"))
@@ -1387,6 +1387,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     onTaskDone: (Item) -> Unit,
     goals: List<Goal>,
     feedback: List<TaskFeedback>,
+    commuteProfile: CommuteProfile,
     activeSession: ActivitySession?,
     activityHistory: List<ActivitySession>,
     nextCommitment: ActivityCommitment?,
@@ -1398,6 +1399,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     onEdit: (Item) -> Unit,
     onShrink: (Item) -> Unit,
     onReturnToInbox: (Item) -> Unit,
+    onApplyAdjustment: (Item, DayAdjustment) -> Unit,
     onPause: (Item) -> Unit,
     onAbandon: (Item) -> Unit,
     baselineEvents: List<BaselineEvent>,
@@ -1531,6 +1533,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                     Text("需要恢复的安排", fontWeight = FontWeight.Bold)
                     Text("错过或反复改期不等于失败；选一个更容易继续的下一步。", style = MaterialTheme.typography.bodySmall)
                     recoveryCandidates.take(3).forEach { candidate ->
+                        val adjustment = ScheduleAdjuster.suggest(candidate, items, courses, commuteProfile)
                         Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                             Text(candidate.item.title.removePrefix("重新安排："), fontWeight = FontWeight.SemiBold)
                             Text(
@@ -1538,7 +1541,13 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
-                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            adjustment?.let {
+                                Text("建议：${it.reason}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.tertiary)
+                            }
+                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                                adjustment?.let {
+                                    TextButton(onClick = { onApplyAdjustment(candidate.item, it) }) { Text("执行建议") }
+                                }
                                 TextButton(onClick = { onShrink(candidate.item) }) { Text("缩为 15 分钟") }
                                 TextButton(onClick = { onReplanSuggestion(candidate.item) }) { Text("重新安排") }
                                 TextButton(onClick = { onReturnToInbox(candidate.item) }) { Text("放回收集箱") }
@@ -1905,16 +1914,18 @@ private fun DurationPicker(initialMinutes: Int, onChange: (Int?) -> Unit) {
     item: Item,
     items: List<Item>,
     courses: List<Course>,
+    profile: CommuteProfile,
     energyLevel: String,
     onDismiss: () -> Unit,
-    onSchedule: (Long, Int, String) -> Unit,
-    onKeepWindow: (Long, Long, Int, String) -> Unit
+    onSchedule: (Long, Int, String, String) -> Unit,
+    onKeepWindow: (Long, Long, Int, String, String) -> Unit
 ) {
     val context = LocalContext.current
     val existingWindow = if (item.windowStartAt != null && item.windowEndAt != null) ScheduleWindowOption("当前范围", item.windowStartAt, item.windowEndAt) else null
     var mode by remember(item.id) { mutableStateOf(if (existingWindow == null) "推荐空档" else "大致时间") }
     var duration by remember(item.id) { mutableIntStateOf(item.durationMinutes.coerceIn(5, 360)) }
     var durationValid by remember(item.id) { mutableStateOf(true) }
+    var priority by remember(item.id) { mutableStateOf(item.priority) }
     var selectedWindow by remember(item.id) { mutableStateOf(existingWindow) }
     var exactTime by remember(item.id) { mutableStateOf<Long?>(null) }
     val windowOptions = scheduleWindowOptions().let { options -> if (existingWindow == null) options else listOf(existingWindow) + options }
@@ -1924,7 +1935,7 @@ private fun DurationPicker(initialMinutes: Int, onChange: (Int?) -> Unit) {
         windowStartAt = if (mode == "大致时间") selectedWindow?.startsAt else null,
         windowEndAt = if (mode == "大致时间") selectedWindow?.endsAt else null
     )
-    val suggestions = FlexiblePlanner.suggestions(planningItem, items, courses, energyLevel)
+    val suggestions = FlexiblePlanner.suggestions(planningItem, items, courses, energyLevel, profile = profile)
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -1956,12 +1967,22 @@ private fun DurationPicker(initialMinutes: Int, onChange: (Int?) -> Unit) {
                         }
                     )
                 }
+                Text("优先级", fontWeight = FontWeight.SemiBold)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    ItemPriority.entries.forEach { entry ->
+                        FilterChip(
+                            selected = priority == entry.storageKey,
+                            onClick = { priority = entry.storageKey },
+                            label = { Text(entry.label) }
+                        )
+                    }
+                }
                 when (mode) {
                     "推荐空档" -> {
                         Text("参考已确认课程、未完成的定时任务和当前精力，并保留 15 分钟缓冲。", style = MaterialTheme.typography.bodySmall)
                         if (suggestions.isEmpty()) Text("未来七天没有足够连续的空档；可以改用大致时间继续保持弹性。")
                         suggestions.forEach { suggestion ->
-                            ElevatedCard(Modifier.fillMaxWidth().clickable { onSchedule(suggestion.startsAt, duration, formatDateTime(suggestion.startsAt)) }) {
+                            ElevatedCard(Modifier.fillMaxWidth().clickable { onSchedule(suggestion.startsAt, duration, formatDateTime(suggestion.startsAt), priority) }) {
                                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                                     Text(formatDateTime(suggestion.startsAt), fontWeight = FontWeight.Bold)
                                     Text(suggestion.reason, style = MaterialTheme.typography.bodySmall)
@@ -2001,14 +2022,38 @@ private fun DurationPicker(initialMinutes: Int, onChange: (Int?) -> Unit) {
                                 }, calendar.get(java.util.Calendar.HOUR_OF_DAY), calendar.get(java.util.Calendar.MINUTE), true).show()
                             }, calendar.get(java.util.Calendar.YEAR), calendar.get(java.util.Calendar.MONTH), calendar.get(java.util.Calendar.DAY_OF_MONTH)).show()
                         }) { Text(exactTime?.let { "已选：${formatDateTime(it)}" } ?: "自选日期与时间") }
+                        exactTime?.let { chosen ->
+                            conflictAdvice(chosen, duration, courses, items, profile, excludeId = item.id)?.let {
+                                Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
                     }
                 }
             }
         },
         confirmButton = {
             when (mode) {
-                "大致时间" -> Button(enabled = selectedWindow != null && durationValid, onClick = { selectedWindow?.let { onKeepWindow(it.startsAt, it.endsAt, duration, it.label) } }) { Text("保存范围") }
-                "精确时间" -> Button(enabled = exactTime?.let { it > System.currentTimeMillis() } == true && durationValid, onClick = { exactTime?.let { onSchedule(it, duration, formatDateTime(it)) } }) { Text("确认安排") }
+                "大致时间" -> Button(enabled = selectedWindow != null && durationValid, onClick = { selectedWindow?.let { onKeepWindow(it.startsAt, it.endsAt, duration, it.label, priority) } }) { Text("保存范围") }
+                "精确时间" -> {
+                    val chosen = exactTime
+                    val advice = chosen?.let { conflictAdvice(it, duration, courses, items, profile, excludeId = item.id) }
+                    if (advice != null && chosen != null) {
+                        val freeSlot = ScheduleOccupation.nextFreeSlot(
+                            ScheduleOccupation.weekdayOf(chosen),
+                            ScheduleOccupation.minuteOfDay(chosen),
+                            duration, courses, items, profile, excludeId = item.id
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            freeSlot?.let { slot ->
+                                OutlinedButton(enabled = durationValid, onClick = {
+                                    val at = timeOnSameDayAs(chosen, slot)
+                                    onSchedule(at, duration, formatDateTime(at), priority)
+                                }) { Text("调整到 ${formatTime(timeOnSameDayAs(chosen, slot))} 并保存") }
+                            }
+                            Button(enabled = chosen > System.currentTimeMillis() && durationValid, onClick = { onSchedule(chosen, duration, formatDateTime(chosen), priority) }) { Text("仍要保存") }
+                        }
+                    } else Button(enabled = chosen?.let { it > System.currentTimeMillis() } == true && durationValid, onClick = { chosen?.let { onSchedule(it, duration, formatDateTime(it), priority) } }) { Text("确认安排") }
+                }
                 else -> {}
             }
         },
@@ -2016,17 +2061,38 @@ private fun DurationPicker(initialMinutes: Int, onChange: (Int?) -> Unit) {
     )
 }
 
-@Composable private fun RescheduleTimeDialog(item: Item, onDismiss: () -> Unit, onSave: (Long, Int, String) -> Unit) {
+@Composable private fun RescheduleTimeDialog(
+    item: Item,
+    items: List<Item>,
+    courses: List<Course>,
+    profile: CommuteProfile,
+    onDismiss: () -> Unit,
+    onSave: (Long, Int, String, String) -> Unit
+) {
     val context = LocalContext.current
     var selected by remember { mutableStateOf(1) }
     var customTime by remember { mutableStateOf<Long?>(null) }
     var duration by remember { mutableIntStateOf(item.durationMinutes.coerceIn(5, 360)) }
     var durationValid by remember { mutableStateOf(true) }
+    var priority by remember(item.id) { mutableStateOf(item.priority) }
     val options = listOf(
         Triple("明早 9:00", dateAt(1, 9), "明早 9:00"),
         Triple("明晚 18:00", dateAt(1, 18), "明晚 18:00"),
         Triple("后天 18:00", dateAt(2, 18), "后天 18:00")
     )
+    val chosenTime = customTime ?: options[selected].second
+    val advice = remember(selected, customTime, duration) {
+        conflictAdvice(chosenTime, duration, courses, items, profile, excludeId = item.id)
+    }
+    val freeSlot = remember(selected, customTime, duration, advice) {
+        advice?.let {
+            ScheduleOccupation.nextFreeSlot(
+                ScheduleOccupation.weekdayOf(chosenTime),
+                ScheduleOccupation.minuteOfDay(chosenTime),
+                duration, courses, items, profile, excludeId = item.id
+            )
+        }
+    }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("什么时候再提醒？") },
@@ -2053,13 +2119,93 @@ private fun DurationPicker(initialMinutes: Int, onChange: (Int?) -> Unit) {
                     }
                 )
             }
+            Text("优先级", fontWeight = FontWeight.SemiBold)
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                ItemPriority.entries.forEach { entry ->
+                    FilterChip(
+                        selected = priority == entry.storageKey,
+                        onClick = { priority = entry.storageKey },
+                        label = { Text(entry.label) }
+                    )
+                }
+            }
+            advice?.let {
+                Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            }
         } },
-        confirmButton = { Button(enabled = durationValid, onClick = { customTime?.let { onSave(it, duration, "${formatDateTime(it)} · ${duration}分钟") } ?: onSave(options[selected].second, duration, "${options[selected].third} · ${duration}分钟") }) { Text("确认安排") } },
+        confirmButton = {
+            val original = {
+                customTime?.let { onSave(it, duration, "${formatDateTime(it)} · ${duration}分钟", priority) }
+                    ?: onSave(options[selected].second, duration, "${options[selected].third} · ${duration}分钟", priority)
+            }
+            if (advice != null) {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    freeSlot?.let { slot ->
+                        OutlinedButton(enabled = durationValid, onClick = {
+                            val at = timeOnSameDayAs(chosenTime, slot)
+                            onSave(at, duration, "${formatDateTime(at)} · ${duration}分钟", priority)
+                        }) { Text("调整到 ${formatTime(timeOnSameDayAs(chosenTime, slot))} 并保存") }
+                    }
+                    Button(enabled = durationValid, onClick = original) { Text("仍要保存") }
+                }
+            } else Button(enabled = durationValid, onClick = original) { Text("确认安排") }
+        },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }
     )
 }
 
 private fun formatTime(time: Long): String = java.text.SimpleDateFormat("HH:mm", java.util.Locale.CHINA).format(java.util.Date(time))
+
+/** 与 target 同一天钟表 minute 的时刻（冲突一键"调整到 X:XX 并保存"用）。 */
+private fun timeOnSameDayAs(target: Long, minute: Int): Long =
+    java.util.Calendar.getInstance().apply {
+        timeInMillis = target
+        set(java.util.Calendar.HOUR_OF_DAY, minute / 60)
+        set(java.util.Calendar.MINUTE, minute % 60)
+        set(java.util.Calendar.SECOND, 0)
+        set(java.util.Calendar.MILLISECOND, 0)
+    }.timeInMillis
+
+/**
+ * 把一项已排任务改期保存：事件记录 + 任务提醒重排 + 游戏项同步。
+ * 改期弹窗与动态调整"执行建议"共用；保存器由调用方注入（FocusFlowApp 本地作用域）。
+ */
+private fun saveDelayedItem(
+    context: Context,
+    store: PrototypeStore,
+    items: List<Item>,
+    item: Item,
+    scheduledAt: Long,
+    duration: Int,
+    label: String,
+    priority: String,
+    save: (List<Item>) -> Unit,
+    record: (TaskEvent) -> Unit
+) {
+    val delayed = item.copy(
+        kind = "任务",
+        detail = "已改期至$label；届时会再次出现",
+        scheduledAt = scheduledAt,
+        durationMinutes = duration,
+        dayOnly = false,
+        windowStartAt = null,
+        windowEndAt = null,
+        priority = priority,
+        rescheduleCount = item.rescheduleCount + 1,
+        lastRescheduledAt = System.currentTimeMillis()
+    )
+    save(items.map { if (it.id == item.id) delayed else it })
+    store.appendBaselineEvent(BaselineRecorder.event(BaselineEventType.TASK_RESCHEDULED, "${item.title.removePrefix("重新安排：")} → $label"))
+    record(TaskRecorder.event(TaskEventType.TASK_RESCHEDULED, item.id, item.title.removePrefix("重新安排："), scheduledAt = scheduledAt, extra = label))
+    ReminderScheduler.scheduleTaskReminder(context, delayed)
+    if (item.kind == "游戏" || item.kind == "活动") {
+        store.loadGameSessions().firstOrNull { it.id == item.id && it.isOpen() }?.let { session ->
+            val updated = session.copy(plannedStartAt = scheduledAt, plannedEndAt = scheduledAt + duration * 60_000L)
+            store.updateGameSession(item.id) { updated }
+            ReminderScheduler.scheduleGameReminders(context, updated)
+        }
+    }
+}
 private fun formatActivityRemaining(milliseconds: Long): String {
     val totalSeconds = (milliseconds.coerceAtLeast(0) / 1_000L).toInt()
     val hours = totalSeconds / 3_600
@@ -2852,25 +2998,21 @@ internal fun GapTimelineContent(courses: List<Course>, profile: CommuteProfile) 
     Text("课程色块同课表；间隙显示扣除路程后的净可用分钟数（≥60 分钟深色高亮，适合安排目标或充电）。", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 }
 
-/** 本地判断：某时间点安排 durationMinutes 是否与课程/已有安排冲突（自动排计划用）。 */
-private fun slotFree(target: Long, durationMinutes: Int, courses: List<Course>, items: List<Item>): Boolean {
-    val calendar = java.util.Calendar.getInstance().apply { timeInMillis = target }
-    val weekday = weekdayOf(target)
-    val minute = calendar.get(java.util.Calendar.HOUR_OF_DAY) * 60 + calendar.get(java.util.Calendar.MINUTE)
-    val end = minute + durationMinutes
-    val courseBlocked = courses.filter { !it.needsConfirmation && it.weekday == weekday }.any { course ->
-        CourseGapPlanner.periodStart(course.startPeriod) < end && minute < CourseGapPlanner.periodEnd(course.endPeriod)
-    }
-    if (courseBlocked) return false
-    // 不同活动之间预留缓冲（10 分钟），避免背靠背、留出切换余地。
-    val bufferMillis = 10 * 60_000L
-    return items.none { item ->
-        val start = item.scheduledAt ?: return@none false
-        val itemCal = java.util.Calendar.getInstance().apply { timeInMillis = start }
-        itemCal.get(java.util.Calendar.YEAR) == calendar.get(java.util.Calendar.YEAR) &&
-            itemCal.get(java.util.Calendar.DAY_OF_YEAR) == calendar.get(java.util.Calendar.DAY_OF_YEAR) &&
-            kotlin.math.abs(start - target) < (durationMinutes + item.durationMinutes) * 60_000L + bufferMillis
-    }
+/** 本地判断：某时间点安排 durationMinutes 是否与课程/通勤/已有安排冲突（自动排计划用）。 */
+private fun slotFree(
+    target: Long,
+    durationMinutes: Int,
+    courses: List<Course>,
+    items: List<Item>,
+    profile: CommuteProfile? = null
+): Boolean {
+    val weekday = ScheduleOccupation.weekdayOf(target)
+    val minute = ScheduleOccupation.minuteOfDay(target)
+    val end = minute + durationMinutes.coerceIn(5, 360)
+    return !ScheduleOccupation.overlaps(
+        minute, end,
+        ScheduleOccupation.dayOccupied(weekday, courses, items, profile)
+    )
 }
 
 /** 已安装的可启动应用（包名、应用名、分类：用户设置 → 内置清单 → 应用名自动识别）。 */
@@ -4661,6 +4803,10 @@ private fun activityTitleLabel(category: String): String = when (category) {
         val cal = java.util.Calendar.getInstance().apply { timeInMillis = at }
         GoalSuggestion(weekdayOf(at), cal.get(java.util.Calendar.HOUR_OF_DAY) * 60 + cal.get(java.util.Calendar.MINUTE), durationNumber ?: 60)
     } ?: suggestions.firstOrNull()
+    val plannedAt = chosen?.let { s -> GoalPlanner.nextOccurrence(s.weekday, s.startMinute) }
+    val plannedAdvice = remember(plannedAt, durationNumber) {
+        plannedAt?.let { conflictAdvice(it, durationNumber ?: 60, courses, items, profile) }
+    }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("安排空闲活动") },
@@ -4703,16 +4849,40 @@ private fun activityTitleLabel(category: String): String = when (category) {
                 val cal2 = java.util.Calendar.getInstance().apply { timeInMillis = at }
                 "自定义：${GoalPlanner.displayTime(cal2.get(java.util.Calendar.HOUR_OF_DAY) * 60 + cal2.get(java.util.Calendar.MINUTE))}（最近一次）"
             } ?: "自定义时间…") }, modifier = Modifier.fillMaxWidth())
+            plannedAdvice?.let {
+                Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            }
         } },
-        confirmButton = { Button(enabled = (durationNumber ?: 0) in 5..300 && chosen != null, onClick = {
-            val d = durationNumber ?: return@Button
-            val s = chosen ?: return@Button
+        confirmButton = {
+            val d = durationNumber
+            val s = chosen
+            val durationOk = d != null && d in 5..300
             val finalTitle = title.trim().ifBlank { category }
-            val scheduledAt = GoalPlanner.nextOccurrence(s.weekday, s.startMinute)
-            val item = Item(title = finalTitle, detail = "${category}安排 · ${weekdayName(s.weekday)} ${GoalPlanner.displayTime(s.startMinute)}–${GoalPlanner.displayTime(s.startMinute + d)}", kind = "活动", scheduledAt = scheduledAt, durationMinutes = d)
-            val session = GameSessionRecord(id = item.id, title = finalTitle, category = category, packageName = null, plannedStartAt = scheduledAt, plannedEndAt = scheduledAt + d * 60_000L, remindStart = remindStart)
-            onSave(item, session)
-        }) { Text("安排") } },
+            fun saveAt(at: Long) {
+                val dd = d ?: return
+                val ss = s ?: return
+                val item = Item(title = finalTitle, detail = "${category}安排 · ${weekdayName(ss.weekday)} ${GoalPlanner.displayTime(ss.startMinute)}–${GoalPlanner.displayTime(ss.startMinute + dd)}", kind = "活动", scheduledAt = at, durationMinutes = dd)
+                val session = GameSessionRecord(id = item.id, title = finalTitle, category = category, packageName = null, plannedStartAt = at, plannedEndAt = at + dd * 60_000L, remindStart = remindStart)
+                onSave(item, session)
+            }
+            if (plannedAdvice != null && plannedAt != null) {
+                val freeSlot = if (durationOk) ScheduleOccupation.nextFreeSlot(
+                    ScheduleOccupation.weekdayOf(plannedAt),
+                    ScheduleOccupation.minuteOfDay(plannedAt),
+                    d, courses, items, profile
+                ) else null
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    freeSlot?.let { slot ->
+                        OutlinedButton(enabled = durationOk, onClick = {
+                            saveAt(timeOnSameDayAs(plannedAt, slot))
+                        }) { Text("调整到 ${formatTime(timeOnSameDayAs(plannedAt, slot))} 并保存") }
+                    }
+                    Button(enabled = durationOk, onClick = { saveAt(plannedAt) }) { Text("仍要保存") }
+                }
+            } else Button(enabled = durationOk && s != null, onClick = {
+                plannedAt?.let { saveAt(it) }
+            }) { Text("安排") }
+        },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }
     )
 }

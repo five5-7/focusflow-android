@@ -25,6 +25,7 @@ internal fun ScheduleScreen(
     modifier: Modifier,
     items: List<Item>,
     courses: List<Course>,
+    profile: CommuteProfile,
     energyLevel: String,
     onPlanFlexible: (Item) -> Unit,
     onAdjustFlexible: (Item) -> Unit,
@@ -99,11 +100,12 @@ internal fun ScheduleScreen(
                     }
                 }
             }
-            DailyScheduleTimeline(todayCourses, todaySchedule, onStartTask, onRescheduleTask, onTaskDone, onDeleteItem)
+            DailyScheduleTimeline(todayCourses, todaySchedule, profile, onStartTask, onRescheduleTask, onTaskDone, onDeleteItem)
         } else {
             WeeklyScheduleTimeline(
                 courses.filter { !it.needsConfirmation },
                 items,
+                profile,
                 onStartTask,
                 onRescheduleTask,
                 onTaskDone,

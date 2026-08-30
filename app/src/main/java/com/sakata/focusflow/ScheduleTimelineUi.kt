@@ -50,6 +50,9 @@ internal fun Item.scheduleType(): ScheduleType = when {
 
 private val timelineHourHeight = 64.dp
 
+/** 色块文字模式：FULL 显示标题+时间行；TITLE_ONLY 仅单行标题（周视图小色块）。 */
+internal enum class TimelineLabelMode { FULL, TITLE_ONLY }
+
 internal fun Course.asTimelineEvent(index: Int = 0) = TimelineEvent(
     key = "course-$weekday-$startPeriod-$title-$index",
     title = title,
@@ -59,6 +62,20 @@ internal fun Course.asTimelineEvent(index: Int = 0) = TimelineEvent(
     endMinute = CourseGapPlanner.periodEnd(endPeriod),
     type = ScheduleType.COURSE
 )
+
+/** 相邻已确认课程之间的通勤占用色块（profile.enabled 时才生成）。 */
+internal fun commuteTimelineEvents(courses: List<Course>, profile: CommuteProfile): List<TimelineEvent> =
+    ScheduleOccupation.commuteBlocks(courses, profile).mapNotNull { block ->
+        TimelineEvent(
+            key = "commute-${block.weekday}-${block.startMinute}-${block.endMinute}",
+            title = "通勤",
+            detail = "按当前通勤设置估算 · 约 ${block.endMinute - block.startMinute} 分钟",
+            weekday = block.weekday,
+            startMinute = block.startMinute,
+            endMinute = block.endMinute,
+            type = ScheduleType.COMMUTE
+        )
+    }
 
 private fun Item.asTimelineEvent(): TimelineEvent? {
     val time = scheduledAt ?: return null
@@ -79,13 +96,19 @@ private fun Item.asTimelineEvent(): TimelineEvent? {
 internal fun DailyScheduleTimeline(
     courses: List<Course>,
     tasks: List<Item>,
+    profile: CommuteProfile,
     onStartTask: (Item) -> Unit,
     onRescheduleTask: (Item) -> Unit,
     onTaskDone: (Item) -> Unit,
     onDeleteItem: (Item) -> Unit
 ) {
     val events = courses.mapIndexed { index, course -> course.asTimelineEvent(index) } +
-        tasks.mapNotNull { it.asTimelineEvent() }
+        commuteTimelineEvents(courses, profile) +
+        tasks.mapNotNull {
+            it.asTimelineEvent()?.copy(
+                conflictNote = taskConflictNote(it, courses, tasks, profile)
+            )
+        }
     var selected by remember { mutableStateOf<TimelineEvent?>(null) }
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 10.dp)) {
@@ -116,15 +139,21 @@ internal fun DailyScheduleTimeline(
 internal fun WeeklyScheduleTimeline(
     courses: List<Course>,
     items: List<Item>,
+    profile: CommuteProfile,
     onStartTask: (Item) -> Unit,
     onRescheduleTask: (Item) -> Unit,
     onTaskDone: (Item) -> Unit,
     onDeleteItem: (Item) -> Unit
 ) {
-    val courseEvents = courses.mapIndexed { index, course -> course.asTimelineEvent(index) }
+    val courseEvents = courses.mapIndexed { index, course -> course.asTimelineEvent(index) } +
+        commuteTimelineEvents(courses, profile)
     val taskEvents = items
         .filter { !it.dayOnly && it.scheduledAt?.let(::isInCurrentWeek) == true }
-        .mapNotNull { it.asTimelineEvent() }
+        .mapNotNull {
+            it.asTimelineEvent()?.copy(
+                conflictNote = taskConflictNote(it, courses, items, profile)
+            )
+        }
     var selected by remember { mutableStateOf<TimelineEvent?>(null) }
     var showCourseInfo by remember { mutableStateOf(false) }
     Row(
@@ -170,8 +199,9 @@ internal fun WeeklyScheduleTimeline(
                     TimelineDayLane(
                         (courseEvents + taskEvents).filter { it.weekday == day },
                         Modifier.weight(1f),
-                        showLabels = false,
+                        showLabels = true,
                         compactBlocks = true,
+                        labelMode = TimelineLabelMode.TITLE_ONLY,
                         onSelect = { selected = it }
                     )
                 }
@@ -237,7 +267,8 @@ internal fun TimelineDayLane(
     showLabels: Boolean,
     compactBlocks: Boolean,
     onSelect: (TimelineEvent) -> Unit,
-    gapMarkers: List<GapMarker> = emptyList()
+    gapMarkers: List<GapMarker> = emptyList(),
+    labelMode: TimelineLabelMode = TimelineLabelMode.FULL
 ) {
     val mergedEvents = mergeConflictingCourses(events)
     val totalHours = (TIMELINE_END_MINUTE - TIMELINE_START_MINUTE) / 60
@@ -299,6 +330,13 @@ internal fun TimelineDayLane(
                                 x += step
                             }
                         }
+                    } else if (event.conflictNote != null) {
+                        // 任务相关冲突：细红左条 + 块体保持原色，详情在弹窗红字说明
+                        Box(
+                            Modifier.align(Alignment.CenterStart)
+                                .width(4.dp).fillMaxHeight()
+                                .background(CONFLICT_TEXT_COLOR, RoundedCornerShape(topStart = 7.dp, bottomStart = 7.dp))
+                        )
                     }
                     if (showLabels) {
                         Column(Modifier.padding(horizontal = 5.dp, vertical = 3.dp)) {
@@ -306,10 +344,10 @@ internal fun TimelineDayLane(
                                 event.title,
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.Bold,
-                                maxLines = 2,
+                                maxLines = if (labelMode == TimelineLabelMode.TITLE_ONLY) 1 else 2,
                                 overflow = TextOverflow.Ellipsis
                             )
-                            if (height >= 34.dp) {
+                            if (labelMode == TimelineLabelMode.FULL && height >= 34.dp) {
                                 Text(
                                     "${formatMinute(event.startMinute)}–${formatMinute(event.endMinute)}",
                                     style = MaterialTheme.typography.labelSmall,
@@ -402,6 +440,14 @@ private fun TimelineEventDialog(
                 )
                 Text(event.type.label, color = eventColor)
                 Text(event.detail)
+                event.conflictNote?.let {
+                    Text(
+                        it,
+                        color = CONFLICT_TEXT_COLOR,
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
                 event.item?.takeIf { it.done }?.let {
                     Text(
                         "已完成" +
