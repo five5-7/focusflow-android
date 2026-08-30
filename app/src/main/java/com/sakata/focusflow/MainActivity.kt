@@ -1081,7 +1081,10 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
         ) }
         flexiblePlanTarget?.let { item -> FlexiblePlanDialog(
             item = item,
-            suggestions = FlexiblePlanner.suggestions(item, items, courses, energyLevel),
+            items = items,
+            courses = courses,
+            energyLevel = energyLevel,
+            profile = commuteProfile,
             onDismiss = { flexiblePlanTarget = null },
             onSelect = { suggestion ->
                 val scheduled = item.copy(
@@ -1816,13 +1819,33 @@ private fun scheduleWindowOptions(now: Long = System.currentTimeMillis()): List<
         .filter { it.endsAt > it.startsAt + 15 * 60_000L }
 }
 
-@Composable private fun FlexiblePlanDialog(item: Item, suggestions: List<FlexibleTimeSuggestion>, onDismiss: () -> Unit, onSelect: (FlexibleTimeSuggestion) -> Unit) {
+@Composable private fun FlexiblePlanDialog(
+    item: Item,
+    items: List<Item>,
+    courses: List<Course>,
+    energyLevel: String,
+    profile: CommuteProfile,
+    onDismiss: () -> Unit,
+    onSelect: (FlexibleTimeSuggestion) -> Unit
+) {
+    var duration by remember(item.id) { mutableIntStateOf(item.durationMinutes.coerceIn(5, 360)) }
+    var durationValid by remember(item.id) { mutableStateOf(true) }
+    val suggestions = remember(item.id, duration) { FlexiblePlanner.suggestions(item.copy(durationMinutes = duration), items, courses, energyLevel, profile = profile) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("为弹性任务初步规划") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            ScrollableDialogBox(maxHeight = 520.dp, spacing = 10.dp) {
                 Text(item.title, fontWeight = FontWeight.SemiBold)
+                Text("预计用时", fontWeight = FontWeight.SemiBold)
+                key(item.id) {
+                    DurationPicker(
+                        initialMinutes = item.durationMinutes.coerceIn(5, 360),
+                        onChange = { parsed ->
+                            if (parsed != null) { duration = parsed; durationValid = true } else durationValid = false
+                        }
+                    )
+                }
                 Text("这些时间已避开课程和定时任务，并保留前后缓冲。选择只是初步安排，之后仍可改期。", style = MaterialTheme.typography.bodySmall)
                 if (suggestions.isEmpty()) {
                     Text("未来七天暂时没有足够连续的空档。任务会继续保留为弹性安排。")
@@ -1834,11 +1857,47 @@ private fun scheduleWindowOptions(now: Long = System.currentTimeMillis()): List<
                         }
                     }
                 }
+                Text("提示：修改时长后建议会按新长度重新计算。", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         },
         confirmButton = {},
-        dismissButton = { TextButton(onClick = onDismiss) { Text("保持弹性") } }
+        dismissButton = { TextButton(enabled = durationValid, onClick = onDismiss) { Text("保持弹性") } }
     )
+}
+
+/** 任意分钟时长选择：常用快捷 chips + 自定义输入，统一 5–360；非法输入回调 null。 */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun DurationPicker(initialMinutes: Int, onChange: (Int?) -> Unit) {
+    var input by remember { mutableStateOf(initialMinutes.coerceIn(5, 360).toString()) }
+    val parsed = input.toIntOrNull()?.takeIf { it in 5..360 }
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            maxItemsInEachRow = 2,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            listOf(5, 10, 15, 20, 25, 30, 45, 60, 75, 90).forEach { minutes ->
+                FilterChip(
+                    modifier = Modifier.weight(1f),
+                    selected = parsed == minutes,
+                    onClick = { input = minutes.toString(); onChange(minutes) },
+                    label = { Text("$minutes 分", maxLines = 1) }
+                )
+            }
+        }
+        OutlinedTextField(
+            value = input,
+            onValueChange = { new ->
+                input = new.filter(Char::isDigit).take(3)
+                onChange(input.toIntOrNull()?.takeIf { it in 5..360 })
+            },
+            label = { Text("自定义分钟（5–360）") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+    }
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -1854,7 +1913,8 @@ private fun scheduleWindowOptions(now: Long = System.currentTimeMillis()): List<
     val context = LocalContext.current
     val existingWindow = if (item.windowStartAt != null && item.windowEndAt != null) ScheduleWindowOption("当前范围", item.windowStartAt, item.windowEndAt) else null
     var mode by remember(item.id) { mutableStateOf(if (existingWindow == null) "推荐空档" else "大致时间") }
-    var duration by remember(item.id) { mutableIntStateOf(item.durationMinutes.coerceIn(15, 180)) }
+    var duration by remember(item.id) { mutableIntStateOf(item.durationMinutes.coerceIn(5, 360)) }
+    var durationValid by remember(item.id) { mutableStateOf(true) }
     var selectedWindow by remember(item.id) { mutableStateOf(existingWindow) }
     var exactTime by remember(item.id) { mutableStateOf<Long?>(null) }
     val windowOptions = scheduleWindowOptions().let { options -> if (existingWindow == null) options else listOf(existingWindow) + options }
@@ -1888,20 +1948,13 @@ private fun scheduleWindowOptions(now: Long = System.currentTimeMillis()): List<
                     }
                 }
                 Text("预计用时", fontWeight = FontWeight.SemiBold)
-                FlowRow(
-                    modifier = Modifier.fillMaxWidth(),
-                    maxItemsInEachRow = 2,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    listOf(15, 30, 60, 90).forEach { minutes ->
-                        FilterChip(
-                            modifier = Modifier.weight(1f),
-                            selected = duration == minutes,
-                            onClick = { duration = minutes },
-                            label = { Text("$minutes 分", maxLines = 1) }
-                        )
-                    }
+                key(item.id) {
+                    DurationPicker(
+                        initialMinutes = item.durationMinutes.coerceIn(5, 360),
+                        onChange = { parsed ->
+                            if (parsed != null) { duration = parsed; durationValid = true } else durationValid = false
+                        }
+                    )
                 }
                 when (mode) {
                     "推荐空档" -> {
@@ -1954,8 +2007,8 @@ private fun scheduleWindowOptions(now: Long = System.currentTimeMillis()): List<
         },
         confirmButton = {
             when (mode) {
-                "大致时间" -> Button(enabled = selectedWindow != null, onClick = { selectedWindow?.let { onKeepWindow(it.startsAt, it.endsAt, duration, it.label) } }) { Text("保存范围") }
-                "精确时间" -> Button(enabled = exactTime?.let { it > System.currentTimeMillis() } == true, onClick = { exactTime?.let { onSchedule(it, duration, formatDateTime(it)) } }) { Text("确认安排") }
+                "大致时间" -> Button(enabled = selectedWindow != null && durationValid, onClick = { selectedWindow?.let { onKeepWindow(it.startsAt, it.endsAt, duration, it.label) } }) { Text("保存范围") }
+                "精确时间" -> Button(enabled = exactTime?.let { it > System.currentTimeMillis() } == true && durationValid, onClick = { exactTime?.let { onSchedule(it, duration, formatDateTime(it)) } }) { Text("确认安排") }
                 else -> {}
             }
         },
@@ -1967,7 +2020,8 @@ private fun scheduleWindowOptions(now: Long = System.currentTimeMillis()): List<
     val context = LocalContext.current
     var selected by remember { mutableStateOf(1) }
     var customTime by remember { mutableStateOf<Long?>(null) }
-    var duration by remember { mutableIntStateOf(item.durationMinutes.coerceIn(15, 180)) }
+    var duration by remember { mutableIntStateOf(item.durationMinutes.coerceIn(5, 360)) }
+    var durationValid by remember { mutableStateOf(true) }
     val options = listOf(
         Triple("明早 9:00", dateAt(1, 9), "明早 9:00"),
         Triple("明晚 18:00", dateAt(1, 18), "明晚 18:00"),
@@ -1991,11 +2045,16 @@ private fun scheduleWindowOptions(now: Long = System.currentTimeMillis()): List<
                 }, calendar.get(java.util.Calendar.YEAR), calendar.get(java.util.Calendar.MONTH), calendar.get(java.util.Calendar.DAY_OF_MONTH)).show()
             }) { Text(customTime?.let { "已选：${formatDateTime(it)}" } ?: "自选日期与时间") }
             Text("预计用时", fontWeight = FontWeight.SemiBold)
-            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                listOf(15, 30, 60, 90).forEach { minutes -> FilterChip(selected = duration == minutes, onClick = { duration = minutes }, label = { Text("${minutes}分钟") }) }
+            key(item.id) {
+                DurationPicker(
+                    initialMinutes = item.durationMinutes.coerceIn(5, 360),
+                    onChange = { parsed ->
+                        if (parsed != null) { duration = parsed; durationValid = true } else durationValid = false
+                    }
+                )
             }
         } },
-        confirmButton = { Button(onClick = { customTime?.let { onSave(it, duration, "${formatDateTime(it)} · ${duration}分钟") } ?: onSave(options[selected].second, duration, "${options[selected].third} · ${duration}分钟") }) { Text("确认安排") } },
+        confirmButton = { Button(enabled = durationValid, onClick = { customTime?.let { onSave(it, duration, "${formatDateTime(it)} · ${duration}分钟") } ?: onSave(options[selected].second, duration, "${options[selected].third} · ${duration}分钟") }) { Text("确认安排") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }
     )
 }
