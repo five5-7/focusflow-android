@@ -28,6 +28,8 @@ internal fun ScheduleScreen(
     energyLevel: String,
     onPlanFlexible: (Item) -> Unit,
     onAdjustFlexible: (Item) -> Unit,
+    onStartTask: (Item) -> Unit,
+    onRescheduleTask: (Item) -> Unit,
     onTaskDone: (Item) -> Unit,
     onDeleteItem: (Item) -> Unit
 ) {
@@ -97,11 +99,13 @@ internal fun ScheduleScreen(
                     }
                 }
             }
-            DailyScheduleTimeline(todayCourses, todaySchedule, onTaskDone, onDeleteItem)
+            DailyScheduleTimeline(todayCourses, todaySchedule, onStartTask, onRescheduleTask, onTaskDone, onDeleteItem)
         } else {
             WeeklyScheduleTimeline(
                 courses.filter { !it.needsConfirmation },
                 items,
+                onStartTask,
+                onRescheduleTask,
                 onTaskDone,
                 onDeleteItem
             )

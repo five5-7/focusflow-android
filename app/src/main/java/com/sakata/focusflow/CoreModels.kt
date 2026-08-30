@@ -24,7 +24,9 @@ data class Item(
     val completedAt: Long? = null,
     val durationMinutes: Int = 60,
     val windowStartAt: Long? = null,
-    val windowEndAt: Long? = null
+    val windowEndAt: Long? = null,
+    val rescheduleCount: Int = 0,
+    val lastRescheduledAt: Long? = null
 )
 
 data class CommuteProfile(

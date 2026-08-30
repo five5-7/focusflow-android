@@ -18,8 +18,11 @@ data class RoadmapEntry(val version: String, val title: String, val summary: Str
 data class RoadmapVersion(val version: String, val entries: List<RoadmapEntry>)
 
 object RoadmapData {
-    /** 已实现版本演进（1.0 → 6.2.2），每版本浓缩 1–3 条，与 CHANGELOG.md 对应。 */
+    /** 已实现版本演进（1.0 → 6.3.0），每版本浓缩 1–3 条，与 CHANGELOG.md 对应。 */
     val evolution: List<RoadmapVersion> = listOf(
+        RoadmapVersion("6.3.0", listOf(
+            RoadmapEntry("6.3.0", "日常执行闭环", "日程任务可直接开始、改期和完成；今日页展示计划完成率、改期次数与完成记录", RoadmapStatus.DONE)
+        )),
         RoadmapVersion("6.2.2", listOf(
             RoadmapEntry("6.2.2", "提前与到点双提醒", "提前预告不再消耗到点提醒；诊断分别显示两次触发，并以实际送达时间判断后台是否准时", RoadmapStatus.DONE)
         )),
@@ -324,7 +327,7 @@ fun RoadmapSubpageContent() {
                 Text("每次功能更新递增 0.1；更新记录见版本演进。", style = MaterialTheme.typography.bodySmall)
             }
         }
-        Text("版本演进（已实现 1.0 → 6.2.2）", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Text("版本演进（已实现 1.0 → 6.3.0）", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         RoadmapData.evolution.forEach { version ->
             Text(version.version, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
             version.entries.forEach { entry ->
