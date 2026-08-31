@@ -438,6 +438,22 @@ class PrototypeStore(context: Context) {
             .apply()
     }
 
+    /** AI 周总结设置：独立键未设置过时开关回退到教程搜索开关（升级用户零感知）；key 为独立的 `ai_weekly_summary_key`，留空时调用方回退教程搜索 key。 */
+    fun loadAiWeeklySummarySettings(): AiWeeklySummarySettings = AiWeeklySummarySettings(
+        enabled = if (preferences.contains("ai_weekly_summary_enabled"))
+            preferences.getBoolean("ai_weekly_summary_enabled", false)
+        else preferences.getBoolean("tutorial_search_enabled", false),
+        apiKey = preferences.getString("ai_weekly_summary_key", "") ?: ""
+    )
+
+    fun saveAiWeeklySummarySettings(settings: AiWeeklySummarySettings) {
+        preferences.edit().apply {
+            putBoolean("ai_weekly_summary_enabled", settings.enabled)
+            if (settings.apiKey.isBlank()) remove("ai_weekly_summary_key")
+            else putString("ai_weekly_summary_key", settings.apiKey.trim())
+        }.apply()
+    }
+
     /** 完成率学习原始 JSON（PlanLearning 使用）。 */
     fun loadPlanLearningRaw(): String = preferences.getString("plan_learning", "{}") ?: "{}"
 

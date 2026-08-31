@@ -221,6 +221,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     var amapKey by remember { mutableStateOf(store.loadAmapKey()) }
     var campusCenter by remember { mutableStateOf(store.loadCampusCenter()) }
     var tutorialSearch by remember { mutableStateOf(store.loadTutorialSearchSettings()) }
+    var aiWeeklySummary by remember { mutableStateOf(store.loadAiWeeklySummarySettings()) }
     var tutorialSearchOpen by remember { mutableStateOf(false) }
     var tutorialFinderOpen by remember { mutableStateOf(false) }
     var finderContext by remember { mutableStateOf("") }
@@ -738,6 +739,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                     },
                     autoPlanMessage = autoPlanMessage,
                     tutorialSearch = tutorialSearch,
+                    aiWeeklySummary = aiWeeklySummary,
                     courseVision = courseVision,
                     onSearchTutorial = { tutorialSearchOpen = true },
                     onVideoAnalysis = { videoAnalysisOpen = true },
@@ -809,6 +811,9 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                 }, tutorialSearch = tutorialSearch, onTutorialSearchSettingsChange = { updated ->
                     tutorialSearch = updated
                     store.saveTutorialSearchSettings(updated)
+                }, aiWeeklySummary = aiWeeklySummary, onAiWeeklySummarySettingsChange = { updated ->
+                    aiWeeklySummary = updated
+                    store.saveAiWeeklySummarySettings(updated)
                 }, courseVision = courseVision, onCourseVisionSettingsChange = { updated ->
                     courseVision = updated
                     store.saveCourseVisionSettings(updated)

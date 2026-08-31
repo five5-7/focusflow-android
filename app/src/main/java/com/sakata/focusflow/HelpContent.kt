@@ -30,6 +30,7 @@ enum class SettingsBlock(val title: String) {
     EXPENSES("个人账目"),
     COMMUTE_PLACES("通勤与地点"),
     TUTORIAL_SEARCH("教程联网搜索"),
+    AI_WEEKLY_SUMMARY("AI 周总结"),
     COURSE_VISION("课表识别（视觉模型）"),
     APP_DETECTION("前台应用检测"),
     IMPROVEMENTS("改进清单")
@@ -139,6 +140,11 @@ object HelpCatalog {
             "可选功能：为学习目标生成 3–5 步可执行的学习路径——每步给出学什么、用什么资源（视频／文章／练习）和去 B站/知乎/慕课 搜什么关键词；不编造链接，搜到的有用内容可手动收藏到教程资料。",
             "使用你填写的硅基流动 API key；key 仅保存在本机，只发往 api.siliconflow.cn，开关关闭时不发送任何请求。",
             "模型可点预设快速切换（Qwen2.5-7B 免费默认 / DeepSeek-V4-Flash），也可手填其他模型 ID；模型列表变化以硅基流动文档为准。"
+        )),
+        SettingsBlock.AI_WEEKLY_SUMMARY to HelpSection("AI 周总结", listOf(
+            "在“计划 → 本周回顾”里，每周按你的真实记录（目标完成、常见阻碍、游戏自律）生成本周 AI 复盘，与各目标的本地建议分开。",
+            "使用你填写的硅基流动 API key，仅发往 api.siliconflow.cn，关闭开关或未填 key 时不会发送任何请求。",
+            "与“学习路径建议”相互独立：key 留空时自动沿用学习路径建议的 key；填写独立 key 可单独管理。"
         )),
         SettingsBlock.APP_DETECTION to HelpSection("前台应用检测", listOf(
             "配合加号 → “想玩游戏”使用：到点时识别当前前台应用，还在玩游戏类应用就提醒收尾（可结束/再玩 15 分钟），并记录实际结束与超时，供周回顾和 AI 周总结使用。",

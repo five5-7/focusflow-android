@@ -47,6 +47,12 @@ data class TutorialSearchSettings(
     val model: String = DEFAULT_TUTORIAL_MODEL
 )
 
+/** AI 周总结设置：独立开关 + 独立硅基流动 key；key 留空时自动沿用教程搜索 key。 */
+data class AiWeeklySummarySettings(
+    val enabled: Boolean = false,
+    val apiKey: String = ""
+)
+
 /** 学习路径的一步：学什么、用什么资源类型、去哪个平台搜什么关键词。不编造链接。 */
 data class LearningStep(
     val topic: String,
