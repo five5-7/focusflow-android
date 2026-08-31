@@ -38,6 +38,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
@@ -475,11 +477,16 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     val themeSpec = focusFlowThemeSpec(themeOption, customThemeColors, darkMode)
     CompositionLocalProvider(LocalFocusFlowSchedulePalette provides themeSpec.schedulePalette) {
     MaterialTheme(colorScheme = themeSpec.colorScheme) {
+        // Custom bars own their insets even when their optional children are absent.
+        val safeContentInsets = WindowInsets.systemBars.union(WindowInsets.displayCutout)
         Scaffold(
             containerColor = MaterialTheme.colorScheme.background,
+            contentWindowInsets = safeContentInsets,
             snackbarHost = { SnackbarHost(snackbarHostState) },
             topBar = {
-                Column {
+                Column(Modifier.fillMaxWidth().windowInsetsPadding(
+                    safeContentInsets.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)
+                )) {
                     if (StorageProtection.readOnly) Surface(color = MaterialTheme.colorScheme.errorContainer) {
                         Column(Modifier.fillMaxWidth().padding(12.dp)) {
                             Text("数据保护：损坏数据尚未备份，已暂停保存。当前操作不会写入；请释放存储空间后重试，并重新打开应用。")
@@ -490,40 +497,49 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                 }
             },
             bottomBar = {
-                NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
+                FloatingNavigationBar(safeInsets = safeContentInsets) {
                     NavigationBarItem(
                         selected = tab == 0,
                         onClick = { selectTab(0) },
                         icon = { Icon(Icons.Filled.Home, contentDescription = null) },
-                        modifier = Modifier.weight(1f),
-                        label = { Text(if (todayInboxOpen) "收集箱" else "今日") }
+                        modifier = Modifier.weight(1f).semantics { stateDescription = if (todayInboxOpen) "收集箱" else "今日主页" },
+                        label = { Text("今日", maxLines = 2, textAlign = androidx.compose.ui.text.style.TextAlign.Center) }
                     )
-                    NavigationBarItem(selected = tab == 1, onClick = { selectTab(1) }, icon = { Icon(Icons.Filled.DateRange, contentDescription = null) }, modifier = Modifier.weight(1f), label = { Text("日程") })
-                    Box(Modifier.weight(0.82f), contentAlignment = Alignment.Center) {
-                        FloatingActionButton(modifier = Modifier.size(50.dp), onClick = { addMenuOpen = true }) { Icon(Icons.Filled.Add, contentDescription = "添加") }
+                    NavigationBarItem(selected = tab == 1, onClick = { selectTab(1) }, icon = { Icon(Icons.Filled.DateRange, contentDescription = null) }, modifier = Modifier.weight(1f), label = { Text("日程", maxLines = 2, textAlign = androidx.compose.ui.text.style.TextAlign.Center) })
+                    Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                        FloatingActionButton(
+                            modifier = Modifier.size(48.dp),
+                            onClick = { addMenuOpen = true },
+                            shape = RoundedCornerShape(16.dp),
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary,
+                            elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 0.dp, pressedElevation = 0.dp)
+                        ) { Icon(Icons.Filled.Add, contentDescription = "添加") }
                     }
                     NavigationBarItem(
                         selected = tab == 2,
                         onClick = { selectTab(2) },
                         icon = { Icon(Icons.Filled.List, contentDescription = null) },
-                        modifier = Modifier.weight(1f),
-                        label = { Text(planPage?.let { "计划·${it.title.take(2)}" } ?: "计划", maxLines = 1) }
+                        modifier = Modifier.weight(1f).semantics { stateDescription = planPage?.title ?: "计划主页" },
+                        label = { Text("计划", maxLines = 2, textAlign = androidx.compose.ui.text.style.TextAlign.Center) }
                     )
                     NavigationBarItem(
                         selected = tab == 3,
                         onClick = { selectTab(3) },
                         icon = { Icon(Icons.Filled.Settings, contentDescription = null) },
-                        modifier = Modifier.weight(1f),
-                        label = { Text(settingsSubPage?.let { "设置·${it.title.take(2)}" } ?: "设置", maxLines = 1) }
+                        modifier = Modifier.weight(1f).semantics { stateDescription = settingsSubPage?.title ?: "设置主页" },
+                        label = { Text("设置", maxLines = 2, textAlign = androidx.compose.ui.text.style.TextAlign.Center) }
                     )
                 }
             }
         ) { padding ->
+            // Applied and consumed once for both root pages and their animated children.
+            val pageModifier = Modifier.padding(padding).consumeWindowInsets(padding)
             // 假期阶段不把课程当作日程：日程/今日摘要/空挡/目标建议均不显示课程（课程管理页仍保留）。
             val scheduleCourses = if (baselineProfile.lifeStage == LifeStage.HOLIDAY) emptyList<Course>() else courses
             when (tab) {
                 0 -> TodayScreen(
-                    Modifier.padding(padding), items,
+                    pageModifier, items,
                     inboxOpen = todayInboxOpen,
                     onInboxOpenChange = { todayInboxOpen = it },
                     energyLevel = energyLevel,
@@ -629,7 +645,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                     onMealFinish = { mealFinishOpen = it }
                 )
                 1 -> ScheduleScreen(
-                    Modifier.padding(padding), items, scheduleCourses, commuteProfile,
+                    pageModifier, items, scheduleCourses, commuteProfile,
                     energyLevel = energyLevel,
                     onPlanFlexible = { flexiblePlanTarget = it },
                     onAdjustFlexible = { inboxScheduleTarget = it },
@@ -664,7 +680,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                     }
                 )
                 2 -> PlansScreen(
-                    Modifier.padding(padding), items, courses, commuteProfile, baselineProfile.lifeStage,
+                    pageModifier, items, courses, commuteProfile, baselineProfile.lifeStage,
                     page = planPage,
                                     onPageChange = { planPage = it; if (it == PlanPage.REVIEW) gameSessions = store.loadGameSessions(); if (it == PlanPage.HISTORY) taskEvents = store.loadTaskEvents() },
                     onResume = { item ->
@@ -764,7 +780,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                     taskEvents = taskEvents,
                     store = store
                 )
-                else -> SettingsScreen(Modifier.padding(padding), settingsScrollState, themeOption, commuteProfile, campusLifeEnabled, campusMapPackage, currentCampusPlace, improvementNotes, activitySettings, statusCheckInSettings, windDownEnabled = windDownEnabled, checkIns = statusCheckIns, baselineProfile, mealRecords, mealReminderEnabled, subPage = settingsSubPage, onSubPageChange = { target ->
+                else -> SettingsScreen(pageModifier, settingsScrollState, themeOption, commuteProfile, campusLifeEnabled, campusMapPackage, currentCampusPlace, improvementNotes, activitySettings, statusCheckInSettings, windDownEnabled = windDownEnabled, checkIns = statusCheckIns, baselineProfile, mealRecords, mealReminderEnabled, subPage = settingsSubPage, onSubPageChange = { target ->
                     if (target == null) {
                         settingsSubPage = null
                         settingsBackStack = emptyList()
