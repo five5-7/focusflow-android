@@ -507,11 +507,7 @@ internal fun categorizedInstalledApps(context: Context, userCategories: Map<Stri
                                 )
                             ) {
                                 Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                    Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                                        previewColors(preview).forEach { color ->
-                                            Box(Modifier.size(18.dp).clip(RoundedCornerShape(9.dp)).background(color))
-                                        }
-                                    }
+                                    ThemeSwatchPreview(previewColors(preview))
                                     Column(Modifier.weight(1f)) {
                                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                             Text(option.label, fontWeight = FontWeight.SemiBold)
@@ -546,11 +542,7 @@ internal fun categorizedInstalledApps(context: Context, userCategories: Map<Stri
                             )
                         ) {
                             Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                                    previewColors(customPreview).forEach { color ->
-                                        Box(Modifier.size(18.dp).clip(RoundedCornerShape(9.dp)).background(color))
-                                    }
-                                }
+                                ThemeSwatchPreview(previewColors(customPreview))
                                 Column(Modifier.weight(1f)) {
                                     Text(FocusFlowThemeOption.CUSTOM.label, fontWeight = FontWeight.SemiBold)
                                     Text("从预设色板自由搭配 · 点此编辑", style = MaterialTheme.typography.bodySmall)

@@ -5,6 +5,12 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class FloatingNavigationLayoutTest {
+    @Test fun selectedIconFitsInsideItsTouchSlotAndOuterCorners() {
+        assertTrue(FloatingNavigationLayout.INNER_PADDING_DP >= 8)
+        assertTrue(FloatingNavigationLayout.MIN_CONTENT_WIDTH_DP / 5 >= 40 + 8)
+        assertTrue(FloatingNavigationLayout.ITEM_RADIUS_DP + FloatingNavigationLayout.INNER_PADDING_DP <= FloatingNavigationLayout.OUTER_RADIUS_DP)
+        assertTrue(FloatingNavigationLayout.MIN_ITEM_HEIGHT_DP >= 48)
+    }
     @Test fun regularPhoneKeepsFloatingMargins() {
         assertEquals(16, FloatingNavigationLayout.horizontalMarginDp(393f, 1f))
     }
