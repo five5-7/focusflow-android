@@ -47,6 +47,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -299,7 +300,9 @@ internal fun ColorPaletteDialog(
         onDismissRequest = onDismiss,
         title = { Text("选择颜色") },
         text = {
-            ScrollableDialogBox(maxHeight = 720.dp, spacing = 12.dp) {
+            // 小屏自适应：固定 720dp 在 360×792 逻辑屏会顶满；按屏高 85% 收窄（792×0.85 ≈ 673dp）。
+            val paletteMaxHeight = 720.dp.coerceAtMost(LocalConfiguration.current.screenHeightDp.dp * 0.85f)
+            ScrollableDialogBox(maxHeight = paletteMaxHeight, spacing = 12.dp) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Box(Modifier.size(28.dp).clip(RoundedCornerShape(8.dp)).background(current).border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp)))
                     Text("当前颜色 · " + formatHex(current), style = MaterialTheme.typography.bodySmall)
