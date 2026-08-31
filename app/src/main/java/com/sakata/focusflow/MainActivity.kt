@@ -51,8 +51,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -479,25 +484,25 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                     NavigationBarItem(
                         selected = tab == 0,
                         onClick = { selectTab(0) },
-                        icon = { Text(if (tab != 0) "○" else if (!todayInboxOpen) "●" else "◉") },
+                        icon = { Icon(Icons.Filled.Home, contentDescription = null) },
                         modifier = Modifier.weight(1f),
                         label = { Text(if (todayInboxOpen) "收集箱" else "今日") }
                     )
-                    NavigationBarItem(selected = tab == 1, onClick = { selectTab(1) }, icon = { Text(if (tab == 1) "●" else "○") }, modifier = Modifier.weight(1f), label = { Text("日程") })
+                    NavigationBarItem(selected = tab == 1, onClick = { selectTab(1) }, icon = { Icon(Icons.Filled.DateRange, contentDescription = null) }, modifier = Modifier.weight(1f), label = { Text("日程") })
                     Box(Modifier.weight(0.82f), contentAlignment = Alignment.Center) {
-                        FloatingActionButton(modifier = Modifier.size(50.dp), onClick = { addMenuOpen = true }) { Text("＋", style = MaterialTheme.typography.headlineSmall) }
+                        FloatingActionButton(modifier = Modifier.size(50.dp), onClick = { addMenuOpen = true }) { Icon(Icons.Filled.Add, contentDescription = "添加") }
                     }
                     NavigationBarItem(
                         selected = tab == 2,
                         onClick = { selectTab(2) },
-                        icon = { Text(if (tab != 2) "○" else if (planPage == null) "●" else "◉") },
+                        icon = { Icon(Icons.Filled.List, contentDescription = null) },
                         modifier = Modifier.weight(1f),
                         label = { Text(planPage?.let { "计划·${it.title.take(2)}" } ?: "计划", maxLines = 1) }
                     )
                     NavigationBarItem(
                         selected = tab == 3,
                         onClick = { selectTab(3) },
-                        icon = { Text(if (tab != 3) "○" else if (settingsSubPage == null) "●" else "◉") },
+                        icon = { Icon(Icons.Filled.Settings, contentDescription = null) },
                         modifier = Modifier.weight(1f),
                         label = { Text(settingsSubPage?.let { "设置·${it.title.take(2)}" } ?: "设置", maxLines = 1) }
                     )
