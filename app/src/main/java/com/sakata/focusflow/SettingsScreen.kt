@@ -444,15 +444,17 @@ internal fun categorizedInstalledApps(context: Context, userCategories: Map<Stri
                     SettingsSubPage.ADVANCED -> {
                         Text("这些能力只在配置后参与日常流程；关闭或不配置时不会占用今日页空间。", style = MaterialTheme.typography.bodySmall)
                         PlanHubItem("习惯原始事件", "查看用于形成作息建议的本地记录") { onOpenBaselineEvents() }
-                        val expense = ExpenseInsights.summarize(mealRecords)
-                        ElevatedCard {
-                            Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Text("可选消费记录", fontWeight = FontWeight.Bold)
-                                if (expense.withAmountCount == 0) {
-                                    Text("就餐结束时可选填金额；没有记录时不会出现在日常流程。", style = MaterialTheme.typography.bodySmall)
-                                } else {
-                                    Text("${expense.withAmountCount} 笔草稿 · 合计 ¥${expense.totalAmount}；本月 ¥${expense.monthAmount}", style = MaterialTheme.typography.bodySmall)
-                                    if (expense.topCategories.isNotEmpty()) Text("分类：${expense.topCategories.joinToString(" · ") { "${it.first} ¥${it.second}" }}", style = MaterialTheme.typography.bodySmall)
+                        if (!EXPENSE_HIDDEN) {
+                            val expense = ExpenseInsights.summarize(mealRecords)
+                            ElevatedCard {
+                                Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Text("可选消费记录", fontWeight = FontWeight.Bold)
+                                    if (expense.withAmountCount == 0) {
+                                        Text("就餐结束时可选填金额；没有记录时不会出现在日常流程。", style = MaterialTheme.typography.bodySmall)
+                                    } else {
+                                        Text("${expense.withAmountCount} 笔草稿 · 合计 ¥${expense.totalAmount}；本月 ¥${expense.monthAmount}", style = MaterialTheme.typography.bodySmall)
+                                        if (expense.topCategories.isNotEmpty()) Text("分类：${expense.topCategories.joinToString(" · ") { "${it.first} ¥${it.second}" }}", style = MaterialTheme.typography.bodySmall)
+                                    }
                                 }
                             }
                         }

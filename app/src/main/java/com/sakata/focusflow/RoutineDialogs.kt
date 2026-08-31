@@ -386,8 +386,8 @@ internal fun DayGroupWizardDialog(existingGroups: List<DayGroup>, defaultWake: I
         title = { Text("${type.label}吃完了吗？") },
         text = {
             ScrollableDialogBox(maxHeight = 460.dp, spacing = 8.dp) {
-                Text("结束并记录用餐时间；地点、分类、商家、支付方式、金额、评价和备注都是可选的消费草稿，只保存在本机，不会自动生成账目。", style = MaterialTheme.typography.bodySmall)
-                OutlinedTextField(value = amountText, onValueChange = { amountText = it.filter(Char::isDigit).take(4) }, label = { Text("金额（元，可选）") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                Text(if (EXPENSE_HIDDEN) "结束并记录用餐时间；地点、分类、商家、评价和备注都是可选的，只保存在本机，不会自动生成账目。" else "结束并记录用餐时间；地点、分类、商家、支付方式、金额、评价和备注都是可选的消费草稿，只保存在本机，不会自动生成账目。", style = MaterialTheme.typography.bodySmall)
+                if (!EXPENSE_HIDDEN) OutlinedTextField(value = amountText, onValueChange = { amountText = it.filter(Char::isDigit).take(4) }, label = { Text("金额（元，可选）") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
                 OutlinedTextField(value = location, onValueChange = { location = it.take(20) }, label = { Text("地点（可选）") }, placeholder = { Text("例如：大食堂、临水、外卖") }, singleLine = true)
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     listOf("宿舍", "食堂", "外卖", "便利店").forEach { quick ->

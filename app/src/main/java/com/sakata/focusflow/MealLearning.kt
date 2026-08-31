@@ -2,6 +2,9 @@ package com.sakata.focusflow
 
 import java.util.Calendar
 
+/** 消费记录暂时隐藏（7.0）：入口与金额输入不展示，数据保留不清除；恢复时改回 false。 */
+const val EXPENSE_HIDDEN = true
+
 /** 一餐实际开始后创建；endedAt 由“吃完了吗”确认补齐。金额与评价始终可选，只作为 v4 消费草稿，不会自动生成账目。 */
 data class MealRecord(
     val id: Long = newItemId(),
