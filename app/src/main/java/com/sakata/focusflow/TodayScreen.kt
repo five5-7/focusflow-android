@@ -314,7 +314,11 @@ import kotlinx.coroutines.withContext
                 }
             }
         }
-        ElevatedCard {
+        // 与周回顾「本周执行概览」统一的摘要卡风格：实色 primaryContainer + 零 elevation。
+        Card(
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+        ) {
             Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
