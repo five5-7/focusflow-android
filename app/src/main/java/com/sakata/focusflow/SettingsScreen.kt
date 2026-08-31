@@ -532,11 +532,11 @@ internal fun categorizedInstalledApps(context: Context, userCategories: Map<Stri
                                 }
                             }
                         }
-                        // 自定义主题：点选即应用，点"编辑"进入 5 槽位调色页。
+                        // 自定义主题：点卡只进入编辑器，不切主题；确认由编辑器内"应用此配色"完成，
+                        // 与内置主题"以此改色"一致，避免点卡即应用造成违和。
                         val customPreview = focusFlowThemeSpec(FocusFlowThemeOption.CUSTOM, customThemeColors)
                         Card(
                             modifier = Modifier.fillMaxWidth().clickable {
-                                onThemeChange(FocusFlowThemeOption.CUSTOM)
                                 onSubPageChange(SettingsSubPage.CUSTOM_THEME)
                             },
                             colors = CardDefaults.cardColors(
