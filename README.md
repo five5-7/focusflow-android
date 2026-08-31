@@ -2,7 +2,7 @@
 
 本地优先的 Android 日程与执行辅助应用（`com.sakata.focusflow`）。核心目标不是维护一张完整日历，而是**降低记录压力、按当前状态调整提醒、在错过计划后帮助恢复**。
 
-当前开发版本：**7.1.3**（versionCode 478，修复候选，真机验收前不标记已稳定）。完整更新记录见 [CHANGELOG.md](CHANGELOG.md)。本轮验收见 [7.1.3 检查表](docs/7.1.3-checklist.md)。
+当前版本：**7.1.3**（versionCode 478，维护者确认的第二个正式版里程碑）。正式分发状态以 [GitHub Release](https://github.com/five5-7/focusflow-android/releases/tag/v7.1.3) 为准。完整更新记录见 [CHANGELOG.md](CHANGELOG.md)，安装说明见 [发布说明](docs/7.1.3-release-notes.md)。
 
 > 数据原则：只用你确认过的数据生成建议，数据不足时不打扰、不假装精确。数据只保存在本机。
 
@@ -58,6 +58,8 @@ gradle :app:testDebugUnitTest :app:testReleaseUnitTest
 ```
 
 ## 发布
+
+7.1.3 专用发布工作流仅在该工作流合入 main 或手动运行时执行：检查 run-158 来源、应用源码、APK 哈希、版本及签名后，先上传草稿附件、验证远端校验值，再公开为 Latest。同名 tag/Release/附件不一致时停止，不覆盖、不删文件、不重新构建。需要 Actions 的 contents:write 和 actions:read；不读取签名私钥。应用内路线图沿用 run-158 的候选文案，以保留已验证 APK 不变。
 
 GitHub Actions 在 main 的 push、面向 main 的 pull request 或手动运行时执行单元测试并构建稳定签名 APK（artifact）；普通功能分支 push 不会单独触发。APK 和 artifact 名称包含 Actions run 编号。通过自动测试只能分发候选包，真机验收后才把同一产物发布为稳定正式版。
 
