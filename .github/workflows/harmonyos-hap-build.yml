@@ -27,6 +27,12 @@ jobs:
           base64 -d harmony-project.zip.b64 > harmony-project.zip
           echo "c57f44c6dc6b424010fa27e567eec63eb5081a27cd88c697cd235b042d5cc564  harmony-project.zip" | sha256sum -c -
           unzip -q harmony-project.zip
+      - name: Apply ArkTS compiler fixes
+        run: |
+          base64 -d harmony-compiler-fixes.patch.gz.b64 | gzip -d > compiler-fixes.patch
+          echo "db20dcaa51854c1423791e6cbc9076ded918c9a26fb5f2698d5997687fe1e920  compiler-fixes.patch" | sha256sum -c -
+          cd focusflow-harmonyos
+          patch -p0 < ../compiler-fixes.patch
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
