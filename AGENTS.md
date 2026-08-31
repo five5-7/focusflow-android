@@ -29,7 +29,7 @@
 - Use one feature branch per version or bounded phase; do not work directly on `main`.
 - Keep structure-only changes separate from behavior changes.
 - Update `CHANGELOG.md`, `README.md`, and `RoadmapData.kt` only when a release scope is actually implemented.
-- FocusFlow uses 0.1 product-version increments. The planned next release is `6.9.0` / versionCode 471.
+- FocusFlow uses 0.1 product-version increments. The planned next release is `7.0.0` / versionCode 472.
 - Do not merge a pull request without explicit user confirmation.
 
 ## Verification

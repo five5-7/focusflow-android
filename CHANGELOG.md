@@ -1,5 +1,13 @@
 # FocusFlow 版本记录
 
+## 7.0.0
+
+- **结构拆分（零行为变化）**：MainActivity 从 5277 行瘦身到约 1400 行——30 个对话框、今日/计划/设置/主题编辑器搬进独立文件（TaskScheduleDialogs / RoutineDialogs / TodayScreen / PlansScreen / SettingsScreen / CustomThemeEditor 等）；FocusFlowApp 业务变换抽为纯 Kotlin（TaskActions）；PrototypeStore 内联 JSON 抽为 codec（零键名变化，读坏数据自动降级并有测试兜底）。
+- **稳定性**：CrashReporter 初始化幂等 + crash.log 轮转上限；QuickCaptureService 无通知权限时不启动常驻服务；持久层损坏保护（解析失败先把原始数据备份再返回默认值，人工可恢复）；删除 6.2.1 旧闹钟兼容分支；ReminderScheduler 降级决策与时间计算抽纯函数补测试；数据层新增只读数据版本锚点。
+- **完整性**：AI 周总结独立开关 + 独立 key——未单独设置时自动沿用教程搜索的开关与 key（老用户零感知），设置页新增「AI 周总结」子页；消费记录暂时隐藏（金额输入与汇总入口不展示，数据保留不清除，EXPENSE_HIDDEN 常量一处可恢复）；自定义主题卡只进编辑器、不点选即应用（与「不提前切主题」一致）。
+- **界面美化**：底栏图标由文字字形（○/●/◉/＋）替换为 Material 图标（Home/DateRange/List/Settings/Add；实测 material-icons-extended 在无 R8 的 debug 包增约 5.5MB，改用本就传递依赖的 material-icons-core，零新增体积）；今日页统计卡与周回顾「本周执行概览」统一为同一摘要卡风格；调色盘高度按屏高 85% 自适应；对话框内容 imePadding 键盘避让。
+- 版本号 472 / 7.0.0。
+
 ## 6.9.0
 
 - 「现在做什么」推荐精化（两级增量）：同档位优先挑高优先级任务（理由标注「（标注了高优先级）」）；兜底过滤今日剩余空挡放不下的任务——按当前时刻起计算课程/通勤/已排任务的真实占用剩余空闲，连最短任务都放不下时不再硬推，卡片改展示下一固定安排并说明「当前空档不足以稳妥放入其他任务」。

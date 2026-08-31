@@ -18,8 +18,11 @@ data class RoadmapEntry(val version: String, val title: String, val summary: Str
 data class RoadmapVersion(val version: String, val entries: List<RoadmapEntry>)
 
 object RoadmapData {
-    /** 已实现版本演进（1.0 → 6.9.0），每版本浓缩 1–3 条，与 CHANGELOG.md 对应。 */
+    /** 已实现版本演进（1.0 → 7.0.0），每版本浓缩 1–3 条，与 CHANGELOG.md 对应。 */
     val evolution: List<RoadmapVersion> = listOf(
+        RoadmapVersion("7.0.0", listOf(
+            RoadmapEntry("7.0.0", "优化向发行：结构拆分与打磨", "MainActivity 从 5277 行瘦身至约 1400 行（对话框/页面独立文件、业务变换抽纯函数、JSON codec 抽取，零行为变化）；稳定性修复（崩溃上报幂等与轮转、持久层损坏保护）；AI 周总结独立开关与 key；消费记录暂时隐藏；底栏 Material 图标与摘要卡风格统一", RoadmapStatus.DONE)
+        )),
         RoadmapVersion("6.9.0", listOf(
             RoadmapEntry("6.9.0", "「下一件合适的事」推荐精化", "推荐引擎抽出为纯 Kotlin 可测模块；同档位高优先级优先且理由标注；今日剩余空挡放不下的任务不硬推（卡片改展示下一固定安排并说明空档不足）；恢复建议卡与现在做什么建议去重；15 例单元测试", RoadmapStatus.DONE)
         )),
@@ -345,7 +348,7 @@ fun RoadmapSubpageContent() {
                 Text("每次功能更新递增 0.1；更新记录见版本演进。", style = MaterialTheme.typography.bodySmall)
             }
         }
-        Text("版本演进（已实现 1.0 → 6.9.0）", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Text("版本演进（已实现 1.0 → 7.0.0）", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         RoadmapData.evolution.forEach { version ->
             Text(version.version, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
             version.entries.forEach { entry ->
