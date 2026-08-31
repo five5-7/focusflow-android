@@ -417,10 +417,13 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
         scope.launch { snackbarHostState.showSnackbar("已把《${goal.title}》排到 ${weekdayName(weekday)} ${GoalPlanner.displayTime(startMinute)}") }
     }
     fun selectTab(index: Int) {
-        todayInboxOpen = false
-        planPage = null
-        settingsSubPage = null
-        settingsBackStack = emptyList()
+        // Reset only the destination. The outgoing page must survive its exit animation.
+        if (index == 0) todayInboxOpen = false
+        if (index == 2) planPage = null
+        if (index == 3) {
+            settingsSubPage = null
+            settingsBackStack = emptyList()
+        }
         tab = index
     }
     BackHandler(enabled = tab == 0 && todayInboxOpen) { todayInboxOpen = false }
@@ -495,13 +498,16 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
         val keyboardVisible = WindowInsets.ime.getBottom(density) > 0
         var floatingBarHeight by remember { mutableStateOf(112.dp) }
         Box(Modifier.fillMaxSize().imePadding()) {
-        // Custom bars own their insets even when their optional children are absent.
+        // Horizontal cutouts constrain the viewport. Top safety travels with scroll content.
         val safeContentInsets = WindowInsets.systemBars.union(WindowInsets.displayCutout)
+        val topSafety = safeContentInsets.asPaddingValues().calculateTopPadding()
+        val hasTopNotice = StorageProtection.readOnly || globalLoading
         Scaffold(
             containerColor = MaterialTheme.colorScheme.background,
-            contentWindowInsets = safeContentInsets.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
+            contentWindowInsets = safeContentInsets.only(WindowInsetsSides.Horizontal),
             snackbarHost = { SnackbarHost(snackbarHostState, Modifier.padding(bottom = floatingBarHeight)) },
             topBar = {
+                if (hasTopNotice) {
                 Column(Modifier.fillMaxWidth().windowInsetsPadding(
                     safeContentInsets.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)
                 )) {
@@ -513,15 +519,23 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                     }
                     if (globalLoading) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                 }
+                }
             },
         ) { padding ->
-            CompositionLocalProvider(LocalFloatingBottomPadding provides if (keyboardVisible) 0.dp else floatingBarHeight) {
+            CompositionLocalProvider(
+                LocalFloatingBottomPadding provides if (keyboardVisible) 0.dp else floatingBarHeight,
+                LocalScrollingTopPadding provides if (hasTopNotice) 0.dp else topSafety
+            ) {
             // Applied and consumed once for both root pages and their animated children.
             val pageModifier = Modifier.padding(padding).consumeWindowInsets(padding)
                 .padding(bottom = if (keyboardVisible) floatingBarHeight else 0.dp)
             // 假期阶段不把课程当作日程：日程/今日摘要/空挡/目标建议均不显示课程（课程管理页仍保留）。
             val scheduleCourses = if (baselineProfile.lifeStage == LifeStage.HOLIDAY) emptyList<Course>() else courses
-            when (tab) {
+            Box(pageModifier) {
+            // Equal depth means a sibling cross-fade, never a hierarchical slide.
+            SubpageMotion(tab, depth = { 0 }) { visibleTab ->
+            val pageModifier = Modifier.fillMaxSize()
+            when (visibleTab) {
                 0 -> TodayScreen(
                     pageModifier, items,
                     inboxOpen = todayInboxOpen,
@@ -928,11 +942,19 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                 }, onGlobalLoadingChange = { globalLoading = it })
             }
         }
+            } // primary destination motion
+            } // inset-aware viewport
         } // content padding provider / Scaffold
         FloatingNavigationBar(
             safeInsets = safeContentInsets,
             containerColor = themeSpec.navigationBarColor,
             selectedTab = tab,
+            hasSubpage = when (tab) {
+                0 -> todayInboxOpen
+                2 -> planPage != null
+                3 -> settingsSubPage != null
+                else -> false
+            },
             selectedPageDescription = when (tab) {
                 0 -> if (todayInboxOpen) "收集箱" else "今日主页"
                 1 -> "日程"
@@ -945,6 +967,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                 floatingBarHeight = with(density) { it.height.toDp() }
             }
         )
+        if (!hasTopNotice) StatusBarScrim(topSafety, Modifier.align(Alignment.TopCenter))
         } // page with overlaid navigation; no full-width bottom surface
         if (addMenuOpen) AddMenuDialog(
             onDismiss = { addMenuOpen = false },

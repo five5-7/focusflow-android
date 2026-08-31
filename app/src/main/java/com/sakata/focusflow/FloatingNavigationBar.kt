@@ -2,6 +2,7 @@ package com.sakata.focusflow
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.horizontalScroll
@@ -15,6 +16,10 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -47,6 +52,7 @@ internal fun FloatingNavigationBar(
     safeInsets: WindowInsets,
     containerColor: Color,
     selectedTab: Int,
+    hasSubpage: Boolean,
     selectedPageDescription: String,
     onSelectTab: (Int) -> Unit,
     onAdd: () -> Unit,
@@ -92,8 +98,12 @@ internal fun FloatingNavigationBar(
                             FloatingNavigationItem(
                                 label, icons[index], selectedTab == index, background, indicator,
                                 Modifier.weight(1f).semantics {
-                                    if (selectedTab == index) stateDescription = selectedPageDescription
-                                }, onClick = { onSelectTab(index) }
+                                    if (selectedTab == index) stateDescription = selectedPageDescription +
+                                        if (hasSubpage) "；再次点击返回${label}主页" else ""
+                                },
+                                hasSubpage = selectedTab == index && hasSubpage,
+                                destinationKey = if (selectedTab == index) selectedPageDescription else label,
+                                onClick = { onSelectTab(index) }
                             )
                         }
                     }
@@ -106,13 +116,25 @@ internal fun FloatingNavigationBar(
 @Composable
 private fun FloatingNavigationItem(
     label: String, icon: ImageVector, selected: Boolean,
-    background: Color, indicator: Color, modifier: Modifier, onClick: () -> Unit
+    background: Color, indicator: Color, modifier: Modifier,
+    hasSubpage: Boolean, destinationKey: String, onClick: () -> Unit
 ) {
     // Animate each slot: no selection block travels across the independent central Add action.
     // Compose respects the system animation-duration scale, including disabled animations.
     val progress by animateFloatAsState(if (selected) 1f else 0f, tween(200), label = "navigationSelection")
     val fill = lerp(background, indicator, progress)
     val foreground = navigationContentColor(fill)
+    val subpageProgress by animateFloatAsState(if (hasSubpage) 1f else 0f, tween(200), label = "navigationDepth")
+    val destinationPulse = remember { Animatable(1f) }
+    var previousDestination by remember { mutableStateOf(destinationKey) }
+    LaunchedEffect(destinationKey) {
+        val changed = destinationKey != previousDestination
+        previousDestination = destinationKey
+        if (selected && changed) {
+            destinationPulse.animateTo(0.90f, tween(80))
+            destinationPulse.animateTo(1f, tween(140))
+        } else destinationPulse.snapTo(1f)
+    }
     Column(
         modifier.heightIn(min = FloatingNavigationLayout.MIN_ITEM_HEIGHT_DP.dp)
             .clip(RoundedCornerShape(FloatingNavigationLayout.ITEM_RADIUS_DP.dp))
@@ -123,11 +145,16 @@ private fun FloatingNavigationItem(
     ) {
         Box(
             Modifier.size(40.dp).drawBehind {
-                val side = size.minDimension * (0.88f + 0.12f * progress)
+                val side = size.minDimension * (0.88f + 0.12f * progress) * destinationPulse.value
                 drawRoundRect(
                     fill, Offset((size.width - side) / 2, (size.height - side) / 2),
                     Size(side, side), CornerRadius(12.dp.toPx())
                 )
+                if (subpageProgress > 0f) {
+                    val center = Offset(size.width - 4.dp.toPx(), 4.dp.toPx())
+                    drawCircle(background, 5.dp.toPx() * subpageProgress, center)
+                    drawCircle(navigationContentColor(background), 3.dp.toPx() * subpageProgress, center)
+                }
             }, contentAlignment = Alignment.Center
         ) {
             Icon(icon, contentDescription = null, tint = foreground,
