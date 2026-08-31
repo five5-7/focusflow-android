@@ -25,11 +25,13 @@ internal fun ScheduleScreen(
     modifier: Modifier,
     items: List<Item>,
     courses: List<Course>,
+    profile: CommuteProfile,
     energyLevel: String,
     onPlanFlexible: (Item) -> Unit,
     onAdjustFlexible: (Item) -> Unit,
     onStartTask: (Item) -> Unit,
     onRescheduleTask: (Item) -> Unit,
+    onReturnToInbox: (Item) -> Unit,
     onTaskDone: (Item) -> Unit,
     onDeleteItem: (Item) -> Unit
 ) {
@@ -64,7 +66,7 @@ internal fun ScheduleScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                if (scheduleMode == "日") "今天" else "本周",
+                if (scheduleMode == "日") "今天" else "未来 7 天",
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold
             )
@@ -99,13 +101,15 @@ internal fun ScheduleScreen(
                     }
                 }
             }
-            DailyScheduleTimeline(todayCourses, todaySchedule, onStartTask, onRescheduleTask, onTaskDone, onDeleteItem)
+            DailyScheduleTimeline(todayCourses, todaySchedule, profile, onStartTask, onRescheduleTask, onReturnToInbox, onTaskDone, onDeleteItem)
         } else {
             WeeklyScheduleTimeline(
                 courses.filter { !it.needsConfirmation },
                 items,
+                profile,
                 onStartTask,
                 onRescheduleTask,
+                onReturnToInbox,
                 onTaskDone,
                 onDeleteItem
             )

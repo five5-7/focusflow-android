@@ -8,6 +8,8 @@ internal enum class ScheduleType(val label: String) {
     LEARNING("学习／目标"),
     EXERCISE("锻炼"),
     ENTERTAINMENT("娱乐"),
+    ACTIVITY("活动"),
+    COMMUTE("通勤"),
     REST("休息"),
     TASK("弹性任务"),
     COMPLETED("已完成")
@@ -22,7 +24,9 @@ internal data class TimelineEvent(
     val endMinute: Int,
     val type: ScheduleType,
     val item: Item? = null,
-    val isConflict: Boolean = false
+    val isConflict: Boolean = false,
+    /** 与课程/通勤/其他任务重叠的说明；非课程冲突块用它做红字提示而不是整块红底。 */
+    val conflictNote: String? = null
 )
 
 internal data class TimelineEventLayout(
@@ -75,6 +79,49 @@ internal fun mergeConflictingCourses(events: List<TimelineEvent>): List<Timeline
         index = next
     }
     return merged + others
+}
+
+/**
+ * 任务色块的冲突说明：任务时段与同一周几的课程/通勤/其他已排任务（不含自身）真实重叠时，
+ * 返回"与什么重叠"的红字文案；无重叠返回 null。
+ */
+internal fun taskConflictNote(
+    item: Item,
+    courses: List<Course>,
+    allItems: List<Item>,
+    profile: CommuteProfile?
+): String? {
+    val time = item.scheduledAt ?: return null
+    return conflictAdvice(time, item.durationMinutes, courses, allItems, profile, excludeId = item.id)
+}
+
+/**
+ * 某提议时段与共享占用（课程/通勤/其他已排任务，不含 excludeId）真实重叠时的红字说明；
+ * 供改期/安排/插入等保存前校验复用，无重叠返回 null。
+ */
+internal fun conflictAdvice(
+    target: Long,
+    durationMinutes: Int,
+    courses: List<Course>,
+    allItems: List<Item>,
+    profile: CommuteProfile?,
+    excludeId: Long = 0L
+): String? {
+    val start = ScheduleOccupation.minuteOfDay(target)
+    val end = (start + durationMinutes.coerceIn(5, 360)).coerceAtMost(24 * 60)
+    val blocker = ScheduleOccupation.conflictingBlock(
+        ScheduleOccupation.dayOccupiedBlocks(
+            ScheduleOccupation.weekdayOf(target), courses, allItems, profile, excludeId
+        ),
+        start, end
+    ) ?: return null
+    val kindLabel = when (blocker.kind) {
+        "course" -> "课程"
+        "commute" -> "通勤"
+        else -> "已安排任务"
+    }
+    return "与$kindLabel「${blocker.title}」重叠" +
+        "（${formatScheduleMinute(blocker.startMinute)}–${formatScheduleMinute(blocker.endMinute)}）"
 }
 
 internal fun layoutTimelineEvents(events: List<TimelineEvent>): List<TimelineEventLayout> {

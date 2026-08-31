@@ -30,6 +30,7 @@ enum class SettingsBlock(val title: String) {
     EXPENSES("个人账目"),
     COMMUTE_PLACES("通勤与地点"),
     TUTORIAL_SEARCH("教程联网搜索"),
+    AI_WEEKLY_SUMMARY("AI 周总结"),
     COURSE_VISION("课表识别（视觉模型）"),
     APP_DETECTION("前台应用检测"),
     IMPROVEMENTS("改进清单")
@@ -41,7 +42,7 @@ object HelpCatalog {
         HelpSection("当前状态与活动", listOf("开始前约定结束时间和下一步；到点后由你明确决定。", "休息和娱乐只作为时间记录，不会被简单判定为负面。")),
         HelpSection("精力与推荐", listOf("精力只影响弹性任务的推荐顺序，不会移动固定日程。")),
         HelpSection("今日餐点", listOf("完成“习惯基线”引导后，这里会按你的饭点节奏给出提醒；现在只按你填写的餐点显示。", "只有你确认“已在吃”和“吃完了”的时间会用于学习；不回应不会记为没吃。")),
-        HelpSection("完成统计", listOf("统计本机保存的完成记录；待整理为收集箱中尚未安排的想法数。")),
+        HelpSection("完成统计", listOf("统计基于发生过的事件：完成只认完成时刻，改期只认改期动作；删除任务或放回收集箱不会撤掉当天已经完成的记录。", "待整理为收集箱中尚未安排的想法数。")),
         HelpSection("恢复安排", listOf("已经错过或至少改期两次的未完成任务会出现恢复入口；只有你点击后才会缩小、重排或放回收集箱。")),
         HelpSection("下一件合适的事", listOf("从临近日程和未定时任务中给出低压力建议；开始、缩短和改期都需要你确认。")),
         HelpSection("收集箱", listOf("这里显示最近记录；进入副页面可集中编辑、安排或删除。"))
@@ -57,7 +58,7 @@ object HelpCatalog {
 
     val plan = PageHelp("计划", listOf(
         HelpSection("计划主页", listOf("选择一个模块进入；滚动只发生在各副页面内。", "从结果开始：填写预期结果、每周次数与单次时长。")),
-        HelpSection("课程", listOf("从课表截图开始，通过硅基流动视觉模型识别（需先在 设置→课表识别（视觉模型） 开启并填写 key；本地 OCR 已移除，识别失败会提示原因，不会出低质量结果）。结果先进入待确认区，不会直接加入日程。截图中需要显示课程名称、星期和节次。", "确认课程后，它们会用于周日程和空挡计算。")),
+        HelpSection("课程", listOf("从课表截图开始，通过硅基流动视觉模型识别（需先在 设置→高级工具→课表识别（视觉模型） 开启并填写 key；本地 OCR 已移除，识别失败会提示原因，不会出低质量结果）。结果先进入待确认区，不会直接加入日程。截图中需要显示课程名称、星期和节次。", "确认课程后，它们会用于周日程和空挡计算。")),
         HelpSection("空挡建议", listOf("根据已确认课程、校内路程与缓冲时间计算，不与课程列表混放。")),
         HelpSection("目标与执行", listOf(
             "每个目标分别保存预期结果、第一步行动、完成标准和可选资料；资料库的常用标记不会自动套用到目标。",
@@ -66,6 +67,7 @@ object HelpCatalog {
             "“按空挡自动排本周目标”：本地判断，把本周未完成的目标次数排进课程空挡（避开课程与已有安排、优先更长空档），结果进入日程，可随时改期或调整。"
         )),
         HelpSection("本周回顾", listOf("汇总本周计划完成率、改期和待恢复任务；同一时段至少出现两次改期后，才给出缩短任务或预留缓冲的建议。", "创建目标并积累完成记录后，这里还会给出目标调整建议。")),
+        HelpSection("历史记录", listOf("近 7 天逐日展示完成的计划数、完成率与改期数；下方是最近 50 条任务事件（创建、安排、改期、完成、放回、删除、恢复）。", "统计基于发生过的事件：同一天多次移动只计一天计划；删除或放回不会撤销当日统计；已有数据首次启动会补记可推断的历史。")),
         HelpSection("暂停项目", listOf("暂停的任务会集中放在这里，不占用日程。"))
     ))
 
@@ -98,7 +100,7 @@ object HelpCatalog {
         SettingsBlock.QUIET_HOURS to HelpSection("提醒打扰控制", listOf(
             "免打扰时段：按你设定的起止时间（支持跨天，如 23:00–07:00）静音低打扰类提醒（状态询问、饭点提醒、睡前减速）；活动到点和任务提醒保持时间敏感，不会被静音。",
             "每个类型可单独开关（默认都静音）。",
-            "一次性静音：立即静音所有提醒 1 小时／3 小时／到明早 7 点，适合睡觉、上课或开会；静音结束自动恢复，也可随时手动取消。",
+            "一次性静音：立即静音低打扰提醒（状态询问、饭点提醒、睡前减速）1 小时／3 小时／到明早 7 点，适合睡觉、上课或开会；任务提醒与活动到点提醒保持时间敏感，不会被静音；静音结束自动恢复，也可随时手动取消。",
             "静音只是不弹通知，不会删除任何记录或训练数据。"
         )),
         SettingsBlock.STATUS_CHECK_IN to HelpSection("状态询问", listOf(
@@ -112,8 +114,7 @@ object HelpCatalog {
             "熬夜时只给出低压力建议，不会安排任何任务。"
         )),
         SettingsBlock.EXPENSES to HelpSection("个人账目", listOf(
-            "只统计你在“吃完了吗”里填写的金额草稿，不会自动记账或推断金额。",
-            "数据积累后显示合计、本月支出、分类与常去地点；金额可留空，不影响任何学习。"
+            "消费记录暂时隐藏（功能打磨期）：金额输入与账目入口不展示，已有数据保留不清除，其余餐食功能不受影响。"
         )),
         SettingsBlock.BASELINE to HelpSection("习惯基线", listOf(
             "2–3 分钟填好大致作息与餐点；只有你确认过的数据才会用于后续学习。",
@@ -124,7 +125,7 @@ object HelpCatalog {
             "接近预测饭点时询问是否开始吃饭；只有你确认的时间才会用于学习。",
             "完成习惯基线引导后，这里会按“生活阶段 × 星期 × 餐次”展示学到的饭点；数据不足时只用宽松提醒，不会假装精确预测。",
             "提醒按星期分组学习；假期和上学分开，避免互相影响。",
-            "结束用餐可记录消费草稿，仅保存在本机，为后续账目分析预留。"
+            "结束用餐可记录评价，仅保存在本机。"
         )),
         SettingsBlock.COMMUTE_PLACES to HelpSection("通勤与地点", listOf(
             "校园生活：控制校内出行、地点包和手动位置工具；关闭不会删除已有数据。",
@@ -136,11 +137,16 @@ object HelpCatalog {
         )),
         SettingsBlock.TUTORIAL_SEARCH to HelpSection("学习路径建议", listOf(
             "可选功能：为学习目标生成 3–5 步可执行的学习路径——每步给出学什么、用什么资源（视频／文章／练习）和去 B站/知乎/慕课 搜什么关键词；不编造链接，搜到的有用内容可手动收藏到教程资料。",
-            "使用你填写的硅基流动 API key；key 仅保存在本机，只发往 api.siliconflow.cn，开关关闭时不发送任何请求。",
+            "使用你填写的硅基流动 API key；key 仅保存在本机，只发往 api.siliconflow.cn。关闭开关后“学习路径建议／教程搜索”不再发送请求；视频分析与资料总结是资料工具箱里的独立手动操作，仍会使用已保存的 key。",
             "模型可点预设快速切换（Qwen2.5-7B 免费默认 / DeepSeek-V4-Flash），也可手填其他模型 ID；模型列表变化以硅基流动文档为准。"
         )),
+        SettingsBlock.AI_WEEKLY_SUMMARY to HelpSection("AI 周总结", listOf(
+            "在“计划 → 本周回顾”里，每周按你的真实记录（目标完成、常见阻碍、游戏自律）生成本周 AI 复盘，与各目标的本地建议分开。",
+            "使用你填写的硅基流动 API key，仅发往 api.siliconflow.cn，关闭开关或未填 key 时不会发送任何请求。",
+            "与“学习路径建议”相互独立：key 留空时自动沿用学习路径建议的 key；填写独立 key 可单独管理。"
+        )),
         SettingsBlock.APP_DETECTION to HelpSection("前台应用检测", listOf(
-            "配合加号 → “想玩游戏”使用：到点时识别当前前台应用，还在玩游戏类应用就提醒收尾（可结束/再玩 15 分钟），并记录实际结束与超时，供周回顾和 AI 周总结使用。",
+            "配合加号 → “安排空闲活动”（游戏／视频类别）使用：到点时识别当前前台应用，还在玩游戏类应用就提醒收尾（可结束/再玩 15 分钟），并记录实际结束与超时，供周回顾和 AI 周总结使用。",
             "需要“使用情况访问”系统特殊权限：在本页点“去系统开启”，到系统设置里允许 FocusFlow 后返回；判断只在本机完成，不上传任何数据。",
             "应用分类按本机已安装应用生成：内置常见应用归类 + 应用名自动识别，识别不对或未识别的可手动归类；分类只用于收尾提醒判断。",
             "未授权时功能降级为“只提醒开始/结束，不检测前台应用”；“到点提醒开始”可在安排时选择关闭，结束提醒始终保留。"
@@ -150,7 +156,7 @@ object HelpCatalog {
             "与教程搜索共用同一把硅基流动 API key：key 仅保存在本机，课表图片只发往 api.siliconflow.cn，关闭开关后导入课表不联网。",
             "模型可点预设按钮快速切换（Qwen3-VL-8B 免费 / 32B / 30B-A3B / PaddleOCR-VL），也可手填其他模型 ID；旧版 Qwen2.5-VL 系列已下线，保存过的旧模型名会自动迁移到新版。",
             "识别只取课表网格内的课程：课名与教室/楼名分开记录，页脚说明（如“隐藏课程信息”）不会当成课程。",
-            "地点自动归到楼级：教室号不记入地点（如“紫金港东1A-302”→“东1教学楼”，含“东1B”“东1B-201”等楼座），找教室靠“教学楼进出与找教室缓冲”时间；归并后的新楼名出现在 设置→通勤与地点→“课表识别发现的新地点”，可一键加入地点列表供后续使用。",
+            "地点自动归到楼级：教室号不记入地点（如“紫金港东1A-302”→“东1教学楼”，含“东1B”“东1B-201”等楼座），找教室靠“教学楼进出与找教室缓冲”时间；归并后的新楼名出现在 设置→高级工具→通勤与地点→“课表识别发现的新地点”，可一键加入地点列表供后续使用。",
             "识别结果先进入“待确认课程”，逐项编辑、确认或忽略后才进入日程。"
         )),
         SettingsBlock.IMPROVEMENTS to HelpSection("改进清单", listOf(
@@ -217,35 +223,7 @@ fun CourseVisionKeyGuideDialog(onDismiss: () -> Unit) {
 
 /** 首次启动的快速入门：先介绍日常闭环，再说明可选设置。 */
 @Composable
-fun WelcomeIntroDialog(onDismiss: () -> Unit) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("快速入门") },
-        text = {
-            Column(Modifier.heightIn(max = 520.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("先完成一次日常闭环：", fontWeight = FontWeight.SemiBold)
-                Text("1. 点底部＋，用“快速记录”收集一件想做的事。", style = MaterialTheme.typography.bodySmall)
-                Text("2. 在今日页的收集箱中编辑或安排时间；时间不确定可保持弹性。", style = MaterialTheme.typography.bodySmall)
-                Text("3. 到日程查看安排；到点后完成、改期或推迟，完成项会保留并灰化。", style = MaterialTheme.typography.bodySmall)
-                Text("4. 应用不会自动改动你的固定日程；弹性建议需要你确认后才会写入。", style = MaterialTheme.typography.bodySmall)
-                Text("四个入口：", fontWeight = FontWeight.SemiBold)
-                Text("• 今日：现在、接下来和收集箱始终靠前；餐点、精力、睡前与校园模块按需出现。", style = MaterialTheme.typography.bodySmall)
-                Text("• 日程：日／周时间轴，任务与活动可改期、完成、删除。", style = MaterialTheme.typography.bodySmall)
-                Text("• 计划：用堆叠入口进入课表、空挡、目标、回顾和资料工具箱；不需要时可以完全不配置。", style = MaterialTheme.typography.bodySmall)
-                Text("• 设置：高频提醒、外观和作息在主页；地点、AI、识别和应用检测收在高级工具。", style = MaterialTheme.typography.bodySmall)
-                Text("底部 ＋ 号：", fontWeight = FontWeight.SemiBold)
-                Text("“快速记录”记想法；“安排空闲活动”给游戏／学习／运动等安排时间，到点提醒开始与收尾（游戏/视频可检测前台）。", style = MaterialTheme.typography.bodySmall)
-                Text("通知与设备适配：", fontWeight = FontWeight.SemiBold)
-                Text("首次启动可申请通知权限。应用打开时会检查总通知和日程／饭点渠道；如有异常可点“查看说明”。不同 Android 系统可能把弹出方式称为横幅、悬浮、顶部预览或弹出窗口，设置页会按当前设备显示补充路径。", style = MaterialTheme.typography.bodySmall)
-                Text("可选设置：", fontWeight = FontWeight.SemiBold)
-                Text("习惯基线只在你需要饭点、睡前或作息建议时填；上学时再导入课表；长期任务再建目标。资料、AI、地图和前台检测均不是核心流程必需项。", style = MaterialTheme.typography.bodySmall)
-                Text("所有数据只保存在本机；建议只用你确认过的数据生成，数据不足时不打扰。", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text("之后可在 设置 → 快速入门 再次查看。", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        },
-        confirmButton = { Button(onClick = onDismiss) { Text("开始使用") } }
-    )
-}
+fun WelcomeIntroDialog(onDismiss: () -> Unit) = QuickStartDialog(onDismiss)
 
 /** 首次完成习惯基线后的“后续在哪找”提示（只弹一次）。 */
 @Composable

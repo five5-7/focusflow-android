@@ -2,7 +2,7 @@
 
 本地优先的 Android 日程与执行辅助应用（`com.sakata.focusflow`）。核心目标不是维护一张完整日历，而是**降低记录压力、按当前状态调整提醒、在错过计划后帮助恢复**。
 
-当前开发版本：**6.4.0**（versionCode 466）。完整更新记录见 [CHANGELOG.md](CHANGELOG.md)。
+当前开发版本：**7.1.1**（versionCode 476，稳定正式版候选，真机验收前不标记已稳定）。完整更新记录见 [CHANGELOG.md](CHANGELOG.md)。验收门槛见 [7.1 发布检查表](docs/7.1-release-checklist.md)。
 
 > 数据原则：只用你确认过的数据生成建议，数据不足时不打扰、不假装精确。数据只保存在本机。
 
@@ -11,7 +11,7 @@
 **四个入口**
 - 今日：现在、接下来与收集箱固定在前；显示计划完成率、今日改期和完成记录，并为已错过／反复改期任务提供缩小、重排或放回收集箱的恢复入口
 - 日程：日／周时间轴，任务与活动可直接开始、改期、完成或删除
-- 计划：堆叠入口进入课表、空挡、目标、回顾、资料工具箱与暂停项目
+- 计划：堆叠入口进入课程、空挡建议、目标与执行、本周回顾、历史记录、资料工具箱与暂停项目
 - 设置：高频提醒、外观和作息留在首页；地点、AI、识别、应用检测与稳定性统一进入高级工具
 
 **课表与空挡**
@@ -22,7 +22,7 @@
 - 目标 = 预期结果 + 第一步行动 + 完成标准 + 每周次数 + 单次时长 + 最低版本；按空挡自动排本周目标
 - 完成率学习：自动排优先历史完成率高的时段
 - 每个目标独立关联真实资料；常用标记不自动套用。AI 搜索只生成候选行动，确认真实资料后才保存
-- 本周回顾汇总计划完成率、改期与待恢复数量；样本足够时提示常见改期时段，所有判断只在本机完成
+- 本周回顾汇总计划完成率、改期与待恢复数量；统计基于发生过的事件，删除或改期不会改写历史记录；样本足够时提示常见改期时段，所有判断只在本机完成
 
 **活动与自律**
 - 活动模式：开始前约定结束时间与下一步，到点转场、限次延长
@@ -34,8 +34,9 @@
 - 提醒打扰控制：免打扰时段 + 一次性静音
 
 **外观与稳定性**
+- 悬浮圆角底栏适配系统栏与挖孔，正文预留底栏空间；窄屏和大字体减少侧边留白，宽屏居中限宽。计划／设置入口卡片采用统一留白和两行摘要。
 - 四套内置主题 + 自定义配色预设 + 深色模式
-- 本地崩溃上报（设置 → 稳定性与崩溃）
+- 本地崩溃记录（设置 → 稳定性与崩溃：查看／复制／清空，不上传）
 - 纯 Kotlin 单元测试覆盖数据兼容、时间轴、规划、提醒策略、条件显示与目标执行依据
 
 ## 构建
@@ -43,20 +44,22 @@
 目标设备需 **Android 8.0（API 26）** 或更高。
 
 ```bash
-# 用 Android Studio 打开本目录；或命令行构建
+# 用 Android Studio 打开本目录；或命令行构建（仓库未附带 Gradle wrapper，需本机安装 Gradle 8.7）
 gradle :app:assembleDebug
 # 产物：app/build/outputs/apk/debug/app-debug.apk
 ```
 
-运行单元测试：
+运行单元测试（CI 同时验证 debug 和 release；分发 release APK）：
 
 ```bash
-gradle :app:testDebugUnitTest
+gradle :app:testDebugUnitTest :app:testReleaseUnitTest
 ```
 
 ## 发布
 
-GitHub Actions 会在每次 push 时自动跑单元测试并构建稳定签名 APK（artifact）。APK 和 artifact 名称会包含 Actions run 编号，避免误装同版本的旧候选包。真机验收后，再把同一产物上传至 **Releases**。
+GitHub Actions 在 main 的 push、面向 main 的 pull request 或手动运行时执行单元测试并构建稳定签名 APK（artifact）；普通功能分支 push 不会单独触发。APK 和 artifact 名称包含 Actions run 编号。通过自动测试只能分发候选包，真机验收后才把同一产物发布为稳定正式版。
+
+7.1 起任务历史不再按 1000 条截断，界面仍只展示最近事件；已有 JSON 字段与存储键不变。旧版本已截掉的记录无法恢复。原始习惯事件独立保留最多 500 条，可浏览全部保留记录并逐条删除。损坏数据备份失败时暂停所有本地设置写入并显示提示，释放空间后可重试。
 
 ### CI 覆盖安装签名
 
@@ -67,10 +70,10 @@ GitHub Actions 会在每次 push 时自动跑单元测试并构建稳定签名 A
 - `FOCUSFLOW_SIGNING_KEY_ALIAS`：key alias
 - `FOCUSFLOW_SIGNING_KEY_PASSWORD`：key 密码
 
-工作流会在临时 Runner 中解码签名文件；任一 Secret 缺失时构建会直接失败，绝不回退为 debug 签名。
+工作流会在临时 Runner 中解码签名文件；三个必需 Secret（keystore、keystore 密码、key 密码）任一缺失时构建会直接失败，绝不回退为 debug 签名；不配置 key alias 时自动使用 keystore 中的唯一私钥。
 
 ## 模型（可选联网功能）
 
 - 文本 / 视频分析 / 周总结：`Qwen/Qwen2.5-7B-Instruct`（免费默认）、`deepseek-ai/DeepSeek-V4-Flash`
 - 课表视觉识别：`Qwen/Qwen3-VL-8B-Instruct`（免费默认）等
-- key 仅存本机，只发往 `api.siliconflow.cn`
+- AI key 仅存本机，只发往 `api.siliconflow.cn`；地点检索／逆地理使用高德 Web 服务 key（同样仅存本机，发往 `restapi.amap.com`）

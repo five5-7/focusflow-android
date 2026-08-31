@@ -22,6 +22,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Date
+import java.util.Locale
 
 @Composable
 internal fun scheduleColor(type: ScheduleType): Color {
@@ -31,6 +35,8 @@ internal fun scheduleColor(type: ScheduleType): Color {
         ScheduleType.LEARNING -> palette.learning
         ScheduleType.EXERCISE -> palette.exercise
         ScheduleType.ENTERTAINMENT -> palette.entertainment
+        ScheduleType.ACTIVITY -> palette.activity
+        ScheduleType.COMMUTE -> palette.commute
         ScheduleType.REST -> palette.rest
         ScheduleType.TASK -> palette.task
         ScheduleType.COMPLETED -> palette.completed
@@ -38,14 +44,18 @@ internal fun scheduleColor(type: ScheduleType): Color {
 }
 
 internal fun Item.scheduleType(): ScheduleType = when {
+    kind == "活动" || kind == "游戏" -> ScheduleType.ACTIVITY
     title.contains("锻炼") || title.contains("拉伸") -> ScheduleType.EXERCISE
-    title.contains("游戏") || title.contains("娱乐") -> ScheduleType.ENTERTAINMENT
-    title.contains("睡前") || kind == "习惯" -> ScheduleType.REST
+    kind == "习惯" -> ScheduleType.REST
+    title.contains("睡前") -> ScheduleType.REST
     goalId != null -> ScheduleType.LEARNING
     else -> ScheduleType.TASK
 }
 
 private val timelineHourHeight = 64.dp
+
+/** 色块文字模式：FULL 显示标题+时间行；TITLE_ONLY 仅单行标题（周视图小色块）。 */
+internal enum class TimelineLabelMode { FULL, TITLE_ONLY }
 
 internal fun Course.asTimelineEvent(index: Int = 0) = TimelineEvent(
     key = "course-$weekday-$startPeriod-$title-$index",
@@ -56,6 +66,20 @@ internal fun Course.asTimelineEvent(index: Int = 0) = TimelineEvent(
     endMinute = CourseGapPlanner.periodEnd(endPeriod),
     type = ScheduleType.COURSE
 )
+
+/** 相邻已确认课程之间的通勤占用色块（profile.enabled 时才生成）。 */
+internal fun commuteTimelineEvents(courses: List<Course>, profile: CommuteProfile): List<TimelineEvent> =
+    ScheduleOccupation.commuteBlocks(courses, profile).mapNotNull { block ->
+        TimelineEvent(
+            key = "commute-${block.weekday}-${block.startMinute}-${block.endMinute}",
+            title = "通勤",
+            detail = "按当前通勤设置估算 · 约 ${block.endMinute - block.startMinute} 分钟",
+            weekday = block.weekday,
+            startMinute = block.startMinute,
+            endMinute = block.endMinute,
+            type = ScheduleType.COMMUTE
+        )
+    }
 
 private fun Item.asTimelineEvent(): TimelineEvent? {
     val time = scheduledAt ?: return null
@@ -76,13 +100,20 @@ private fun Item.asTimelineEvent(): TimelineEvent? {
 internal fun DailyScheduleTimeline(
     courses: List<Course>,
     tasks: List<Item>,
+    profile: CommuteProfile,
     onStartTask: (Item) -> Unit,
     onRescheduleTask: (Item) -> Unit,
+    onReturnToInbox: (Item) -> Unit,
     onTaskDone: (Item) -> Unit,
     onDeleteItem: (Item) -> Unit
 ) {
     val events = courses.mapIndexed { index, course -> course.asTimelineEvent(index) } +
-        tasks.mapNotNull { it.asTimelineEvent() }
+        commuteTimelineEvents(courses, profile) +
+        tasks.mapNotNull {
+            it.asTimelineEvent()?.copy(
+                conflictNote = taskConflictNote(it, courses, tasks, profile)
+            )
+        }
     var selected by remember { mutableStateOf<TimelineEvent?>(null) }
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 10.dp)) {
@@ -103,6 +134,7 @@ internal fun DailyScheduleTimeline(
             onDismiss = { selected = null },
             onStartTask = { item -> selected = null; onStartTask(item) },
             onRescheduleTask = { item -> selected = null; onRescheduleTask(item) },
+            onReturnToInbox = { item -> selected = null; onReturnToInbox(item) },
             onTaskDone = { item -> selected = null; onTaskDone(item) },
             onDeleteItem = { item -> selected = null; onDeleteItem(item) }
         )
@@ -113,15 +145,31 @@ internal fun DailyScheduleTimeline(
 internal fun WeeklyScheduleTimeline(
     courses: List<Course>,
     items: List<Item>,
+    profile: CommuteProfile,
     onStartTask: (Item) -> Unit,
     onRescheduleTask: (Item) -> Unit,
+    onReturnToInbox: (Item) -> Unit,
     onTaskDone: (Item) -> Unit,
     onDeleteItem: (Item) -> Unit
 ) {
-    val courseEvents = courses.mapIndexed { index, course -> course.asTimelineEvent(index) }
+    val courseEvents = courses.mapIndexed { index, course -> course.asTimelineEvent(index) } +
+        commuteTimelineEvents(courses, profile)
+    // 未来 7 天视图：从今天 00:00 起共 7 天；7 天恰好覆盖每个星期几一次，列与星期几一一对应。
+    val dayStart = Calendar.getInstance().apply {
+        set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
+    }.timeInMillis
+    val weekEnd = dayStart + 7 * 24 * 60 * 60_000L
+    val weekdays = (0..6).map { index -> todayWeekday(dayStart + index * 24 * 60 * 60_000L) }
+    val weekDates = (0..6).map { index ->
+        SimpleDateFormat("M/d", Locale.CHINA).format(Date(dayStart + index * 24 * 60 * 60_000L))
+    }
     val taskEvents = items
-        .filter { !it.dayOnly && it.scheduledAt?.let(::isInCurrentWeek) == true }
-        .mapNotNull { it.asTimelineEvent() }
+        .filter { !it.dayOnly && it.scheduledAt?.let { time -> time >= dayStart && time < weekEnd } == true }
+        .mapNotNull {
+            it.asTimelineEvent()?.copy(
+                conflictNote = taskConflictNote(it, courses, items, profile)
+            )
+        }
     var selected by remember { mutableStateOf<TimelineEvent?>(null) }
     var showCourseInfo by remember { mutableStateOf(false) }
     Row(
@@ -142,33 +190,39 @@ internal fun WeeklyScheduleTimeline(
         Column(Modifier.fillMaxWidth().padding(horizontal = 2.dp, vertical = 10.dp)) {
             Row(Modifier.fillMaxWidth()) {
                 Spacer(Modifier.width(40.dp))
-                (1..7).forEach { day ->
+                (0..6).forEach { index ->
                     Surface(
                         modifier = Modifier.weight(1f).padding(horizontal = 0.5.dp),
-                        color = if (day == todayWeekday()) {
+                        color = if (index == 0) {
                             MaterialTheme.colorScheme.primaryContainer
                         } else {
                             Color.Transparent
                         },
                         shape = RoundedCornerShape(10.dp)
                     ) {
-                        Text(
-                            weekdayName(day),
-                            Modifier.padding(vertical = 8.dp),
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                            fontWeight = FontWeight.SemiBold
-                        )
+                        Column(
+                            Modifier.padding(vertical = 5.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                weekdayName(weekdays[index]),
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(weekDates[index], style = MaterialTheme.typography.labelSmall)
+                        }
                     }
                 }
             }
             Row(Modifier.fillMaxWidth()) {
                 TimelineTimeAxis(40.dp)
-                (1..7).forEach { day ->
+                (0..6).forEach { index ->
                     TimelineDayLane(
-                        (courseEvents + taskEvents).filter { it.weekday == day },
+                        (courseEvents + taskEvents).filter { it.weekday == weekdays[index] },
                         Modifier.weight(1f),
-                        showLabels = false,
+                        showLabels = true,
                         compactBlocks = true,
+                        labelMode = TimelineLabelMode.TITLE_ONLY,
                         onSelect = { selected = it }
                     )
                 }
@@ -202,6 +256,7 @@ internal fun WeeklyScheduleTimeline(
             onDismiss = { selected = null },
             onStartTask = { item -> selected = null; onStartTask(item) },
             onRescheduleTask = { item -> selected = null; onRescheduleTask(item) },
+            onReturnToInbox = { item -> selected = null; onReturnToInbox(item) },
             onTaskDone = { item -> selected = null; onTaskDone(item) },
             onDeleteItem = { item -> selected = null; onDeleteItem(item) }
         )
@@ -234,7 +289,8 @@ internal fun TimelineDayLane(
     showLabels: Boolean,
     compactBlocks: Boolean,
     onSelect: (TimelineEvent) -> Unit,
-    gapMarkers: List<GapMarker> = emptyList()
+    gapMarkers: List<GapMarker> = emptyList(),
+    labelMode: TimelineLabelMode = TimelineLabelMode.FULL
 ) {
     val mergedEvents = mergeConflictingCourses(events)
     val totalHours = (TIMELINE_END_MINUTE - TIMELINE_START_MINUTE) / 60
@@ -296,6 +352,13 @@ internal fun TimelineDayLane(
                                 x += step
                             }
                         }
+                    } else if (event.conflictNote != null) {
+                        // 任务相关冲突：细红左条 + 块体保持原色，详情在弹窗红字说明
+                        Box(
+                            Modifier.align(Alignment.CenterStart)
+                                .width(4.dp).fillMaxHeight()
+                                .background(CONFLICT_TEXT_COLOR, RoundedCornerShape(topStart = 7.dp, bottomStart = 7.dp))
+                        )
                     }
                     if (showLabels) {
                         Column(Modifier.padding(horizontal = 5.dp, vertical = 3.dp)) {
@@ -303,10 +366,10 @@ internal fun TimelineDayLane(
                                 event.title,
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.Bold,
-                                maxLines = 2,
+                                maxLines = if (labelMode == TimelineLabelMode.TITLE_ONLY) 1 else 2,
                                 overflow = TextOverflow.Ellipsis
                             )
-                            if (height >= 34.dp) {
+                            if (labelMode == TimelineLabelMode.FULL && height >= 34.dp) {
                                 Text(
                                     "${formatMinute(event.startMinute)}–${formatMinute(event.endMinute)}",
                                     style = MaterialTheme.typography.labelSmall,
@@ -382,6 +445,7 @@ private fun TimelineEventDialog(
     onDismiss: () -> Unit,
     onStartTask: (Item) -> Unit,
     onRescheduleTask: (Item) -> Unit,
+    onReturnToInbox: (Item) -> Unit,
     onTaskDone: (Item) -> Unit,
     onDeleteItem: (Item) -> Unit
 ) {
@@ -399,6 +463,14 @@ private fun TimelineEventDialog(
                 )
                 Text(event.type.label, color = eventColor)
                 Text(event.detail)
+                event.conflictNote?.let {
+                    Text(
+                        it,
+                        color = CONFLICT_TEXT_COLOR,
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
                 event.item?.takeIf { it.done }?.let {
                     Text(
                         "已完成" +
@@ -421,16 +493,63 @@ private fun TimelineEventDialog(
         },
         dismissButton = {
             if (event.item?.done == false) {
+                // 去掉「关闭」：点弹窗外同效；「放回收集箱」补齐「日程 → 收集箱」闭环。
                 Row {
                     TextButton(onClick = { event.item?.let(onRescheduleTask); onDismiss() }) {
                         Text("改期")
                     }
+                    TextButton(onClick = { event.item?.let(onReturnToInbox); onDismiss() }) {
+                        Text("放回收集箱")
+                    }
                     TextButton(onClick = { event.item?.let(onDeleteItem); onDismiss() }) {
                         Text("删除", color = MaterialTheme.colorScheme.error)
                     }
-                    TextButton(onClick = onDismiss) { Text("关闭") }
                 }
             }
         }
     )
+}
+
+private fun gapMarkersFor(courses: List<Course>, day: Int, profile: CommuteProfile): List<GapMarker> {
+    val daily = courses.filter { it.weekday == day }.sortedBy { it.startPeriod }
+    if (daily.size < 2) return emptyList()
+    return daily.zipWithNext().mapNotNull { (from, to) ->
+        val start = CourseGapPlanner.periodEnd(from.endPeriod)
+        val end = CourseGapPlanner.periodStart(to.startPeriod)
+        val net = end - start - ZijingangTravel.estimateMinutes(from.zone, to.zone, profile)
+        if (net >= 10) GapMarker(start, end, net) else null
+    }
+}
+/** 空挡课表视图：与日程一致的周时间轴课表，课程色块同课表，间隙标注净可用分钟数（≥60 分钟高亮）。 */
+@Composable
+internal fun GapTimelineContent(courses: List<Course>, profile: CommuteProfile) {
+    val confirmed = courses.filter { !it.needsConfirmation }
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 2.dp, vertical = 10.dp)) {
+            Row(Modifier.fillMaxWidth()) {
+                Spacer(Modifier.width(40.dp))
+                (1..7).forEach { day ->
+                    Surface(
+                        modifier = Modifier.weight(1f).padding(horizontal = 0.5.dp),
+                        color = if (day == todayWeekday()) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+                        shape = RoundedCornerShape(10.dp)
+                    ) { Text(weekdayName(day), Modifier.padding(vertical = 8.dp), textAlign = androidx.compose.ui.text.style.TextAlign.Center, fontWeight = FontWeight.SemiBold) }
+                }
+            }
+            Row(Modifier.fillMaxWidth()) {
+                TimelineTimeAxis(40.dp)
+                (1..7).forEach { day ->
+                    TimelineDayLane(
+                        events = confirmed.filter { it.weekday == day }.mapIndexed { index, course -> course.asTimelineEvent(index) },
+                        gapMarkers = gapMarkersFor(confirmed, day, profile),
+                        modifier = Modifier.weight(1f),
+                        showLabels = false,
+                        compactBlocks = true,
+                        onSelect = {}
+                    )
+                }
+            }
+        }
+    }
+    Text("课程色块同课表；间隙显示扣除路程后的净可用分钟数（≥60 分钟深色高亮，适合安排目标或充电）。", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 }

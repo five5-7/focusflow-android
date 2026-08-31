@@ -57,13 +57,7 @@ object ReminderScheduler {
         cancelStatusCheckIn(context)
         if (!settings.enabled) return
         val now = System.currentTimeMillis()
-        val next = Calendar.getInstance().apply {
-            set(Calendar.HOUR_OF_DAY, settings.promptHour)
-            set(Calendar.MINUTE, 0)
-            set(Calendar.SECOND, 0)
-            set(Calendar.MILLISECOND, 0)
-            if (timeInMillis <= now + 60_000L) add(Calendar.DAY_OF_YEAR, 1)
-        }.timeInMillis
+        val next = nextDailyTriggerAt(now, settings.promptHour)
         scheduleStatusCheckInAt(context, next)
     }
 
@@ -238,8 +232,6 @@ object ReminderScheduler {
     }
 
     fun cancelTaskReminder(context: Context, itemId: Long) {
-        // 先清理 6.2.1 的单闹钟 request code，再清理 6.2.2 的提前／到点双闹钟。
-        cancelPending(context, legacyTaskRequestCode(itemId), ReminderReceiver.ACTION_TASK_DUE)
         cancelPending(context, taskRequestCode(itemId, TaskReminderStage.ADVANCE), ReminderReceiver.ACTION_TASK_ADVANCE)
         cancelPending(context, taskRequestCode(itemId, TaskReminderStage.DUE), ReminderReceiver.ACTION_TASK_DUE)
     }
@@ -275,7 +267,7 @@ object ReminderScheduler {
         val now = System.currentTimeMillis()
         MealType.entries.forEach { type ->
             val plan = MealLearning.todayPlan(records, profile, todayWeekday, type)
-            val startAt = todayAtMinute(plan.startMinute)
+            val startAt = todayAtMinute(plan.startMinute, now)
             val skipKey = "$todayKey:${type.label}"
             if (MealLearning.startedToday(records, now, type) || skipKey in skipDays) return@forEach
             // 过了合理窗口后只在今日卡片留手动记录入口，不补发“准备吃饭”。
@@ -295,7 +287,7 @@ object ReminderScheduler {
 
     /** 开始在吃后，按个人时长估计结束时间并提醒“吃完了吗”。 */
     fun scheduleMealEndReminder(context: Context, record: MealRecord, minutes: Int) {
-        val triggerAt = record.startedAt + minutes.coerceIn(5, 120) * 60_000L
+        val triggerAt = mealEndTriggerAt(record.startedAt, minutes)
         if (triggerAt <= System.currentTimeMillis()) return
         val intent = Intent(context, ReminderReceiver::class.java).apply {
             action = ReminderReceiver.ACTION_MEAL_END_REMINDER
@@ -339,13 +331,7 @@ object ReminderScheduler {
 
     /** 每天零点后自动产生新一轮饭点闹钟，不依赖再次打开应用。 */
     private fun scheduleTomorrowMealRefresh(context: Context) {
-        val next = Calendar.getInstance().apply {
-            add(Calendar.DAY_OF_YEAR, 1)
-            set(Calendar.HOUR_OF_DAY, 0)
-            set(Calendar.MINUTE, 5)
-            set(Calendar.SECOND, 0)
-            set(Calendar.MILLISECOND, 0)
-        }.timeInMillis
+        val next = nextDayAtMinute(5)
         val pending = PendingIntent.getBroadcast(
             context,
             DAILY_MEAL_REFRESH_REQUEST_CODE,
@@ -365,12 +351,38 @@ object ReminderScheduler {
         context.getSystemService(AlarmManager::class.java).setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pending)
     }
 
-    private fun todayAtMinute(minute: Int): Long = Calendar.getInstance().apply {
-        set(Calendar.HOUR_OF_DAY, minute / 60)
-        set(Calendar.MINUTE, minute % 60)
+    /** 今天某整分钟的时刻。 */
+    internal fun todayAtMinute(minuteOfDay: Int, now: Long = System.currentTimeMillis()): Long = Calendar.getInstance().apply {
+        timeInMillis = now
+        set(Calendar.HOUR_OF_DAY, minuteOfDay / 60)
+        set(Calendar.MINUTE, minuteOfDay % 60)
         set(Calendar.SECOND, 0)
         set(Calendar.MILLISECOND, 0)
     }.timeInMillis
+
+    /** 下一次“当天 xx 点整”的触发时刻：今天该时刻仍远于 60 秒则取今天，否则推到明天。 */
+    internal fun nextDailyTriggerAt(now: Long, hourOfDay: Int): Long = Calendar.getInstance().apply {
+        timeInMillis = now
+        set(Calendar.HOUR_OF_DAY, hourOfDay.coerceIn(0, 23))
+        set(Calendar.MINUTE, 0)
+        set(Calendar.SECOND, 0)
+        set(Calendar.MILLISECOND, 0)
+        if (timeInMillis <= now + 60_000L) add(Calendar.DAY_OF_YEAR, 1)
+    }.timeInMillis
+
+    /** 明天的整分钟时刻（默认用于零点后饭点轮换闹钟）。 */
+    internal fun nextDayAtMinute(minuteOfDay: Int): Long = Calendar.getInstance().apply {
+        add(Calendar.DAY_OF_YEAR, 1)
+        set(Calendar.HOUR_OF_DAY, minuteOfDay / 60)
+        set(Calendar.MINUTE, minuteOfDay % 60)
+        set(Calendar.SECOND, 0)
+        set(Calendar.MILLISECOND, 0)
+    }.timeInMillis
+
+    /** 餐点结束提醒的触发时刻：开始时间 + 预估时长（5-120 分钟）。 */
+    internal fun mealEndTriggerAt(startedAt: Long, minutes: Int): Long =
+        startedAt + minutes.coerceIn(5, 120) * 60_000L
+
 
     private fun cancelPending(context: Context, requestCode: Int, action: String) {
         val pending = PendingIntent.getBroadcast(
@@ -382,11 +394,20 @@ object ReminderScheduler {
         pending?.let { context.getSystemService(AlarmManager::class.java).cancel(it) }
     }
 
-    private fun legacyTaskRequestCode(itemId: Long): Int = ((itemId + 10_000L) % Int.MAX_VALUE).toInt()
-
     private fun taskRequestCode(itemId: Long, stage: TaskReminderStage): Int {
         val offset = if (stage == TaskReminderStage.ADVANCE) 20_000L else 30_000L
         return ((itemId + offset) % Int.MAX_VALUE).toInt()
+    }
+
+    /** 时间敏感闹钟的后备链（强 → 弱）：preferAlarmClock 时先走系统闹钟路径，再精确、最后普通后台提醒。 */
+    internal fun timingChain(
+        preferAlarmClock: Boolean,
+        sdkInt: Int,
+        canScheduleExactAlarms: Boolean
+    ): List<AlarmDeliveryMode> = buildList {
+        if (preferAlarmClock) add(AlarmDeliveryMode.ALARM_CLOCK)
+        if (TaskReminderPolicy.deliveryMode(sdkInt, canScheduleExactAlarms) == AlarmDeliveryMode.EXACT) add(AlarmDeliveryMode.EXACT)
+        add(AlarmDeliveryMode.INEXACT)
     }
 
     private fun scheduleTimeSensitiveAlarm(
@@ -396,36 +417,37 @@ object ReminderScheduler {
         preferAlarmClock: Boolean = false
     ): AlarmDeliveryMode {
         val manager = context.getSystemService(AlarmManager::class.java)
-        if (preferAlarmClock) {
-            val showIntent = PendingIntent.getActivity(
-                context,
-                ALARM_CLOCK_SHOW_REQUEST_CODE,
-                Intent(context, MainActivity::class.java),
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-            try {
-                manager.setAlarmClock(AlarmManager.AlarmClockInfo(triggerAt, showIntent), pending)
-                return AlarmDeliveryMode.ALARM_CLOCK
-            } catch (_: SecurityException) {
-                // 厂商拒绝强路径时继续走精确／普通后台提醒，不能静默丢失。
-            }
-        }
-        val mode = TaskReminderPolicy.deliveryMode(
-            sdkInt = Build.VERSION.SDK_INT,
-            canScheduleExactAlarms = Build.VERSION.SDK_INT < Build.VERSION_CODES.S || manager.canScheduleExactAlarms()
-        )
-        if (mode == AlarmDeliveryMode.EXACT) {
-            try {
-                manager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pending)
-                return AlarmDeliveryMode.EXACT
-            } catch (_: SecurityException) {
-                // 权限可能在检查后被系统撤销；仍保留普通后台提醒，不能静默丢失。
-            }
-        }
-        run {
-            manager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pending)
+        val canExact = Build.VERSION.SDK_INT < Build.VERSION_CODES.S || manager.canScheduleExactAlarms()
+        for (mode in timingChain(preferAlarmClock, Build.VERSION.SDK_INT, canExact)) {
+            if (applyTimingMode(manager, mode, triggerAt, pending, context)) return mode
         }
         return AlarmDeliveryMode.INEXACT
+    }
+
+    private fun applyTimingMode(
+        manager: AlarmManager,
+        mode: AlarmDeliveryMode,
+        triggerAt: Long,
+        pending: PendingIntent,
+        context: Context
+    ): Boolean = try {
+        when (mode) {
+            AlarmDeliveryMode.ALARM_CLOCK -> {
+                val showIntent = PendingIntent.getActivity(
+                    context,
+                    ALARM_CLOCK_SHOW_REQUEST_CODE,
+                    Intent(context, MainActivity::class.java),
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+                manager.setAlarmClock(AlarmManager.AlarmClockInfo(triggerAt, showIntent), pending)
+            }
+            AlarmDeliveryMode.EXACT -> manager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pending)
+            AlarmDeliveryMode.INEXACT -> manager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pending)
+        }
+        true
+    } catch (_: SecurityException) {
+        // 权限可能在检查后被系统撤销；沿降级链继续，不能静默丢失。
+        false
     }
 
     private const val TASK_TEST_REQUEST_CODE = 2_900_001
@@ -444,14 +466,7 @@ object ReminderScheduler {
         val store = PrototypeStore(context)
         if (!store.loadWindDownEnabled() || profile.lifeStage == null) return
         val minute = WindDownInsights.windDownMinute(profile) ?: return
-        val now = System.currentTimeMillis()
-        val next = Calendar.getInstance().apply {
-            set(Calendar.HOUR_OF_DAY, minute / 60)
-            set(Calendar.MINUTE, minute % 60)
-            set(Calendar.SECOND, 0)
-            set(Calendar.MILLISECOND, 0)
-            if (timeInMillis <= now + 60_000L) add(Calendar.DAY_OF_YEAR, 1)
-        }.timeInMillis
+        val next = nextDailyTriggerAt(System.currentTimeMillis(), minute)
         scheduleWindDownAt(context, next)
     }
 

@@ -6,5 +6,6 @@ class FocusFlowApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         NotificationChannelSettings.ensureManagedChannels(this)
+        PrototypeStore(this).migrateTaskHistory()
     }
 }

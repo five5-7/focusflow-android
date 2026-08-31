@@ -43,6 +43,13 @@ object GameStats {
         return "本周有 $overrunCount 次超时（共 ${week.sumOf { it.overrunMinutes }} 分钟）。可把活动安排提前或缩短，收尾前 10 分钟先保存进度。"
     }
 
+    /** 结束一个打开会话的结果记录：按实际结束时间计算是否按时与超时分钟；非打开会话返回 null。 */
+    fun endedSession(record: GameSessionRecord, now: Long = System.currentTimeMillis()): GameSessionRecord? {
+        if (!record.isOpen()) return null
+        val overrun = ((now - record.plannedEndAt) / 60_000L).toInt().coerceAtLeast(0)
+        return record.copy(actualEndAt = now, endedOnTime = overrun == 0, overrunMinutes = overrun)
+    }
+
     /** 某活动标题的历史单日最多安排次数（按计划开始日分组；至少 3 天样本，否则返回 null——不假装精确）。 */
     fun historicalDailyMax(records: List<GameSessionRecord>, title: String): Int? {
         val counts = records.filter { it.title == title }

@@ -15,8 +15,8 @@ android {
         applicationId = "com.sakata.focusflow"
         minSdk = 26
         targetSdk = 35
-        versionCode = 466
-        versionName = "6.4.0"
+        versionCode = 476
+        versionName = "7.1.1"
         buildConfigField("String", "CI_RUN_NUMBER", "\"$focusFlowCiRun\"")
     }
 
@@ -43,6 +43,12 @@ android {
     }
 
     buildTypes {
+        getByName("release") {
+            isDebuggable = false
+            // Keep this stability release behavior-equivalent; defer shrinking to a separate change.
+            isMinifyEnabled = false
+            if (!focusFlowSigningStore.isNullOrBlank()) signingConfig = signingConfigs.getByName("focusFlowStable")
+        }
         getByName("debug") {
             if (!focusFlowSigningStore.isNullOrBlank()) signingConfig = signingConfigs.getByName("focusFlowStable")
         }

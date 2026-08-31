@@ -63,7 +63,13 @@ object GoalPlanner {
     fun completedThisWeek(goal: Goal): Int = if (goal.completionWeekKey == currentWeekKey()) goal.completedThisWeek else 0
     fun minimumCompletedThisWeek(goal: Goal): Int = if (goal.completionWeekKey == currentWeekKey()) goal.minimumCompletionsThisWeek else 0
     /** occupied：日程里已有安排按星期几的占用分钟段，建议会避开这些时段。 */
-    fun suggestions(goal: Goal, courses: List<Course>, profile: CommuteProfile, occupied: Map<Int, List<IntRange>> = emptyMap()): List<GoalSuggestion> {
+    fun suggestions(
+        goal: Goal,
+        courses: List<Course>,
+        profile: CommuteProfile,
+        occupied: Map<Int, List<IntRange>> = emptyMap(),
+        nowMillis: Long = System.currentTimeMillis()
+    ): List<GoalSuggestion> {
         val confirmed = courses.filter { !it.needsConfirmation }
         val gapSuggestions = CourseGapPlanner.gaps(confirmed, profile, occupied)
             .filter { it.minutesFree >= goal.durationMinutes }
@@ -81,14 +87,18 @@ object GoalPlanner {
                     suggestion.startMinute < CourseGapPlanner.periodEnd(course.endPeriod)
             }
         }
-        val calendar = Calendar.getInstance()
-        val currentDay = when (calendar.get(Calendar.DAY_OF_WEEK)) { Calendar.SUNDAY -> 7 else -> calendar.get(Calendar.DAY_OF_WEEK) - 1 }
-        val currentMinute = calendar.get(Calendar.HOUR_OF_DAY) * 60 + calendar.get(Calendar.MINUTE)
         return (gapSuggestions + freeSuggestions + fallbackSuggestions)
             .distinctBy { it.weekday to it.startMinute }
-            .filter { it.weekday > currentDay || (it.weekday == currentDay && it.startMinute > currentMinute + 15) }
+            // 跨周取「从 now 起未来 7 天内最近一次出现」：周日晚上也能看到下周的空档
+            .filter { suggestion ->
+                val occurrence = nextOccurrence(suggestion.weekday, suggestion.startMinute, nowMillis)
+                occurrence > nowMillis + 15 * 60_000L && occurrence <= nowMillis + 7 * 24 * 60 * 60_000L
+            }
             .filterNot { overlapsOccupied(it, goal.durationMinutes, occupied) }
-            .sortedWith(compareBy<GoalSuggestion> { it.weekday }.thenBy { it.startMinute })
+            .sortedWith(
+                compareBy<GoalSuggestion> { nextOccurrence(it.weekday, it.startMinute, nowMillis) }
+                    .thenBy { it.weekday }.thenBy { it.startMinute }
+            )
     }
 
     /** 建议时段 [start, start+duration) 是否与已有安排重叠。 */
@@ -97,20 +107,73 @@ object GoalPlanner {
         return occupied[suggestion.weekday].orEmpty().any { it.first < end && suggestion.startMinute < it.last + 1 }
     }
 
-    fun nextOccurrence(weekday: Int, minuteOfDay: Int): Long {
+    fun nextOccurrence(weekday: Int, minuteOfDay: Int, nowMillis: Long = System.currentTimeMillis()): Long {
         val calendar = Calendar.getInstance()
+        calendar.timeInMillis = nowMillis
         val currentDay = when (calendar.get(Calendar.DAY_OF_WEEK)) { Calendar.SUNDAY -> 7 else -> calendar.get(Calendar.DAY_OF_WEEK) - 1 }
         var days = (weekday - currentDay + 7) % 7
         calendar.set(Calendar.HOUR_OF_DAY, minuteOfDay / 60)
         calendar.set(Calendar.MINUTE, minuteOfDay % 60)
         calendar.set(Calendar.SECOND, 0)
         calendar.set(Calendar.MILLISECOND, 0)
-        if (days == 0 && calendar.timeInMillis <= System.currentTimeMillis()) days = 7
+        if (days == 0 && calendar.timeInMillis <= nowMillis) days = 7
         calendar.add(Calendar.DAY_OF_YEAR, days)
         return calendar.timeInMillis
     }
 
     fun displayTime(minuteOfDay: Int) = "%02d:%02d".format(minuteOfDay / 60, minuteOfDay % 60)
+
+    /** 自动排一周目标任务的纯计算：新任务清单、学习时段（按 星期×开始小时 记录完成率）与提示文案。 */
+    data class AutoPlanResult(
+        val newItems: List<Item>,
+        val learnedSlots: List<Pair<Int, Int>>,
+        val message: String
+    )
+
+    /**
+     * 按剩余周次数把目标排进未来一周空挡（避开课程、通勤与已有安排，同批内也互相避让）。
+     * [completionRate] 为完成率查询器（星期×开始小时 → 0..1 或 null），未知时段排最后。
+     * 不产生副作用：保存、提醒、学习记录由调用点执行。
+     */
+    fun autoPlan(
+        goals: List<Goal>,
+        courses: List<Course>,
+        items: List<Item>,
+        profile: CommuteProfile,
+        completionRate: (weekday: Int, startHour: Int) -> Float?,
+        nowMillis: Long = System.currentTimeMillis()
+    ): AutoPlanResult {
+        val remainingByGoal = goals.mapNotNull { goal ->
+            val remaining = goal.weeklyTarget - completedThisWeek(goal)
+            if (remaining > 0) goal to remaining else null
+        }
+        if (remainingByGoal.isEmpty()) {
+            return AutoPlanResult(emptyList(), emptyList(), "所有目标本周次数都已排满或完成，无需再排。")
+        }
+        val newItems = mutableListOf<Item>()
+        val learnedSlots = mutableListOf<Pair<Int, Int>>()
+        remainingByGoal.forEach { (goal, remaining) ->
+            var scheduled = 0
+            // 完成率学习：优先历史完成率高的时段（未知时段排最后）。
+            val suggestions = GoalPlanner.suggestions(goal, courses, profile, occupiedByWeekday(items), nowMillis)
+                .sortedWith(compareByDescending<GoalSuggestion> { completionRate(it.weekday, it.startMinute / 60) ?: -1f }.thenBy { it.startMinute })
+            for (suggestion in suggestions) {
+                if (scheduled >= remaining) break
+                val target = GoalPlanner.nextOccurrence(suggestion.weekday, suggestion.startMinute, nowMillis)
+                // 与之前已排的目标任务也避让，防止同一次自动排内重复占用同一时段。
+                if (slotFree(target, goal.durationMinutes, courses, items + newItems, profile)) {
+                    newItems += Item(title = goal.title, detail = goalTaskDetail(goal, suggestion.weekday, suggestion.startMinute), kind = "任务", scheduledAt = target, goalId = goal.id, durationMinutes = goal.durationMinutes)
+                    learnedSlots += suggestion.weekday to suggestion.startMinute / 60
+                    scheduled++
+                }
+            }
+        }
+        if (newItems.isEmpty()) {
+            return AutoPlanResult(emptyList(), emptyList(), "未来一周空挡都被课程或已有安排占用，没有可排的时段；可先确认课程或调整目标时长。")
+        }
+        val byDay = newItems.groupBy { it.scheduledAt?.let(::weekdayOf) }.mapNotNull { (day, list) -> day?.let { "${weekdayName(it)} ${list.size} 个" } }.joinToString("、")
+        return AutoPlanResult(newItems, learnedSlots, "已把 ${newItems.size} 个目标任务排进未来一周空挡（避开课程与已有安排）：$byDay。可在日程里查看或调整。")
+    }
 
     fun weeklyAdvice(goal: Goal, feedback: List<TaskFeedback>): String {
         val full = completedThisWeek(goal)

@@ -18,8 +18,38 @@ data class RoadmapEntry(val version: String, val title: String, val summary: Str
 data class RoadmapVersion(val version: String, val entries: List<RoadmapEntry>)
 
 object RoadmapData {
-    /** 已实现版本演进（1.0 → 6.4.0），每版本浓缩 1–3 条，与 CHANGELOG.md 对应。 */
+    /** 已实现版本演进（1.0 → 7.1.1 候选），每版本浓缩 1–3 条，与 CHANGELOG.md 对应。 */
     val evolution: List<RoadmapVersion> = listOf(
+        RoadmapVersion("7.1.1", listOf(
+            RoadmapEntry("7.1.1", "全面屏与外观打磨", "安全区避让状态栏和挖孔；主题色悬浮底栏、窄屏留白与宽屏限宽；计划／设置入口卡片统一圆角和两行摘要。待构建及真机验收。", RoadmapStatus.DONE)
+        )),
+        RoadmapVersion("7.1.0", listOf(
+            RoadmapEntry("7.1.0", "导航与稳定性补齐（候选）", "快速入门章节导航；子页双向转场与多级返回；原始事件完整浏览；任务历史不再按 1000 条截断；备份失败保护写入。实现完成不等于真机稳定验收通过。", RoadmapStatus.DONE)
+        )),
+        RoadmapVersion("7.0.2", listOf(
+            RoadmapEntry("7.0.2", "原始事件记录单条删除", "「原始事件记录」弹窗逐条右侧新增删除（按唯一 id 精确移除，保留其余记录与顺序），计数按全量显示；清除全部记录保留不变", RoadmapStatus.DONE)
+        )),
+        RoadmapVersion("7.0.1", listOf(
+            RoadmapEntry("7.0.1", "文案与行为对账修正", "全量对账帮助/设置/通知文案与实际行为：课表识别不再声称“识别失败自动回退本机”（4.0.1 起已移除本地 OCR）；一次性静音与免打扰统一“低打扰提醒”范围（任务与活动到点提醒不被静音）；消费记录文案同步“暂时隐藏”（数据保留清除）；“想玩游戏”入口更新为“安排空闲活动”；导航路径统一“设置→高级工具→…”；计划入口名对齐（课程/空挡建议/本周回顾）；快速入门补充精确闹钟与使用情况访问引导；修正游戏/视频在未授权使用情况访问或关闭检测时静默记结束的问题（改为同其他活动一样提醒收尾）", RoadmapStatus.DONE)
+        )),
+        RoadmapVersion("7.0.0", listOf(
+            RoadmapEntry("7.0.0", "优化向发行：结构拆分与打磨", "MainActivity 从 5277 行瘦身至约 1400 行（对话框/页面独立文件、业务变换抽纯函数、JSON codec 抽取，零行为变化）；稳定性修复（崩溃上报幂等与轮转、持久层损坏保护）；AI 周总结独立开关与 key；消费记录暂时隐藏；底栏 Material 图标与摘要卡风格统一", RoadmapStatus.DONE)
+        )),
+        RoadmapVersion("6.9.0", listOf(
+            RoadmapEntry("6.9.0", "「下一件合适的事」推荐精化", "推荐引擎抽出为纯 Kotlin 可测模块；同档位高优先级优先且理由标注；今日剩余空挡放不下的任务不硬推（卡片改展示下一固定安排并说明空档不足）；恢复建议卡与现在做什么建议去重；15 例单元测试", RoadmapStatus.DONE)
+        )),
+        RoadmapVersion("6.8.0", listOf(
+            RoadmapEntry("6.8.0", "收集箱归入已有计划", "收集箱项一键归入已有目标（免目标编辑器整套问题），移出收集箱进入弹性安排，保留时长/优先级，完成后计入目标每周次数与回顾；归入事件只计日程变化不进完成率分母，统计零污染", RoadmapStatus.DONE)
+        )),
+        RoadmapVersion("6.7.0", listOf(
+            RoadmapEntry("6.7.0", "收集箱 → 日程 → 计划完整流转", "收集箱项编辑完整体（时长+优先级）并显示信息行；快速输入自然语言解析（“晚上看半小时高数”）与预览式弹窗、直接安排预置精确时间；一键转成目标；时间轴弹窗新增放回收集箱；统计零污染（编辑不记事件、转换只计日程变化）", RoadmapStatus.DONE)
+        )),
+        RoadmapVersion("6.6.0", listOf(
+            RoadmapEntry("6.6.0", "日程系统继续完善", "任意分钟时长与自定义输入；时间轴区分活动/通勤类型并渲染课间通勤占用；任务冲突检测与一键调整；拖延任务按优先级给出执行建议", RoadmapStatus.DONE)
+        )),
+        RoadmapVersion("6.5.0", listOf(
+            RoadmapEntry("6.5.0", "历史事件与统计准确性", "任务创建/安排/改期/完成/放回/删除/恢复全程留痕；今日与本周统计改从事件计算，删除或改期不改写历史；计划页新增历史记录与近 7 天完成概况", RoadmapStatus.DONE)
+        )),
         RoadmapVersion("6.4.0", listOf(
             RoadmapEntry("6.4.0", "复盘与恢复闭环", "今日页识别错过或反复改期的任务并提供缩小、重排和放回收集箱；周回顾展示完成率、改期、待恢复与高频改期时段", RoadmapStatus.DONE)
         )),
@@ -315,8 +345,7 @@ object RoadmapData {
         RoadmapEntry("后续", "高德地图 SDK 集成", "可视化地图、POI 点选、以设备定位为中心的搜索；代价：包体积增加、SDK key 绑定包名与签名、需要定位权限", RoadmapStatus.CANDIDATE),
         RoadmapEntry("后续", "云同步与多设备备份", "所有数据目前只在本机，无任何云端能力", RoadmapStatus.CANDIDATE),
         RoadmapEntry("后续", "主屏幕小组件", "今日概览／下一步等小组件（用户评估常驻通知已部分替代，暂不优先）", RoadmapStatus.CANDIDATE),
-        RoadmapEntry("后续", "应用商店级稳定性（剩余）", "崩溃上报已上线（5.8）；剩余：自动化测试、商店发布流程", RoadmapStatus.CANDIDATE),
-        RoadmapEntry("后续", "OPPO 真机验证", "验证通知、后台限制与重启恢复", RoadmapStatus.CANDIDATE)
+        RoadmapEntry("后续", "应用商店级稳定性（剩余）", "崩溃上报已上线（5.8）；剩余：自动化测试、商店发布流程", RoadmapStatus.CANDIDATE)
     )
 }
 
@@ -330,7 +359,7 @@ fun RoadmapSubpageContent() {
                 Text("每次功能更新递增 0.1；更新记录见版本演进。", style = MaterialTheme.typography.bodySmall)
             }
         }
-        Text("版本演进（已实现 1.0 → 6.3.0）", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Text("版本演进（1.0 → 7.1.1 候选）", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         RoadmapData.evolution.forEach { version ->
             Text(version.version, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
             version.entries.forEach { entry ->

@@ -39,4 +39,24 @@ class GameStatsTest {
         )
         assertEquals(1, GameStats.historicalDailyMax(records, "俯卧撑"))
     }
+
+    @Test fun endedSession_overrunMinutesAndNotOnTime() {
+        val open = GameSessionRecord(id = 1, title = "原神", packageName = null, plannedStartAt = base, plannedEndAt = base + 30 * 60_000L)
+        val ended = GameStats.endedSession(open, base + 42 * 60_000L)!!
+        assertEquals(base + 42 * 60_000L, ended.actualEndAt)
+        assertEquals(false, ended.endedOnTime)
+        assertEquals(12, ended.overrunMinutes)
+    }
+
+    @Test fun endedSession_exactlyOnPlanIsOnTime() {
+        val open = GameSessionRecord(id = 1, title = "跑步", packageName = null, plannedStartAt = base, plannedEndAt = base + 30 * 60_000L)
+        val ended = GameStats.endedSession(open, base + 30 * 60_000L)!!
+        assertEquals(true, ended.endedOnTime)
+        assertEquals(0, ended.overrunMinutes)
+    }
+
+    @Test fun endedSession_returnsNullWhenAlreadyClosed() {
+        val closed = GameSessionRecord(id = 1, title = "学习", packageName = null, plannedStartAt = base, plannedEndAt = base + 30 * 60_000L, actualEndAt = base)
+        assertNull(GameStats.endedSession(closed, base + 40 * 60_000L))
+    }
 }

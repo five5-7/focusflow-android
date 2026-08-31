@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.verticalScroll
@@ -51,7 +52,8 @@ internal fun ScrollableDialogBox(
     content: @Composable ColumnScope.() -> Unit
 ) {
     val scrollState = rememberScrollState()
-    Box(Modifier.heightIn(max = maxHeight)) {
+    // 键盘避让：输入类对话框内容被软键盘遮挡时向上收；若 Dialog 窗口不提供 IME inset 则等效 0，无副作用。
+    Box(Modifier.heightIn(max = maxHeight).imePadding()) {
         Column(
             Modifier.heightIn(max = maxHeight).verticalScroll(scrollState),
             verticalArrangement = Arrangement.spacedBy(spacing),

@@ -30,3 +30,21 @@ internal fun locationHintFor(text: String): String? {
         else -> null
     }
 }
+
+internal fun recommendForWindow(goals: List<Goal>, items: List<Item>, minutes: Int, store: PrototypeStore, weekday: Int, startMinute: Int): GapRecommendation? {
+    val goal = goals.filter { g -> GoalPlanner.completedThisWeek(g) < g.weeklyTarget && g.durationMinutes <= minutes }
+        .sortedWith(compareByDescending<Goal> { PlanLearning.completionRate(store, weekday, startMinute / 60) ?: -1f }
+            .thenByDescending { it.weeklyTarget - GoalPlanner.completedThisWeek(it) }
+            .thenByDescending { it.durationMinutes })
+        .firstOrNull()
+    if (goal != null) {
+        val remaining = goal.weeklyTarget - GoalPlanner.completedThisWeek(goal)
+        val rate = PlanLearning.completionRate(store, weekday, startMinute / 60)
+        val rateNote = if (rate != null && rate >= 0.6f) " · 该时段完成率较高" else ""
+        return GapRecommendation(goal.title, "目标还剩 $remaining 次 · 每次 ${goal.durationMinutes} 分钟$rateNote", goal, null)
+    }
+    val flexible = items.filter { it.kind == "任务" && it.scheduledAt == null && it.durationMinutes <= minutes }
+        .sortedByDescending { it.durationMinutes }.firstOrNull()
+    if (flexible != null) return GapRecommendation(flexible.title, "弹性任务 · 约 ${flexible.durationMinutes} 分钟", null, flexible)
+    return null
+}
