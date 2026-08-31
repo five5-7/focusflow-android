@@ -75,12 +75,26 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * 主题预览色点：主色/副色/强调色/中性色（描边灰可见）/文字色（正文色可见）。
+ * 六色预览，末位为导航栏背景。
  */
 internal fun previewColors(spec: FocusFlowThemeSpec): List<Color> = listOf(
     spec.colorScheme.primary, spec.colorScheme.secondary, spec.colorScheme.tertiary,
-    spec.colorScheme.outline, spec.colorScheme.onSurface
+    spec.colorScheme.outline, spec.colorScheme.onSurface, spec.navigationBarColor
 )
+
+/** Two rows avoid squeezing theme names/buttons after introducing the sixth slot. */
+@Composable
+internal fun ThemeSwatchPreview(colors: List<Color>) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        colors.chunked(3).forEach { row ->
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                row.forEach { color ->
+                    Box(Modifier.size(14.dp).clip(RoundedCornerShape(7.dp)).background(color))
+                }
+            }
+        }
+    }
+}
 
 /** 中性色槽位渲染出的实际背景：向白提亮 85%（与 AppTheme.kt 自定义主题映射一致）。 */
 internal fun neutralBackground(neutral: Color): Color = lerp(neutral, Color.White, 0.85f)
@@ -105,7 +119,7 @@ internal fun contrastRatio(a: Color, b: Color): Double {
 internal const val MIN_TEXT_CONTRAST = 3.0
 
 /**
- * 自定义主题配色槽位：主色/副色/强调色/中性色/文字色五个全局色，
+ * 自定义主题配色槽位：主色/副色/强调色/中性色/文字色/导航栏色六个全局色，
  * 共同影响除课程色块与提醒警示外的所有界面区域。
  */
 internal enum class ThemeSlot(
@@ -114,11 +128,12 @@ internal enum class ThemeSlot(
     val pick: (FocusFlowThemeColors) -> Color,
     val set: (FocusFlowThemeColors, Color) -> FocusFlowThemeColors
 ) {
-    PRIMARY("主色", "按钮、导航、开关", { it.primaryAction }, { c, v -> c.copy(primaryAction = v) }),
+    PRIMARY("主色", "按钮、导航选中态、开关", { it.primaryAction }, { c, v -> c.copy(primaryAction = v) }),
     SECONDARY("副色", "次要强调与容器", { it.secondary }, { c, v -> c.copy(secondary = v) }),
     ACCENT("强调色", "提示与引导文字", { it.accent }, { c, v -> c.copy(accent = v) }),
     NEUTRAL("中性色", "背景、卡片与描边", { it.neutral }, { c, v -> c.copy(neutral = v) }),
-    TEXT("文字色", "正文与标题", { it.text }, { c, v -> c.copy(text = v) })
+    TEXT("文字色", "正文与标题", { it.text }, { c, v -> c.copy(text = v) }),
+    NAVIGATION("导航栏色", "悬浮底栏背景；图标和文字自动保持对比，深色模式自动调暗", { it.navigationBar }, { c, v -> c.copy(navigationBar = v) })
 }
 
 /** 预设色板：深色 / 中亮 / 浅亮三组各 10 色，保证与任何主题搭配都有可选协调色。 */
@@ -154,7 +169,7 @@ internal fun CustomThemeEditorContent(
     var namingPresetOpen by remember { mutableStateOf(false) }
     var editingPreset by remember { mutableStateOf<ThemePreset?>(null) }
     Text(
-        "主题使用五个全局色：主色、副色、强调色、中性色、文字色，共同影响除课程色块与提醒警示外的所有界面区域。",
+        "主题使用六个全局色：主色、副色、强调色、中性色、文字色、导航栏色。导航栏背景可独立调整，图标和文字自动保持对比；课程色块与提醒警示保留原有语义。",
         style = MaterialTheme.typography.bodySmall
     )
     // 尚未启用自定义主题时（如从"以此改色"进入）：配色只作为工作副本，确认后才切换全局主题。
@@ -212,11 +227,8 @@ internal fun CustomThemeEditorContent(
             val active = preset.colors == colors
             ElevatedCard(Modifier.fillMaxWidth()) {
                 Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        listOf(preset.colors.primaryAction, preset.colors.secondary, preset.colors.accent, preset.colors.neutral, preset.colors.text).forEach { color ->
-                            Box(Modifier.size(14.dp).clip(RoundedCornerShape(7.dp)).background(color))
-                        }
-                    }
+                    ThemeSwatchPreview(listOf(preset.colors.primaryAction, preset.colors.secondary,
+                        preset.colors.accent, preset.colors.neutral, preset.colors.text, preset.colors.navigationBar))
                     Column(Modifier.weight(1f)) {
                         Text(preset.name, fontWeight = FontWeight.SemiBold)
                         if (active) Text("当前配色", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)

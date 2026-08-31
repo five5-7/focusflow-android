@@ -9,7 +9,7 @@ import androidx.compose.ui.graphics.luminance
 
 /**
  * 用户可定制的主题色。一套全局配色：
- * 主色/副色/强调色/中性色/文字色五个全局色，共同影响除课程色块（schedule）与提醒警示（warning）外的所有界面区域；
+ * 主色/副色/强调色/中性色/文字色/导航栏色六个全局色；
  * schedule 与 warning 保持各自语义，不接受定制。
  */
 data class FocusFlowThemeColors(
@@ -19,8 +19,13 @@ data class FocusFlowThemeColors(
     val schedule: Color,
     val neutral: Color,
     val warning: Color,
-    val text: Color
+    val text: Color,
+    val navigationBar: Color = defaultNavigationColor(neutral, primaryAction)
 )
+
+/** Old five-slot themes gain a coordinated sixth color without rewriting their other colors. */
+internal fun defaultNavigationColor(neutral: Color, primary: Color): Color =
+    lerp(neutral, primary, 0.10f).copy(alpha = 1f)
 
 /** 内置主题的警示色统一用 Material 3 默认错误红，保证警示语义一致。 */
 private val DEFAULT_WARNING = Color(0xFFB3261E)
@@ -100,7 +105,8 @@ data class FocusFlowSchedulePalette(
 
 data class FocusFlowThemeSpec(
     val colorScheme: ColorScheme,
-    val schedulePalette: FocusFlowSchedulePalette
+    val schedulePalette: FocusFlowSchedulePalette,
+    val navigationBarColor: Color = Color.Unspecified
 )
 
 val LocalFocusFlowSchedulePalette = staticCompositionLocalOf {
@@ -160,7 +166,21 @@ fun focusFlowThemeSpec(option: FocusFlowThemeOption, customColors: FocusFlowThem
         )
     }
     }
-    return if (darkMode) spec.copy(colorScheme = darkenScheme(spec.colorScheme)) else spec
+    val colors = if (option == FocusFlowThemeOption.CUSTOM) customColors ?: option.colors else option.colors
+    // Material defaults are purple unless every used surface role is explicitly themed.
+    val themed = spec.copy(colorScheme = spec.colorScheme.copy(
+        surfaceContainerLowest = lerp(colors.neutral, Color.White, 0.95f),
+        surfaceContainerLow = lerp(colors.neutral, Color.White, 0.45f),
+        surfaceContainer = colors.neutral,
+        surfaceContainerHigh = lerp(colors.neutral, colors.primaryAction, 0.06f),
+        surfaceContainerHighest = lerp(colors.neutral, colors.primaryAction, 0.10f),
+        outlineVariant = lerp(colors.neutral, colors.text, 0.18f)
+    ))
+    val navigation = colors.navigationBar.copy(alpha = 1f)
+    return if (darkMode) themed.copy(
+        colorScheme = darkenScheme(themed.colorScheme),
+        navigationBarColor = lerp(Color.Black, navigation, 0.22f)
+    ) else themed.copy(navigationBarColor = navigation)
 }
 
 /** 内置主题：5 个种子色取自 option.colors，其余 scheme 字段与日程非定制色保持既有字面量。 */

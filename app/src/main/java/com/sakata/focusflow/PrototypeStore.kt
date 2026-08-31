@@ -96,32 +96,14 @@ class PrototypeStore(context: Context) {
         )
     }
 
-    /** 自定义主题 5 色（ARGB，全局配色分工）。无自定义记录时返回 null。 */
+    /** 六色主题；旧五色存档按原配色派生导航栏色，不覆盖其他槽位。 */
     fun loadCustomThemeColors(): FocusFlowThemeColors? =
         decodeObjectGuarded("custom_theme_colors", null, { json ->
-            val value = JSONObject(json)
-            FocusFlowThemeColors(
-                primaryAction = Color(value.getLong("primaryAction")),
-                // 旧存档（3.9.10 前）没有这些字段：回退 OCEAN 种子值。
-                secondary = Color(value.optLong("secondary", 0xFF5C4B9A)),
-                accent = Color(value.getLong("accent")),
-                schedule = Color(value.getLong("schedule")),
-                neutral = Color(value.getLong("neutral")),
-                warning = Color(value.getLong("warning")),
-                text = Color(value.optLong("text", 0xFF182124))
-            )
+            ThemeColorsCodec.decode(JSONObject(json))
         })
 
     fun saveCustomThemeColors(colors: FocusFlowThemeColors) {
-        preferences.edit().putString("custom_theme_colors", JSONObject().apply {
-            put("primaryAction", colors.primaryAction.value.toLong())
-            put("secondary", colors.secondary.value.toLong())
-            put("accent", colors.accent.value.toLong())
-            put("schedule", colors.schedule.value.toLong())
-            put("neutral", colors.neutral.value.toLong())
-            put("warning", colors.warning.value.toLong())
-            put("text", colors.text.value.toLong())
-        }.toString()).apply()
+        preferences.edit().putString("custom_theme_colors", ThemeColorsCodec.encode(colors).toString()).apply()
     }
 
     /** 自定义主题预设：多套命名配色存档。无预设时返回空列表。 */
@@ -133,15 +115,7 @@ class PrototypeStore(context: Context) {
                     val c = item.getJSONObject("colors")
                     ThemePreset(
                         name = item.getString("name"),
-                        colors = FocusFlowThemeColors(
-                            primaryAction = Color(c.getLong("primaryAction")),
-                            secondary = Color(c.optLong("secondary", 0xFF5C4B9A)),
-                            accent = Color(c.getLong("accent")),
-                            schedule = Color(c.getLong("schedule")),
-                            neutral = Color(c.getLong("neutral")),
-                            warning = Color(c.getLong("warning")),
-                            text = Color(c.optLong("text", 0xFF182124))
-                        )
+                        colors = ThemeColorsCodec.decode(c)
                     )
                 }
             }
@@ -152,15 +126,7 @@ class PrototypeStore(context: Context) {
             presets.forEach { preset ->
                 put(JSONObject().apply {
                     put("name", preset.name)
-                    put("colors", JSONObject().apply {
-                        put("primaryAction", preset.colors.primaryAction.value.toLong())
-                        put("secondary", preset.colors.secondary.value.toLong())
-                        put("accent", preset.colors.accent.value.toLong())
-                        put("schedule", preset.colors.schedule.value.toLong())
-                        put("neutral", preset.colors.neutral.value.toLong())
-                        put("warning", preset.colors.warning.value.toLong())
-                        put("text", preset.colors.text.value.toLong())
-                    })
+                    put("colors", ThemeColorsCodec.encode(preset.colors))
                 })
             }
         }.toString()).apply()

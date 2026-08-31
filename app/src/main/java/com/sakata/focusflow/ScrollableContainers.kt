@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.remember
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.ui.Alignment
@@ -24,6 +25,12 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+
+/** Only page scrollers consume this; dialogs never inherit a second navbar spacer. */
+internal val LocalFloatingBottomPadding = staticCompositionLocalOf { 0.dp }
+
+/** Initial breathing room belongs to scroll CONTENT, not the viewport. */
+internal val LocalScrollingTopPadding = staticCompositionLocalOf { 0.dp }
 
 /** 带可视滚动条的整页滚动容器：右侧绘制细滚动条，提示下方还有内容。 */
 @Composable
@@ -36,7 +43,10 @@ internal fun ScrollableWithBar(
 ) {
     Box(modifier.fillMaxSize()) {
         Column(
-            Modifier.fillMaxSize().verticalScroll(scrollState).padding(padding),
+            Modifier.fillMaxSize().verticalScroll(scrollState).padding(
+                start = padding, end = padding, top = padding + LocalScrollingTopPadding.current,
+                bottom = padding + LocalFloatingBottomPadding.current
+            ),
             verticalArrangement = Arrangement.spacedBy(spacing),
             content = content
         )

@@ -20,6 +20,12 @@ data class RoadmapVersion(val version: String, val entries: List<RoadmapEntry>)
 object RoadmapData {
     /** 已实现版本演进（1.0 → 7.1.1 候选），每版本浓缩 1–3 条，与 CHANGELOG.md 对应。 */
     val evolution: List<RoadmapVersion> = listOf(
+        RoadmapVersion("7.1.3", listOf(
+            RoadmapEntry("7.1.3", "图标、顶部滚动与导航反馈", "自适应/单色图标；初始顶部避让与滚动范围分离；主入口淡入淡出，子页底栏圆点/回弹反馈。待真机验收。", RoadmapStatus.CANDIDATE)
+        )),
+        RoadmapVersion("7.1.2", listOf(
+            RoadmapEntry("7.1.2", "真正悬浮底栏与六色主题", "移除固定底座，列表末尾避让；图标小方块选中动画；独立导航栏第六色、五色兼容及颜色读写修复。待真机视觉验收。", RoadmapStatus.CANDIDATE)
+        )),
         RoadmapVersion("7.1.1", listOf(
             RoadmapEntry("7.1.1", "全面屏与外观打磨", "安全区避让状态栏和挖孔；主题色悬浮底栏、窄屏留白与宽屏限宽；计划／设置入口卡片统一圆角和两行摘要。待构建及真机验收。", RoadmapStatus.DONE)
         )),

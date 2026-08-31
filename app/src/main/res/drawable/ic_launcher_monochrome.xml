@@ -1,16 +1,14 @@
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="108dp"
-    android:height="108dp"
-    android:viewportWidth="108"
-    android:viewportHeight="108">
-    <!-- Focus corners and a flowing F. Every stroke stays inside the 66dp safe circle. -->
-    <path android:fillColor="#00000000" android:strokeColor="#D9F4F0"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <!-- Same silhouette as the colored foreground, no opaque square behind it. -->
+    <path android:fillColor="#00000000" android:strokeColor="#FFFFFF"
         android:strokeWidth="3.5" android:strokeLineCap="round" android:strokeLineJoin="round"
         android:pathData="M43,34 L39,34 Q34,34 34,39 L34,43 M65,34 L69,34 Q74,34 74,39 L74,43 M34,65 L34,69 Q34,74 39,74 L43,74 M65,74 L69,74 Q74,74 74,69 L74,65" />
     <path android:fillColor="#00000000" android:strokeColor="#FFFFFF"
         android:strokeWidth="6" android:strokeLineCap="round" android:strokeLineJoin="round"
         android:pathData="M46,65 L46,48 Q46,43 51,43 L63,43" />
-    <path android:fillColor="#00000000" android:strokeColor="#F4C883"
+    <path android:fillColor="#00000000" android:strokeColor="#FFFFFF"
         android:strokeWidth="6" android:strokeLineCap="round"
         android:pathData="M46,54 L59,54 Q63,54 65,51" />
 </vector>

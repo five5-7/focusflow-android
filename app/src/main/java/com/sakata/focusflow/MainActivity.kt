@@ -42,6 +42,10 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.graphics.luminance
+import androidx.core.view.WindowCompat
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
@@ -413,10 +417,13 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
         scope.launch { snackbarHostState.showSnackbar("已把《${goal.title}》排到 ${weekdayName(weekday)} ${GoalPlanner.displayTime(startMinute)}") }
     }
     fun selectTab(index: Int) {
-        todayInboxOpen = false
-        planPage = null
-        settingsSubPage = null
-        settingsBackStack = emptyList()
+        // Reset only the destination. The outgoing page must survive its exit animation.
+        if (index == 0) todayInboxOpen = false
+        if (index == 2) planPage = null
+        if (index == 3) {
+            settingsSubPage = null
+            settingsBackStack = emptyList()
+        }
         tab = index
     }
     BackHandler(enabled = tab == 0 && todayInboxOpen) { todayInboxOpen = false }
@@ -477,13 +484,30 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     val themeSpec = focusFlowThemeSpec(themeOption, customThemeColors, darkMode)
     CompositionLocalProvider(LocalFocusFlowSchedulePalette provides themeSpec.schedulePalette) {
     MaterialTheme(colorScheme = themeSpec.colorScheme) {
-        // Custom bars own their insets even when their optional children are absent.
+        val window = (context as? android.app.Activity)?.window
+        SideEffect {
+            window?.let {
+                if (Build.VERSION.SDK_INT >= 29) it.isNavigationBarContrastEnforced = false
+                WindowCompat.getInsetsController(it, it.decorView).apply {
+                    isAppearanceLightNavigationBars = themeSpec.colorScheme.background.luminance() > 0.5f
+                    isAppearanceLightStatusBars = themeSpec.colorScheme.background.luminance() > 0.5f
+                }
+            }
+        }
+        val density = LocalDensity.current
+        val keyboardVisible = WindowInsets.ime.getBottom(density) > 0
+        var floatingBarHeight by remember { mutableStateOf(112.dp) }
+        Box(Modifier.fillMaxSize().imePadding()) {
+        // Horizontal cutouts constrain the viewport. Top safety travels with scroll content.
         val safeContentInsets = WindowInsets.systemBars.union(WindowInsets.displayCutout)
+        val topSafety = safeContentInsets.asPaddingValues().calculateTopPadding()
+        val hasTopNotice = StorageProtection.readOnly || globalLoading
         Scaffold(
             containerColor = MaterialTheme.colorScheme.background,
-            contentWindowInsets = safeContentInsets,
-            snackbarHost = { SnackbarHost(snackbarHostState) },
+            contentWindowInsets = safeContentInsets.only(WindowInsetsSides.Horizontal),
+            snackbarHost = { SnackbarHost(snackbarHostState, Modifier.padding(bottom = floatingBarHeight)) },
             topBar = {
+                if (hasTopNotice) {
                 Column(Modifier.fillMaxWidth().windowInsetsPadding(
                     safeContentInsets.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)
                 )) {
@@ -495,49 +519,23 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                     }
                     if (globalLoading) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                 }
-            },
-            bottomBar = {
-                FloatingNavigationBar(safeInsets = safeContentInsets) {
-                    NavigationBarItem(
-                        selected = tab == 0,
-                        onClick = { selectTab(0) },
-                        icon = { Icon(Icons.Filled.Home, contentDescription = null) },
-                        modifier = Modifier.weight(1f).semantics { stateDescription = if (todayInboxOpen) "收集箱" else "今日主页" },
-                        label = { Text("今日", maxLines = 2, textAlign = androidx.compose.ui.text.style.TextAlign.Center) }
-                    )
-                    NavigationBarItem(selected = tab == 1, onClick = { selectTab(1) }, icon = { Icon(Icons.Filled.DateRange, contentDescription = null) }, modifier = Modifier.weight(1f), label = { Text("日程", maxLines = 2, textAlign = androidx.compose.ui.text.style.TextAlign.Center) })
-                    Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                        FloatingActionButton(
-                            modifier = Modifier.size(48.dp),
-                            onClick = { addMenuOpen = true },
-                            shape = RoundedCornerShape(16.dp),
-                            containerColor = MaterialTheme.colorScheme.primary,
-                            contentColor = MaterialTheme.colorScheme.onPrimary,
-                            elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 0.dp, pressedElevation = 0.dp)
-                        ) { Icon(Icons.Filled.Add, contentDescription = "添加") }
-                    }
-                    NavigationBarItem(
-                        selected = tab == 2,
-                        onClick = { selectTab(2) },
-                        icon = { Icon(Icons.Filled.List, contentDescription = null) },
-                        modifier = Modifier.weight(1f).semantics { stateDescription = planPage?.title ?: "计划主页" },
-                        label = { Text("计划", maxLines = 2, textAlign = androidx.compose.ui.text.style.TextAlign.Center) }
-                    )
-                    NavigationBarItem(
-                        selected = tab == 3,
-                        onClick = { selectTab(3) },
-                        icon = { Icon(Icons.Filled.Settings, contentDescription = null) },
-                        modifier = Modifier.weight(1f).semantics { stateDescription = settingsSubPage?.title ?: "设置主页" },
-                        label = { Text("设置", maxLines = 2, textAlign = androidx.compose.ui.text.style.TextAlign.Center) }
-                    )
                 }
-            }
+            },
         ) { padding ->
+            CompositionLocalProvider(
+                LocalFloatingBottomPadding provides if (keyboardVisible) 0.dp else floatingBarHeight,
+                LocalScrollingTopPadding provides if (hasTopNotice) 0.dp else topSafety
+            ) {
             // Applied and consumed once for both root pages and their animated children.
             val pageModifier = Modifier.padding(padding).consumeWindowInsets(padding)
+                .padding(bottom = if (keyboardVisible) floatingBarHeight else 0.dp)
             // 假期阶段不把课程当作日程：日程/今日摘要/空挡/目标建议均不显示课程（课程管理页仍保留）。
             val scheduleCourses = if (baselineProfile.lifeStage == LifeStage.HOLIDAY) emptyList<Course>() else courses
-            when (tab) {
+            Box(pageModifier) {
+            // Equal depth means a sibling cross-fade, never a hierarchical slide.
+            SubpageMotion(tab, depth = { 0 }) { visibleTab ->
+            val pageModifier = Modifier.fillMaxSize()
+            when (visibleTab) {
                 0 -> TodayScreen(
                     pageModifier, items,
                     inboxOpen = todayInboxOpen,
@@ -944,6 +942,33 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                 }, onGlobalLoadingChange = { globalLoading = it })
             }
         }
+            } // primary destination motion
+            } // inset-aware viewport
+        } // content padding provider / Scaffold
+        FloatingNavigationBar(
+            safeInsets = safeContentInsets,
+            containerColor = themeSpec.navigationBarColor,
+            selectedTab = tab,
+            hasSubpage = when (tab) {
+                0 -> todayInboxOpen
+                2 -> planPage != null
+                3 -> settingsSubPage != null
+                else -> false
+            },
+            selectedPageDescription = when (tab) {
+                0 -> if (todayInboxOpen) "收集箱" else "今日主页"
+                1 -> "日程"
+                2 -> planPage?.title ?: "计划主页"
+                else -> settingsSubPage?.title ?: "设置主页"
+            },
+            onSelectTab = { selectTab(it) },
+            onAdd = { addMenuOpen = true },
+            modifier = Modifier.align(Alignment.BottomCenter).onSizeChanged {
+                floatingBarHeight = with(density) { it.height.toDp() }
+            }
+        )
+        if (!hasTopNotice) StatusBarScrim(topSafety, Modifier.align(Alignment.TopCenter))
+        } // page with overlaid navigation; no full-width bottom surface
         if (addMenuOpen) AddMenuDialog(
             onDismiss = { addMenuOpen = false },
             onQuickCapture = { addMenuOpen = false; addOpen = true },
