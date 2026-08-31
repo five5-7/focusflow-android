@@ -258,6 +258,8 @@ import kotlinx.coroutines.withContext
                                     TextButton(onClick = { onApplyAdjustment(candidate.item, it) }) { Text("执行建议") }
                                 }
                                 TextButton(onClick = { onShrink(candidate.item) }) { Text("缩为 15 分钟") }
+                            }
+                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
                                 TextButton(onClick = { onReplanSuggestion(candidate.item) }) { Text("重新安排") }
                                 TextButton(onClick = { onReturnToInbox(candidate.item) }) { Text("放回收集箱") }
                             }

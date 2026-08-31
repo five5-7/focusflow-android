@@ -109,6 +109,23 @@ jobs:
       - name: Build debug APK
         run: gradle --no-daemon :app:assembleDebug
 
+      - name: Verify APK signature and metadata
+        run: |
+          set -euo pipefail
+          build_tools="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          test -x "$build_tools/apksigner"
+          "$build_tools/apksigner" verify --verbose --print-certs app/build/outputs/apk/debug/app-debug.apk > apk-verification.txt
+          "$build_tools/aapt" dump badging app/build/outputs/apk/debug/app-debug.apk >> apk-verification.txt
+          sha256sum app/build/outputs/apk/debug/app-debug.apk >> apk-verification.txt
+
+      - name: Upload APK verification evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: FocusFlow-verification-run-${{ github.run_number }}
+          path: apk-verification.txt
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Read version name
         run: echo "VERSION_NAME=$(sed -n 's/.*versionName = \"\(.*\)\"/\1/p' app/build.gradle.kts | head -1)" >> "$GITHUB_ENV"
 

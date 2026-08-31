@@ -16,6 +16,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -25,6 +26,7 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 internal fun <T : Any> SubpageMotion(
     page: T?,
     depth: (T) -> Int = { 1 },
+    containerColor: Color = MaterialTheme.colorScheme.background,
     content: @Composable (T) -> Unit
 ) {
     val states = rememberSaveableStateHolder()
@@ -51,7 +53,7 @@ internal fun <T : Any> SubpageMotion(
                 }
             } else Modifier
             states.SaveableStateProvider(destination.toString()) {
-                Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).then(input)) {
+                Box(Modifier.fillMaxSize().background(containerColor).then(input)) {
                     content(destination)
                 }
             }

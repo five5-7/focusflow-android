@@ -769,10 +769,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                         settingsSubPage = null
                         settingsBackStack = emptyList()
                     } else {
-                        settingsSubPage?.takeIf { it != target }?.let { current ->
-                            val existing = settingsBackStack.indexOf(target)
-                            settingsBackStack = if (existing >= 0) settingsBackStack.take(existing) else settingsBackStack + current
-                        }
+                        settingsBackStack = NavigationMotion.historyAfterOpen(settingsBackStack, settingsSubPage, target)
                         settingsSubPage = target
                     }
                 }, onThemeChange = { updated ->

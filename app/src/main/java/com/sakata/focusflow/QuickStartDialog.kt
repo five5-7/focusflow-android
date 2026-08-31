@@ -66,7 +66,7 @@ internal fun QuickStartDialog(onDismiss: () -> Unit) {
                     }
                 }
                 Box(Modifier.fillMaxWidth().height(contentHeight)) {
-                    SubpageMotion(chapter) { index ->
+                    SubpageMotion(chapter, containerColor = AlertDialogDefaults.containerColor) { index ->
                         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             Text(quickStartChapters[index].title, fontWeight = FontWeight.Bold)
                             quickStartChapters[index].lines.forEach { Text(it, style = MaterialTheme.typography.bodyMedium) }
