@@ -534,7 +534,7 @@ fun ResourceSummaryDialog(settings: TutorialSearchSettings, resource: LearningRe
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("把教程/文章正文粘贴进来，生成 3–5 条中文要点与适用目标。内容只发给硅基流动，不保存原文。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 OutlinedTextField(value = text, onValueChange = { text = it }, label = { Text("粘贴正文（建议 ≥50 字）") }, minLines = 4, modifier = Modifier.fillMaxWidth())
-                if (settings.apiKey.isBlank()) Text("请先在 设置 → 学习路径建议 填写硅基流动 key。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                if (settings.apiKey.isBlank()) Text("请先在 设置 → 高级工具 → 学习路径建议 填写硅基流动 key。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                 result?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = if (isError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant) }
             }
         },
@@ -605,7 +605,7 @@ fun TutorialSearchDialog(
                                 }
                             }
                         }
-                        Text("点“去 B站搜”跳转搜索该关键词；搜到有用的内容可在 目标与执行 → 教程资料 手动收藏。", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("点“去 B站搜”跳转搜索该关键词；搜到有用的内容可在 计划 → 资料工具箱 手动收藏。", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
@@ -657,7 +657,7 @@ fun TutorialFinderDialog(
                 Text("手动搜索：直接跳转平台；找到真实内容后，回到资料工具箱保存链接或笔记。", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 HorizontalDivider()
                 if (!settings.enabled || settings.apiKey.isBlank()) {
-                    Text("AI 建议需在 设置 → 教程联网搜索 开启并填写硅基流动 key。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("AI 建议需在 设置 → 高级工具 → 学习路径建议 开启（教程联网搜索）并填写硅基流动 key。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 } else {
                     Button(enabled = !searching && searchText.isNotBlank(), onClick = {
                         searching = true
@@ -734,7 +734,7 @@ fun VideoAnalysisDialog(
                     Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                 }
                 if (settings.apiKey.isBlank()) {
-                    Text("需要先在 设置 → 学习路径建议 填写硅基流动 key（视频分析与教程搜索共用）。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("需要先在 设置 → 高级工具 → 学习路径建议 填写硅基流动 key（视频分析与教程搜索共用）。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 } else {
                     Button(enabled = !analyzing && text.trim().length >= 10, onClick = {
                         analyzing = true

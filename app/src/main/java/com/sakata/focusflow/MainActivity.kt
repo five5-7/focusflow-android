@@ -685,7 +685,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                     courseImportMessage = courseImportMessage,
                     onImportCourses = {
                         if (!courseVision.enabled || tutorialSearch.apiKey.isBlank()) {
-                            courseImportMessage = "请先在 设置 → 课表识别（视觉模型）开启并填写硅基流动 key，再导入课表截图。"
+                            courseImportMessage = "请先在 设置 → 高级工具 → 课表识别（视觉模型）开启并填写硅基流动 key，再导入课表截图。"
                         } else {
                             courseScreenshotLauncher.launch(arrayOf("image/*"))
                         }

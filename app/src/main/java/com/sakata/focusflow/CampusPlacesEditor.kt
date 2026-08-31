@@ -66,7 +66,7 @@ fun CampusPlacesEditorContent(
         Card {
             Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text("高德 API 优化（可选）", fontWeight = FontWeight.SemiBold)
-                Text("填写高德 Web 服务 key 后，可搜索校园 POI 并一键加入地点列表。key 只保存在本机。", style = MaterialTheme.typography.bodySmall)
+                Text("填写高德 Web 服务 key 后，可搜索校园 POI 并一键加入地点列表。key 只保存在本机，只发往 restapi.amap.com。", style = MaterialTheme.typography.bodySmall)
                 OutlinedTextField(
                     value = amapKey,
                     onValueChange = onAmapKeyChange,

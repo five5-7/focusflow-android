@@ -767,14 +767,14 @@ internal fun categorizedInstalledApps(context: Context, userCategories: Map<Stri
                             SettingSwitch("静音睡前减速", "睡前减速提醒不弹出", quietHours.suppressWindDown) { v -> onQuietHoursChange(quietHours.copy(suppressWindDown = v)) }
                         }
                         Text("一次性静音", fontWeight = FontWeight.SemiBold)
-                        Text("立即静音所有提醒一段时间，适合睡觉、上课或开会。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("立即静音低打扰提醒（状态询问、饭点提醒、睡前减速）一段时间；任务提醒与活动到点提醒不会被静音。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             FilledTonalButton(onClick = { onQuietHoursChange(quietHours.copy(muteUntil = System.currentTimeMillis() + 3_600_000L)) }) { Text("1 小时") }
                             FilledTonalButton(onClick = { onQuietHoursChange(quietHours.copy(muteUntil = System.currentTimeMillis() + 3 * 3_600_000L)) }) { Text("3 小时") }
                             FilledTonalButton(onClick = { onQuietHoursChange(quietHours.copy(muteUntil = nextMorning())) }) { Text("到明早 7 点") }
                         }
                         if (quietHours.isMuted()) {
-                            Text("已静音至 ${formatDateTime(quietHours.muteUntil)}（所有提醒静音）", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                            Text("已静音至 ${formatDateTime(quietHours.muteUntil)}（低打扰提醒静音）", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                             TextButton(onClick = { onQuietHoursChange(quietHours.copy(muteUntil = 0L)) }) { Text("取消静音") }
                         }
                     }
@@ -967,7 +967,7 @@ internal fun categorizedInstalledApps(context: Context, userCategories: Map<Stri
                         }
                         SettingSwitch(
                             "AI 周总结",
-                            "“计划 → 周回顾”里按本周真实记录生成本周 AI 复盘；使用硅基流动 key，仅发往 api.siliconflow.cn",
+                            "“计划 → 本周回顾”里按本周真实记录生成本周 AI 复盘；使用硅基流动 key，仅发往 api.siliconflow.cn",
                             aiWeeklySummary.enabled,
                             { enabled -> onAiWeeklySummarySettingsChange(aiWeeklySummary.copy(enabled = enabled)) }
                         )
@@ -989,7 +989,7 @@ internal fun categorizedInstalledApps(context: Context, userCategories: Map<Stri
                         }
                         SettingSwitch(
                             "课表识别用硅基流动视觉模型",
-                            "开启后，导入课表截图时改用视觉模型识别，识别失败自动回退本机；图片只发往 api.siliconflow.cn",
+                            "开启后，导入课表截图时改用视觉模型识别（不再内置本地识别）；识别失败会提示原因：检查 key、模型名或网络后重试。图片只发往 api.siliconflow.cn",
                             courseVision.enabled,
                             { enabled -> onCourseVisionSettingsChange(courseVision.copy(enabled = enabled)) }
                         )

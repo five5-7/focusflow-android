@@ -2,7 +2,7 @@
 
 本地优先的 Android 日程与执行辅助应用（`com.sakata.focusflow`）。核心目标不是维护一张完整日历，而是**降低记录压力、按当前状态调整提醒、在错过计划后帮助恢复**。
 
-当前开发版本：**7.0.0**（versionCode 472）。完整更新记录见 [CHANGELOG.md](CHANGELOG.md)。
+当前开发版本：**7.0.1**（versionCode 473）。完整更新记录见 [CHANGELOG.md](CHANGELOG.md)。
 
 > 数据原则：只用你确认过的数据生成建议，数据不足时不打扰、不假装精确。数据只保存在本机。
 
@@ -11,7 +11,7 @@
 **四个入口**
 - 今日：现在、接下来与收集箱固定在前；显示计划完成率、今日改期和完成记录，并为已错过／反复改期任务提供缩小、重排或放回收集箱的恢复入口
 - 日程：日／周时间轴，任务与活动可直接开始、改期、完成或删除
-- 计划：堆叠入口进入课表、空挡、目标、回顾、历史记录、资料工具箱与暂停项目
+- 计划：堆叠入口进入课程、空挡建议、目标与执行、本周回顾、历史记录、资料工具箱与暂停项目
 - 设置：高频提醒、外观和作息留在首页；地点、AI、识别、应用检测与稳定性统一进入高级工具
 
 **课表与空挡**
@@ -35,7 +35,7 @@
 
 **外观与稳定性**
 - 四套内置主题 + 自定义配色预设 + 深色模式
-- 本地崩溃上报（设置 → 稳定性与崩溃）
+- 本地崩溃记录（设置 → 稳定性与崩溃：查看／复制／清空，不上传）
 - 纯 Kotlin 单元测试覆盖数据兼容、时间轴、规划、提醒策略、条件显示与目标执行依据
 
 ## 构建
@@ -43,7 +43,7 @@
 目标设备需 **Android 8.0（API 26）** 或更高。
 
 ```bash
-# 用 Android Studio 打开本目录；或命令行构建
+# 用 Android Studio 打开本目录；或命令行构建（仓库未附带 Gradle wrapper，需本机安装 Gradle 8.7）
 gradle :app:assembleDebug
 # 产物：app/build/outputs/apk/debug/app-debug.apk
 ```
@@ -67,10 +67,10 @@ GitHub Actions 会在每次 push 时自动跑单元测试并构建稳定签名 A
 - `FOCUSFLOW_SIGNING_KEY_ALIAS`：key alias
 - `FOCUSFLOW_SIGNING_KEY_PASSWORD`：key 密码
 
-工作流会在临时 Runner 中解码签名文件；任一 Secret 缺失时构建会直接失败，绝不回退为 debug 签名。
+工作流会在临时 Runner 中解码签名文件；三个必需 Secret（keystore、keystore 密码、key 密码）任一缺失时构建会直接失败，绝不回退为 debug 签名；不配置 key alias 时自动使用 keystore 中的唯一私钥。
 
 ## 模型（可选联网功能）
 
 - 文本 / 视频分析 / 周总结：`Qwen/Qwen2.5-7B-Instruct`（免费默认）、`deepseek-ai/DeepSeek-V4-Flash`
 - 课表视觉识别：`Qwen/Qwen3-VL-8B-Instruct`（免费默认）等
-- key 仅存本机，只发往 `api.siliconflow.cn`
+- AI key 仅存本机，只发往 `api.siliconflow.cn`；地点检索／逆地理使用高德 Web 服务 key（同样仅存本机，发往 `restapi.amap.com`）

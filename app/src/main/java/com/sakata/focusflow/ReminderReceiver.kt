@@ -442,8 +442,8 @@ class ReminderReceiver : BroadcastReceiver() {
         manager.notify(id, NotificationCompat.Builder(context, CHANNEL_MEAL)
             .setSmallIcon(android.R.drawable.ic_popup_reminder)
             .setContentTitle("${type.label}吃完了吗？")
-            .setContentText("结束并记录用餐时间，金额与评价可留空；不回应不会影响任何学习。")
-            .setStyle(NotificationCompat.BigTextStyle().bigText("结束并记录用餐时间；金额与评价始终可选，不回应不会被视为没吃，也不会写入训练数据。"))
+            .setContentText("结束并记录用餐时间，评价可留空；不回应不会影响任何学习。")
+            .setStyle(NotificationCompat.BigTextStyle().bigText("结束并记录用餐时间；评价始终可选，不回应不会被视为没吃，也不会写入训练数据。"))
             .setContentIntent(openApp)
             .addAction(0, "吃完并记录", openApp)
             .addAction(0, "还在吃", stillEating)
@@ -525,7 +525,7 @@ class ReminderReceiver : BroadcastReceiver() {
             .build())
     }
 
-    /** 到点检测：游戏/视频类检查前台是否还在玩；其他活动不检测前台，直接提醒收尾。到点提醒结束（可结束/延长 15 分钟）并 10 分钟后复查。 */
+    /** 到点检测：游戏/视频类在已授权且开启检测时检查前台是否还在玩；未授权或关闭时只提醒不检测（同其他活动）。到点提醒结束（可结束/延长 15 分钟）并 10 分钟后复查；检测到已不在玩则不再打扰并按时记录结束。 */
     private fun handleGameEndCheck(context: Context, manager: NotificationManager, intent: Intent, followUp: Boolean) {
         val store = PrototypeStore(context)
         val sessionId = intent.getLongExtra(EXTRA_GAME_SESSION_ID, -1L)
@@ -541,8 +541,8 @@ class ReminderReceiver : BroadcastReceiver() {
         val foreground = if (detectionOn && targetCategory != null) AppLibrary.foregroundPackage(context) else null
         val stillPlaying = foreground != null &&
             (session.packageName == foreground || AppLibrary.categoryOf(context, foreground, store.loadAppCategories()) == targetCategory)
-        // 无检测类别（学习/休息/运动/自定义）或检测到仍在玩：提醒收尾；否则自动记录按时结束。
-        if (targetCategory == null || stillPlaying) {
+        // 无检测类别（学习/休息/运动/自定义）、检测不可用（未授权/关闭）或检测到仍在玩：提醒收尾；否则自动记录按时结束。
+        if (targetCategory == null || !detectionOn || stillPlaying) {
             if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
             ensureChannel(manager, CHANNEL_GAME, "活动收尾提醒")
             val id = ((sessionId % Int.MAX_VALUE).toInt() + 500 + if (followUp) 1 else 0).coerceAtLeast(0)

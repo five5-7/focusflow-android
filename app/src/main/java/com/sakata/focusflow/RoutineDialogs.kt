@@ -386,7 +386,7 @@ internal fun DayGroupWizardDialog(existingGroups: List<DayGroup>, defaultWake: I
         title = { Text("${type.label}吃完了吗？") },
         text = {
             ScrollableDialogBox(maxHeight = 460.dp, spacing = 8.dp) {
-                Text(if (EXPENSE_HIDDEN) "结束并记录用餐时间；地点、分类、商家、评价和备注都是可选的，只保存在本机，不会自动生成账目。" else "结束并记录用餐时间；地点、分类、商家、支付方式、金额、评价和备注都是可选的消费草稿，只保存在本机，不会自动生成账目。", style = MaterialTheme.typography.bodySmall)
+                Text(if (EXPENSE_HIDDEN) "结束并记录用餐时间；地点、分类、商家、支付方式、评价和备注都是可选的，只保存在本机，不会自动生成账目。" else "结束并记录用餐时间；地点、分类、商家、支付方式、金额、评价和备注都是可选的消费草稿，只保存在本机，不会自动生成账目。", style = MaterialTheme.typography.bodySmall)
                 if (!EXPENSE_HIDDEN) OutlinedTextField(value = amountText, onValueChange = { amountText = it.filter(Char::isDigit).take(4) }, label = { Text("金额（元，可选）") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
                 OutlinedTextField(value = location, onValueChange = { location = it.take(20) }, label = { Text("地点（可选）") }, placeholder = { Text("例如：大食堂、临水、外卖") }, singleLine = true)
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -437,7 +437,7 @@ internal fun DayGroupWizardDialog(existingGroups: List<DayGroup>, defaultWake: I
         title = { Text("就餐记录") },
         text = {
             ScrollableDialogBox(maxHeight = 460.dp, spacing = 8.dp) {
-                Text("记录按时间追加保存，只有你确认的开始与结束时间会用于饭点学习；地点、分类、商家、支付方式、金额与评价只作为消费草稿保留，不会自动生成账目。", style = MaterialTheme.typography.bodySmall)
+                Text("记录按时间追加保存，只有你确认的开始与结束时间会用于饭点学习；地点、分类、商家、支付方式与评价只作为草稿保留，不会自动生成账目。", style = MaterialTheme.typography.bodySmall)
                 if (records.isEmpty()) {
                     Text("还没有记录。开始吃饭并确认吃完后会自动出现在这里。")
                 } else {
