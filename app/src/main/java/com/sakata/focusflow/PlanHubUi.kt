@@ -22,10 +22,11 @@ internal fun PlanHubScreen(
     modifier: Modifier,
     entries: List<Pair<PlanPage, String>>,
     onOpen: (PlanPage) -> Unit,
-    onAddGoal: () -> Unit
+    onAddGoal: () -> Unit,
+    scrollState: androidx.compose.foundation.ScrollState = rememberScrollState()
 ) {
     var helpOpen by remember { mutableStateOf(false) }
-    ScrollableWithBar(modifier = modifier, scrollState = rememberScrollState(), spacing = 10.dp) {
+    ScrollableWithBar(modifier = modifier, scrollState = scrollState, spacing = 10.dp) {
         Row(
             Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,

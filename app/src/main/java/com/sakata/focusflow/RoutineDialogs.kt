@@ -34,6 +34,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.*
@@ -325,26 +327,26 @@ internal fun DayGroupWizardDialog(existingGroups: List<DayGroup>, defaultWake: I
     )
 }
 
-@Composable internal fun BaselineEventsDialog(events: List<BaselineEvent>, onDismiss: () -> Unit, onClear: () -> Unit, onDelete: (Long) -> Unit) {
+@Composable internal fun BaselineEventsDialog(events: List<BaselineEvent>, onDismiss: () -> Unit, onClear: () -> Unit, onDelete: (Long) -> Boolean) {
     var list by remember { mutableStateOf(events) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("原始事件记录") },
         text = {
-            ScrollableDialogBox(maxHeight = 460.dp, spacing = 8.dp) {
-                Text("这些是你确认过的原始记录，按时间追加保存；学习算法不会覆盖它们。", style = MaterialTheme.typography.bodySmall)
+            LazyColumn(Modifier.heightIn(max = 460.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                item { Text("这些是你确认过的原始记录。显示本机保留的全部记录（最多 500 条）；删除不会撤销已保存的作息设置。", style = MaterialTheme.typography.bodySmall) }
                 if (list.isEmpty()) {
-                    Text("还没有记录。完成引导、开始活动、签到或确认通勤后会自动出现在这里。")
+                    item { Text("还没有记录。完成引导、开始活动、签到或确认通勤后会自动出现在这里。") }
                 } else {
-                    list.takeLast(50).reversed().forEach { event ->
+                    items(list.asReversed(), key = { it.id }) { event ->
                         Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))) {
                             Row(Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Text(BaselineRecorder.displayPayload(event), Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
-                                TextButton(onClick = { list = list.filterNot { it.id == event.id }; onDelete(event.id) }) { Text("删除", color = MaterialTheme.colorScheme.error) }
+                                TextButton(onClick = { if (onDelete(event.id)) list = list.filterNot { it.id == event.id } }) { Text("删除", color = MaterialTheme.colorScheme.error) }
                             }
                         }
                     }
-                    Text("共 ${list.size} 条记录，仅保存在本机。", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    item { Text("共 ${list.size} 条记录，仅保存在本机。", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 }
             }
         },

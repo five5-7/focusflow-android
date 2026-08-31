@@ -17,21 +17,26 @@ object CorruptionBackup {
     }
 
     /** 备份原始串：同 key+同内容跳过；每 key 仅保留最新 5 份。 */
-    fun backup(dir: File, key: String, raw: String) {
-        dir.mkdirs()
+    fun backup(dir: File, key: String, raw: String): Boolean = runCatching {
+        check(dir.isDirectory || dir.mkdirs()) { "Backup directory unavailable" }
         val same = dir.listFiles()
             ?.any { it.name.startsWith("$key-") && runCatching { it.readText(Charsets.UTF_8) == raw }.getOrDefault(false) }
             ?: false
-        if (same) return
+        if (same) return@runCatching true
         val stamp = SimpleDateFormat("yyyyMMdd-HHmmss-SSS", Locale.US).format(Date())
         var target = File(dir, "$key-$stamp.xml")
         var suffix = 0
         while (target.exists()) target = File(dir, "$key-$stamp-${++suffix}.xml")
-        target.writeText(raw, Charsets.UTF_8)
-        dir.listFiles()
+        target.outputStream().use { stream ->
+            stream.write(raw.toByteArray(Charsets.UTF_8))
+            stream.flush()
+            stream.fd.sync()
+        }
+        runCatching { dir.listFiles()
             ?.filter { it.name.startsWith("$key-") }
             ?.sortedByDescending { it.lastModified() }
             ?.drop(5)
-            ?.forEach { it.delete() }
-    }
+            ?.forEach { it.delete() } }
+        true
+    }.getOrDefault(false)
 }

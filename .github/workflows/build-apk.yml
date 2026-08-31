@@ -97,6 +97,15 @@ jobs:
       - name: Run unit tests
         run: gradle --no-daemon :app:testDebugUnitTest
 
+      - name: Upload unit test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: FocusFlow-tests-run-${{ github.run_number }}
+          path: app/build/test-results/testDebugUnitTest/*.xml
+          if-no-files-found: warn
+          retention-days: 7
+
       - name: Build debug APK
         run: gradle --no-daemon :app:assembleDebug
 

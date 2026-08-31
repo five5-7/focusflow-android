@@ -223,35 +223,7 @@ fun CourseVisionKeyGuideDialog(onDismiss: () -> Unit) {
 
 /** 首次启动的快速入门：先介绍日常闭环，再说明可选设置。 */
 @Composable
-fun WelcomeIntroDialog(onDismiss: () -> Unit) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("快速入门") },
-        text = {
-            Column(Modifier.heightIn(max = 520.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("先完成一次日常闭环：", fontWeight = FontWeight.SemiBold)
-                Text("1. 点底部＋，用“快速记录”收集一件想做的事。", style = MaterialTheme.typography.bodySmall)
-                Text("2. 在今日页的收集箱中编辑或安排时间；时间不确定可保持弹性。", style = MaterialTheme.typography.bodySmall)
-                Text("3. 到日程查看安排；到点后完成、改期或推迟，完成项会保留并灰化。", style = MaterialTheme.typography.bodySmall)
-                Text("4. 应用不会自动改动你的固定日程；弹性建议需要你确认后才会写入。", style = MaterialTheme.typography.bodySmall)
-                Text("四个入口：", fontWeight = FontWeight.SemiBold)
-                Text("• 今日：现在、接下来和收集箱始终靠前；餐点、精力、睡前与校园模块按需出现。", style = MaterialTheme.typography.bodySmall)
-                Text("• 日程：日／周时间轴，任务与活动可改期、完成、删除。", style = MaterialTheme.typography.bodySmall)
-                Text("• 计划：用堆叠入口进入课表、空挡、目标、回顾和资料工具箱；不需要时可以完全不配置。", style = MaterialTheme.typography.bodySmall)
-                Text("• 设置：高频提醒、外观和作息在主页；地点、AI、识别和应用检测收在高级工具。", style = MaterialTheme.typography.bodySmall)
-                Text("底部 ＋ 号：", fontWeight = FontWeight.SemiBold)
-                Text("“快速记录”记想法；“安排空闲活动”给游戏／学习／运动等安排时间，到点提醒开始与收尾（游戏/视频可检测前台）。", style = MaterialTheme.typography.bodySmall)
-                Text("通知与设备适配：", fontWeight = FontWeight.SemiBold)
-                Text("首次启动可申请通知权限，开启后应用打开时会检查总通知和日程／饭点渠道；如有异常可点“查看说明”。不同 Android 系统可能把弹出方式称为横幅、悬浮、顶部预览或弹出窗口，设置页会按当前设备显示补充路径。提醒任务还需按系统流程允许“精确闹钟”（部分设备需要在设置里单独开启）；“前台应用检测”在开启时会引导授权“使用情况访问”，这些判断只在本机完成、不上传任何数据。", style = MaterialTheme.typography.bodySmall)
-                Text("可选设置：", fontWeight = FontWeight.SemiBold)
-                Text("习惯基线只在你需要饭点、睡前或作息建议时填；上学时再导入课表；长期任务再建目标。资料、AI、地图和前台检测均不是核心流程必需项。", style = MaterialTheme.typography.bodySmall)
-                Text("所有数据只保存在本机；建议只用你确认过的数据生成，数据不足时不打扰。", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text("之后可在 设置 → 快速入门 再次查看。", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        },
-        confirmButton = { Button(onClick = onDismiss) { Text("开始使用") } }
-    )
-}
+fun WelcomeIntroDialog(onDismiss: () -> Unit) = QuickStartDialog(onDismiss)
 
 /** 首次完成习惯基线后的“后续在哪找”提示（只弹一次）。 */
 @Composable

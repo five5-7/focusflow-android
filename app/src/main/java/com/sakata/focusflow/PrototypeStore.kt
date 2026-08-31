@@ -9,10 +9,12 @@ import java.io.File
 /** 自定义主题预设：命名配色存档，用于保存／切换多套自定义配色。 */
 data class ThemePreset(val name: String, val colors: FocusFlowThemeColors)
 
+private val taskHistoryLock = Any()
+
 /** Deliberately small offline persistence for the first test build. */
 class PrototypeStore(context: Context) {
     private val appContext = context.applicationContext
-    private val preferences = context.getSharedPreferences("focusflow", Context.MODE_PRIVATE)
+    private val preferences = ProtectedPreferences(context.getSharedPreferences("focusflow", Context.MODE_PRIVATE))
 
     /** 损坏数据备份目录：解析失败的 prefs 原始串先落盘，再返回空默认——后续保存覆盖也不丢原始数据。 */
     private val corruptDir: File by lazy { File(appContext.filesDir, CorruptionBackup.DIR_NAME) }
@@ -40,7 +42,7 @@ class PrototypeStore(context: Context) {
         val raw = preferences.getString(key, null) ?: return fallback
         val decoded = runCatching { decode(raw) }.getOrNull()
         if (decoded == null || isDamaged(decoded)) {
-            if (CorruptionBackup.shouldBackup(raw)) CorruptionBackup.backup(corruptDir, key, raw)
+            StorageProtection.backup(corruptDir, key, raw)
             return fallback
         }
         return decoded
@@ -55,7 +57,7 @@ class PrototypeStore(context: Context) {
         val raw = preferences.getString(key, null) ?: return fallback
         val decoded = runCatching { decode(raw) }.getOrNull()
         if (decoded == null) {
-            if (CorruptionBackup.shouldBackup(raw)) CorruptionBackup.backup(corruptDir, key, raw)
+            StorageProtection.backup(corruptDir, key, raw)
             return fallback
         }
         return decoded
@@ -204,7 +206,7 @@ class PrototypeStore(context: Context) {
         val raw = preferences.getString("items", null) ?: return emptyList()
         val result = ItemsCodec.decode(raw)
         if (result.items.isEmpty() && CorruptionBackup.shouldBackup(raw)) {
-            CorruptionBackup.backup(corruptDir, "items", raw)
+            StorageProtection.backup(corruptDir, "items", raw)
             return emptyList()
         }
         if (result.idsNormalized) saveItems(result.items)
@@ -632,23 +634,23 @@ class PrototypeStore(context: Context) {
     }
 
     /** 按 id 删除单条原始事件（dialog 展示窗口即全量 500 上限内）；未命中时无副作用。 */
-    fun removeBaselineEvent(eventId: Long) {
+    fun removeBaselineEvent(eventId: Long): Boolean {
         val all = loadBaselineEvents(500)
         val remaining = BaselineEventsCodec.without(all, eventId)
-        if (remaining.size == all.size) return
-        preferences.edit().apply {
+        if (remaining.size == all.size) return !StorageProtection.readOnly
+        return preferences.edit().apply {
             if (remaining.isEmpty()) remove("baseline_events") else putString("baseline_events", BaselineEventsCodec.encode(remaining))
-        }.apply()
+        }.commit()
     }
 
-    fun appendTaskEvent(event: TaskEvent) {
-        val all = (loadTaskEvents(1000) + event).takeLast(1000)
+    fun appendTaskEvent(event: TaskEvent) = synchronized(taskHistoryLock) {
+        val all = TaskHistory.append(loadTaskEvents(), event)
         preferences.edit().putString("task_events", TaskEventCodec.encode(all)).apply()
     }
 
-    fun loadTaskEvents(limit: Int = 1000): List<TaskEvent> =
+    fun loadTaskEvents(limit: Int = Int.MAX_VALUE): List<TaskEvent> =
         decodeGuarded("task_events", emptyList(), { TaskEventCodec.decode(it) }, { it.isEmpty() })
-            .takeLast(limit.coerceIn(1, 1000))
+            .takeLast(limit.coerceAtLeast(1))
 
     /** 6.5 一次性迁移：已执行过则直接返回 false；否则按存量 items 补齐可推断事件并置位标记。 */
     fun migrateTaskHistory(): Boolean {

@@ -154,13 +154,14 @@ import kotlinx.coroutines.withContext
             windDownEnabled = windDownEnabled
         )
     )
+    val overviewScrollState = rememberScrollState()
     Box(modifier.fillMaxSize()) {
         AnimatedVisibility(
             visible = !inboxOpen,
             enter = slideInHorizontally(animationSpec = tween(260), initialOffsetX = { -it / 4 }) + fadeIn(tween(180)),
             exit = slideOutHorizontally(animationSpec = tween(220), targetOffsetX = { -it / 4 }) + fadeOut(tween(150))
         ) {
-    ScrollableWithBar(scrollState = rememberScrollState()) {
+    ScrollableWithBar(scrollState = overviewScrollState) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
             Text("今日概览", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
             HelpToggleButton(onClick = { helpOpen = true })
@@ -394,11 +395,7 @@ import kotlinx.coroutines.withContext
         }
     }
         }
-        AnimatedVisibility(
-            visible = inboxOpen,
-            enter = slideInHorizontally(animationSpec = tween(280), initialOffsetX = { it / 3 }) + fadeIn(tween(190)),
-            exit = slideOutHorizontally(animationSpec = tween(230), targetOffsetX = { it / 3 }) + fadeOut(tween(150))
-        ) {
+        SubpageMotion(inboxOpen.takeIf { it }) {
             PlanSubpageFrame(Modifier.fillMaxSize(), "收集箱") {
                 Text("集中处理尚未安排的想法；通过系统返回键或再次点击底栏“今日”回到概览。", style = MaterialTheme.typography.bodySmall)
                 if (inboxItems.isEmpty()) {

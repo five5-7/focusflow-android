@@ -88,6 +88,7 @@ import kotlinx.coroutines.withContext
     val historyCompletedCount = historyDays.sumOf { it.completedCount }
     val historyRescheduledCount = historyDays.sumOf { it.rescheduledCount }
 
+    val hubScrollState = rememberScrollState()
     Box(modifier.fillMaxSize()) {
         AnimatedVisibility(
             visible = page == null,
@@ -112,15 +113,11 @@ import kotlinx.coroutines.withContext
                 )
             ),
             onOpen = { onPageChange(it) },
-            onAddGoal = onAddGoal
+            onAddGoal = onAddGoal,
+            scrollState = hubScrollState
         )
         }
-        AnimatedVisibility(
-            visible = page != null,
-            enter = slideInHorizontally(animationSpec = tween(280), initialOffsetX = { it / 3 }) + fadeIn(tween(190)),
-            exit = slideOutHorizontally(animationSpec = tween(230), targetOffsetX = { it / 3 }) + fadeOut(tween(150))
-        ) {
-            val currentPage = page
+        SubpageMotion(page) { currentPage ->
             if (currentPage != null) {
                 PlanSubpageFrame(Modifier.fillMaxSize(), currentPage.title) {
                     when (currentPage) {

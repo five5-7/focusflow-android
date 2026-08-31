@@ -20,6 +20,9 @@ data class RoadmapVersion(val version: String, val entries: List<RoadmapEntry>)
 object RoadmapData {
     /** 已实现版本演进（1.0 → 7.0.2），每版本浓缩 1–3 条，与 CHANGELOG.md 对应。 */
     val evolution: List<RoadmapVersion> = listOf(
+        RoadmapVersion("7.1.0", listOf(
+            RoadmapEntry("7.1.0", "导航与稳定性补齐（候选）", "快速入门章节导航；子页双向转场与多级返回；原始事件完整浏览；任务历史不再按 1000 条截断；备份失败保护写入。实现完成不等于真机稳定验收通过。", RoadmapStatus.DONE)
+        )),
         RoadmapVersion("7.0.2", listOf(
             RoadmapEntry("7.0.2", "原始事件记录单条删除", "「原始事件记录」弹窗逐条右侧新增删除（按唯一 id 精确移除，保留其余记录与顺序），计数按全量显示；清除全部记录保留不变", RoadmapStatus.DONE)
         )),

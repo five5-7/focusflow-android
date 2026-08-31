@@ -424,12 +424,14 @@ internal fun categorizedInstalledApps(context: Context, userCategories: Map<Stri
         Text("通知异常时请到“日程与活动提醒”查看检测结果和当前设备的手动路径；精确闹钟按设备支持情况自动处理。")
     }
     }
-    AnimatedVisibility(
-        visible = subPage != null,
-        enter = slideInHorizontally(animationSpec = tween(280), initialOffsetX = { it / 3 }) + fadeIn(tween(190)),
-        exit = slideOutHorizontally(animationSpec = tween(230), targetOffsetX = { it / 3 }) + fadeOut(tween(150))
-    ) {
-        val current = subPage
+    SubpageMotion(subPage, depth = { destination ->
+        when (destination) {
+            SettingsSubPage.ADVANCED, SettingsSubPage.ROADMAP, SettingsSubPage.APPEARANCE,
+            SettingsSubPage.ACTIVITY_REMINDERS, SettingsSubPage.QUIET_HOURS -> 1
+            SettingsSubPage.CAMPUS_PLACES -> 3
+            else -> 2
+        }
+    }) { current ->
         if (current != null) {
             PlanSubpageFrame(
                 Modifier.fillMaxSize(), current.title,

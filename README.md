@@ -2,7 +2,7 @@
 
 本地优先的 Android 日程与执行辅助应用（`com.sakata.focusflow`）。核心目标不是维护一张完整日历，而是**降低记录压力、按当前状态调整提醒、在错过计划后帮助恢复**。
 
-当前开发版本：**7.0.2**（versionCode 474）。完整更新记录见 [CHANGELOG.md](CHANGELOG.md)。
+当前开发版本：**7.1.0**（versionCode 475，稳定正式版候选，真机验收前不标记已稳定）。完整更新记录见 [CHANGELOG.md](CHANGELOG.md)。验收门槛见 [7.1 发布检查表](docs/7.1-release-checklist.md)。
 
 > 数据原则：只用你确认过的数据生成建议，数据不足时不打扰、不假装精确。数据只保存在本机。
 
@@ -56,7 +56,9 @@ gradle :app:testDebugUnitTest
 
 ## 发布
 
-GitHub Actions 会在每次 push 时自动跑单元测试并构建稳定签名 APK（artifact）。APK 和 artifact 名称会包含 Actions run 编号，避免误装同版本的旧候选包。真机验收后，再把同一产物上传至 **Releases**。
+GitHub Actions 在 main 的 push、面向 main 的 pull request 或手动运行时执行单元测试并构建稳定签名 APK（artifact）；普通功能分支 push 不会单独触发。APK 和 artifact 名称包含 Actions run 编号。通过自动测试只能分发候选包，真机验收后才把同一产物发布为稳定正式版。
+
+7.1 起任务历史不再按 1000 条截断，界面仍只展示最近事件；已有 JSON 字段与存储键不变。旧版本已截掉的记录无法恢复。原始习惯事件独立保留最多 500 条，可浏览全部保留记录并逐条删除。损坏数据备份失败时暂停所有本地设置写入并显示提示，释放空间后可重试。
 
 ### CI 覆盖安装签名
 

@@ -298,7 +298,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     var mealRecordsOpen by remember { mutableStateOf(false) }
     var planPage by remember { mutableStateOf<PlanPage?>(null) }
     var settingsSubPage by remember { mutableStateOf<SettingsSubPage?>(null) }
-    var settingsParentPage by remember { mutableStateOf<SettingsSubPage?>(null) }
+    var settingsBackStack by remember { mutableStateOf<List<SettingsSubPage>>(emptyList()) }
     LaunchedEffect(
         notificationForegroundCheck,
         permissionOnboardingPending,
@@ -314,7 +314,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             tab = 3
             todayInboxOpen = false
             planPage = null
-            settingsParentPage = null
+            settingsBackStack = emptyList()
             settingsSubPage = SettingsSubPage.ACTIVITY_REMINDERS
         }
     }
@@ -414,14 +414,14 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
         todayInboxOpen = false
         planPage = null
         settingsSubPage = null
-        settingsParentPage = null
+        settingsBackStack = emptyList()
         tab = index
     }
     BackHandler(enabled = tab == 0 && todayInboxOpen) { todayInboxOpen = false }
     BackHandler(enabled = tab == 2 && planPage != null) { planPage = null }
     BackHandler(enabled = tab == 3 && settingsSubPage != null) {
-        settingsSubPage = settingsParentPage
-        settingsParentPage = null
+        settingsSubPage = settingsBackStack.lastOrNull()
+        settingsBackStack = settingsBackStack.dropLast(1)
     }
 
     LaunchedEffect(statusCheckInRequested) {
@@ -478,7 +478,17 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
         Scaffold(
             containerColor = MaterialTheme.colorScheme.background,
             snackbarHost = { SnackbarHost(snackbarHostState) },
-            topBar = { if (globalLoading) LinearProgressIndicator(modifier = Modifier.fillMaxWidth()) },
+            topBar = {
+                Column {
+                    if (StorageProtection.readOnly) Surface(color = MaterialTheme.colorScheme.errorContainer) {
+                        Column(Modifier.fillMaxWidth().padding(12.dp)) {
+                            Text("数据保护：损坏数据尚未备份，已暂停保存。当前操作不会写入；请释放存储空间后重试，并重新打开应用。")
+                            TextButton(onClick = { StorageProtection.retry() }) { Text("重试备份") }
+                        }
+                    }
+                    if (globalLoading) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                }
+            },
             bottomBar = {
                 NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
                     NavigationBarItem(
@@ -757,9 +767,12 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                 else -> SettingsScreen(Modifier.padding(padding), settingsScrollState, themeOption, commuteProfile, campusLifeEnabled, campusMapPackage, currentCampusPlace, improvementNotes, activitySettings, statusCheckInSettings, windDownEnabled = windDownEnabled, checkIns = statusCheckIns, baselineProfile, mealRecords, mealReminderEnabled, subPage = settingsSubPage, onSubPageChange = { target ->
                     if (target == null) {
                         settingsSubPage = null
-                        settingsParentPage = null
+                        settingsBackStack = emptyList()
                     } else {
-                        if (settingsSubPage == SettingsSubPage.ADVANCED) settingsParentPage = SettingsSubPage.ADVANCED
+                        settingsSubPage?.takeIf { it != target }?.let { current ->
+                            val existing = settingsBackStack.indexOf(target)
+                            settingsBackStack = if (existing >= 0) settingsBackStack.take(existing) else settingsBackStack + current
+                        }
                         settingsSubPage = target
                     }
                 }, onThemeChange = { updated ->
@@ -1440,5 +1453,3 @@ private fun recordGameItemEnd(context: Context, store: PrototypeStore, sessionId
         ReminderScheduler.cancelGameReminders(context, sessionId)
     }
 }
-
-

@@ -50,4 +50,10 @@ class CorruptionBackupTest {
         assertEquals(1, dir.listFiles()!!.count { it.name.startsWith("items-") })
         assertEquals(1, dir.listFiles()!!.count { it.name.startsWith("feedback-") })
     }
+
+    @Test fun backup_unwritableDirectory_returnsFalseWithoutThrowing() {
+        val file = File(dir, "not-a-directory").apply { writeText("keep") }
+        assertFalse(CorruptionBackup.backup(file, "items", "original"))
+        assertEquals("keep", file.readText())
+    }
 }

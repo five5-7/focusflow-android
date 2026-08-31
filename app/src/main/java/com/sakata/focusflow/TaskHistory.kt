@@ -133,6 +133,9 @@ data class DayTaskSummary(
  * - 完成数：TASK_COMPLETED 按 recordedAt 归日、itemId 去重（已删除任务的完成仍在）。
  */
 object TaskHistory {
+    /** Display limits must never change statistical input. */
+    fun append(events: List<TaskEvent>, event: TaskEvent): List<TaskEvent> = events + event
+
     /** 自然日 00:00（与 TimeUtils 使用同一 Calendar 日界定义）。 */
     fun dayStartOf(millis: Long): Long {
         val calendar = Calendar.getInstance().apply { timeInMillis = millis }
