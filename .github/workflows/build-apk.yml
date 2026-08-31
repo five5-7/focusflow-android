@@ -95,28 +95,35 @@ jobs:
           echo "FOCUSFLOW_SIGNING_KEY_PASSWORD=$resolved_key_password" >> "$GITHUB_ENV"
 
       - name: Run unit tests
-        run: gradle --no-daemon :app:testDebugUnitTest
+        run: gradle --no-daemon :app:testDebugUnitTest :app:testReleaseUnitTest
 
       - name: Upload unit test evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: FocusFlow-tests-run-${{ github.run_number }}
-          path: app/build/test-results/testDebugUnitTest/*.xml
+          path: app/build/test-results/test*UnitTest/*.xml
           if-no-files-found: warn
           retention-days: 7
 
       - name: Build debug APK
         run: gradle --no-daemon :app:assembleDebug
 
+      - name: Build release APK
+        run: gradle --no-daemon :app:assembleRelease
+
       - name: Verify APK signature and metadata
         run: |
           set -euo pipefail
           build_tools="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
           test -x "$build_tools/apksigner"
-          "$build_tools/apksigner" verify --verbose --print-certs app/build/outputs/apk/debug/app-debug.apk > apk-verification.txt
-          "$build_tools/aapt" dump badging app/build/outputs/apk/debug/app-debug.apk >> apk-verification.txt
-          sha256sum app/build/outputs/apk/debug/app-debug.apk >> apk-verification.txt
+          "$build_tools/apksigner" verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk > apk-verification.txt
+          "$build_tools/aapt" dump badging app/build/outputs/apk/release/app-release.apk >> apk-verification.txt
+          if grep -q '^application-debuggable' apk-verification.txt; then
+            echo "::error::Distribution APK must not be debuggable"
+            exit 1
+          fi
+          sha256sum app/build/outputs/apk/release/app-release.apk >> apk-verification.txt
 
       - name: Upload APK verification evidence
         uses: actions/upload-artifact@v4
@@ -130,7 +137,7 @@ jobs:
         run: echo "VERSION_NAME=$(sed -n 's/.*versionName = \"\(.*\)\"/\1/p' app/build.gradle.kts | head -1)" >> "$GITHUB_ENV"
 
       - name: Name APK with version
-        run: cp app/build/outputs/apk/debug/app-debug.apk "FocusFlow-$VERSION_NAME-run-$GITHUB_RUN_NUMBER.apk"
+        run: cp app/build/outputs/apk/release/app-release.apk "FocusFlow-$VERSION_NAME-run-$GITHUB_RUN_NUMBER.apk"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4

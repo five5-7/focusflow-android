@@ -48,10 +48,10 @@ gradle :app:assembleDebug
 # 产物：app/build/outputs/apk/debug/app-debug.apk
 ```
 
-运行单元测试：
+运行单元测试（CI 同时验证 debug 和 release；分发 release APK）：
 
 ```bash
-gradle :app:testDebugUnitTest
+gradle :app:testDebugUnitTest :app:testReleaseUnitTest
 ```
 
 ## 发布

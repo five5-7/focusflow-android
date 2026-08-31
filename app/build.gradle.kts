@@ -43,6 +43,12 @@ android {
     }
 
     buildTypes {
+        getByName("release") {
+            isDebuggable = false
+            // Keep this stability release behavior-equivalent; defer shrinking to a separate change.
+            isMinifyEnabled = false
+            if (!focusFlowSigningStore.isNullOrBlank()) signingConfig = signingConfigs.getByName("focusFlowStable")
+        }
         getByName("debug") {
             if (!focusFlowSigningStore.isNullOrBlank()) signingConfig = signingConfigs.getByName("focusFlowStable")
         }
