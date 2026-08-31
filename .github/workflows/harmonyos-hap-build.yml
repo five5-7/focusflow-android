@@ -1,0 +1,57 @@
+name: FocusFlow HarmonyOS HAP Build
+on:
+  push:
+    branches: [ "harmonyos-ci-build-713" ]
+  workflow_dispatch:
+
+jobs:
+  build-hap:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore HarmonyOS project
+        run: |
+          base64 -d harmony-project.zip.b64 > harmony-project.zip
+          unzip -q harmony-project.zip
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+      - name: Cache HarmonyOS command line tools
+        id: cache-tools
+        uses: actions/cache@v4
+        with:
+          path: command-line-tools
+          key: harmony-tools-linux-6.1.0.816
+      - name: Download HarmonyOS command line tools
+        if: steps.cache-tools.outputs.cache-hit != 'true'
+        run: |
+          curl -fL --retry 3 -o tools.zip https://github.com/Okysu/harmony-auto-build/releases/download/commandline-tools-linux-x64-6.1.0.816/commandline-tools-linux-x64-6.1.0.816.zip
+          unzip -q tools.zip
+          rm tools.zip
+      - name: Configure HarmonyOS SDK
+        run: |
+          TOOLS_DIR="$GITHUB_WORKSPACE/command-line-tools"
+          echo "$TOOLS_DIR/bin" >> "$GITHUB_PATH"
+          echo "OHPM_HOME=$TOOLS_DIR/ohpm" >> "$GITHUB_ENV"
+          echo "HOS_SDK_HOME=$TOOLS_DIR/sdk" >> "$GITHUB_ENV"
+          chmod -R +x "$TOOLS_DIR/bin"
+          echo "hwsdk.dir=$TOOLS_DIR/sdk" > focusflow-harmonyos/local.properties
+      - name: Install dependencies
+        working-directory: focusflow-harmonyos
+        run: ohpm install
+      - name: Build unsigned HAP
+        working-directory: focusflow-harmonyos
+        run: hvigorw assembleHap --mode module -p product=default -p buildMode=debug --no-daemon --stacktrace
+      - name: List outputs
+        if: always()
+        run: find focusflow-harmonyos -type f \( -name '*.hap' -o -name '*.app' -o -name '*.har' -o -name '*.hsp' \) -print || true
+      - name: Upload HAP
+        uses: actions/upload-artifact@v4
+        with:
+          name: FocusFlow-HarmonyOS-7.1.3-unsigned
+          path: |
+            focusflow-harmonyos/**/build/**/outputs/**/*.hap
+            focusflow-harmonyos/**/build/**/outputs/**/*.app
+          if-no-files-found: error
