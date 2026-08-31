@@ -21,4 +21,20 @@ class BaselineEventsCodecTest {
     @Test fun decode_badJson_returnsEmpty() {
         assertEquals(0, BaselineEventsCodec.decode("not-json{{{").size)
     }
+
+    @Test fun without_removesOnlyMatchingId() {
+        val events = listOf(
+            BaselineEvent(1L, BaselineEventType.MEAL_STARTED, 100L, "a"),
+            BaselineEvent(2L, BaselineEventType.CHECK_IN_RECORDED, 200L, "b"),
+            BaselineEvent(3L, BaselineEventType.MEAL_ENDED, 300L, "c")
+        )
+        assertEquals(listOf(1L, 3L), BaselineEventsCodec.without(events, 2L).map { it.id })
+        assertEquals(listOf(2L, 3L), BaselineEventsCodec.without(events, 1L).map { it.id })
+        assertEquals(listOf(1L, 2L), BaselineEventsCodec.without(events, 3L).map { it.id })
+    }
+
+    @Test fun without_unmatched_returnsSameContent() {
+        val events = listOf(BaselineEvent(9L, BaselineEventType.ACTIVITY_STARTED, 55L, ""))
+        assertEquals(events, BaselineEventsCodec.without(events, 42L))
+    }
 }

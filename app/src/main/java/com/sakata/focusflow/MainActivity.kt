@@ -1324,12 +1324,13 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
         if (baselineWhereToFindOpen) BaselineWhereToFindDialog(onDismiss = { baselineWhereToFindOpen = false })
         if (featureIntroOpen) WelcomeIntroDialog(onDismiss = { featureIntroOpen = false })
         if (baselineEventsOpen) BaselineEventsDialog(
-            events = store.loadBaselineEvents(),
+            events = store.loadBaselineEvents(500),
             onDismiss = { baselineEventsOpen = false },
             onClear = {
                 store.clearBaselineEvents()
                 baselineEventsOpen = false
-            }
+            },
+            onDelete = { eventId -> store.removeBaselineEvent(eventId) }
         )
         if (baselineResetConfirmOpen) AlertDialog(
             onDismissRequest = { baselineResetConfirmOpen = false },

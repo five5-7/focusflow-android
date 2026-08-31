@@ -26,4 +26,8 @@ object BaselineEventsCodec {
             put("payload", value.payload)
         }) }
     }.toString()
+
+    /** 按 id 删除一条：id 由 newItemId 铸造唯一，余下保持原顺序；未命中时原样返回。 */
+    fun without(events: List<BaselineEvent>, eventId: Long): List<BaselineEvent> =
+        events.filterNot { it.id == eventId }
 }

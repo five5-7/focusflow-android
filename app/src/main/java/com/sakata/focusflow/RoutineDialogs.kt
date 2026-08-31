@@ -325,27 +325,31 @@ internal fun DayGroupWizardDialog(existingGroups: List<DayGroup>, defaultWake: I
     )
 }
 
-@Composable internal fun BaselineEventsDialog(events: List<BaselineEvent>, onDismiss: () -> Unit, onClear: () -> Unit) {
+@Composable internal fun BaselineEventsDialog(events: List<BaselineEvent>, onDismiss: () -> Unit, onClear: () -> Unit, onDelete: (Long) -> Unit) {
+    var list by remember { mutableStateOf(events) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("原始事件记录") },
         text = {
             ScrollableDialogBox(maxHeight = 460.dp, spacing = 8.dp) {
                 Text("这些是你确认过的原始记录，按时间追加保存；学习算法不会覆盖它们。", style = MaterialTheme.typography.bodySmall)
-                if (events.isEmpty()) {
+                if (list.isEmpty()) {
                     Text("还没有记录。完成引导、开始活动、签到或确认通勤后会自动出现在这里。")
                 } else {
-                    events.takeLast(50).reversed().forEach { event ->
+                    list.takeLast(50).reversed().forEach { event ->
                         Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))) {
-                            Text(BaselineRecorder.displayPayload(event), Modifier.fillMaxWidth().padding(10.dp), style = MaterialTheme.typography.bodySmall)
+                            Row(Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Text(BaselineRecorder.displayPayload(event), Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                                TextButton(onClick = { list = list.filterNot { it.id == event.id }; onDelete(event.id) }) { Text("删除", color = MaterialTheme.colorScheme.error) }
+                            }
                         }
                     }
-                    Text("共 ${events.size} 条记录，仅保存在本机。", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("共 ${list.size} 条记录，仅保存在本机。", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         },
         confirmButton = {
-            if (events.isNotEmpty()) OutlinedButton(onClick = onClear) { Text("清除全部记录") }
+            if (list.isNotEmpty()) OutlinedButton(onClick = onClear) { Text("清除全部记录") }
             TextButton(onClick = onDismiss) { Text("关闭") }
         }
     )

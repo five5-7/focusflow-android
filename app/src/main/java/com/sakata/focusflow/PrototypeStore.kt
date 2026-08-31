@@ -631,6 +631,16 @@ class PrototypeStore(context: Context) {
         preferences.edit().remove("baseline_events").apply()
     }
 
+    /** 按 id 删除单条原始事件（dialog 展示窗口即全量 500 上限内）；未命中时无副作用。 */
+    fun removeBaselineEvent(eventId: Long) {
+        val all = loadBaselineEvents(500)
+        val remaining = BaselineEventsCodec.without(all, eventId)
+        if (remaining.size == all.size) return
+        preferences.edit().apply {
+            if (remaining.isEmpty()) remove("baseline_events") else putString("baseline_events", BaselineEventsCodec.encode(remaining))
+        }.apply()
+    }
+
     fun appendTaskEvent(event: TaskEvent) {
         val all = (loadTaskEvents(1000) + event).takeLast(1000)
         preferences.edit().putString("task_events", TaskEventCodec.encode(all)).apply()

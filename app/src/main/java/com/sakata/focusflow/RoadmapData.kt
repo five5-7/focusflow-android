@@ -18,8 +18,11 @@ data class RoadmapEntry(val version: String, val title: String, val summary: Str
 data class RoadmapVersion(val version: String, val entries: List<RoadmapEntry>)
 
 object RoadmapData {
-    /** 已实现版本演进（1.0 → 7.0.1），每版本浓缩 1–3 条，与 CHANGELOG.md 对应。 */
+    /** 已实现版本演进（1.0 → 7.0.2），每版本浓缩 1–3 条，与 CHANGELOG.md 对应。 */
     val evolution: List<RoadmapVersion> = listOf(
+        RoadmapVersion("7.0.2", listOf(
+            RoadmapEntry("7.0.2", "原始事件记录单条删除", "「原始事件记录」弹窗逐条右侧新增删除（按唯一 id 精确移除，保留其余记录与顺序），计数按全量显示；清除全部记录保留不变", RoadmapStatus.DONE)
+        )),
         RoadmapVersion("7.0.1", listOf(
             RoadmapEntry("7.0.1", "文案与行为对账修正", "全量对账帮助/设置/通知文案与实际行为：课表识别不再声称“识别失败自动回退本机”（4.0.1 起已移除本地 OCR）；一次性静音与免打扰统一“低打扰提醒”范围（任务与活动到点提醒不被静音）；消费记录文案同步“暂时隐藏”（数据保留清除）；“想玩游戏”入口更新为“安排空闲活动”；导航路径统一“设置→高级工具→…”；计划入口名对齐（课程/空挡建议/本周回顾）；快速入门补充精确闹钟与使用情况访问引导；修正游戏/视频在未授权使用情况访问或关闭检测时静默记结束的问题（改为同其他活动一样提醒收尾）", RoadmapStatus.DONE)
         )),
@@ -350,7 +353,7 @@ fun RoadmapSubpageContent() {
                 Text("每次功能更新递增 0.1；更新记录见版本演进。", style = MaterialTheme.typography.bodySmall)
             }
         }
-        Text("版本演进（已实现 1.0 → 7.0.1）", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Text("版本演进（已实现 1.0 → 7.0.2）", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         RoadmapData.evolution.forEach { version ->
             Text(version.version, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
             version.entries.forEach { entry ->
