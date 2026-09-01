@@ -101,7 +101,8 @@ object TaskActions {
         now: Long = System.currentTimeMillis()
     ): DelayedPlan {
         val delayed = item.copy(
-            kind = "任务",
+            // 空闲活动改期后仍须保留活动身份，才能继续使用对应的开始/收尾提醒链。
+            kind = if (item.kind == "活动" || item.kind == "游戏") item.kind else "任务",
             detail = "已改期至$label；届时会再次出现",
             scheduledAt = scheduledAt,
             durationMinutes = duration,

@@ -133,7 +133,7 @@ internal fun activityTitleLabel(category: String): String = when (category) {
         text = { ScrollableDialogBox(maxHeight = 480.dp, spacing = 8.dp) {
             Text("到点提醒开始（可选）；结束时按类别检测前台应用（游戏/视频）或直接提醒收尾，并记录实际结束与超时。", style = MaterialTheme.typography.bodySmall)
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
-                listOf("游戏", "视频", "学习", "休息", "运动", "自定义").forEach { c ->
+                ScheduledActivityKind.selectableValues.forEach { c ->
                     FilterChip(selected = category == c, onClick = { category = c }, label = { Text(c) })
                 }
             }

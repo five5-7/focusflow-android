@@ -191,6 +191,13 @@ class TaskActionsTest {
         assertEquals(b.id, result.items[1].id)
     }
 
+    @Test fun planDelayed_preservesScheduledActivityKind() {
+        val activity = item(id = 18, title = "跑步", kind = "活动")
+        val result = TaskActions.planDelayed(listOf(activity), activity, fixedNow, 30, "周一 10:00", "mid", now = fixedNow)
+        assertEquals("活动", result.delayedItem.kind)
+        assertEquals("活动", result.items.single().kind)
+    }
+
     @Test fun scheduledShape_locksTimeAndLabel() {
         val shaped = TaskActions.scheduledShape(item(id = 5, title = "重新安排：整理笔记", priority = "low"), fixedNow + 60_000L, 45, "周一 10:00", "high")
         assertEquals("整理笔记", shaped.title)

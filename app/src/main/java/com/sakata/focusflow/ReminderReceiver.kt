@@ -504,22 +504,23 @@ class ReminderReceiver : BroadcastReceiver() {
         return PendingIntent.getBroadcast(context, notificationId + actionOffset, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
     }
 
-    /** 到游戏时间：自动记录当前状态为娱乐并提醒开始。 */
+    /** 空闲活动开始提醒：广播只触发提醒，不据此推断用户已经开始，更不自动写状态签到。 */
     private fun showGameStartNotification(context: Context, manager: NotificationManager, intent: Intent) {
         if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
-        ensureChannel(manager, CHANNEL_GAME, "游戏安排提醒")
         val sessionId = intent.getLongExtra(EXTRA_GAME_SESSION_ID, -1L)
-        val title = intent.getStringExtra(EXTRA_GAME_TITLE) ?: "游戏"
+        val session = PrototypeStore(context).loadGameSessions()
+            .firstOrNull { it.id == sessionId && it.isOpen() } ?: return
+        val expectedStartAt = intent.getLongExtra(EXTRA_GAME_PLANNED_AT, -1L)
+        if (!ScheduledActivityPolicy.matchesCurrentPlan(expectedStartAt, session.plannedStartAt)) return
+        ensureChannel(manager, CHANNEL_GAME, "活动开始与收尾提醒")
         val id = ((sessionId % Int.MAX_VALUE).toInt() + 400).coerceAtLeast(0)
         val openApp = PendingIntent.getActivity(context, id + 9, Intent(context, MainActivity::class.java), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        val store = PrototypeStore(context)
-        store.saveStatusCheckIn(StatusCheckIn(store.loadEnergyLevel(), "娱乐"))
-        val text = "到游戏时间了！已自动记录当前状态为娱乐；到点会提醒你收尾。"
+        val copy = ScheduledActivityPolicy.startCopy(session)
         manager.notify(id, NotificationCompat.Builder(context, CHANNEL_GAME)
             .setSmallIcon(android.R.drawable.ic_popup_reminder)
-            .setContentTitle("开始游戏吧 · $title")
-            .setContentText(text)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setContentTitle(copy.title)
+            .setContentText(copy.body)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(copy.body))
             .setContentIntent(openApp)
             .setAutoCancel(true)
             .build())
@@ -529,14 +530,16 @@ class ReminderReceiver : BroadcastReceiver() {
     private fun handleGameEndCheck(context: Context, manager: NotificationManager, intent: Intent, followUp: Boolean) {
         val store = PrototypeStore(context)
         val sessionId = intent.getLongExtra(EXTRA_GAME_SESSION_ID, -1L)
-        val title = intent.getStringExtra(EXTRA_GAME_TITLE) ?: "活动"
         val session = store.loadGameSessions().firstOrNull { it.id == sessionId && it.isOpen() } ?: return
+        val expectedEndAt = intent.getLongExtra(EXTRA_GAME_PLANNED_AT, -1L)
+        if (!ScheduledActivityPolicy.matchesCurrentPlan(expectedEndAt, session.plannedEndAt)) return
+        val title = session.title
         val now = System.currentTimeMillis()
         val detectionOn = store.loadGameDetectionEnabled() && AppLibrary.hasUsageAccess(context)
-        val targetCategory = when (session.category) {
-            "游戏" -> AppCategory.GAME
-            "视频" -> AppCategory.VIDEO
-            else -> null
+        val targetCategory = when (ScheduledActivityPolicy.detection(session.category)) {
+            ForegroundDetection.GAME -> AppCategory.GAME
+            ForegroundDetection.VIDEO -> AppCategory.VIDEO
+            null -> null
         }
         val foreground = if (detectionOn && targetCategory != null) AppLibrary.foregroundPackage(context) else null
         val stillPlaying = foreground != null &&
@@ -561,7 +564,10 @@ class ReminderReceiver : BroadcastReceiver() {
                 .addAction(0, "延长 15 分钟", gameActionIntent(context, ACTION_GAME_EXTEND, sessionId, title, id, 2))
                 .setAutoCancel(true)
             manager.notify(id, notification.build())
-            if (!followUp) ReminderScheduler.scheduleGameFollowUp(context, sessionId, title, now + 10 * 60_000L)
+            // 只有确实检测到游戏/视频仍在前台时才复查；普通活动及无检测权限时只提醒一次。
+            if (!followUp && targetCategory != null && detectionOn && stillPlaying) {
+                ReminderScheduler.scheduleGameFollowUp(context, sessionId, title, session.plannedEndAt, now + 10 * 60_000L)
+            }
         } else {
             recordGameActualEnd(context, sessionId, now)
         }
@@ -619,6 +625,7 @@ class ReminderReceiver : BroadcastReceiver() {
         const val EXTRA_MEAL_LEARNED = "meal_learned"
         const val EXTRA_GAME_SESSION_ID = "game_session_id"
         const val EXTRA_GAME_TITLE = "game_title"
+        const val EXTRA_GAME_PLANNED_AT = "game_planned_at"
         private const val CHANNEL_ACTIVITY_PREVIEW = "focusflow_activity_preview_v2"
         private const val CHANNEL_ACTIVITY_END = "focusflow_activity_end_v3"
         private const val CHANNEL_ACTIVITY_END_GENTLE = "focusflow_activity_end_gentle_v3"

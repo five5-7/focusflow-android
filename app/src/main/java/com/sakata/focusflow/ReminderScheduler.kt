@@ -136,6 +136,7 @@ object ReminderScheduler {
                 action = ReminderReceiver.ACTION_GAME_START
                 putExtra(ReminderReceiver.EXTRA_GAME_SESSION_ID, session.id)
                 putExtra(ReminderReceiver.EXTRA_GAME_TITLE, session.title)
+                putExtra(ReminderReceiver.EXTRA_GAME_PLANNED_AT, session.plannedStartAt)
             }
             val pending = PendingIntent.getBroadcast(context, gameRequestCode(session.id, 1), startIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
             manager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, session.plannedStartAt, pending)
@@ -145,6 +146,7 @@ object ReminderScheduler {
                 action = ReminderReceiver.ACTION_GAME_END
                 putExtra(ReminderReceiver.EXTRA_GAME_SESSION_ID, session.id)
                 putExtra(ReminderReceiver.EXTRA_GAME_TITLE, session.title)
+                putExtra(ReminderReceiver.EXTRA_GAME_PLANNED_AT, session.plannedEndAt)
             }
             val pending = PendingIntent.getBroadcast(context, gameRequestCode(session.id, 2), endIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
             manager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, session.plannedEndAt, pending)
@@ -152,11 +154,12 @@ object ReminderScheduler {
     }
 
     /** 到点仍在玩时，10 分钟后复查一次。 */
-    fun scheduleGameFollowUp(context: Context, sessionId: Long, title: String, at: Long) {
+    fun scheduleGameFollowUp(context: Context, sessionId: Long, title: String, plannedEndAt: Long, at: Long) {
         val followIntent = Intent(context, ReminderReceiver::class.java).apply {
             action = ReminderReceiver.ACTION_GAME_END_FOLLOWUP
             putExtra(ReminderReceiver.EXTRA_GAME_SESSION_ID, sessionId)
             putExtra(ReminderReceiver.EXTRA_GAME_TITLE, title)
+            putExtra(ReminderReceiver.EXTRA_GAME_PLANNED_AT, plannedEndAt)
         }
         val pending = PendingIntent.getBroadcast(context, gameRequestCode(sessionId, 3), followIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         context.getSystemService(AlarmManager::class.java).setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pending)

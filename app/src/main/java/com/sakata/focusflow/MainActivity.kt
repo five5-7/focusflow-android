@@ -384,24 +384,42 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
         taskEvents = store.loadTaskEvents()
     }
 
+    /**
+     * 任务离开日程时同步移除同 id 的空闲活动会话与全部闹钟。
+     * 以会话是否存在为准，兼容旧版改期曾把活动 kind 误写为“任务”的数据。
+     */
+    fun removeScheduledActivity(itemId: Long) {
+        val stored = store.loadGameSessions()
+        if (stored.none { it.id == itemId }) return
+        gameSessions = ScheduledActivitySessions.remove(stored, itemId)
+        store.saveGameSessions(gameSessions)
+        ReminderScheduler.cancelGameReminders(context, itemId)
+    }
+
     /** 放回收集箱：清掉时间与范围，保留原调度日记忆；三处共用（回收卡 / 快速改期建议 / 时间轴弹窗）。 */
     fun returnToInbox(item: Item) {
         val result = TaskActions.returnToInbox(items, item)
         saveItems(result.items)
         recordTaskEvent(result.event!!)
+        removeScheduledActivity(item.id)
     }
     /** 改期保存的完整动作：数据变换在 TaskActions，事件/基线/提醒/游戏会话同步在 FApp 层（原 saveDelayedItem）。 */
     fun applyDelayed(item: Item, scheduledAt: Long, duration: Int, label: String, priority: String) {
-        val plan = TaskActions.planDelayed(items, item, scheduledAt, duration, label, priority)
+        val storedSessions = store.loadGameSessions()
+        val scheduledActivity = storedSessions.firstOrNull { it.id == item.id && it.isOpen() }
+        // 兼容 7.1.3 以前活动改期后被误写成普通任务的记录。
+        val source = if (scheduledActivity != null && item.kind !in setOf("活动", "游戏")) item.copy(kind = "活动") else item
+        val plan = TaskActions.planDelayed(items, source, scheduledAt, duration, label, priority)
         saveItems(plan.items)
         store.appendBaselineEvent(BaselineRecorder.event(BaselineEventType.TASK_RESCHEDULED, plan.baselinePayload))
         recordTaskEvent(plan.event)
         ReminderScheduler.scheduleTaskReminder(context, plan.delayedItem)
-        if (item.kind == "游戏" || item.kind == "活动") {
-            store.loadGameSessions().firstOrNull { it.id == item.id && it.isOpen() }?.let { session ->
-                val updated = session.copy(plannedStartAt = scheduledAt, plannedEndAt = scheduledAt + duration * 60_000L)
-                store.updateGameSession(item.id) { updated }
-                ReminderScheduler.scheduleGameReminders(context, updated)
+        if (scheduledActivity != null) {
+            gameSessions = ScheduledActivitySessions.reschedule(storedSessions, item.id, scheduledAt, duration)
+            store.saveGameSessions(gameSessions)
+            gameSessions.firstOrNull { it.id == item.id && it.isOpen() }?.let {
+                ReminderScheduler.cancelGameReminders(context, item.id)
+                ReminderScheduler.scheduleGameReminders(context, it)
             }
         }
     }
@@ -610,6 +628,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                         val result = TaskActions.shrinkToInbox(items, item)
                         saveItems(result.items)
                         recordTaskEvent(result.event!!)
+                        removeScheduledActivity(item.id)
                     },
                     onReturnToInbox = { item -> returnToInbox(item) },
                     onApplyAdjustment = { item, adjustment ->
@@ -624,11 +643,13 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                     onPause = { item ->
                         val result = TaskActions.pause(items, item)
                         saveItems(result.items)
+                        removeScheduledActivity(item.id)
                     },
                     onAbandon = { item ->
                         val result = TaskActions.abandon(items, item)
                         saveItems(result.items)
                         recordTaskEvent(result.event!!)
+                        removeScheduledActivity(item.id)
                     },
                     baselineEvents = store.loadBaselineEvents(500),
                     taskEvents = taskEvents,
@@ -671,10 +692,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                         val result = TaskActions.deleteItem(items, item)
                         saveItems(result.items)
                         recordTaskEvent(result.event!!)
-                        if (item.kind == "游戏" || item.kind == "活动") {
-                            store.saveGameSessions(store.loadGameSessions().filterNot { it.id == item.id })
-                            ReminderScheduler.cancelGameReminders(context, item.id)
-                        }
+                        removeScheduledActivity(item.id)
                     }
                 )
                 2 -> PlansScreen(
@@ -1249,6 +1267,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             val result = TaskActions.convertToGoal(items, item, goal.title)
             saveItems(result.items)
             recordTaskEvent(result.event!!)
+            removeScheduledActivity(item.id)
             convertTarget = null
         } }
         attachTarget?.let { item -> AttachToPlanDialog(
@@ -1258,6 +1277,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                 val result = TaskActions.attachToGoal(items, item, goal)
                 saveItems(result.items)
                 recordTaskEvent(result.event!!)
+                removeScheduledActivity(item.id)
                 attachTarget = null
             }
         ) }
