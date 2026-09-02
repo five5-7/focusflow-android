@@ -175,8 +175,9 @@ class PrototypeStore(context: Context) {
             StorageProtection.backup(corruptDir, "items", raw)
             return emptyList()
         }
-        if (result.idsNormalized) saveItems(result.items)
-        return result.items
+        val canonicalItems = result.items.map(TaskScheduleText::canonicalize)
+        if (result.idsNormalized || canonicalItems != result.items) saveItems(canonicalItems)
+        return canonicalItems
     }
 
     fun saveItems(items: List<Item>) {

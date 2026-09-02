@@ -64,7 +64,7 @@ object TaskRecorder {
         val parts = listOf(
             event.type.label,
             event.title.ifBlank { null },
-            event.extra.ifBlank { null },
+            TaskScheduleText.eventExtra(event).ifBlank { null },
             time
         )
         return parts.filterNotNull().joinToString(" · ")
