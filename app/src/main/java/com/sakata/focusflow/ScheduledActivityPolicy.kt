@@ -33,6 +33,41 @@ enum class ScheduledActivityKind(
 
 enum class ForegroundDetection { GAME, VIDEO }
 
+enum class ForegroundDetectionOutcome(val label: String) {
+    DISABLED("检测未开启"),
+    NOT_APPLICABLE("该活动无需检测"),
+    NO_ACCESS("未授予使用情况访问"),
+    MATCHED("检测到对应应用仍在前台"),
+    OTHER_APP("前台是其他应用"),
+    UNKNOWN("未能可靠识别前台应用")
+}
+
+data class ForegroundDetectionTrace(
+    val outcome: ForegroundDetectionOutcome = ForegroundDetectionOutcome.DISABLED,
+    val packageName: String = "",
+    val recordedAt: Long = 0L
+)
+
+object ForegroundReminderPolicy {
+    fun decide(
+        detection: ForegroundDetection?,
+        enabled: Boolean,
+        hasAccess: Boolean,
+        foregroundPackage: String?,
+        foregroundCategory: AppCategory?,
+        scheduledPackage: String?
+    ): ForegroundDetectionOutcome = when {
+        detection == null -> ForegroundDetectionOutcome.NOT_APPLICABLE
+        !enabled -> ForegroundDetectionOutcome.DISABLED
+        !hasAccess -> ForegroundDetectionOutcome.NO_ACCESS
+        foregroundPackage.isNullOrBlank() -> ForegroundDetectionOutcome.UNKNOWN
+        foregroundPackage == scheduledPackage -> ForegroundDetectionOutcome.MATCHED
+        detection == ForegroundDetection.GAME && foregroundCategory == AppCategory.GAME -> ForegroundDetectionOutcome.MATCHED
+        detection == ForegroundDetection.VIDEO && foregroundCategory == AppCategory.VIDEO -> ForegroundDetectionOutcome.MATCHED
+        else -> ForegroundDetectionOutcome.OTHER_APP
+    }
+}
+
 data class ScheduledActivityStartCopy(val title: String, val body: String)
 
 object ScheduledActivityPolicy {

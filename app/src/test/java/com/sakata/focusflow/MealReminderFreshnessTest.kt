@@ -22,9 +22,10 @@ class MealReminderFreshnessTest {
     @Test fun mealEndActionOnlyTargetsTheCurrentOpenRecord() {
         val now = at(2, 13)
         val record = MealRecord(id = 8L, mealType = MealType.LUNCH, startedAt = at(2, 12))
-        assertTrue(MealReminderFreshness.endAllowed(true, record, 8L, now))
-        assertFalse(MealReminderFreshness.endAllowed(true, record, 9L, now))
-        assertFalse(MealReminderFreshness.endAllowed(true, record.copy(endedAt = now), 8L, now))
-        assertFalse(MealReminderFreshness.endAllowed(true, record.copy(startedAt = at(1, 12)), 8L, now))
+        assertTrue(MealReminderFreshness.endAllowed(true, true, record, 8L, now))
+        assertFalse(MealReminderFreshness.endAllowed(true, false, record, 8L, now))
+        assertFalse(MealReminderFreshness.endAllowed(true, true, record, 9L, now))
+        assertFalse(MealReminderFreshness.endAllowed(true, true, record.copy(endedAt = now), 8L, now))
+        assertFalse(MealReminderFreshness.endAllowed(true, true, record.copy(startedAt = at(1, 12)), 8L, now))
     }
 }

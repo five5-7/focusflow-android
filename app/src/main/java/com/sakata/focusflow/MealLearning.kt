@@ -131,7 +131,7 @@ object MealReminderFreshness {
     ): Boolean = enabled && profileReady && !alreadyStarted && !skippedToday &&
         (expectedAt <= 0L || MealLearning.sameDay(expectedAt, now))
 
-    fun endAllowed(enabled: Boolean, record: MealRecord?, expectedRecordId: Long, now: Long): Boolean =
-        enabled && record != null && record.endedAt == null && MealLearning.sameDay(record.startedAt, now) &&
+    fun endAllowed(enabled: Boolean, durationTrackingEnabled: Boolean, record: MealRecord?, expectedRecordId: Long, now: Long): Boolean =
+        enabled && durationTrackingEnabled && record != null && record.endedAt == null && MealLearning.sameDay(record.startedAt, now) &&
             (expectedRecordId <= 0L || expectedRecordId == record.id)
 }

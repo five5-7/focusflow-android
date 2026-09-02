@@ -2,7 +2,7 @@
 
 本地优先的 Android 日程与执行辅助应用（`com.sakata.focusflow`）。核心目标不是维护一张完整日历，而是**降低记录压力、按当前状态调整提醒、在错过计划后帮助恢复**。
 
-当前开发候选：**7.1.4**（versionCode 479）；当前正式版仍为维护者确认的第二个正式版 [7.1.3](https://github.com/five5-7/focusflow-android/releases/tag/v7.1.3)。7.1.4 完整更新记录见 [CHANGELOG.md](CHANGELOG.md)，候选验收见 [检查表](docs/7.1.4-checklist.md)。
+当前开发候选：**7.2.0**（versionCode 480）；当前正式版仍为维护者确认的第二个正式版 [7.1.3](https://github.com/five5-7/focusflow-android/releases/tag/v7.1.3)。7.2.0 完整更新记录见 [CHANGELOG.md](CHANGELOG.md)，候选验收见 [检查表](docs/7.2-checklist.md)。
 
 > 数据原则：只用你确认过的数据生成建议，数据不足时不打扰、不假装精确。数据只保存在本机。
 

@@ -115,6 +115,7 @@ import kotlinx.coroutines.withContext
     mealRecords: List<MealRecord>,
     mealReminderEnabled: Boolean,
     statusCheckInEnabled: Boolean,
+    onEnableStatusCheckIn: () -> Unit,
     windDownEnabled: Boolean,
     baselineProfile: BaselineProfile,
     courses: List<Course>,
@@ -291,6 +292,10 @@ import kotlinx.coroutines.withContext
                     }
                 }
                 if (!energyIsCurrent && energyRecordedAt > 0L) Text("上次记录：${formatDateTime(energyRecordedAt)}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (!statusCheckInEnabled) {
+                    Text("每日精力询问尚未开启；你仍可随时手动选择。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    TextButton(onClick = onEnableStatusCheckIn) { Text("开启每日询问") }
+                }
                 Text("只影响弹性任务的推荐顺序，不会移动固定日程。", style = MaterialTheme.typography.bodySmall)
             }
         }

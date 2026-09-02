@@ -171,6 +171,30 @@ class PrototypeStore(context: Context) {
 
     fun loadLatestStatusCheckIn(): StatusCheckIn? = loadStatusCheckIns(1).lastOrNull()
 
+    fun loadNextStatusPromptAt(): Long = preferences.getLong("status_prompt_next_at", 0L)
+
+    fun saveNextStatusPromptAt(at: Long) {
+        preferences.edit().putLong("status_prompt_next_at", at.coerceAtLeast(0L)).apply()
+    }
+
+    fun loadStatusPromptTrace(): StatusPromptTrace {
+        val raw = preferences.getString("status_prompt_last_outcome", null)
+        val outcome = StatusPromptOutcome.entries.firstOrNull { it.name == raw } ?: StatusPromptOutcome.NONE
+        return StatusPromptTrace(
+            outcome = outcome,
+            recordedAt = preferences.getLong("status_prompt_last_at", 0L),
+            expectedAt = preferences.getLong("status_prompt_last_expected_at", 0L)
+        )
+    }
+
+    fun saveStatusPromptTrace(trace: StatusPromptTrace) {
+        preferences.edit()
+            .putString("status_prompt_last_outcome", trace.outcome.name)
+            .putLong("status_prompt_last_at", trace.recordedAt)
+            .putLong("status_prompt_last_expected_at", trace.expectedAt)
+            .apply()
+    }
+
     fun loadItems(): List<Item> {
         val raw = preferences.getString("items", null) ?: return emptyList()
         val result = ItemsCodec.decode(raw)
@@ -669,10 +693,16 @@ class PrototypeStore(context: Context) {
         preferences.edit().putString("meal_records", MealRecordsCodec.encode(remaining)).apply()
     }
 
-    fun loadMealReminderEnabled(): Boolean = preferences.getBoolean("meal_reminder_enabled", true)
+    fun loadMealReminderEnabled(): Boolean = preferences.getBoolean("meal_reminder_enabled", false)
 
     fun saveMealReminderEnabled(enabled: Boolean) {
         preferences.edit().putBoolean("meal_reminder_enabled", enabled).apply()
+    }
+
+    fun loadMealDurationTrackingEnabled(): Boolean = preferences.getBoolean("meal_duration_tracking_enabled", false)
+
+    fun saveMealDurationTrackingEnabled(enabled: Boolean) {
+        preferences.edit().putBoolean("meal_duration_tracking_enabled", enabled).apply()
     }
 
     fun loadQuickCaptureEnabled(): Boolean = preferences.getBoolean("quick_capture_enabled", false)
@@ -685,6 +715,28 @@ class PrototypeStore(context: Context) {
 
     fun saveGameDetectionEnabled(enabled: Boolean) {
         preferences.edit().putBoolean("game_detection_enabled", enabled).apply()
+    }
+
+    fun loadForegroundDetectionTrace(): ForegroundDetectionTrace {
+        val outcome = runCatching {
+            ForegroundDetectionOutcome.valueOf(
+                preferences.getString("foreground_detection_outcome", ForegroundDetectionOutcome.DISABLED.name)
+                    ?: ForegroundDetectionOutcome.DISABLED.name
+            )
+        }.getOrDefault(ForegroundDetectionOutcome.UNKNOWN)
+        return ForegroundDetectionTrace(
+            outcome = outcome,
+            packageName = preferences.getString("foreground_detection_package", "").orEmpty(),
+            recordedAt = preferences.getLong("foreground_detection_at", 0L)
+        )
+    }
+
+    fun saveForegroundDetectionTrace(trace: ForegroundDetectionTrace) {
+        preferences.edit()
+            .putString("foreground_detection_outcome", trace.outcome.name)
+            .putString("foreground_detection_package", trace.packageName)
+            .putLong("foreground_detection_at", trace.recordedAt)
+            .apply()
     }
 
     fun loadVideoAnalysisModel(): String = preferences.getString("video_analysis_model", DEFAULT_VIDEO_ANALYSIS_MODEL) ?: DEFAULT_VIDEO_ANALYSIS_MODEL

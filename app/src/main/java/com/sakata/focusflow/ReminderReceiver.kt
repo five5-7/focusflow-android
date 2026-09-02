@@ -22,16 +22,29 @@ class ReminderReceiver : BroadcastReceiver() {
         when (intent.action) {
             ACTION_STATUS_CHECK_IN -> {
                 val settings = store.loadStatusCheckInSettings()
+                val expectedAt = intent.getLongExtra(EXTRA_STATUS_PROMPT_EXPECTED_AT, -1L)
+                val isTest = intent.getBooleanExtra(EXTRA_STATUS_PROMPT_TEST, false)
                 ReminderScheduler.scheduleDailyStatusCheckIn(context, settings)
-                if (!settings.enabled) return
-                if (suppressNow(store, intent.action)) return
+                val now = System.currentTimeMillis()
+                val quiet = store.loadQuietHoursSettings()
                 val active = store.loadLatestActiveSession()
-                if (active != null) {
+                val outcome = StatusPromptPolicy.decide(
+                    settings = settings,
+                    expectedAt = expectedAt,
+                    now = now,
+                    notificationsAllowed = context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED,
+                    muted = !isTest && quiet.isMuted(now),
+                    quietHoursSuppressed = !isTest && quiet.inQuietHours(now) && quiet.suppressStatusCheckIn,
+                    activeSession = active.takeUnless { isTest },
+                    latestRecordedAt = store.loadLatestStatusCheckIn()?.recordedAt.takeUnless { isTest }
+                )
+                store.saveStatusPromptTrace(StatusPromptTrace(outcome, now, expectedAt))
+                if (outcome == StatusPromptOutcome.ACTIVE_SESSION && active != null) {
                     val minutes = ((active.endsAt - System.currentTimeMillis()) / 60_000L + 10).toInt().coerceIn(30, 180)
                     ReminderScheduler.snoozeStatusCheckIn(context, minutes)
                     return
                 }
-                if (store.loadLatestStatusCheckIn()?.recordedAt?.let(::isSameDayAsNow) == true) return
+                if (outcome != StatusPromptOutcome.READY) return
                 showStatusCheckInNotification(context, manager, settings)
                 return
             }
@@ -139,7 +152,7 @@ class ReminderReceiver : BroadcastReceiver() {
                 val type = MealType.fromLabel(intent.getStringExtra(EXTRA_MEAL_TYPE) ?: "")
                 val expectedRecordId = intent.getLongExtra(EXTRA_MEAL_RECORD_ID, -1L)
                 val record = type?.let { MealLearning.latestOpen(store.loadMealRecords(), it) }
-                if (type != null && MealReminderFreshness.endAllowed(store.loadMealReminderEnabled(), record, expectedRecordId, System.currentTimeMillis())) {
+                if (type != null && MealReminderFreshness.endAllowed(store.loadMealReminderEnabled(), store.loadMealDurationTrackingEnabled(), record, expectedRecordId, System.currentTimeMillis())) {
                     showMealEndNotification(context, manager, requireNotNull(record))
                 }
                 return
@@ -159,7 +172,7 @@ class ReminderReceiver : BroadcastReceiver() {
                 val profile = store.loadBaselineProfile()
                 val minutes = type?.let { MealLearning.predictedMinutes(store.loadMealRecords(), profile.lifeStage, java.util.Calendar.getInstance().get(java.util.Calendar.DAY_OF_WEEK), it) ?: profile.meals.firstOrNull { m -> m.type == it }?.typicalMinutes ?: 20 }
                 if (type != null && minutes != null && MealReminderFreshness.endAllowed(
-                        store.loadMealReminderEnabled(), record, expectedRecordId, System.currentTimeMillis()
+                        store.loadMealReminderEnabled(), store.loadMealDurationTrackingEnabled(), record, expectedRecordId, System.currentTimeMillis()
                     )) {
                     ReminderScheduler.scheduleMealEndReminder(context, requireNotNull(record).copy(startedAt = System.currentTimeMillis()), minutes)
                 }
@@ -603,7 +616,7 @@ class ReminderReceiver : BroadcastReceiver() {
             .build())
     }
 
-    /** 到点检测：游戏/视频类在已授权且开启检测时检查前台是否还在玩；未授权或关闭时只提醒不检测（同其他活动）。到点提醒结束（可结束/延长 15 分钟）并 10 分钟后复查；检测到已不在玩则不再打扰并按时记录结束。 */
+    /** 前台检测只增强文案与决定是否复查；任何不确定结果都不能替用户写入“已结束”。 */
     private fun handleGameEndCheck(context: Context, manager: NotificationManager, intent: Intent, followUp: Boolean) {
         val store = PrototypeStore(context)
         val sessionId = intent.getLongExtra(EXTRA_GAME_SESSION_ID, -1L)
@@ -612,41 +625,44 @@ class ReminderReceiver : BroadcastReceiver() {
         if (!ScheduledActivityPolicy.matchesCurrentPlan(expectedEndAt, session.plannedEndAt)) return
         val title = session.title
         val now = System.currentTimeMillis()
-        val detectionOn = store.loadGameDetectionEnabled() && AppLibrary.hasUsageAccess(context)
-        val targetCategory = when (ScheduledActivityPolicy.detection(session.category)) {
+        val detection = ScheduledActivityPolicy.detection(session.category)
+        val targetCategory = when (detection) {
             ForegroundDetection.GAME -> AppCategory.GAME
             ForegroundDetection.VIDEO -> AppCategory.VIDEO
             null -> null
         }
-        val foreground = if (detectionOn && targetCategory != null) AppLibrary.foregroundPackage(context) else null
-        val stillPlaying = foreground != null &&
-            (session.packageName == foreground || AppLibrary.categoryOf(context, foreground, store.loadAppCategories()) == targetCategory)
-        // 无检测类别（学习/休息/运动/自定义）、检测不可用（未授权/关闭）或检测到仍在玩：提醒收尾；否则自动记录按时结束。
-        if (targetCategory == null || !detectionOn || stillPlaying) {
-            if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
-            ensureChannel(manager, CHANNEL_GAME, "活动收尾提醒")
-            val id = ((sessionId % Int.MAX_VALUE).toInt() + 500 + if (followUp) 1 else 0).coerceAtLeast(0)
-            val openApp = PendingIntent.getActivity(context, id + 9, Intent(context, MainActivity::class.java), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-            val text = when {
-                stillPlaying && foreground != null -> if (followUp) "还在玩《${AppLibrary.appLabel(context, foreground)}》？计划时间已经过了，收个尾吧。" else "计划到点了，检测到你还在玩《${AppLibrary.appLabel(context, foreground)}》。"
-                else -> "计划时间到了，收个尾吧（可结束或延长 15 分钟）。"
-            }
-            val notification = NotificationCompat.Builder(context, CHANNEL_GAME)
-                .setSmallIcon(android.R.drawable.ic_popup_reminder)
-                .setContentTitle("$title 时间到了")
-                .setContentText(text)
-                .setStyle(NotificationCompat.BigTextStyle().bigText(text))
-                .setContentIntent(openApp)
-                .addAction(0, "结束", gameActionIntent(context, ACTION_GAME_FINISH, sessionId, title, session.plannedEndAt, id, 1))
-                .addAction(0, "延长 15 分钟", gameActionIntent(context, ACTION_GAME_EXTEND, sessionId, title, session.plannedEndAt, id, 2))
-                .setAutoCancel(true)
-            manager.notify(id, notification.build())
-            // 只有确实检测到游戏/视频仍在前台时才复查；普通活动及无检测权限时只提醒一次。
-            if (!followUp && targetCategory != null && detectionOn && stillPlaying) {
-                ReminderScheduler.scheduleGameFollowUp(context, sessionId, title, session.plannedEndAt, now + 10 * 60_000L)
-            }
+        val detectionEnabled = store.loadGameDetectionEnabled()
+        val hasAccess = AppLibrary.hasUsageAccess(context)
+        val lookback = (now - session.plannedStartAt + 5 * 60_000L).coerceIn(5 * 60_000L, 12 * 60 * 60_000L)
+        val foreground = if (detection != null && detectionEnabled && hasAccess) AppLibrary.foregroundPackage(context, lookback) else null
+        val foregroundCategory = foreground?.let { AppLibrary.categoryOf(context, it, store.loadAppCategories()) }
+        val outcome = ForegroundReminderPolicy.decide(detection, detectionEnabled, hasAccess, foreground, foregroundCategory, session.packageName)
+        store.saveForegroundDetectionTrace(ForegroundDetectionTrace(outcome, foreground.orEmpty(), now))
+
+        // 第二次检查只服务于“确定仍在对应应用”的情况；状态改变或无法识别时停止追问，但不自动结束。
+        if (followUp && outcome != ForegroundDetectionOutcome.MATCHED) return
+        if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
+        ensureChannel(manager, CHANNEL_GAME, "活动收尾提醒")
+        val id = ((sessionId % Int.MAX_VALUE).toInt() + 500 + if (followUp) 1 else 0).coerceAtLeast(0)
+        val openApp = PendingIntent.getActivity(context, id + 9, Intent(context, MainActivity::class.java), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val text = if (outcome == ForegroundDetectionOutcome.MATCHED && foreground != null) {
+            if (followUp) "还在使用《${AppLibrary.appLabel(context, foreground)}》？计划时间已经过了，收个尾吧。"
+            else "计划到点了，检测到《${AppLibrary.appLabel(context, foreground)}》仍在前台。"
         } else {
-            recordGameActualEnd(context, sessionId, now)
+            "计划时间到了，请确认结束或延长 15 分钟。"
+        }
+        manager.notify(id, NotificationCompat.Builder(context, CHANNEL_GAME)
+            .setSmallIcon(android.R.drawable.ic_popup_reminder)
+            .setContentTitle("$title 时间到了")
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setContentIntent(openApp)
+            .addAction(0, "结束", gameActionIntent(context, ACTION_GAME_FINISH, sessionId, title, session.plannedEndAt, id, 1))
+            .addAction(0, "延长 15 分钟", gameActionIntent(context, ACTION_GAME_EXTEND, sessionId, title, session.plannedEndAt, id, 2))
+            .setAutoCancel(true)
+            .build())
+        if (!followUp && outcome == ForegroundDetectionOutcome.MATCHED) {
+            ReminderScheduler.scheduleGameFollowUp(context, sessionId, title, session.plannedEndAt, now + 10 * 60_000L)
         }
     }
 
@@ -691,6 +707,8 @@ class ReminderReceiver : BroadcastReceiver() {
         const val EXTRA_NEXT_STEP = "next_step"
         const val EXTRA_SESSION_ID = "session_id"
         const val EXTRA_ACTIVITY_ENDS_AT = "activity_ends_at"
+        const val EXTRA_STATUS_PROMPT_EXPECTED_AT = "status_prompt_expected_at"
+        const val EXTRA_STATUS_PROMPT_TEST = "status_prompt_test"
         const val EXTRA_TASK_ID = "task_id"
         const val EXTRA_TASK_TITLE = "task_title"
         const val EXTRA_TASK_START_AT = "task_start_at"
