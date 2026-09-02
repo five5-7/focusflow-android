@@ -131,7 +131,7 @@ internal fun activityTitleLabel(category: String): String = when (category) {
         onDismissRequest = onDismiss,
         title = { Text("安排空闲活动") },
         text = { ScrollableDialogBox(maxHeight = 480.dp, spacing = 8.dp) {
-            Text("到点提醒开始（可选）；结束时按类别检测前台应用（游戏/视频）或直接提醒收尾，并记录实际结束与超时。", style = MaterialTheme.typography.bodySmall)
+            Text(ReminderRuleCopy.SCHEDULED_ACTIVITY, style = MaterialTheme.typography.bodySmall)
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
                 ScheduledActivityKind.selectableValues.forEach { c ->
                     FilterChip(selected = category == c, onClick = { category = c }, label = { Text(c) })

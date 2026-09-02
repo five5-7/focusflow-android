@@ -331,7 +331,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     ) {
         if (notificationForegroundCheck == 0 || permissionOnboardingPending || baselineOnboardingOpen || baselineWhereToFindOpen || featureIntroOpen) return@LaunchedEffect
         delay(500)
-        val message = NotificationHealthPolicy.startupMessage(NotificationChannelSettings.health(context)) ?: return@LaunchedEffect
+        val message = NotificationHealthPolicy.startupMessage(NotificationChannelSettings.health(context), mealReminderEnabled) ?: return@LaunchedEffect
         val result = snackbarHostState.showSnackbar(message = message, actionLabel = "查看说明", withDismissAction = true)
         if (result == SnackbarResult.ActionPerformed) {
             tab = 3

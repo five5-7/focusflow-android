@@ -267,7 +267,7 @@ internal fun categorizedInstalledApps(context: Context, userCategories: Map<Stri
         PlanHubItem(
             "日程与活动提醒",
             when {
-                !settingsNotificationHealth.allReadableSettingsReady -> "通知或横幅待检查"
+                !settingsNotificationHealth.allReadableSettingsReady(mealReminderEnabled) -> "通知或横幅待检查"
                 !activitySettings.notificationsEnabled -> "活动提醒已关闭"
                 else -> "日程提前 ${activitySettings.scheduleAdvanceMinutes} 分钟"
             }
@@ -626,10 +626,11 @@ internal fun categorizedInstalledApps(context: Context, userCategories: Map<Stri
                             TextButton(onClick = { context.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS, Uri.parse("package:${context.packageName}"))) }) { Text("已拒绝？去系统设置开启") }
                         } else {
                             Text(
-                                if (notificationHealth.allReadableSettingsReady) "Android 可读取的通知与两个渠道均已开启。"
-                                else NotificationHealthPolicy.startupMessage(notificationHealth) ?: "通知设置需要检查。",
+                                if (notificationHealth.allReadableSettingsReady(mealReminderEnabled)) {
+                                    if (mealReminderEnabled) "Android 可读取的通知、日程与饭点渠道均已开启。" else "Android 可读取的通知与日程渠道已开启；饭点提醒当前关闭。"
+                                } else NotificationHealthPolicy.startupMessage(notificationHealth, mealReminderEnabled) ?: "通知设置需要检查。",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = if (notificationHealth.allReadableSettingsReady) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+                                color = if (notificationHealth.allReadableSettingsReady(mealReminderEnabled)) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
                             )
                             Surface(
                                 color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),

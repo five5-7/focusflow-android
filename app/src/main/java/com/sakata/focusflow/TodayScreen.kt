@@ -430,7 +430,7 @@ import kotlinx.coroutines.withContext
         Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("今日餐点", fontWeight = FontWeight.Bold)
             if (profile.lifeStage == null) {
-                Text("完成“习惯基线”引导后，这里会按你的饭点节奏给出提醒；现在只按你填写的餐点显示。", style = MaterialTheme.typography.bodySmall)
+                Text("饭点提醒已开启；完成“习惯基线”后才能按你的餐点节奏安排提醒。", style = MaterialTheme.typography.bodySmall)
             } else {
                 MealType.entries.forEach { type ->
                     val plan = MealLearning.todayPlan(records, profile, weekday, type)

@@ -4,7 +4,7 @@ package com.sakata.focusflow
 data class FeatureUsageSnapshot(
     val baselineComplete: Boolean = false,
     val mealRecordCount: Int = 0,
-    val mealReminderEnabled: Boolean = false,
+    val mealReminderEnabled: Boolean = ReminderFeatureDefaults.MEAL_REMINDER_ENABLED,
     val goalCount: Int = 0,
     val confirmedCourseCount: Int = 0,
     val pendingCourseCount: Int = 0,

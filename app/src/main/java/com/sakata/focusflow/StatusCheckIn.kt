@@ -3,7 +3,7 @@ package com.sakata.focusflow
 import java.util.Calendar
 
 data class StatusCheckInSettings(
-    val enabled: Boolean = false,
+    val enabled: Boolean = ReminderFeatureDefaults.STATUS_CHECK_IN_ENABLED,
     val promptHour: Int = 14,
     val snoozeMinutes: Int = 60,
     /** 询问时刻是否由系统按签到数据自动采纳（设置页显示“已自动调整”；手动调整后关闭，不再自动）。 */
@@ -15,6 +15,18 @@ data class StatusCheckIn(
     val activity: String,
     val recordedAt: Long = System.currentTimeMillis()
 )
+
+object ReminderFeatureDefaults {
+    const val STATUS_CHECK_IN_ENABLED = false
+    const val MEAL_REMINDER_ENABLED = false
+    const val MEAL_DURATION_TRACKING_ENABLED = false
+    const val FOREGROUND_DETECTION_ENABLED = false
+}
+
+object ReminderRuleCopy {
+    const val BASELINE_SAVED = "生活阶段会影响饭点学习与睡前建议，但不会自动开启饭点提醒；饭点和用餐结束询问需在设置中分别开启。阶段可在今日页顶部切换。"
+    const val SCHEDULED_ACTIVITY = "到点提醒开始可选；结束时始终由你确认。前台应用检测默认关闭，开启后只增强游戏／视频的收尾文案，不会自动结束或写入实际结束时间。"
+}
 
 enum class StatusPromptOutcome(val label: String) {
     NONE("尚未触发"),

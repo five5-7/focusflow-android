@@ -141,7 +141,7 @@ class PrototypeStore(context: Context) {
     }
 
     fun loadStatusCheckInSettings(): StatusCheckInSettings = StatusCheckInSettings(
-        enabled = preferences.getBoolean("status_checkin_enabled", false),
+        enabled = preferences.getBoolean("status_checkin_enabled", ReminderFeatureDefaults.STATUS_CHECK_IN_ENABLED),
         promptHour = preferences.getInt("status_checkin_hour", 14).coerceIn(8, 22),
         snoozeMinutes = preferences.getInt("status_checkin_snooze_minutes", 60).coerceIn(30, 180),
         promptHourAutoAdjusted = preferences.getBoolean("status_checkin_hour_auto", false)
@@ -693,13 +693,13 @@ class PrototypeStore(context: Context) {
         preferences.edit().putString("meal_records", MealRecordsCodec.encode(remaining)).apply()
     }
 
-    fun loadMealReminderEnabled(): Boolean = preferences.getBoolean("meal_reminder_enabled", false)
+    fun loadMealReminderEnabled(): Boolean = preferences.getBoolean("meal_reminder_enabled", ReminderFeatureDefaults.MEAL_REMINDER_ENABLED)
 
     fun saveMealReminderEnabled(enabled: Boolean) {
         preferences.edit().putBoolean("meal_reminder_enabled", enabled).apply()
     }
 
-    fun loadMealDurationTrackingEnabled(): Boolean = preferences.getBoolean("meal_duration_tracking_enabled", false)
+    fun loadMealDurationTrackingEnabled(): Boolean = preferences.getBoolean("meal_duration_tracking_enabled", ReminderFeatureDefaults.MEAL_DURATION_TRACKING_ENABLED)
 
     fun saveMealDurationTrackingEnabled(enabled: Boolean) {
         preferences.edit().putBoolean("meal_duration_tracking_enabled", enabled).apply()
@@ -711,7 +711,7 @@ class PrototypeStore(context: Context) {
         preferences.edit().putBoolean("quick_capture_enabled", enabled).apply()
     }
 
-    fun loadGameDetectionEnabled(): Boolean = preferences.getBoolean("game_detection_enabled", false)
+    fun loadGameDetectionEnabled(): Boolean = preferences.getBoolean("game_detection_enabled", ReminderFeatureDefaults.FOREGROUND_DETECTION_ENABLED)
 
     fun saveGameDetectionEnabled(enabled: Boolean) {
         preferences.edit().putBoolean("game_detection_enabled", enabled).apply()
@@ -768,7 +768,7 @@ class PrototypeStore(context: Context) {
         preferences.edit().putString("game_sessions", GameSessionsCodec.encode(sessions.takeLast(200))).apply()
     }
 
-    /** 更新一条游戏会话（前台检测/通知动作记录实际结束等）。 */
+    /** 更新一条游戏会话（用户在界面或通知按钮确认结束等）。前台检测本身不写结束时间。 */
     fun updateGameSession(id: Long, transform: (GameSessionRecord) -> GameSessionRecord) {
         val sessions = loadGameSessions()
         saveGameSessions(sessions.map { if (it.id == id) transform(it) else it })
