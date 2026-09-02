@@ -40,6 +40,7 @@ object ReminderScheduler {
                         putExtra(ReminderReceiver.EXTRA_ACTIVITY_NAME, session.name)
                         putExtra(ReminderReceiver.EXTRA_SESSION_ID, session.id)
                         putExtra(ReminderReceiver.EXTRA_NEXT_STEP, session.nextStep)
+                        putExtra(ReminderReceiver.EXTRA_ACTIVITY_ENDS_AT, session.endsAt)
                     })
                 }
             } else scheduleActivityReminders(context, session, store.loadActivityReminderSettings())
@@ -103,6 +104,7 @@ object ReminderScheduler {
             putExtra(ReminderReceiver.EXTRA_ACTIVITY_NAME, session.name)
             putExtra(ReminderReceiver.EXTRA_SESSION_ID, session.id)
             putExtra(ReminderReceiver.EXTRA_NEXT_STEP, session.nextStep)
+            putExtra(ReminderReceiver.EXTRA_ACTIVITY_ENDS_AT, session.endsAt)
         }
         val pending = PendingIntent.getBroadcast(
             context,
@@ -136,6 +138,7 @@ object ReminderScheduler {
                 action = ReminderReceiver.ACTION_GAME_START
                 putExtra(ReminderReceiver.EXTRA_GAME_SESSION_ID, session.id)
                 putExtra(ReminderReceiver.EXTRA_GAME_TITLE, session.title)
+                putExtra(ReminderReceiver.EXTRA_GAME_PLANNED_AT, session.plannedStartAt)
             }
             val pending = PendingIntent.getBroadcast(context, gameRequestCode(session.id, 1), startIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
             manager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, session.plannedStartAt, pending)
@@ -145,6 +148,7 @@ object ReminderScheduler {
                 action = ReminderReceiver.ACTION_GAME_END
                 putExtra(ReminderReceiver.EXTRA_GAME_SESSION_ID, session.id)
                 putExtra(ReminderReceiver.EXTRA_GAME_TITLE, session.title)
+                putExtra(ReminderReceiver.EXTRA_GAME_PLANNED_AT, session.plannedEndAt)
             }
             val pending = PendingIntent.getBroadcast(context, gameRequestCode(session.id, 2), endIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
             manager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, session.plannedEndAt, pending)
@@ -152,11 +156,12 @@ object ReminderScheduler {
     }
 
     /** 到点仍在玩时，10 分钟后复查一次。 */
-    fun scheduleGameFollowUp(context: Context, sessionId: Long, title: String, at: Long) {
+    fun scheduleGameFollowUp(context: Context, sessionId: Long, title: String, plannedEndAt: Long, at: Long) {
         val followIntent = Intent(context, ReminderReceiver::class.java).apply {
             action = ReminderReceiver.ACTION_GAME_END_FOLLOWUP
             putExtra(ReminderReceiver.EXTRA_GAME_SESSION_ID, sessionId)
             putExtra(ReminderReceiver.EXTRA_GAME_TITLE, title)
+            putExtra(ReminderReceiver.EXTRA_GAME_PLANNED_AT, plannedEndAt)
         }
         val pending = PendingIntent.getBroadcast(context, gameRequestCode(sessionId, 3), followIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         context.getSystemService(AlarmManager::class.java).setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pending)
@@ -292,6 +297,7 @@ object ReminderScheduler {
         val intent = Intent(context, ReminderReceiver::class.java).apply {
             action = ReminderReceiver.ACTION_MEAL_END_REMINDER
             putExtra(ReminderReceiver.EXTRA_MEAL_TYPE, record.mealType.label)
+            putExtra(ReminderReceiver.EXTRA_MEAL_RECORD_ID, record.id)
         }
         val pending = PendingIntent.getBroadcast(context, mealEndRequestCode(record.mealType), intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         context.getSystemService(AlarmManager::class.java).setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pending)
@@ -346,6 +352,7 @@ object ReminderScheduler {
             action = ReminderReceiver.ACTION_MEAL_REMINDER
             putExtra(ReminderReceiver.EXTRA_MEAL_TYPE, type.label)
             putExtra(ReminderReceiver.EXTRA_MEAL_LEARNED, plan.learned)
+            putExtra(ReminderReceiver.EXTRA_MEAL_PLANNED_AT, triggerAt)
         }
         val pending = PendingIntent.getBroadcast(context, mealRequestCode(type), intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         context.getSystemService(AlarmManager::class.java).setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pending)

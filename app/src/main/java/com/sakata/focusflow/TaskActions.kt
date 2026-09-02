@@ -72,7 +72,7 @@ object TaskActions {
     /** 恢复任务：恢复为任务并记恢复事件（标题去掉「重新安排：」前缀）。 */
     fun resume(items: List<Item>, item: Item): Result =
         Result(
-            items = items.map { if (it.id == item.id) it.copy(kind = "任务", detail = "已恢复；今天有空时再做", scheduledAt = null) else it },
+            items = items.map { if (it.id == item.id) it.copy(kind = "任务", detail = "已恢复；有空时再安排", scheduledAt = null) else it },
             event = TaskRecorder.event(TaskEventType.TASK_RESTORED, item.id, item.title.removePrefix("重新安排："))
         )
 
@@ -96,13 +96,14 @@ object TaskActions {
         item: Item,
         scheduledAt: Long,
         duration: Int,
-        label: String,
+        @Suppress("UNUSED_PARAMETER") label: String,
         priority: String,
         now: Long = System.currentTimeMillis()
     ): DelayedPlan {
         val delayed = item.copy(
-            kind = "任务",
-            detail = "已改期至$label；届时会再次出现",
+            // 空闲活动改期后仍须保留活动身份，才能继续使用对应的开始/收尾提醒链。
+            kind = if (item.kind == "活动" || item.kind == "游戏") item.kind else "任务",
+            detail = TaskScheduleText.rescheduledDetail(scheduledAt, duration),
             scheduledAt = scheduledAt,
             durationMinutes = duration,
             dayOnly = false,
@@ -115,17 +116,17 @@ object TaskActions {
         return DelayedPlan(
             items = items.map { if (it.id == item.id) delayed else it },
             delayedItem = delayed,
-            event = TaskRecorder.event(TaskEventType.TASK_RESCHEDULED, item.id, item.title.removePrefix("重新安排："), scheduledAt = scheduledAt, extra = label),
-            baselinePayload = "${item.title.removePrefix("重新安排：")} → $label"
+            event = TaskRecorder.event(TaskEventType.TASK_RESCHEDULED, item.id, item.title.removePrefix("重新安排："), scheduledAt = scheduledAt, extra = formatDateTime(scheduledAt)),
+            baselinePayload = "${item.title.removePrefix("重新安排：")} → ${formatDateTime(scheduledAt)}"
         )
     }
 
     /** 「安排到具体时刻」的任务外形（快速记录直接安排与收集箱改期共用）。 */
-    fun scheduledShape(item: Item, startsAt: Long, duration: Int, label: String, priority: String): Item =
+    fun scheduledShape(item: Item, startsAt: Long, duration: Int, @Suppress("UNUSED_PARAMETER") label: String, priority: String): Item =
         item.copy(
             title = item.title.removePrefix("重新安排："),
             kind = "任务",
-            detail = "已安排：$label · $duration 分钟；可随时改期",
+            detail = TaskScheduleText.scheduledDetail(startsAt, duration),
             scheduledAt = startsAt,
             durationMinutes = duration,
             dayOnly = false,
@@ -135,11 +136,11 @@ object TaskActions {
         )
 
     /** 「保留弹性范围」的任务外形。 */
-    fun flexibleShape(item: Item, start: Long, end: Long, duration: Int, label: String, priority: String): Item =
+    fun flexibleShape(item: Item, start: Long, end: Long, duration: Int, @Suppress("UNUSED_PARAMETER") label: String, priority: String): Item =
         item.copy(
             title = item.title.removePrefix("重新安排："),
             kind = "任务",
-            detail = "弹性范围：$label · 预计 $duration 分钟；尚未锁定具体时刻",
+            detail = TaskScheduleText.flexibleDetail(start, end, duration),
             scheduledAt = null,
             durationMinutes = duration,
             dayOnly = false,
