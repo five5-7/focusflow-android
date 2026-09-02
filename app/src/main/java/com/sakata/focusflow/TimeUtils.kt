@@ -28,6 +28,9 @@ object TaskScheduleText {
     fun dayOnlyDetail(scheduledAt: Long): String =
         "${formatDate(scheduledAt)}要做 · 尚未安排具体时间"
 
+    fun activityDetail(category: String, scheduledAt: Long, durationMinutes: Int): String =
+        "$category 安排 · ${formatDateTime(scheduledAt)}–${formatDateTime(scheduledAt + durationMinutes.coerceIn(5, 360) * 60_000L)}"
+
     fun canonicalize(item: Item): Item {
         val canonical = when {
             item.scheduledAt != null && item.detail.startsWith("已改期至") && item.detail.endsWith("；届时会再次出现") ->

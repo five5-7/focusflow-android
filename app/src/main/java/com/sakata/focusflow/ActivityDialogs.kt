@@ -181,7 +181,7 @@ internal fun activityTitleLabel(category: String): String = when (category) {
             fun saveAt(at: Long) {
                 val dd = d ?: return
                 val ss = s ?: return
-                val item = Item(title = finalTitle, detail = "${category}安排 · ${weekdayName(ss.weekday)} ${GoalPlanner.displayTime(ss.startMinute)}–${GoalPlanner.displayTime(ss.startMinute + dd)}", kind = "活动", scheduledAt = at, durationMinutes = dd)
+                val item = Item(title = finalTitle, detail = TaskScheduleText.activityDetail(category, at, dd), kind = "活动", scheduledAt = at, durationMinutes = dd)
                 val session = GameSessionRecord(id = item.id, title = finalTitle, category = category, packageName = null, plannedStartAt = at, plannedEndAt = at + dd * 60_000L, remindStart = remindStart)
                 onSave(item, session)
             }

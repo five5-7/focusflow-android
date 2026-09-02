@@ -55,4 +55,11 @@ class TaskScheduleTextTest {
             TaskScheduleText.canonicalize(old).detail
         )
     }
+
+    @Test fun scheduledActivityDetail_containsAbsoluteStartAndEnd() {
+        assertEquals(
+            "学习 安排 · ${formatDateTime(scheduledAt)}–${formatDateTime(scheduledAt + 45 * 60_000L)}",
+            TaskScheduleText.activityDetail("学习", scheduledAt, 45)
+        )
+    }
 }

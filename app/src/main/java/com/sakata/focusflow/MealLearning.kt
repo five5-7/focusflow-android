@@ -118,3 +118,20 @@ object MealLearning {
         return if (sorted.size % 2 == 1) sorted[middle] else (sorted[middle - 1] + sorted[middle]) / 2
     }
 }
+
+/** 饭点广播和通知按钮只对当天、当前仍有效的记录生效。 */
+object MealReminderFreshness {
+    fun promptAllowed(
+        enabled: Boolean,
+        profileReady: Boolean,
+        expectedAt: Long,
+        now: Long,
+        alreadyStarted: Boolean,
+        skippedToday: Boolean
+    ): Boolean = enabled && profileReady && !alreadyStarted && !skippedToday &&
+        (expectedAt <= 0L || MealLearning.sameDay(expectedAt, now))
+
+    fun endAllowed(enabled: Boolean, record: MealRecord?, expectedRecordId: Long, now: Long): Boolean =
+        enabled && record != null && record.endedAt == null && MealLearning.sameDay(record.startedAt, now) &&
+            (expectedRecordId <= 0L || expectedRecordId == record.id)
+}

@@ -134,8 +134,10 @@ class PrototypeStore(context: Context) {
 
     fun loadEnergyLevel(): String = (preferences.getString("energy_level", "正常") ?: "正常").takeIf { it in setOf("偏低", "正常", "充足") } ?: "正常"
 
-    fun saveEnergyLevel(level: String) {
-        preferences.edit().putString("energy_level", level).apply()
+    fun loadEnergyRecordedAt(): Long = preferences.getLong("energy_recorded_at", 0L)
+
+    fun saveEnergyLevel(level: String, recordedAt: Long = System.currentTimeMillis()) {
+        preferences.edit().putString("energy_level", level).putLong("energy_recorded_at", recordedAt).apply()
     }
 
     fun loadStatusCheckInSettings(): StatusCheckInSettings = StatusCheckInSettings(
@@ -163,6 +165,7 @@ class PrototypeStore(context: Context) {
         preferences.edit()
             .putString("status_checkins", StatusCheckInCodec.encode(all))
             .putString("energy_level", checkIn.energy)
+            .putLong("energy_recorded_at", checkIn.recordedAt)
             .apply()
     }
 
@@ -216,6 +219,7 @@ class PrototypeStore(context: Context) {
 
     fun extendSession(id: Long, minutes: Int, reason: String = ""): ActivitySession? {
         val current = loadSessions().firstOrNull { it.id == id } ?: return null
+        if (!current.isOpen()) return null
         if (current.extensionCount >= loadActivityReminderSettings().maxExtensions) return null
         val extended = current.copy(
             endsAt = System.currentTimeMillis() + minutes.coerceIn(1, 180) * 60_000L,
@@ -264,7 +268,7 @@ class PrototypeStore(context: Context) {
     }
 
     fun addReplanItem(activityName: String) {
-        val item = Item(title = "重新安排：$activityName", detail = "刚才跳过了本次活动；可以改期、缩短或暂停", kind = "收集箱")
+        val item = Item(title = "重新安排：$activityName", detail = "由未完成的活动转回；可以改期、缩短或暂停", kind = "收集箱")
         saveItems(listOf(item) + loadItems())
         appendTaskEvent(TaskRecorder.event(TaskEventType.TASK_CREATED, item.id, item.title))
     }

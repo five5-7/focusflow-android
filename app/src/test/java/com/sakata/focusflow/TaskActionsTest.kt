@@ -126,7 +126,7 @@ class TaskActionsTest {
         val result = TaskActions.resume(listOf(a), a)
         val restored = result.items[0]
         assertEquals("任务", restored.kind)
-        assertEquals("已恢复；今天有空时再做", restored.detail)
+        assertEquals("已恢复；有空时再安排", restored.detail)
         assertNull(restored.scheduledAt)
         assertEquals(TaskEventType.TASK_RESTORED, result.event!!.type)
         assertEquals("整理材料", result.event!!.title)

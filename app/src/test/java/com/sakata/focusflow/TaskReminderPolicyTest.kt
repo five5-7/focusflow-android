@@ -1,7 +1,9 @@
 package com.sakata.focusflow
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class TaskReminderPolicyTest {
@@ -70,5 +72,14 @@ class TaskReminderPolicyTest {
         assertEquals(ReminderTestResult.ON_TIME, TaskReminderPolicy.testResult(ReminderTestProbe(expectedAt, expectedAt + 10_000L), expectedAt + 10_000L))
         assertEquals(ReminderTestResult.DELAYED, TaskReminderPolicy.testResult(ReminderTestProbe(expectedAt, expectedAt + 45_000L), expectedAt + 45_000L))
         assertEquals(ReminderTestResult.OVERDUE, TaskReminderPolicy.testResult(ReminderTestProbe(expectedAt, null), expectedAt + 31_000L))
+    }
+
+    @Test
+    fun `notification action only changes the current scheduled occurrence`() {
+        val scheduled = Item(id = 7, title = "任务", detail = "", kind = "任务", scheduledAt = now + 60_000L)
+        assertTrue(TaskReminderActionFreshness.matches(scheduled, scheduled.scheduledAt!!))
+        assertFalse(TaskReminderActionFreshness.matches(scheduled, now + 120_000L))
+        assertFalse(TaskReminderActionFreshness.matches(scheduled.copy(done = true), scheduled.scheduledAt!!))
+        assertFalse(TaskReminderActionFreshness.matches(scheduled.copy(kind = "收集箱", scheduledAt = null), -1L))
     }
 }

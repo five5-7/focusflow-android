@@ -72,7 +72,7 @@ object TaskActions {
     /** 恢复任务：恢复为任务并记恢复事件（标题去掉「重新安排：」前缀）。 */
     fun resume(items: List<Item>, item: Item): Result =
         Result(
-            items = items.map { if (it.id == item.id) it.copy(kind = "任务", detail = "已恢复；今天有空时再做", scheduledAt = null) else it },
+            items = items.map { if (it.id == item.id) it.copy(kind = "任务", detail = "已恢复；有空时再安排", scheduledAt = null) else it },
             event = TaskRecorder.event(TaskEventType.TASK_RESTORED, item.id, item.title.removePrefix("重新安排："))
         )
 

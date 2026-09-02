@@ -40,6 +40,7 @@ object ReminderScheduler {
                         putExtra(ReminderReceiver.EXTRA_ACTIVITY_NAME, session.name)
                         putExtra(ReminderReceiver.EXTRA_SESSION_ID, session.id)
                         putExtra(ReminderReceiver.EXTRA_NEXT_STEP, session.nextStep)
+                        putExtra(ReminderReceiver.EXTRA_ACTIVITY_ENDS_AT, session.endsAt)
                     })
                 }
             } else scheduleActivityReminders(context, session, store.loadActivityReminderSettings())
@@ -103,6 +104,7 @@ object ReminderScheduler {
             putExtra(ReminderReceiver.EXTRA_ACTIVITY_NAME, session.name)
             putExtra(ReminderReceiver.EXTRA_SESSION_ID, session.id)
             putExtra(ReminderReceiver.EXTRA_NEXT_STEP, session.nextStep)
+            putExtra(ReminderReceiver.EXTRA_ACTIVITY_ENDS_AT, session.endsAt)
         }
         val pending = PendingIntent.getBroadcast(
             context,
@@ -295,6 +297,7 @@ object ReminderScheduler {
         val intent = Intent(context, ReminderReceiver::class.java).apply {
             action = ReminderReceiver.ACTION_MEAL_END_REMINDER
             putExtra(ReminderReceiver.EXTRA_MEAL_TYPE, record.mealType.label)
+            putExtra(ReminderReceiver.EXTRA_MEAL_RECORD_ID, record.id)
         }
         val pending = PendingIntent.getBroadcast(context, mealEndRequestCode(record.mealType), intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         context.getSystemService(AlarmManager::class.java).setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pending)
@@ -349,6 +352,7 @@ object ReminderScheduler {
             action = ReminderReceiver.ACTION_MEAL_REMINDER
             putExtra(ReminderReceiver.EXTRA_MEAL_TYPE, type.label)
             putExtra(ReminderReceiver.EXTRA_MEAL_LEARNED, plan.learned)
+            putExtra(ReminderReceiver.EXTRA_MEAL_PLANNED_AT, triggerAt)
         }
         val pending = PendingIntent.getBroadcast(context, mealRequestCode(type), intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         context.getSystemService(AlarmManager::class.java).setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pending)
