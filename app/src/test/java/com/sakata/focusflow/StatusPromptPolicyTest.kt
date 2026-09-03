@@ -23,12 +23,30 @@ class StatusPromptPolicyTest {
         assertEquals(StatusPromptOutcome.READY, decide(enabled, expectedAt = now - 60_000L))
     }
 
+    @Test fun `second prompt is opt in and requires an earlier same day record`() {
+        val second = enabled.copy(secondPromptEnabled = true, secondPromptHour = 19)
+        assertEquals(StatusPromptOutcome.SECOND_NOT_NEEDED, decide(enabled, promptIndex = 2, latestRecordedAt = now - 5 * 60 * 60_000L, todayCount = 1))
+        assertEquals(StatusPromptOutcome.SECOND_NOT_NEEDED, decide(second, promptIndex = 2, latestRecordedAt = null, todayCount = 0))
+    }
+
+    @Test fun `second prompt needs four hour gap and caps the day at two records`() {
+        val second = enabled.copy(secondPromptEnabled = true, secondPromptHour = 19)
+        assertEquals(StatusPromptOutcome.SECOND_NOT_NEEDED, decide(second, promptIndex = 2, latestRecordedAt = now - 3 * 60 * 60_000L, todayCount = 1))
+        assertEquals(StatusPromptOutcome.READY, decide(second, promptIndex = 2, latestRecordedAt = now - 4 * 60 * 60_000L, todayCount = 1))
+        assertEquals(StatusPromptOutcome.ALREADY_RECORDED, decide(second, promptIndex = 2, latestRecordedAt = now - 5 * 60 * 60_000L, todayCount = 2))
+        assertEquals(StatusPromptOutcome.SECOND_NOT_NEEDED, decide(second, promptIndex = 2, latestRecordedAt = now - 5 * 60 * 60_000L, todayCount = 1, secondSlotSamples = 6))
+    }
+
     private fun decide(
         settings: StatusCheckInSettings,
         expectedAt: Long = now,
         notificationsAllowed: Boolean = true,
         muted: Boolean = false,
         quiet: Boolean = false,
-        active: ActivitySession? = null
-    ) = StatusPromptPolicy.decide(settings, expectedAt, now, notificationsAllowed, muted, quiet, active, null)
+        active: ActivitySession? = null,
+        promptIndex: Int = 1,
+        latestRecordedAt: Long? = null,
+        todayCount: Int = 0,
+        secondSlotSamples: Int = 0
+    ) = StatusPromptPolicy.decide(settings, expectedAt, now, notificationsAllowed, muted, quiet, active, latestRecordedAt, promptIndex, todayCount, secondSlotSamples)
 }

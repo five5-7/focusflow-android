@@ -61,40 +61,59 @@ object ReminderScheduler {
             return
         }
         val now = System.currentTimeMillis()
-        val next = nextDailyTriggerAt(now, settings.promptHour)
-        scheduleStatusCheckInAt(context, next)
+        val primary = nextDailyTriggerAt(now, settings.promptHour)
+        scheduleStatusCheckInAt(context, primary, promptIndex = 1)
+        val scheduled = mutableListOf(primary)
+        if (settings.secondPromptEnabled && settings.secondPromptHour >= settings.promptHour + 4) {
+            val secondary = nextDailyTriggerAt(now, settings.secondPromptHour)
+            scheduleStatusCheckInAt(context, secondary, promptIndex = 2)
+            scheduled += secondary
+        }
+        PrototypeStore(context).saveNextStatusPromptAt(scheduled.minOrNull() ?: 0L)
     }
 
     fun snoozeStatusCheckIn(context: Context, minutes: Int) {
         cancelStatusCheckIn(context)
-        scheduleStatusCheckInAt(context, System.currentTimeMillis() + minutes.coerceIn(30, 180) * 60_000L)
+        val triggerAt = System.currentTimeMillis() + minutes.coerceIn(30, 180) * 60_000L
+        PrototypeStore(context).saveNextStatusPromptAt(triggerAt)
+        scheduleStatusCheckInAt(context, triggerAt, requestCode = STATUS_CHECK_IN_SNOOZE_REQUEST_CODE)
     }
 
     fun scheduleStatusCheckInTest(context: Context) {
         cancelStatusCheckIn(context)
-        scheduleStatusCheckInAt(context, System.currentTimeMillis() + 60_000L, test = true)
+        val triggerAt = System.currentTimeMillis() + 60_000L
+        PrototypeStore(context).saveNextStatusPromptAt(triggerAt)
+        scheduleStatusCheckInAt(context, triggerAt, test = true, requestCode = STATUS_CHECK_IN_TEST_REQUEST_CODE)
     }
 
     fun cancelStatusCheckIn(context: Context) {
         val manager = context.getSystemService(AlarmManager::class.java)
-        val pending = PendingIntent.getBroadcast(
-            context,
-            STATUS_CHECK_IN_REQUEST_CODE,
-            Intent(context, ReminderReceiver::class.java).apply { action = ReminderReceiver.ACTION_STATUS_CHECK_IN },
-            PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
-        )
-        pending?.let(manager::cancel)
+        listOf(LEGACY_STATUS_CHECK_IN_REQUEST_CODE, STATUS_CHECK_IN_PRIMARY_REQUEST_CODE, STATUS_CHECK_IN_SECONDARY_REQUEST_CODE, STATUS_CHECK_IN_SNOOZE_REQUEST_CODE, STATUS_CHECK_IN_TEST_REQUEST_CODE).forEach { requestCode ->
+            val pending = PendingIntent.getBroadcast(
+                context,
+                requestCode,
+                Intent(context, ReminderReceiver::class.java).apply { action = ReminderReceiver.ACTION_STATUS_CHECK_IN },
+                PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
+            )
+            pending?.let(manager::cancel)
+        }
     }
 
-    private fun scheduleStatusCheckInAt(context: Context, triggerAt: Long, test: Boolean = false) {
-        PrototypeStore(context).saveNextStatusPromptAt(triggerAt)
+    private fun scheduleStatusCheckInAt(
+        context: Context,
+        triggerAt: Long,
+        test: Boolean = false,
+        promptIndex: Int = 1,
+        requestCode: Int = if (promptIndex >= 2) STATUS_CHECK_IN_SECONDARY_REQUEST_CODE else STATUS_CHECK_IN_PRIMARY_REQUEST_CODE
+    ) {
         val pending = PendingIntent.getBroadcast(
             context,
-            STATUS_CHECK_IN_REQUEST_CODE,
+            requestCode,
             Intent(context, ReminderReceiver::class.java).apply {
                 action = ReminderReceiver.ACTION_STATUS_CHECK_IN
                 putExtra(ReminderReceiver.EXTRA_STATUS_PROMPT_EXPECTED_AT, triggerAt)
                 putExtra(ReminderReceiver.EXTRA_STATUS_PROMPT_TEST, test)
+                putExtra(ReminderReceiver.EXTRA_STATUS_PROMPT_INDEX, promptIndex)
             },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
@@ -521,7 +540,11 @@ object ReminderScheduler {
         pending?.let(manager::cancel)
     }
 
-    private const val STATUS_CHECK_IN_REQUEST_CODE = 2_900_001
+    private const val LEGACY_STATUS_CHECK_IN_REQUEST_CODE = 2_900_001
+    private const val STATUS_CHECK_IN_PRIMARY_REQUEST_CODE = 2_900_010
+    private const val STATUS_CHECK_IN_SECONDARY_REQUEST_CODE = 2_900_011
+    private const val STATUS_CHECK_IN_SNOOZE_REQUEST_CODE = 2_900_012
+    private const val STATUS_CHECK_IN_TEST_REQUEST_CODE = 2_900_013
     private const val WIND_DOWN_REQUEST_CODE = 2_900_003
     private const val DAILY_MEAL_REFRESH_REQUEST_CODE = 3_000_090
     private const val MEAL_PROMPT_GRACE_MINUTES = 45L

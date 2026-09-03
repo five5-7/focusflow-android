@@ -5,6 +5,8 @@ import java.util.Calendar
 data class StatusCheckInSettings(
     val enabled: Boolean = ReminderFeatureDefaults.STATUS_CHECK_IN_ENABLED,
     val promptHour: Int = 14,
+    val secondPromptEnabled: Boolean = false,
+    val secondPromptHour: Int = 19,
     val snoozeMinutes: Int = 60,
     /** 询问时刻是否由系统按签到数据自动采纳（设置页显示“已自动调整”；手动调整后关闭，不再自动）。 */
     val promptHourAutoAdjusted: Boolean = false
@@ -37,6 +39,7 @@ enum class StatusPromptOutcome(val label: String) {
     QUIET_HOURS("免打扰时段已跳过"),
     ACTIVE_SESSION("活动进行中，已延后"),
     ALREADY_RECORDED("今天已经记录"),
+    SECOND_NOT_NEEDED("不需要第二次询问"),
     TOO_LATE("系统送达过晚，已跳过")
 }
 
@@ -49,6 +52,8 @@ data class StatusPromptTrace(
 /** 每日精力询问的唯一决策入口；超时不补发，避免晚上突然出现白天的询问。 */
 object StatusPromptPolicy {
     const val MAX_DELIVERY_DELAY_MILLIS = 2 * 60 * 60_000L
+    const val MIN_SECOND_PROMPT_GAP_MILLIS = 4 * 60 * 60_000L
+    const val SECOND_SLOT_SAMPLE_TARGET = 6
 
     fun decide(
         settings: StatusCheckInSettings,
@@ -58,14 +63,23 @@ object StatusPromptPolicy {
         muted: Boolean,
         quietHoursSuppressed: Boolean,
         activeSession: ActivitySession?,
-        latestRecordedAt: Long?
+        latestRecordedAt: Long?,
+        promptIndex: Int = 1,
+        todayRecordCount: Int = if (latestRecordedAt != null && MealLearning.sameDay(latestRecordedAt, now)) 1 else 0,
+        secondSlotRecentSampleCount: Int = 0
     ): StatusPromptOutcome = when {
         !settings.enabled -> StatusPromptOutcome.DISABLED
+        promptIndex >= 2 && !settings.secondPromptEnabled -> StatusPromptOutcome.SECOND_NOT_NEEDED
+        promptIndex >= 2 && settings.secondPromptHour < settings.promptHour + 4 -> StatusPromptOutcome.SECOND_NOT_NEEDED
+        promptIndex >= 2 && (latestRecordedAt == null || !MealLearning.sameDay(latestRecordedAt, now)) -> StatusPromptOutcome.SECOND_NOT_NEEDED
+        promptIndex >= 2 && todayRecordCount >= 2 -> StatusPromptOutcome.ALREADY_RECORDED
+        promptIndex >= 2 && now - (latestRecordedAt ?: 0L) < MIN_SECOND_PROMPT_GAP_MILLIS -> StatusPromptOutcome.SECOND_NOT_NEEDED
+        promptIndex >= 2 && secondSlotRecentSampleCount >= SECOND_SLOT_SAMPLE_TARGET -> StatusPromptOutcome.SECOND_NOT_NEEDED
         !notificationsAllowed -> StatusPromptOutcome.NOTIFICATIONS_BLOCKED
         muted -> StatusPromptOutcome.MUTED
         quietHoursSuppressed -> StatusPromptOutcome.QUIET_HOURS
         activeSession != null -> StatusPromptOutcome.ACTIVE_SESSION
-        latestRecordedAt != null && MealLearning.sameDay(latestRecordedAt, now) -> StatusPromptOutcome.ALREADY_RECORDED
+        promptIndex <= 1 && todayRecordCount >= 1 -> StatusPromptOutcome.ALREADY_RECORDED
         expectedAt > 0L && now > expectedAt + MAX_DELIVERY_DELAY_MILLIS -> StatusPromptOutcome.TOO_LATE
         else -> StatusPromptOutcome.READY
     }

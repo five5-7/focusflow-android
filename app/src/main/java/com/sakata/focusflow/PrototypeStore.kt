@@ -143,6 +143,8 @@ class PrototypeStore(context: Context) {
     fun loadStatusCheckInSettings(): StatusCheckInSettings = StatusCheckInSettings(
         enabled = preferences.getBoolean("status_checkin_enabled", ReminderFeatureDefaults.STATUS_CHECK_IN_ENABLED),
         promptHour = preferences.getInt("status_checkin_hour", 14).coerceIn(8, 22),
+        secondPromptEnabled = preferences.getBoolean("status_checkin_second_enabled", false),
+        secondPromptHour = preferences.getInt("status_checkin_second_hour", 19).coerceIn(12, 23),
         snoozeMinutes = preferences.getInt("status_checkin_snooze_minutes", 60).coerceIn(30, 180),
         promptHourAutoAdjusted = preferences.getBoolean("status_checkin_hour_auto", false)
     )
@@ -151,6 +153,8 @@ class PrototypeStore(context: Context) {
         preferences.edit()
             .putBoolean("status_checkin_enabled", settings.enabled)
             .putInt("status_checkin_hour", settings.promptHour)
+            .putBoolean("status_checkin_second_enabled", settings.secondPromptEnabled)
+            .putInt("status_checkin_second_hour", settings.secondPromptHour)
             .putInt("status_checkin_snooze_minutes", settings.snoozeMinutes)
             .putBoolean("status_checkin_hour_auto", settings.promptHourAutoAdjusted)
             .apply()
@@ -170,6 +174,47 @@ class PrototypeStore(context: Context) {
     }
 
     fun loadLatestStatusCheckIn(): StatusCheckIn? = loadStatusCheckIns(1).lastOrNull()
+
+    fun loadSleepDataEnabled(): Boolean = preferences.getBoolean("sleep_health_connect_enabled", false)
+
+    fun saveSleepDataEnabled(enabled: Boolean) {
+        preferences.edit().putBoolean("sleep_health_connect_enabled", enabled).apply()
+    }
+
+    fun loadSleepSummary(): SleepSummary? {
+        loadSleepSummaries(1).lastOrNull()?.let { return it }
+        val startAt = preferences.getLong("sleep_summary_start_at", 0L)
+        val endAt = preferences.getLong("sleep_summary_end_at", 0L)
+        val durationMinutes = preferences.getInt("sleep_summary_duration_minutes", 0)
+        if (startAt <= 0L || endAt <= startAt || durationMinutes <= 0) return null
+        return SleepSummary(
+            startAt = startAt,
+            endAt = endAt,
+            durationMinutes = durationMinutes,
+            sourcePackage = preferences.getString("sleep_summary_source", "") ?: "",
+            syncedAt = preferences.getLong("sleep_summary_synced_at", 0L)
+        )
+    }
+
+    fun saveSleepSummary(summary: SleepSummary) {
+        val history = loadSleepSummaries(365)
+            .filterNot { it.endAt == summary.endAt && it.sourcePackage == summary.sourcePackage }
+            .plus(summary)
+            .sortedBy { it.endAt }
+            .takeLast(365)
+        preferences.edit()
+            .putString("sleep_summary_history", SleepSummaryCodec.encode(history))
+            .putLong("sleep_summary_start_at", summary.startAt)
+            .putLong("sleep_summary_end_at", summary.endAt)
+            .putInt("sleep_summary_duration_minutes", summary.durationMinutes)
+            .putString("sleep_summary_source", summary.sourcePackage)
+            .putLong("sleep_summary_synced_at", summary.syncedAt)
+            .apply()
+    }
+
+    fun loadSleepSummaries(limit: Int = 90): List<SleepSummary> =
+        decodeGuarded("sleep_summary_history", emptyList(), { SleepSummaryCodec.decode(it) }, { it.isEmpty() })
+            .takeLast(limit.coerceIn(1, 365))
 
     fun loadNextStatusPromptAt(): Long = preferences.getLong("status_prompt_next_at", 0L)
 

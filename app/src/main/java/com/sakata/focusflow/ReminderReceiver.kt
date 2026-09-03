@@ -24,10 +24,13 @@ class ReminderReceiver : BroadcastReceiver() {
                 val settings = store.loadStatusCheckInSettings()
                 val expectedAt = intent.getLongExtra(EXTRA_STATUS_PROMPT_EXPECTED_AT, -1L)
                 val isTest = intent.getBooleanExtra(EXTRA_STATUS_PROMPT_TEST, false)
+                val promptIndex = intent.getIntExtra(EXTRA_STATUS_PROMPT_INDEX, 1)
                 ReminderScheduler.scheduleDailyStatusCheckIn(context, settings)
                 val now = System.currentTimeMillis()
                 val quiet = store.loadQuietHoursSettings()
                 val active = store.loadLatestActiveSession()
+                val todayRecords = store.loadStatusCheckIns(365).filter { MealLearning.sameDay(it.recordedAt, now) }
+                val recentRecords = store.loadStatusCheckIns(365).filter { it.recordedAt >= now - 30L * 24 * 60 * 60_000L }
                 val outcome = StatusPromptPolicy.decide(
                     settings = settings,
                     expectedAt = expectedAt,
@@ -36,7 +39,10 @@ class ReminderReceiver : BroadcastReceiver() {
                     muted = !isTest && quiet.isMuted(now),
                     quietHoursSuppressed = !isTest && quiet.inQuietHours(now) && quiet.suppressStatusCheckIn,
                     activeSession = active.takeUnless { isTest },
-                    latestRecordedAt = store.loadLatestStatusCheckIn()?.recordedAt.takeUnless { isTest }
+                    latestRecordedAt = store.loadLatestStatusCheckIn()?.recordedAt.takeUnless { isTest },
+                    promptIndex = if (isTest) 1 else promptIndex,
+                    todayRecordCount = if (isTest) 0 else todayRecords.size,
+                    secondSlotRecentSampleCount = if (isTest || promptIndex < 2) 0 else PersonalEnergyModel.slotSampleCount(expectedAt, recentRecords)
                 )
                 store.saveStatusPromptTrace(StatusPromptTrace(outcome, now, expectedAt))
                 if (outcome == StatusPromptOutcome.ACTIVE_SESSION && active != null) {
@@ -709,6 +715,7 @@ class ReminderReceiver : BroadcastReceiver() {
         const val EXTRA_ACTIVITY_ENDS_AT = "activity_ends_at"
         const val EXTRA_STATUS_PROMPT_EXPECTED_AT = "status_prompt_expected_at"
         const val EXTRA_STATUS_PROMPT_TEST = "status_prompt_test"
+        const val EXTRA_STATUS_PROMPT_INDEX = "status_prompt_index"
         const val EXTRA_TASK_ID = "task_id"
         const val EXTRA_TASK_TITLE = "task_title"
         const val EXTRA_TASK_START_AT = "task_start_at"

@@ -282,6 +282,9 @@ internal fun categorizedInstalledApps(context: Context, userCategories: Map<Stri
             onStatusCheckInSettingsChange(statusCheckInSettings.copy(enabled = it))
         }
         if (statusCheckInSettings.enabled) {
+            CollapsibleSettingsDetails(
+                summary = "每日 ${statusCheckInSettings.promptHour}:00${if (statusCheckInSettings.secondPromptEnabled) " · 最多两次" else " · 一次"}"
+            ) {
             Text("每天约 ${statusCheckInSettings.promptHour}:00 询问")
             Text(
                 if (nextStatusPromptAt > 0L) "下一次预计：${formatDateTime(nextStatusPromptAt)}" else "下一次提醒尚未安排",
@@ -298,6 +301,27 @@ internal fun categorizedInstalledApps(context: Context, userCategories: Map<Stri
                 valueRange = 8f..22f,
                 steps = 13
             )
+            SettingSwitch(
+                "可选的晚间第二次询问",
+                "默认关闭；用于补足晚间样本，近 30 天该时段达到 6 次后自动暂停",
+                statusCheckInSettings.secondPromptEnabled
+            ) { enabled ->
+                onStatusCheckInSettingsChange(statusCheckInSettings.copy(secondPromptEnabled = enabled))
+            }
+            if (statusCheckInSettings.secondPromptEnabled) {
+                Text("第二次约 ${statusCheckInSettings.secondPromptHour}:00；每天最多两次", style = MaterialTheme.typography.bodySmall)
+                Slider(
+                    value = statusCheckInSettings.secondPromptHour.toFloat(),
+                    onValueChange = { hour ->
+                        onStatusCheckInSettingsChange(statusCheckInSettings.copy(secondPromptHour = hour.toInt()))
+                    },
+                    valueRange = 16f..22f,
+                    steps = 5
+                )
+                if (statusCheckInSettings.secondPromptHour < statusCheckInSettings.promptHour + 4) {
+                    Text("第二次需比第一次至少晚 4 小时；当前设置不会安排第二次提醒。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                }
+            }
             Text("主动选择稍后时，推迟 ${statusCheckInSettings.snoozeMinutes} 分钟")
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 listOf(30, 60, 120).forEach { minutes ->
@@ -316,7 +340,11 @@ internal fun categorizedInstalledApps(context: Context, userCategories: Map<Stri
                     }
                 }
             }
+            }
         }
+        HorizontalDivider()
+        SettingsSectionHeader("睡眠数据", onHelp = { helpBlock = SettingsBlock.SLEEP_DATA })
+        SleepHealthConnectSettings()
         HorizontalDivider()
         SettingsSectionHeader("睡前减速", onHelp = { helpBlock = SettingsBlock.WIND_DOWN })
         SettingSwitch("睡前减速提醒", "每晚按你填写的睡觉时间提前 40 分钟提醒开始收尾；关闭后不会删除已有记录", windDownEnabled, onWindDownEnabledChange)
@@ -1267,3 +1295,18 @@ internal fun categorizedInstalledApps(context: Context, userCategories: Map<Stri
 }
 
 @Composable internal fun SettingSwitch(title: String, detail: String, checked: Boolean, onChange: (Boolean) -> Unit) { Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) { Column(Modifier.weight(1f)) { Text(title, fontWeight = FontWeight.SemiBold); Text(detail) }; Switch(checked = checked, onCheckedChange = onChange) } }
+
+@Composable
+internal fun CollapsibleSettingsDetails(
+    summary: String,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(summary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+        TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "收起设置" else "展开设置") }
+    }
+    AnimatedVisibility(visible = expanded) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp), content = content)
+    }
+}
