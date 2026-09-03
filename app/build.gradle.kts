@@ -9,7 +9,7 @@ val focusFlowCiRun = System.getenv("GITHUB_RUN_NUMBER") ?: "local"
 
 android {
     namespace = "com.sakata.focusflow"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.sakata.focusflow"
