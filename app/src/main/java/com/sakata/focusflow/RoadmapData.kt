@@ -21,7 +21,7 @@ object RoadmapData {
     /** 已实现版本演进（1.0 → 当前候选），每版本浓缩 1–3 条，与 CHANGELOG.md 对应。 */
     val evolution: List<RoadmapVersion> = listOf(
         RoadmapVersion("7.2.0", listOf(
-            RoadmapEntry("7.2.0-rc.1", "可解释且保守的可选提醒", "精力询问显示下一次与最近结果；饭点和用餐结束询问分别默认关闭；前台检测只增强文案、不自动结束；快速入门、帮助、今日页、通知诊断与后台行为统一语义。待真机提醒验收，不能称为正式版。", RoadmapStatus.CANDIDATE)
+            RoadmapEntry("7.2.0", "可解释且保守的可选提醒", "精力询问显示下一次与最近结果；饭点和用餐结束询问分别默认关闭；前台检测只增强文案、不自动结束；快速入门、帮助、今日页、通知诊断与后台行为统一语义。发布构建候选，建立 Release 前不称为正式版。", RoadmapStatus.CANDIDATE)
         )),
         RoadmapVersion("7.1.4", listOf(
             RoadmapEntry("7.1.4", "活动提醒一致性修复", "六类活动按真实类别提醒且不自动写娱乐状态；旧广播时间核对；改期、移出日程与删除统一同步会话和闹钟。待 CI 与真机提醒验收。", RoadmapStatus.CANDIDATE)
