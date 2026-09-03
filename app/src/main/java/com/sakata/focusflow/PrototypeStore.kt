@@ -134,12 +134,14 @@ class PrototypeStore(context: Context) {
 
     fun loadEnergyLevel(): String = (preferences.getString("energy_level", "正常") ?: "正常").takeIf { it in setOf("偏低", "正常", "充足") } ?: "正常"
 
-    fun saveEnergyLevel(level: String) {
-        preferences.edit().putString("energy_level", level).apply()
+    fun loadEnergyRecordedAt(): Long = preferences.getLong("energy_recorded_at", 0L)
+
+    fun saveEnergyLevel(level: String, recordedAt: Long = System.currentTimeMillis()) {
+        preferences.edit().putString("energy_level", level).putLong("energy_recorded_at", recordedAt).apply()
     }
 
     fun loadStatusCheckInSettings(): StatusCheckInSettings = StatusCheckInSettings(
-        enabled = preferences.getBoolean("status_checkin_enabled", false),
+        enabled = preferences.getBoolean("status_checkin_enabled", ReminderFeatureDefaults.STATUS_CHECK_IN_ENABLED),
         promptHour = preferences.getInt("status_checkin_hour", 14).coerceIn(8, 22),
         snoozeMinutes = preferences.getInt("status_checkin_snooze_minutes", 60).coerceIn(30, 180),
         promptHourAutoAdjusted = preferences.getBoolean("status_checkin_hour_auto", false)
@@ -163,10 +165,35 @@ class PrototypeStore(context: Context) {
         preferences.edit()
             .putString("status_checkins", StatusCheckInCodec.encode(all))
             .putString("energy_level", checkIn.energy)
+            .putLong("energy_recorded_at", checkIn.recordedAt)
             .apply()
     }
 
     fun loadLatestStatusCheckIn(): StatusCheckIn? = loadStatusCheckIns(1).lastOrNull()
+
+    fun loadNextStatusPromptAt(): Long = preferences.getLong("status_prompt_next_at", 0L)
+
+    fun saveNextStatusPromptAt(at: Long) {
+        preferences.edit().putLong("status_prompt_next_at", at.coerceAtLeast(0L)).apply()
+    }
+
+    fun loadStatusPromptTrace(): StatusPromptTrace {
+        val raw = preferences.getString("status_prompt_last_outcome", null)
+        val outcome = StatusPromptOutcome.entries.firstOrNull { it.name == raw } ?: StatusPromptOutcome.NONE
+        return StatusPromptTrace(
+            outcome = outcome,
+            recordedAt = preferences.getLong("status_prompt_last_at", 0L),
+            expectedAt = preferences.getLong("status_prompt_last_expected_at", 0L)
+        )
+    }
+
+    fun saveStatusPromptTrace(trace: StatusPromptTrace) {
+        preferences.edit()
+            .putString("status_prompt_last_outcome", trace.outcome.name)
+            .putLong("status_prompt_last_at", trace.recordedAt)
+            .putLong("status_prompt_last_expected_at", trace.expectedAt)
+            .apply()
+    }
 
     fun loadItems(): List<Item> {
         val raw = preferences.getString("items", null) ?: return emptyList()
@@ -175,8 +202,9 @@ class PrototypeStore(context: Context) {
             StorageProtection.backup(corruptDir, "items", raw)
             return emptyList()
         }
-        if (result.idsNormalized) saveItems(result.items)
-        return result.items
+        val canonicalItems = result.items.map(TaskScheduleText::canonicalize)
+        if (result.idsNormalized || canonicalItems != result.items) saveItems(canonicalItems)
+        return canonicalItems
     }
 
     fun saveItems(items: List<Item>) {
@@ -215,6 +243,7 @@ class PrototypeStore(context: Context) {
 
     fun extendSession(id: Long, minutes: Int, reason: String = ""): ActivitySession? {
         val current = loadSessions().firstOrNull { it.id == id } ?: return null
+        if (!current.isOpen()) return null
         if (current.extensionCount >= loadActivityReminderSettings().maxExtensions) return null
         val extended = current.copy(
             endsAt = System.currentTimeMillis() + minutes.coerceIn(1, 180) * 60_000L,
@@ -263,7 +292,7 @@ class PrototypeStore(context: Context) {
     }
 
     fun addReplanItem(activityName: String) {
-        val item = Item(title = "重新安排：$activityName", detail = "刚才跳过了本次活动；可以改期、缩短或暂停", kind = "收集箱")
+        val item = Item(title = "重新安排：$activityName", detail = "由未完成的活动转回；可以改期、缩短或暂停", kind = "收集箱")
         saveItems(listOf(item) + loadItems())
         appendTaskEvent(TaskRecorder.event(TaskEventType.TASK_CREATED, item.id, item.title))
     }
@@ -664,10 +693,16 @@ class PrototypeStore(context: Context) {
         preferences.edit().putString("meal_records", MealRecordsCodec.encode(remaining)).apply()
     }
 
-    fun loadMealReminderEnabled(): Boolean = preferences.getBoolean("meal_reminder_enabled", true)
+    fun loadMealReminderEnabled(): Boolean = preferences.getBoolean("meal_reminder_enabled", ReminderFeatureDefaults.MEAL_REMINDER_ENABLED)
 
     fun saveMealReminderEnabled(enabled: Boolean) {
         preferences.edit().putBoolean("meal_reminder_enabled", enabled).apply()
+    }
+
+    fun loadMealDurationTrackingEnabled(): Boolean = preferences.getBoolean("meal_duration_tracking_enabled", ReminderFeatureDefaults.MEAL_DURATION_TRACKING_ENABLED)
+
+    fun saveMealDurationTrackingEnabled(enabled: Boolean) {
+        preferences.edit().putBoolean("meal_duration_tracking_enabled", enabled).apply()
     }
 
     fun loadQuickCaptureEnabled(): Boolean = preferences.getBoolean("quick_capture_enabled", false)
@@ -676,10 +711,32 @@ class PrototypeStore(context: Context) {
         preferences.edit().putBoolean("quick_capture_enabled", enabled).apply()
     }
 
-    fun loadGameDetectionEnabled(): Boolean = preferences.getBoolean("game_detection_enabled", false)
+    fun loadGameDetectionEnabled(): Boolean = preferences.getBoolean("game_detection_enabled", ReminderFeatureDefaults.FOREGROUND_DETECTION_ENABLED)
 
     fun saveGameDetectionEnabled(enabled: Boolean) {
         preferences.edit().putBoolean("game_detection_enabled", enabled).apply()
+    }
+
+    fun loadForegroundDetectionTrace(): ForegroundDetectionTrace {
+        val outcome = runCatching {
+            ForegroundDetectionOutcome.valueOf(
+                preferences.getString("foreground_detection_outcome", ForegroundDetectionOutcome.DISABLED.name)
+                    ?: ForegroundDetectionOutcome.DISABLED.name
+            )
+        }.getOrDefault(ForegroundDetectionOutcome.UNKNOWN)
+        return ForegroundDetectionTrace(
+            outcome = outcome,
+            packageName = preferences.getString("foreground_detection_package", "").orEmpty(),
+            recordedAt = preferences.getLong("foreground_detection_at", 0L)
+        )
+    }
+
+    fun saveForegroundDetectionTrace(trace: ForegroundDetectionTrace) {
+        preferences.edit()
+            .putString("foreground_detection_outcome", trace.outcome.name)
+            .putString("foreground_detection_package", trace.packageName)
+            .putLong("foreground_detection_at", trace.recordedAt)
+            .apply()
     }
 
     fun loadVideoAnalysisModel(): String = preferences.getString("video_analysis_model", DEFAULT_VIDEO_ANALYSIS_MODEL) ?: DEFAULT_VIDEO_ANALYSIS_MODEL
@@ -711,7 +768,7 @@ class PrototypeStore(context: Context) {
         preferences.edit().putString("game_sessions", GameSessionsCodec.encode(sessions.takeLast(200))).apply()
     }
 
-    /** 更新一条游戏会话（前台检测/通知动作记录实际结束等）。 */
+    /** 更新一条游戏会话（用户在界面或通知按钮确认结束等）。前台检测本身不写结束时间。 */
     fun updateGameSession(id: Long, transform: (GameSessionRecord) -> GameSessionRecord) {
         val sessions = loadGameSessions()
         saveGameSessions(sessions.map { if (it.id == id) transform(it) else it })

@@ -215,7 +215,7 @@ internal fun categorizedInstalledApps(context: Context, userCategories: Map<Stri
         .sortedBy { it.second }
 }.getOrDefault(emptyList())
 
-@Composable internal fun SettingsScreen(modifier: Modifier, settingsScrollState: ScrollState, themeOption: FocusFlowThemeOption, commuteProfile: CommuteProfile, campusLifeEnabled: Boolean, campusMapPackage: CampusMapPackage?, currentCampusPlace: String?, improvementNotes: List<ImprovementNote>, activitySettings: ActivityReminderSettings, statusCheckInSettings: StatusCheckInSettings, windDownEnabled: Boolean, checkIns: List<StatusCheckIn>, baselineProfile: BaselineProfile, mealRecords: List<MealRecord>, mealReminderEnabled: Boolean, subPage: SettingsSubPage?, onSubPageChange: (SettingsSubPage?) -> Unit, onThemeChange: (FocusFlowThemeOption) -> Unit, customThemeColors: FocusFlowThemeColors, onCustomThemeColorsChange: (FocusFlowThemeColors) -> Unit, themePresets: List<ThemePreset>, onThemePresetsChange: (List<ThemePreset>) -> Unit, onRestoreDefaultTheme: () -> Unit, onCommuteChange: (CommuteProfile) -> Unit, onCampusLifeEnabledChange: (Boolean) -> Unit, onCampusMapPackageChange: (CampusMapPackage?) -> Unit, onCurrentCampusPlaceChange: (String?) -> Unit, allPlaces: List<CampusPlace>, customPlaces: List<CampusPlace>, onCustomPlacesChange: (List<CampusPlace>) -> Unit, hiddenPlaces: Set<String>, onToggleHiddenPlace: (String) -> Unit, amapKey: String, onAmapKeyChange: (String) -> Unit, campusCenter: CampusCenter, onCampusCenterChange: (CampusCenter) -> Unit, tutorialSearch: TutorialSearchSettings, onTutorialSearchSettingsChange: (TutorialSearchSettings) -> Unit, aiWeeklySummary: AiWeeklySummarySettings, onAiWeeklySummarySettingsChange: (AiWeeklySummarySettings) -> Unit, courseVision: CourseVisionSettings, onCourseVisionSettingsChange: (CourseVisionSettings) -> Unit, courseVisionGuideOpen: Boolean, onCourseVisionGuideOpenChange: (Boolean) -> Unit, pendingPlaces: List<String>, onAddPendingPlace: (String) -> Unit, onRemovePendingPlace: (String) -> Unit, onActivitySettingsChange: (ActivityReminderSettings) -> Unit, quietHours: QuietHoursSettings, onQuietHoursChange: (QuietHoursSettings) -> Unit, quickCaptureEnabled: Boolean, onQuickCaptureEnabledChange: (Boolean) -> Unit, onStatusCheckInSettingsChange: (StatusCheckInSettings) -> Unit, onWindDownEnabledChange: (Boolean) -> Unit, onAddImprovement: () -> Unit, onOpenBaselineEditor: () -> Unit, onOpenBaselineEvents: () -> Unit, onResetBaseline: () -> Unit, onOpenFeatureIntro: () -> Unit, baselineVariants: List<BaselineProfile>, onSaveBaselineVariant: (String) -> Unit, onSwitchBaselineVariant: (BaselineProfile) -> Unit, onDeleteBaselineVariant: (BaselineProfile) -> Unit, onDayGroupsChange: (List<DayGroup>) -> Unit, baselineVariantNameOpen: Boolean, onBaselineVariantNameOpenChange: (Boolean) -> Unit, onMealReminderEnabledChange: (Boolean) -> Unit, onOpenMealRecords: () -> Unit, recordBaselineEvent: (BaselineEventType, String) -> Unit, gameDetectionEnabled: Boolean, onGameDetectionEnabledChange: (Boolean) -> Unit, appCategories: Map<String, String>, onAppCategoriesChange: (Map<String, String>) -> Unit, hiddenApps: Set<String>, onToggleHiddenApp: (String) -> Unit, videoAnalysisModel: String, onVideoAnalysisModelChange: (String) -> Unit, darkMode: Boolean, onDarkModeChange: (Boolean) -> Unit, onGlobalLoadingChange: (Boolean) -> Unit) {
+@Composable internal fun SettingsScreen(modifier: Modifier, settingsScrollState: ScrollState, themeOption: FocusFlowThemeOption, commuteProfile: CommuteProfile, campusLifeEnabled: Boolean, campusMapPackage: CampusMapPackage?, currentCampusPlace: String?, improvementNotes: List<ImprovementNote>, activitySettings: ActivityReminderSettings, statusCheckInSettings: StatusCheckInSettings, statusPromptTrace: StatusPromptTrace, nextStatusPromptAt: Long, onStatusPromptTest: () -> Unit, windDownEnabled: Boolean, checkIns: List<StatusCheckIn>, baselineProfile: BaselineProfile, mealRecords: List<MealRecord>, mealReminderEnabled: Boolean, mealDurationTrackingEnabled: Boolean, onMealDurationTrackingEnabledChange: (Boolean) -> Unit, foregroundDetectionTrace: ForegroundDetectionTrace, subPage: SettingsSubPage?, onSubPageChange: (SettingsSubPage?) -> Unit, onThemeChange: (FocusFlowThemeOption) -> Unit, customThemeColors: FocusFlowThemeColors, onCustomThemeColorsChange: (FocusFlowThemeColors) -> Unit, themePresets: List<ThemePreset>, onThemePresetsChange: (List<ThemePreset>) -> Unit, onRestoreDefaultTheme: () -> Unit, onCommuteChange: (CommuteProfile) -> Unit, onCampusLifeEnabledChange: (Boolean) -> Unit, onCampusMapPackageChange: (CampusMapPackage?) -> Unit, onCurrentCampusPlaceChange: (String?) -> Unit, allPlaces: List<CampusPlace>, customPlaces: List<CampusPlace>, onCustomPlacesChange: (List<CampusPlace>) -> Unit, hiddenPlaces: Set<String>, onToggleHiddenPlace: (String) -> Unit, amapKey: String, onAmapKeyChange: (String) -> Unit, campusCenter: CampusCenter, onCampusCenterChange: (CampusCenter) -> Unit, tutorialSearch: TutorialSearchSettings, onTutorialSearchSettingsChange: (TutorialSearchSettings) -> Unit, aiWeeklySummary: AiWeeklySummarySettings, onAiWeeklySummarySettingsChange: (AiWeeklySummarySettings) -> Unit, courseVision: CourseVisionSettings, onCourseVisionSettingsChange: (CourseVisionSettings) -> Unit, courseVisionGuideOpen: Boolean, onCourseVisionGuideOpenChange: (Boolean) -> Unit, pendingPlaces: List<String>, onAddPendingPlace: (String) -> Unit, onRemovePendingPlace: (String) -> Unit, onActivitySettingsChange: (ActivityReminderSettings) -> Unit, quietHours: QuietHoursSettings, onQuietHoursChange: (QuietHoursSettings) -> Unit, quickCaptureEnabled: Boolean, onQuickCaptureEnabledChange: (Boolean) -> Unit, onStatusCheckInSettingsChange: (StatusCheckInSettings) -> Unit, onWindDownEnabledChange: (Boolean) -> Unit, onAddImprovement: () -> Unit, onOpenBaselineEditor: () -> Unit, onOpenBaselineEvents: () -> Unit, onResetBaseline: () -> Unit, onOpenFeatureIntro: () -> Unit, baselineVariants: List<BaselineProfile>, onSaveBaselineVariant: (String) -> Unit, onSwitchBaselineVariant: (BaselineProfile) -> Unit, onDeleteBaselineVariant: (BaselineProfile) -> Unit, onDayGroupsChange: (List<DayGroup>) -> Unit, baselineVariantNameOpen: Boolean, onBaselineVariantNameOpenChange: (Boolean) -> Unit, onMealReminderEnabledChange: (Boolean) -> Unit, onOpenMealRecords: () -> Unit, recordBaselineEvent: (BaselineEventType, String) -> Unit, gameDetectionEnabled: Boolean, onGameDetectionEnabledChange: (Boolean) -> Unit, appCategories: Map<String, String>, onAppCategoriesChange: (Map<String, String>) -> Unit, hiddenApps: Set<String>, onToggleHiddenApp: (String) -> Unit, videoAnalysisModel: String, onVideoAnalysisModelChange: (String) -> Unit, darkMode: Boolean, onDarkModeChange: (Boolean) -> Unit, onGlobalLoadingChange: (Boolean) -> Unit) {
     val context = LocalContext.current
     val settingsStore = remember(context) { PrototypeStore(context) }
     val settingsLifecycleOwner = LocalLifecycleOwner.current
@@ -267,7 +267,7 @@ internal fun categorizedInstalledApps(context: Context, userCategories: Map<Stri
         PlanHubItem(
             "日程与活动提醒",
             when {
-                !settingsNotificationHealth.allReadableSettingsReady -> "通知或横幅待检查"
+                !settingsNotificationHealth.allReadableSettingsReady(mealReminderEnabled) -> "通知或横幅待检查"
                 !activitySettings.notificationsEnabled -> "活动提醒已关闭"
                 else -> "日程提前 ${activitySettings.scheduleAdvanceMinutes} 分钟"
             }
@@ -283,15 +283,21 @@ internal fun categorizedInstalledApps(context: Context, userCategories: Map<Stri
         }
         if (statusCheckInSettings.enabled) {
             Text("每天约 ${statusCheckInSettings.promptHour}:00 询问")
+            Text(
+                if (nextStatusPromptAt > 0L) "下一次预计：${formatDateTime(nextStatusPromptAt)}" else "下一次提醒尚未安排",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            if (statusPromptTrace.recordedAt > 0L) {
+                Text("最近结果：${statusPromptTrace.outcome.label} · ${formatDateTime(statusPromptTrace.recordedAt)}", style = MaterialTheme.typography.bodySmall)
+            }
+            OutlinedButton(onClick = onStatusPromptTest) { Text("一分钟测试精力询问") }
             Slider(
                 value = statusCheckInSettings.promptHour.toFloat(),
                 onValueChange = { onStatusCheckInSettingsChange(statusCheckInSettings.copy(promptHour = it.toInt(), promptHourAutoAdjusted = false)) },
                 valueRange = 8f..22f,
                 steps = 13
             )
-            if (statusCheckInSettings.promptHourAutoAdjusted) {
-                Text("已自动调整：根据你的 ${checkIns.size} 次签到设为 ${statusCheckInSettings.promptHour}:00（手动调整后不再自动）", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-            }
             Text("主动选择稍后时，推迟 ${statusCheckInSettings.snoozeMinutes} 分钟")
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 listOf(30, 60, 120).forEach { minutes ->
@@ -394,8 +400,11 @@ internal fun categorizedInstalledApps(context: Context, userCategories: Map<Stri
             }
         }
         HorizontalDivider()
-        SettingsSectionHeader("饭点学习", onHelp = { helpBlock = SettingsBlock.MEAL_LEARNING })
-        SettingSwitch("饭点提醒", "接近预测饭点时询问是否开始吃饭；只有你确认的时间才会用于学习", mealReminderEnabled, onMealReminderEnabledChange)
+        SettingsSectionHeader("吃饭提醒", onHelp = { helpBlock = SettingsBlock.MEAL_LEARNING })
+        SettingSwitch("饭点提醒", "默认关闭；开启后在预计饭点提醒你好好吃饭，只有你确认开始才会记录", mealReminderEnabled, onMealReminderEnabledChange)
+        if (mealReminderEnabled) {
+            SettingSwitch("用餐结束询问", "可选且默认关闭；用于记录用餐时长，关闭后不再追问“吃完了吗”", mealDurationTrackingEnabled, onMealDurationTrackingEnabledChange)
+        }
         if (baselineProfile.lifeStage == null) {
             Text("完成习惯基线引导后，这里会按“生活阶段 × 星期 × 餐次”展示学到的饭点；数据不足时只用宽松提醒，不会假装精确预测。", style = MaterialTheme.typography.bodySmall)
         } else {
@@ -617,10 +626,11 @@ internal fun categorizedInstalledApps(context: Context, userCategories: Map<Stri
                             TextButton(onClick = { context.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS, Uri.parse("package:${context.packageName}"))) }) { Text("已拒绝？去系统设置开启") }
                         } else {
                             Text(
-                                if (notificationHealth.allReadableSettingsReady) "Android 可读取的通知与两个渠道均已开启。"
-                                else NotificationHealthPolicy.startupMessage(notificationHealth) ?: "通知设置需要检查。",
+                                if (notificationHealth.allReadableSettingsReady(mealReminderEnabled)) {
+                                    if (mealReminderEnabled) "Android 可读取的通知、日程与饭点渠道均已开启。" else "Android 可读取的通知与日程渠道已开启；饭点提醒当前关闭。"
+                                } else NotificationHealthPolicy.startupMessage(notificationHealth, mealReminderEnabled) ?: "通知设置需要检查。",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = if (notificationHealth.allReadableSettingsReady) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+                                color = if (notificationHealth.allReadableSettingsReady(mealReminderEnabled)) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
                             )
                             Surface(
                                 color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
@@ -1034,7 +1044,7 @@ internal fun categorizedInstalledApps(context: Context, userCategories: Map<Stri
                         }
                         SettingSwitch(
                             "前台应用检测",
-                            "开启后，游戏安排到点时识别前台应用：还在玩游戏类应用就提醒收尾；未授权时只提醒不检测",
+                            "可选且默认关闭；只增强游戏／视频到点提醒文案，无法识别时仍正常提醒，绝不自动结束活动",
                             gameDetectionEnabled,
                             onGameDetectionEnabledChange
                         )
@@ -1048,8 +1058,16 @@ internal fun categorizedInstalledApps(context: Context, userCategories: Map<Stri
                                     }
                                 }
                             } else {
-                                Text("已授予使用情况访问；到点会识别前台应用是否属于游戏类。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                                Text("已授予使用情况访问；判断仅在本机完成。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                             }
+                        }
+                        if (foregroundDetectionTrace.recordedAt > 0L) {
+                            Text(
+                                "最近检测：${foregroundDetectionTrace.outcome.label} · ${formatDateTime(foregroundDetectionTrace.recordedAt)}" +
+                                    foregroundDetectionTrace.packageName.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty(),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
                         HorizontalDivider()
                         Text("应用分类", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)

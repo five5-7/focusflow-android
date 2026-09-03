@@ -131,9 +131,9 @@ internal fun activityTitleLabel(category: String): String = when (category) {
         onDismissRequest = onDismiss,
         title = { Text("安排空闲活动") },
         text = { ScrollableDialogBox(maxHeight = 480.dp, spacing = 8.dp) {
-            Text("到点提醒开始（可选）；结束时按类别检测前台应用（游戏/视频）或直接提醒收尾，并记录实际结束与超时。", style = MaterialTheme.typography.bodySmall)
+            Text(ReminderRuleCopy.SCHEDULED_ACTIVITY, style = MaterialTheme.typography.bodySmall)
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
-                listOf("游戏", "视频", "学习", "休息", "运动", "自定义").forEach { c ->
+                ScheduledActivityKind.selectableValues.forEach { c ->
                     FilterChip(selected = category == c, onClick = { category = c }, label = { Text(c) })
                 }
             }
@@ -181,7 +181,7 @@ internal fun activityTitleLabel(category: String): String = when (category) {
             fun saveAt(at: Long) {
                 val dd = d ?: return
                 val ss = s ?: return
-                val item = Item(title = finalTitle, detail = "${category}安排 · ${weekdayName(ss.weekday)} ${GoalPlanner.displayTime(ss.startMinute)}–${GoalPlanner.displayTime(ss.startMinute + dd)}", kind = "活动", scheduledAt = at, durationMinutes = dd)
+                val item = Item(title = finalTitle, detail = TaskScheduleText.activityDetail(category, at, dd), kind = "活动", scheduledAt = at, durationMinutes = dd)
                 val session = GameSessionRecord(id = item.id, title = finalTitle, category = category, packageName = null, plannedStartAt = at, plannedEndAt = at + dd * 60_000L, remindStart = remindStart)
                 onSave(item, session)
             }

@@ -162,7 +162,7 @@ object GoalPlanner {
                 val target = GoalPlanner.nextOccurrence(suggestion.weekday, suggestion.startMinute, nowMillis)
                 // 与之前已排的目标任务也避让，防止同一次自动排内重复占用同一时段。
                 if (slotFree(target, goal.durationMinutes, courses, items + newItems, profile)) {
-                    newItems += Item(title = goal.title, detail = goalTaskDetail(goal, suggestion.weekday, suggestion.startMinute), kind = "任务", scheduledAt = target, goalId = goal.id, durationMinutes = goal.durationMinutes)
+                    newItems += Item(title = goal.title, detail = goalTaskDetail(goal, target), kind = "任务", scheduledAt = target, goalId = goal.id, durationMinutes = goal.durationMinutes)
                     learnedSlots += suggestion.weekday to suggestion.startMinute / 60
                     scheduled++
                 }

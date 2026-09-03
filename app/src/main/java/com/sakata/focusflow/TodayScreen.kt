@@ -79,6 +79,7 @@ import kotlinx.coroutines.withContext
     inboxOpen: Boolean,
     onInboxOpenChange: (Boolean) -> Unit,
     energyLevel: String,
+    energyRecordedAt: Long,
     onEnergyLevelChange: (String) -> Unit,
     campusLifeEnabled: Boolean,
     onCampusLifeEnabledChange: (Boolean) -> Unit,
@@ -114,6 +115,7 @@ import kotlinx.coroutines.withContext
     mealRecords: List<MealRecord>,
     mealReminderEnabled: Boolean,
     statusCheckInEnabled: Boolean,
+    onEnableStatusCheckIn: () -> Unit,
     windDownEnabled: Boolean,
     baselineProfile: BaselineProfile,
     courses: List<Course>,
@@ -130,7 +132,9 @@ import kotlinx.coroutines.withContext
         }
     }
     val inboxItems = items.filter { !it.done && it.kind == "收集箱" }
-    val nextSuggestion = NextActionPlanner.recommend(items, nextCommitment, energyLevel, goals, feedback, now, courses, commuteProfile)
+    val energyIsCurrent = StatusFreshnessPolicy.isCurrent(energyRecordedAt, now)
+    val planningEnergy = if (energyIsCurrent) energyLevel else "正常"
+    val nextSuggestion = NextActionPlanner.recommend(items, nextCommitment, planningEnergy, goals, feedback, now, courses, commuteProfile)
     val dailySummary = DailyLoopStats.summarize(items, now, taskEvents)
     // 6.9：已推荐去执行的任务不再重复出现在「需要恢复的安排」——推荐/恢复双入口去重（只影响 UI 展示）。
     val recoveryCandidates = RecoveryInsights.candidates(items, now).filter { it.item.id != nextSuggestion?.item?.id }
@@ -193,7 +197,7 @@ import kotlinx.coroutines.withContext
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text("现在做什么", fontWeight = FontWeight.Bold)
-                            Text(latestStatusCheckIn?.let { "最近记录：${it.activity} · ${formatDateTime(it.recordedAt)}" } ?: "还没有记录正在进行的活动", style = MaterialTheme.typography.bodySmall)
+                            Text(latestStatusCheckIn?.let { "上次记录：${it.activity} · ${formatDateTime(it.recordedAt)}" } ?: "还没有记录正在进行的活动", style = MaterialTheme.typography.bodySmall)
                         }
                         TextButton(onClick = onRecordActivity) { Text("记录") }
                     }
@@ -281,11 +285,16 @@ import kotlinx.coroutines.withContext
         }
         if (visibility.energy) Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))) {
             Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text("当前精力", fontWeight = FontWeight.Bold)
+                Text(if (energyIsCurrent) "当前精力" else "精力（尚未更新）", fontWeight = FontWeight.Bold)
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     listOf("偏低", "正常", "充足").forEach { level ->
-                        FilterChip(selected = energyLevel == level, onClick = { onEnergyLevelChange(level) }, label = { Text(level) })
+                        FilterChip(selected = energyIsCurrent && energyLevel == level, onClick = { onEnergyLevelChange(level) }, label = { Text(level) })
                     }
+                }
+                if (!energyIsCurrent && energyRecordedAt > 0L) Text("上次记录：${formatDateTime(energyRecordedAt)}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (!statusCheckInEnabled) {
+                    Text("每日精力询问尚未开启；你仍可随时手动选择。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    TextButton(onClick = onEnableStatusCheckIn) { Text("开启每日询问") }
                 }
                 Text("只影响弹性任务的推荐顺序，不会移动固定日程。", style = MaterialTheme.typography.bodySmall)
             }
@@ -421,7 +430,7 @@ import kotlinx.coroutines.withContext
         Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("今日餐点", fontWeight = FontWeight.Bold)
             if (profile.lifeStage == null) {
-                Text("完成“习惯基线”引导后，这里会按你的饭点节奏给出提醒；现在只按你填写的餐点显示。", style = MaterialTheme.typography.bodySmall)
+                Text("饭点提醒已开启；完成“习惯基线”后才能按你的餐点节奏安排提醒。", style = MaterialTheme.typography.bodySmall)
             } else {
                 MealType.entries.forEach { type ->
                     val plan = MealLearning.todayPlan(records, profile, weekday, type)

@@ -3,6 +3,7 @@
 ## Read first
 
 - `README.md`
+- `VERSIONING.md`
 - `docs/6.2-structure-plan.md` when working on 6.2
 - `CHANGELOG.md`
 - `app/src/main/java/com/sakata/focusflow/RoadmapData.kt`
@@ -29,7 +30,9 @@
 - Use one feature branch per version or bounded phase; do not work directly on `main`.
 - Keep structure-only changes separate from behavior changes.
 - Update `CHANGELOG.md`, `README.md`, and `RoadmapData.kt` only when a release scope is actually implemented.
-- FocusFlow uses 0.1 product-version increments, with patch versions for release fixes. The current release candidate is `7.1.3` / versionCode 478. Device acceptance is required before labeling it stable.
+- Follow `VERSIONING.md`; a CI `run-N` is not a product version and a successful build is not a release.
+- The current release-build candidate is `7.2.0` / versionCode 482. The current official release remains `7.1.3`; a successful build does not make 7.2.0 released.
+- Do not allocate a new version merely to record an idea; keep uncommitted ideas in the future-candidate section until a coherent scope is frozen.
 - Do not merge a pull request without explicit user confirmation.
 
 ## Verification
