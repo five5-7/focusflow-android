@@ -21,7 +21,7 @@ object RoadmapData {
     /** 已实现版本演进（1.0 → 当前候选），每版本浓缩 1–3 条，与 CHANGELOG.md 对应。 */
     val evolution: List<RoadmapVersion> = listOf(
         RoadmapVersion("7.2.0", listOf(
-            RoadmapEntry("7.2.0", "可解释且保守的可选提醒", "精力询问显示下一次与最近结果；饭点和用餐结束询问分别默认关闭；前台检测只增强文案、不自动结束；快速入门、帮助、今日页、通知诊断与后台行为统一语义。待真机提醒验收。", RoadmapStatus.CANDIDATE)
+            RoadmapEntry("7.2.0-rc.1", "可解释且保守的可选提醒", "精力询问显示下一次与最近结果；饭点和用餐结束询问分别默认关闭；前台检测只增强文案、不自动结束；快速入门、帮助、今日页、通知诊断与后台行为统一语义。待真机提醒验收，不能称为正式版。", RoadmapStatus.CANDIDATE)
         )),
         RoadmapVersion("7.1.4", listOf(
             RoadmapEntry("7.1.4", "活动提醒一致性修复", "六类活动按真实类别提醒且不自动写娱乐状态；旧广播时间核对；改期、移出日程与删除统一同步会话和闹钟。待 CI 与真机提醒验收。", RoadmapStatus.CANDIDATE)
@@ -371,7 +371,7 @@ fun RoadmapSubpageContent() {
                 Text("每次功能更新递增 0.1；更新记录见版本演进。", style = MaterialTheme.typography.bodySmall)
             }
         }
-        Text("版本演进（1.0 → 7.1.1 候选）", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Text("版本演进（1.0 → 7.2.0 候选）", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         RoadmapData.evolution.forEach { version ->
             Text(version.version, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
             version.entries.forEach { entry ->
