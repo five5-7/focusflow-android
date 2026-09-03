@@ -40,7 +40,7 @@ class HealthConnectSleepDataSource(private val context: Context) : SleepDataSour
     override val readPermissions: Set<String> = setOf(HealthPermission.getReadPermission(SleepSessionRecord::class))
 
     override fun availability(): SleepSourceAvailability = when (
-        HealthConnectClient.getSdkStatus(context, HealthConnectClient.DEFAULT_PROVIDER_PACKAGE_NAME)
+        HealthConnectClient.getSdkStatus(context, PROVIDER_PACKAGE_NAME)
     ) {
         HealthConnectClient.SDK_AVAILABLE -> SleepSourceAvailability.AVAILABLE
         HealthConnectClient.SDK_UNAVAILABLE_PROVIDER_UPDATE_REQUIRED -> SleepSourceAvailability.UPDATE_REQUIRED
@@ -79,6 +79,7 @@ class HealthConnectSleepDataSource(private val context: Context) : SleepDataSour
 
     companion object {
         const val MIN_MAIN_SLEEP_MINUTES = 3 * 60L
+        const val PROVIDER_PACKAGE_NAME = "com.google.android.apps.healthdata"
         val permissionContract get() = PermissionController.createRequestPermissionResultContract()
     }
 }
