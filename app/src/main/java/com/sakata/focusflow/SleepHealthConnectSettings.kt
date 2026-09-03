@@ -1,5 +1,7 @@
 package com.sakata.focusflow
 
+import android.content.Intent
+import androidx.health.connect.client.HealthConnectClient
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -89,6 +91,11 @@ internal fun SleepHealthConnectSettings() {
                     OutlinedButton(onClick = { permissionLauncher.launch(source.readPermissions) }) { Text("授权读取睡眠") }
                 } else if (permissionGranted) {
                     OutlinedButton(onClick = { refreshToken++ }) { Text("重新检测数据来源") }
+                }
+                if (source.availability() == SleepSourceAvailability.AVAILABLE) {
+                    OutlinedButton(onClick = {
+                        runCatching { context.startActivity(Intent(HealthConnectClient.ACTION_HEALTH_CONNECT_SETTINGS)) }
+                    }) { Text("打开 Health Connect 设置") }
                 }
                 summary?.let {
                     Text("最近摘要：${it.durationMinutes / 60} 小时 ${it.durationMinutes % 60} 分钟 · ${formatDateTime(it.endAt)}结束")
