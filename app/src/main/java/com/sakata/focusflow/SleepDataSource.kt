@@ -18,13 +18,30 @@ data class SleepSummary(
     val syncedAt: Long
 )
 
+data class SleepSyncInspection(
+    val recentRecordCount: Int,
+    val sourcePackages: Set<String>,
+    val latestMainSleep: SleepSummary?
+)
+
 enum class SleepSourceAvailability { AVAILABLE, UPDATE_REQUIRED, UNAVAILABLE }
 
 interface SleepDataSource {
     val readPermissions: Set<String>
     fun availability(): SleepSourceAvailability
     suspend fun hasReadPermission(): Boolean
+    suspend fun inspectRecentSleep(now: Long = System.currentTimeMillis()): SleepSyncInspection
     suspend fun readLastMainSleep(now: Long = System.currentTimeMillis()): SleepSummary?
+}
+
+object SleepSourceLabels {
+    private val knownPackages = mapOf(
+        "com.xiaomi.wearable" to "小米运动健康",
+        "com.xiaomi.hm.health" to "Zepp Life",
+        "com.huawei.health" to "华为运动健康"
+    )
+
+    fun fallback(packageName: String): String = knownPackages[packageName] ?: packageName
 }
 
 object SleepSummaryPolicy {
@@ -52,17 +69,20 @@ class HealthConnectSleepDataSource(private val context: Context) : SleepDataSour
         return client().permissionController.getGrantedPermissions().containsAll(readPermissions)
     }
 
-    override suspend fun readLastMainSleep(now: Long): SleepSummary? {
-        if (!hasReadPermission()) return null
+    override suspend fun inspectRecentSleep(now: Long): SleepSyncInspection {
+        if (!hasReadPermission()) return SleepSyncInspection(0, emptySet(), null)
         val end = Instant.ofEpochMilli(now)
         val response = client().readRecords(
             ReadRecordsRequest(
                 recordType = SleepSessionRecord::class,
-                timeRangeFilter = TimeRangeFilter.between(end.minus(Duration.ofHours(36)), end)
+                timeRangeFilter = TimeRangeFilter.between(end.minus(Duration.ofDays(RECENT_INSPECTION_DAYS)), end)
             )
         )
-        return response.records
-            .filter { Duration.between(it.startTime, it.endTime).toMinutes() >= MIN_MAIN_SLEEP_MINUTES }
+        val latest = response.records
+            .filter {
+                Duration.between(it.startTime, it.endTime).toMinutes() >= MIN_MAIN_SLEEP_MINUTES &&
+                    Duration.between(it.endTime, end).toHours() <= MAIN_SLEEP_MAX_AGE_HOURS
+            }
             .maxByOrNull { it.endTime }
             ?.let { record ->
                 SleepSummary(
@@ -73,12 +93,21 @@ class HealthConnectSleepDataSource(private val context: Context) : SleepDataSour
                     syncedAt = now
                 )
             }
+        return SleepSyncInspection(
+            recentRecordCount = response.records.size,
+            sourcePackages = response.records.map { it.metadata.dataOrigin.packageName }.filter { it.isNotBlank() }.toSet(),
+            latestMainSleep = latest
+        )
     }
+
+    override suspend fun readLastMainSleep(now: Long): SleepSummary? = inspectRecentSleep(now).latestMainSleep
 
     private fun client(): HealthConnectClient = HealthConnectClient.getOrCreate(context)
 
     companion object {
         const val MIN_MAIN_SLEEP_MINUTES = 3 * 60L
+        const val RECENT_INSPECTION_DAYS = 7L
+        const val MAIN_SLEEP_MAX_AGE_HOURS = 36L
         const val PROVIDER_PACKAGE_NAME = "com.google.android.apps.healthdata"
         val permissionContract get() = PermissionController.createRequestPermissionResultContract()
     }
