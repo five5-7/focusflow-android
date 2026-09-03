@@ -1,5 +1,11 @@
 # FocusFlow 版本记录
 
+## 7.3.0-rc.3（Health Connect 授权入口修复，候选）
+
+- 补齐 Health Connect 权限用途说明 Activity 以及 Android 14+ 系统权限详情入口，修复系统设置无法打开 FocusFlow 健康权限页面的问题。
+- 设置中增加“打开 Health Connect 设置”，并提供只读睡眠、本机处理和不自动修改日程的完整用途说明。
+- 新增 Manifest 契约测试，防止后续再次遗漏健康权限入口。版本号 485 / 7.3.0-rc.3。
+
 ## 7.3.0-rc.2（睡眠来源诊断，候选）
 
 - 授权后检查最近 7 天 Health Connect 睡眠记录，并显示记录的真实来源应用。
