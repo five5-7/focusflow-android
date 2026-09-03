@@ -21,7 +21,7 @@ object RoadmapData {
     /** 已实现版本演进（1.0 → 当前候选），每版本浓缩 1–3 条，与 CHANGELOG.md 对应。 */
     val evolution: List<RoadmapVersion> = listOf(
         RoadmapVersion("7.3.0", listOf(
-            RoadmapEntry("7.3.0-rc.1", "个人精力情境模型", "Health Connect 只读睡眠摘要；按上午、下午、晚上建立个人基线；只在同一时段和足够样本内比较睡眠关联；第二次询问按样本自动暂停；相关设置支持折叠。", RoadmapStatus.CANDIDATE)
+            RoadmapEntry("7.3.0-rc.2", "个人精力情境模型", "Health Connect 只读睡眠摘要并诊断真实数据来源；按上午、下午、晚上建立个人基线；只在同一时段和足够样本内比较睡眠关联；第二次询问按样本自动暂停；相关设置支持折叠。", RoadmapStatus.CANDIDATE)
         )),
         RoadmapVersion("7.2.0", listOf(
             RoadmapEntry("7.2.0", "可解释且保守的可选提醒", "精力询问显示下一次与最近结果；饭点和用餐结束询问分别默认关闭；前台检测只增强文案、不自动结束；快速入门、帮助、今日页、通知诊断与后台行为统一语义。发布构建候选，建立 Release 前不称为正式版。", RoadmapStatus.CANDIDATE)
