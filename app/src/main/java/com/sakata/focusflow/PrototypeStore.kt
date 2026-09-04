@@ -146,6 +146,7 @@ class PrototypeStore(context: Context) {
         secondPromptEnabled = preferences.getBoolean("status_checkin_second_enabled", false),
         secondPromptHour = preferences.getInt("status_checkin_second_hour", 19).coerceIn(12, 23),
         snoozeMinutes = preferences.getInt("status_checkin_snooze_minutes", 60).coerceIn(30, 180),
+        adaptiveSamplingEnabled = preferences.getBoolean("status_checkin_adaptive_sampling", true),
         promptHourAutoAdjusted = preferences.getBoolean("status_checkin_hour_auto", false)
     )
 
@@ -156,6 +157,7 @@ class PrototypeStore(context: Context) {
             .putBoolean("status_checkin_second_enabled", settings.secondPromptEnabled)
             .putInt("status_checkin_second_hour", settings.secondPromptHour)
             .putInt("status_checkin_snooze_minutes", settings.snoozeMinutes)
+            .putBoolean("status_checkin_adaptive_sampling", settings.adaptiveSamplingEnabled)
             .putBoolean("status_checkin_hour_auto", settings.promptHourAutoAdjusted)
             .apply()
     }
@@ -197,6 +199,19 @@ class PrototypeStore(context: Context) {
             .putLong("status_prompt_last_at", trace.recordedAt)
             .putLong("status_prompt_last_expected_at", trace.expectedAt)
             .apply()
+    }
+
+    fun loadEnergySamplingStartedAt(): Long = preferences.getLong("energy_sampling_started_at", 0L)
+
+    fun ensureEnergySamplingStartedAt(now: Long = System.currentTimeMillis()): Long {
+        val existing = loadEnergySamplingStartedAt()
+        if (existing > 0L) return existing
+        preferences.edit().putLong("energy_sampling_started_at", now).apply()
+        return now
+    }
+
+    fun restartEnergySampling(now: Long = System.currentTimeMillis()) {
+        preferences.edit().putLong("energy_sampling_started_at", now).apply()
     }
 
     fun loadItems(): List<Item> {
