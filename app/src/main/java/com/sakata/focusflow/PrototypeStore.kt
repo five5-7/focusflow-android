@@ -175,47 +175,6 @@ class PrototypeStore(context: Context) {
 
     fun loadLatestStatusCheckIn(): StatusCheckIn? = loadStatusCheckIns(1).lastOrNull()
 
-    fun loadSleepDataEnabled(): Boolean = preferences.getBoolean("sleep_health_connect_enabled", false)
-
-    fun saveSleepDataEnabled(enabled: Boolean) {
-        preferences.edit().putBoolean("sleep_health_connect_enabled", enabled).apply()
-    }
-
-    fun loadSleepSummary(): SleepSummary? {
-        loadSleepSummaries(1).lastOrNull()?.let { return it }
-        val startAt = preferences.getLong("sleep_summary_start_at", 0L)
-        val endAt = preferences.getLong("sleep_summary_end_at", 0L)
-        val durationMinutes = preferences.getInt("sleep_summary_duration_minutes", 0)
-        if (startAt <= 0L || endAt <= startAt || durationMinutes <= 0) return null
-        return SleepSummary(
-            startAt = startAt,
-            endAt = endAt,
-            durationMinutes = durationMinutes,
-            sourcePackage = preferences.getString("sleep_summary_source", "") ?: "",
-            syncedAt = preferences.getLong("sleep_summary_synced_at", 0L)
-        )
-    }
-
-    fun saveSleepSummary(summary: SleepSummary) {
-        val history = loadSleepSummaries(365)
-            .filterNot { it.endAt == summary.endAt && it.sourcePackage == summary.sourcePackage }
-            .plus(summary)
-            .sortedBy { it.endAt }
-            .takeLast(365)
-        preferences.edit()
-            .putString("sleep_summary_history", SleepSummaryCodec.encode(history))
-            .putLong("sleep_summary_start_at", summary.startAt)
-            .putLong("sleep_summary_end_at", summary.endAt)
-            .putInt("sleep_summary_duration_minutes", summary.durationMinutes)
-            .putString("sleep_summary_source", summary.sourcePackage)
-            .putLong("sleep_summary_synced_at", summary.syncedAt)
-            .apply()
-    }
-
-    fun loadSleepSummaries(limit: Int = 90): List<SleepSummary> =
-        decodeGuarded("sleep_summary_history", emptyList(), { SleepSummaryCodec.decode(it) }, { it.isEmpty() })
-            .takeLast(limit.coerceIn(1, 365))
-
     fun loadNextStatusPromptAt(): Long = preferences.getLong("status_prompt_next_at", 0L)
 
     fun saveNextStatusPromptAt(at: Long) {
