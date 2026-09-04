@@ -224,14 +224,6 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     val appLifecycleOwner = LocalLifecycleOwner.current
     // 初始值保证冷启动也检查；后续每次回到前台再递增。
     var notificationForegroundCheck by remember { mutableIntStateOf(1) }
-    LaunchedEffect(Unit) {
-        if (store.loadSleepDataEnabled()) {
-            runCatching {
-                val source = HealthConnectSleepDataSource(context)
-                source.readLastMainSleep()?.let(store::saveSleepSummary)
-            }
-        }
-    }
     DisposableEffect(appLifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_START) {
