@@ -11,6 +11,7 @@ class ReminderContentConsistencyTest {
         assertFalse(ReminderFeatureDefaults.MEAL_DURATION_TRACKING_ENABLED)
         assertFalse(ReminderFeatureDefaults.FOREGROUND_DETECTION_ENABLED)
         assertFalse(StatusCheckInSettings().enabled)
+        assertTrue(StatusCheckInSettings().adaptiveSamplingEnabled)
         assertFalse(FeatureUsageSnapshot().mealReminderEnabled)
     }
 
