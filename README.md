@@ -2,7 +2,7 @@
 
 本地优先的 Android 日程与执行辅助应用（`com.sakata.focusflow`）。核心目标不是维护一张完整日历，而是**降低记录压力、按当前状态调整提醒、在错过计划后帮助恢复**。
 
-当前开发候选：**7.3.0-rc.4**（versionCode 486），聚焦分时段个人精力模型与可选第二次询问；已移除在当前小米数据链路上不可用的 Health Connect 睡眠功能。`7.2.0` / versionCode 482 仍是未合并的发布构建候选。当前正式版仍为 [7.1.3](https://github.com/five5-7/focusflow-android/releases/tag/v7.1.3)。版本规则见 [VERSIONING.md](VERSIONING.md)，更新记录见 [CHANGELOG.md](CHANGELOG.md)，7.3 验收见 [检查表](docs/7.3-checklist.md)。
+当前开发候选：**7.4.0-rc.1**（versionCode 487），聚焦低成本精力基线采样：轮换时段、样本完成后降频及维护期抽查。`7.3.0-rc.4` 保留为上一候选，当前正式版仍为 [7.1.3](https://github.com/five5-7/focusflow-android/releases/tag/v7.1.3)。版本规则见 [VERSIONING.md](VERSIONING.md)，更新记录见 [CHANGELOG.md](CHANGELOG.md)，7.4 验收见 [检查表](docs/7.4-checklist.md)。
 
 > 数据原则：只用你确认过的数据生成建议，数据不足时不打扰、不假装精确。数据只保存在本机。
 
