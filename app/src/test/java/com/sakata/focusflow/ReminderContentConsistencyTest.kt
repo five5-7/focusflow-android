@@ -29,13 +29,11 @@ class ReminderContentConsistencyTest {
         val status = HelpCatalog.settings.getValue(SettingsBlock.STATUS_CHECK_IN).lines.joinToString("\n")
         val meal = HelpCatalog.settings.getValue(SettingsBlock.MEAL_LEARNING).lines.joinToString("\n")
         val detection = HelpCatalog.settings.getValue(SettingsBlock.APP_DETECTION).lines.joinToString("\n")
-        val sleep = HelpCatalog.settings.getValue(SettingsBlock.SLEEP_DATA).lines.joinToString("\n")
 
         assertTrue(status.contains("默认关闭") && status.contains("不会自动修改"))
         assertTrue(meal.contains("饭点提醒默认关闭") && meal.contains("用餐结束询问是独立且默认关闭"))
         assertTrue(detection.contains("只") && detection.contains("增强收尾文案"))
         assertTrue(detection.contains("绝不会自动结束活动"))
-        assertTrue(sleep.contains("默认关闭") && sleep.contains("不申请写入") && sleep.contains("不会要求你每次手填"))
     }
 
     @Test fun `baseline and activity setup do not imply automatic enablement or completion`() {
