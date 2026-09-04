@@ -2,7 +2,7 @@
 
 本地优先的 Android 日程与执行辅助应用（`com.sakata.focusflow`）。核心目标不是维护一张完整日历，而是**降低记录压力、按当前状态调整提醒、在错过计划后帮助恢复**。
 
-当前版本：**7.1.3**（versionCode 478，维护者确认的第二个正式版里程碑）。正式分发状态以 [GitHub Release](https://github.com/five5-7/focusflow-android/releases/tag/v7.1.3) 为准。完整更新记录见 [CHANGELOG.md](CHANGELOG.md)，安装说明见 [发布说明](docs/7.1.3-release-notes.md)。
+当前开发候选：**7.3.0-rc.4**（versionCode 486），聚焦分时段个人精力模型与可选第二次询问；已移除在当前小米数据链路上不可用的 Health Connect 睡眠功能。`7.2.0` / versionCode 482 仍是未合并的发布构建候选。当前正式版仍为 [7.1.3](https://github.com/five5-7/focusflow-android/releases/tag/v7.1.3)。版本规则见 [VERSIONING.md](VERSIONING.md)，更新记录见 [CHANGELOG.md](CHANGELOG.md)，7.3 验收见 [检查表](docs/7.3-checklist.md)。
 
 > 数据原则：只用你确认过的数据生成建议，数据不足时不打扰、不假装精确。数据只保存在本机。
 
@@ -26,7 +26,7 @@
 
 **活动与自律**
 - 活动模式：开始前约定结束时间与下一步，到点转场、限次延长
-- 安排空闲活动（游戏/视频/学习/休息/运动/自定义）：到点提醒开始与收尾，游戏/视频到点检测前台应用
+- 安排空闲活动（游戏/视频/学习/休息/运动/自定义）：按真实类别提醒开始与收尾，通知送达不会自动写入“正在娱乐”；仅游戏/视频在已授权时检测前台应用
 
 **生活与习惯**
 - 习惯基线：生活阶段（假期/上学/考试周）+ 多方案 + 按星期分组作息

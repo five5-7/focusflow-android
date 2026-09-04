@@ -17,6 +17,24 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v4
 
+      - name: Verify version metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          version_name="$(sed -n 's/.*versionName = "\(.*\)"/\1/p' app/build.gradle.kts | head -1)"
+          version_code="$(sed -n 's/.*versionCode = \([0-9][0-9]*\).*/\1/p' app/build.gradle.kts | head -1)"
+          test -n "$version_name" && test -n "$version_code"
+          [[ "$version_name" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-rc\.[1-9][0-9]*)?$ ]] || {
+            echo "::error::Invalid versionName: $version_name"; exit 1;
+          }
+          grep -Fq "**$version_name**" README.md && grep -Fq "versionCode $version_code" README.md || {
+            echo "::error::README version metadata does not match Gradle"; exit 1;
+          }
+          grep -Fq "\`$version_name\` / versionCode $version_code" AGENTS.md || {
+            echo "::error::AGENTS version metadata does not match Gradle"; exit 1;
+          }
+          test -f VERSIONING.md || { echo "::error::VERSIONING.md is missing"; exit 1; }
+
       - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
@@ -24,10 +42,10 @@ jobs:
           java-version: "17"
           cache: gradle
 
-      - name: Set up Gradle 8.7
+      - name: Set up Gradle 8.11.1
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: "8.7"
+          gradle-version: "8.11.1"
 
       # 签名只从仓库级 GitHub Secrets 读取，绝不写进代码或构建产物日志。
       # 缺失时直接失败，防止 CI 悄悄回退到 debug 签名而导致安装覆盖冲突。

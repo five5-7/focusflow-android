@@ -25,4 +25,5 @@ class StatusCheckInCodecTest {
     @Test fun decode_badJson_returnsEmpty() {
         assertEquals(0, StatusCheckInCodec.decode("not-json{{{").size)
     }
+
 }

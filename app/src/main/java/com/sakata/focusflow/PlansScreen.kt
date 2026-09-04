@@ -234,7 +234,7 @@ import kotlinx.coroutines.withContext
                             Text("活动自律", fontWeight = FontWeight.Bold)
                             Text(summary, style = MaterialTheme.typography.bodySmall)
                             GameStats.advice(gameSessions)?.let { advice -> Text(advice, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary) }
-                            Text("数据来自“安排空闲活动”：游戏/视频到点检测前台应用，其余活动按结束确认记录实际结束；未授权使用情况访问时只靠手动结束。", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("数据来自“安排空闲活动”中由你确认的结束时间；前台检测只增强游戏／视频的收尾提醒，不会自动写入结束时间。", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                 }
