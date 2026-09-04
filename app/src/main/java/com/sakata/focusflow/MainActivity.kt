@@ -682,6 +682,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                     onEnableStatusCheckIn = {
                         val updated = statusCheckInSettings.copy(enabled = true)
                         statusCheckInSettings = updated
+                        store.restartEnergySampling()
                         store.saveStatusCheckInSettings(updated)
                         ReminderScheduler.scheduleDailyStatusCheckIn(context, updated)
                         nextStatusPromptAt = store.loadNextStatusPromptAt()
@@ -934,6 +935,9 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                     activeSession?.let { ReminderScheduler.scheduleActivityReminders(context, it, updated) }
                     ReminderScheduler.restoreTaskReminders(context)
                 }, onStatusCheckInSettingsChange = { updated ->
+                    if ((updated.enabled && !statusCheckInSettings.enabled) ||
+                        (updated.adaptiveSamplingEnabled && !statusCheckInSettings.adaptiveSamplingEnabled)
+                    ) store.restartEnergySampling()
                     statusCheckInSettings = updated
                     store.saveStatusCheckInSettings(updated)
                     ReminderScheduler.scheduleDailyStatusCheckIn(context, updated)
@@ -1120,6 +1124,8 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                 energyRecordedAt = checkIn.recordedAt
                 latestStatusCheckIn = checkIn
                 statusCheckIns = store.loadStatusCheckIns(365)
+                ReminderScheduler.scheduleDailyStatusCheckIn(context, statusCheckInSettings)
+                nextStatusPromptAt = store.loadNextStatusPromptAt()
                 statusCheckInOpen = false
             }
         )
@@ -1134,6 +1140,8 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                 energyLevel = checkIn.energy
                 energyRecordedAt = checkIn.recordedAt
                 statusCheckIns = store.loadStatusCheckIns(365)
+                ReminderScheduler.scheduleDailyStatusCheckIn(context, statusCheckInSettings)
+                nextStatusPromptAt = store.loadNextStatusPromptAt()
                 activityStatusOpen = false
                 // 娱乐类活动：记录后顺手建立活动会话并安排收尾提醒（辅助结束游戏等活动的提醒行为）。
                 if (remindMinutes != null) {
