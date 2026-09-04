@@ -343,9 +343,6 @@ internal fun categorizedInstalledApps(context: Context, userCategories: Map<Stri
             }
         }
         HorizontalDivider()
-        SettingsSectionHeader("睡眠数据", onHelp = { helpBlock = SettingsBlock.SLEEP_DATA })
-        SleepHealthConnectSettings()
-        HorizontalDivider()
         SettingsSectionHeader("睡前减速", onHelp = { helpBlock = SettingsBlock.WIND_DOWN })
         SettingSwitch("睡前减速提醒", "每晚按你填写的睡觉时间提前 40 分钟提醒开始收尾；关闭后不会删除已有记录", windDownEnabled, onWindDownEnabledChange)
         if (baselineProfile.isComplete) {
