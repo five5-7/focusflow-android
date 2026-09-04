@@ -1,7 +1,5 @@
 package com.sakata.focusflow
 
-import java.util.Calendar
-
 data class PersonalEnergyPattern(
     val slotLabel: String,
     val slotSampleCount: Int,
@@ -17,13 +15,13 @@ object PersonalEnergyModel {
     private const val DOMINANT_SHARE = 0.6
 
     fun slotSampleCount(at: Long, checkIns: List<StatusCheckIn>): Int {
-        val target = slotFor(at).label
-        return checkIns.count { slotFor(it.recordedAt).label == target }
+        val target = EnergyTimeSlot.at(at)
+        return checkIns.count { EnergyTimeSlot.at(it.recordedAt) == target }
     }
 
     fun analyze(now: Long, checkIns: List<StatusCheckIn>): PersonalEnergyPattern {
-        val slot = slotFor(now)
-        val inSlot = checkIns.filter { slotFor(it.recordedAt).label == slot.label }
+        val slot = EnergyTimeSlot.at(now)
+        val inSlot = checkIns.filter { EnergyTimeSlot.at(it.recordedAt) == slot }
         val counts = inSlot.groupingBy { it.energy }.eachCount()
         val dominant = counts.maxByOrNull { it.value }
             ?.takeIf { inSlot.size >= MIN_SLOT_SAMPLES && it.value.toDouble() / inSlot.size >= DOMINANT_SHARE }
@@ -36,14 +34,4 @@ object PersonalEnergyModel {
         pattern.typicalEnergy?.let { add("你的${pattern.slotLabel}个人基线多为“$it”（${pattern.slotSampleCount} 次记录）。") }
     }
 
-    private data class Slot(val label: String)
-
-    private fun slotFor(at: Long): Slot {
-        val hour = Calendar.getInstance().apply { timeInMillis = at }.get(Calendar.HOUR_OF_DAY)
-        return when (hour) {
-            in 6..11 -> Slot("上午")
-            in 12..17 -> Slot("下午")
-            else -> Slot("晚上")
-        }
-    }
 }
