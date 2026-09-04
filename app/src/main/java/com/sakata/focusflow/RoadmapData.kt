@@ -20,6 +20,9 @@ data class RoadmapVersion(val version: String, val entries: List<RoadmapEntry>)
 object RoadmapData {
     /** 已实现版本演进（1.0 → 当前候选），每版本浓缩 1–3 条，与 CHANGELOG.md 对应。 */
     val evolution: List<RoadmapVersion> = listOf(
+        RoadmapVersion("7.4.0", listOf(
+            RoadmapEntry("7.4.0-rc.1", "低成本精力基线采样", "默认每天一次并轮换上午／下午／晚上；稳定时段自动停止日常追问，三时段完成后每周抽查；加速模式需主动开启且每天最多两次。", RoadmapStatus.CANDIDATE)
+        )),
         RoadmapVersion("7.3.0", listOf(
             RoadmapEntry("7.3.0-rc.4", "个人精力情境模型", "按上午、下午、晚上建立个人基线；可选第二次询问按样本自动暂停；已根据真机验证移除无法取得厂商数据的外部睡眠接入。", RoadmapStatus.CANDIDATE)
         )),
@@ -356,7 +359,7 @@ object RoadmapData {
 
     /** 后续候选（“想玩游戏拓展”“自律类目标”“空挡建议进阶”已随 5.6/5.7/5.8.2 落地；正式理财已评估移除）。 */
     val future: List<RoadmapEntry> = listOf(
-        RoadmapEntry("后续", "低成本精力基线采样", "前 7–10 天每天轮换上午／下午／晚上询问 1–2 次；单时段达到 4–6 个有效样本后自动降频，稳定后改为每周抽查 2–3 次；活动开始、任务完成或改期时只提供可跳过的顺手记录，不自动推断精力", RoadmapStatus.CANDIDATE),
+        RoadmapEntry("后续", "统一设计语言", "建立颜色、字号、间距、圆角、阴影、图标、组件状态与转场令牌；统一主页面、子页面、卡片、弹窗和悬浮导航，覆盖全面屏、普通屏、深色模式、大字体及减少动画设置", RoadmapStatus.CANDIDATE),
         RoadmapEntry("后续", "任意表格识别自动配置计划", "识别课表之外的各类表格（如锻炼计划、阅读计划）自动生成计划（用户澄清 4.4 学习机制提案后重定向，之后讨论）", RoadmapStatus.CANDIDATE),
         RoadmapEntry("后续", "高德地图 SDK 集成", "可视化地图、POI 点选、以设备定位为中心的搜索；代价：包体积增加、SDK key 绑定包名与签名、需要定位权限", RoadmapStatus.CANDIDATE),
         RoadmapEntry("后续", "云同步与多设备备份", "所有数据目前只在本机，无任何云端能力", RoadmapStatus.CANDIDATE),
@@ -375,7 +378,7 @@ fun RoadmapSubpageContent() {
                 Text("每次功能更新递增 0.1；更新记录见版本演进。", style = MaterialTheme.typography.bodySmall)
             }
         }
-        Text("版本演进（1.0 → 7.3.0 候选）", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Text("版本演进（1.0 → 7.4.0 候选）", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         RoadmapData.evolution.forEach { version ->
             Text(version.version, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
             version.entries.forEach { entry ->
