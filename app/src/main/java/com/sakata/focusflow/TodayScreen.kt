@@ -183,11 +183,8 @@ import kotlinx.coroutines.withContext
         val currentMinute = nowCal.get(java.util.Calendar.HOUR_OF_DAY) * 60 + nowCal.get(java.util.Calendar.MINUTE)
         val inClass = agenda.firstOrNull { it.isCourse && currentMinute in it.startMinute until (it.startMinute + 45) }
         val upcoming = agenda.filter { it.startMinute >= currentMinute - 5 }.take(3)
-        val localContext = LocalContext.current
-        val localStore = remember(localContext) { PrototypeStore(localContext) }
-        val sleepContext = remember(now / 60_000L) { SleepSummaryPolicy.display(localStore.loadSleepSummary(), now) }
         val personalEnergyNotes = remember(now / 60_000L, checkIns) {
-            PersonalEnergyModel.display(PersonalEnergyModel.analyze(now, checkIns, localStore.loadSleepSummaries(365)))
+            PersonalEnergyModel.display(PersonalEnergyModel.analyze(now, checkIns))
         }
         Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
             Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -209,7 +206,6 @@ import kotlinx.coroutines.withContext
                     }
                     Text("记录正在进行的活动；选择娱乐类可顺手设置收尾提醒。", style = MaterialTheme.typography.bodySmall)
                     personalEnergyNotes.forEach { advice -> Text(advice, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.tertiary) }
-                    sleepContext?.let { contextText -> Text(contextText, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                     HorizontalDivider()
                     nextSuggestion?.let { suggestion ->
                         val item = suggestion.item
