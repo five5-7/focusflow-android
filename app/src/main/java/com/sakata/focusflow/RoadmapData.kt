@@ -356,6 +356,7 @@ object RoadmapData {
 
     /** 后续候选（“想玩游戏拓展”“自律类目标”“空挡建议进阶”已随 5.6/5.7/5.8.2 落地；正式理财已评估移除）。 */
     val future: List<RoadmapEntry> = listOf(
+        RoadmapEntry("后续", "低成本精力基线采样", "前 7–10 天每天轮换上午／下午／晚上询问 1–2 次；单时段达到 4–6 个有效样本后自动降频，稳定后改为每周抽查 2–3 次；活动开始、任务完成或改期时只提供可跳过的顺手记录，不自动推断精力", RoadmapStatus.CANDIDATE),
         RoadmapEntry("后续", "任意表格识别自动配置计划", "识别课表之外的各类表格（如锻炼计划、阅读计划）自动生成计划（用户澄清 4.4 学习机制提案后重定向，之后讨论）", RoadmapStatus.CANDIDATE),
         RoadmapEntry("后续", "高德地图 SDK 集成", "可视化地图、POI 点选、以设备定位为中心的搜索；代价：包体积增加、SDK key 绑定包名与签名、需要定位权限", RoadmapStatus.CANDIDATE),
         RoadmapEntry("后续", "云同步与多设备备份", "所有数据目前只在本机，无任何云端能力", RoadmapStatus.CANDIDATE),
