@@ -283,9 +283,11 @@ internal fun categorizedInstalledApps(context: Context, userCategories: Map<Stri
         }
         if (statusCheckInSettings.enabled) {
             CollapsibleSettingsDetails(
-                summary = "每日 ${statusCheckInSettings.promptHour}:00${if (statusCheckInSettings.secondPromptEnabled) " · 最多两次" else " · 一次"}"
+                summary = if (statusCheckInSettings.adaptiveSamplingEnabled) {
+                    EnergySamplingPolicy.summary(System.currentTimeMillis(), checkIns)
+                } else "固定 ${statusCheckInSettings.promptHour}:00${if (statusCheckInSettings.secondPromptEnabled) " · 最多两次" else " · 一次"}"
             ) {
-            Text("每天约 ${statusCheckInSettings.promptHour}:00 询问")
+            Text(if (statusCheckInSettings.adaptiveSamplingEnabled) "自动轮换上午 9:00、下午 14:00、晚上 19:00" else "每天约 ${statusCheckInSettings.promptHour}:00 询问")
             Text(
                 if (nextStatusPromptAt > 0L) "下一次预计：${formatDateTime(nextStatusPromptAt)}" else "下一次提醒尚未安排",
                 style = MaterialTheme.typography.bodySmall,
@@ -295,20 +297,27 @@ internal fun categorizedInstalledApps(context: Context, userCategories: Map<Stri
                 Text("最近结果：${statusPromptTrace.outcome.label} · ${formatDateTime(statusPromptTrace.recordedAt)}", style = MaterialTheme.typography.bodySmall)
             }
             OutlinedButton(onClick = onStatusPromptTest) { Text("一分钟测试精力询问") }
-            Slider(
-                value = statusCheckInSettings.promptHour.toFloat(),
-                onValueChange = { onStatusCheckInSettingsChange(statusCheckInSettings.copy(promptHour = it.toInt(), promptHourAutoAdjusted = false)) },
-                valueRange = 8f..22f,
-                steps = 13
-            )
             SettingSwitch(
-                "可选的晚间第二次询问",
-                "默认关闭；用于补足晚间样本，近 30 天该时段达到 6 次后自动暂停",
+                "自动低成本采样",
+                "默认开启；建模期轮换三个时段，样本充足后改为每周抽查",
+                statusCheckInSettings.adaptiveSamplingEnabled
+            ) { enabled -> onStatusCheckInSettingsChange(statusCheckInSettings.copy(adaptiveSamplingEnabled = enabled)) }
+            if (!statusCheckInSettings.adaptiveSamplingEnabled) {
+                Slider(
+                    value = statusCheckInSettings.promptHour.toFloat(),
+                    onValueChange = { onStatusCheckInSettingsChange(statusCheckInSettings.copy(promptHour = it.toInt(), promptHourAutoAdjusted = false)) },
+                    valueRange = 8f..22f,
+                    steps = 13
+                )
+            }
+            SettingSwitch(
+                if (statusCheckInSettings.adaptiveSamplingEnabled) "加速建模（每天最多两次）" else "可选的晚间第二次询问",
+                if (statusCheckInSettings.adaptiveSamplingEnabled) "默认关闭；只在当天存在间隔至少 4 小时的未完成时段时安排" else "默认关闭；用于补足晚间样本",
                 statusCheckInSettings.secondPromptEnabled
             ) { enabled ->
                 onStatusCheckInSettingsChange(statusCheckInSettings.copy(secondPromptEnabled = enabled))
             }
-            if (statusCheckInSettings.secondPromptEnabled) {
+            if (statusCheckInSettings.secondPromptEnabled && !statusCheckInSettings.adaptiveSamplingEnabled) {
                 Text("第二次约 ${statusCheckInSettings.secondPromptHour}:00；每天最多两次", style = MaterialTheme.typography.bodySmall)
                 Slider(
                     value = statusCheckInSettings.secondPromptHour.toFloat(),
@@ -332,7 +341,7 @@ internal fun categorizedInstalledApps(context: Context, userCategories: Map<Stri
                     )
                 }
             }
-            CheckInInsights.suggestedPromptHour(checkIns)?.let { hour ->
+            if (!statusCheckInSettings.adaptiveSamplingEnabled) CheckInInsights.suggestedPromptHour(checkIns)?.let { hour ->
                 if (hour != statusCheckInSettings.promptHour) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                         Text("根据你的 ${checkIns.size} 次签到，建议询问时间设为 ${hour}:00", style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
