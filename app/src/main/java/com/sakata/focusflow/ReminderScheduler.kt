@@ -61,14 +61,24 @@ object ReminderScheduler {
             return
         }
         val now = System.currentTimeMillis()
-        val primary = nextDailyTriggerAt(now, settings.promptHour)
-        scheduleStatusCheckInAt(context, primary, promptIndex = 1)
-        val scheduled = mutableListOf(primary)
-        if (settings.secondPromptEnabled && settings.secondPromptHour >= settings.promptHour + 4) {
-            val secondary = nextDailyTriggerAt(now, settings.secondPromptHour)
-            scheduleStatusCheckInAt(context, secondary, promptIndex = 2)
-            scheduled += secondary
+        val store = PrototypeStore(context)
+        val targets = if (settings.adaptiveSamplingEnabled) {
+            EnergySamplingPolicy.nextPrompts(
+                now = now,
+                startedAt = store.ensureEnergySamplingStartedAt(now),
+                checkIns = store.loadStatusCheckIns(365),
+                accelerated = settings.secondPromptEnabled
+            )
+        } else {
+            buildList {
+                add(EnergyPromptTarget(nextDailyTriggerAt(now, settings.promptHour), EnergyTimeSlot.AFTERNOON, 1))
+                if (settings.secondPromptEnabled && settings.secondPromptHour >= settings.promptHour + 4) {
+                    add(EnergyPromptTarget(nextDailyTriggerAt(now, settings.secondPromptHour), EnergyTimeSlot.EVENING, 2))
+                }
+            }
         }
+        targets.forEach { scheduleStatusCheckInAt(context, it.triggerAt, promptIndex = it.promptIndex) }
+        val scheduled = targets.map { it.triggerAt }
         PrototypeStore(context).saveNextStatusPromptAt(scheduled.minOrNull() ?: 0L)
     }
 
