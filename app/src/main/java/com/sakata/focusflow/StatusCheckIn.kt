@@ -8,6 +8,7 @@ data class StatusCheckInSettings(
     val secondPromptEnabled: Boolean = false,
     val secondPromptHour: Int = 19,
     val snoozeMinutes: Int = 60,
+    val adaptiveSamplingEnabled: Boolean = true,
     /** 询问时刻是否由系统按签到数据自动采纳（设置页显示“已自动调整”；手动调整后关闭，不再自动）。 */
     val promptHourAutoAdjusted: Boolean = false
 )
@@ -70,7 +71,7 @@ object StatusPromptPolicy {
     ): StatusPromptOutcome = when {
         !settings.enabled -> StatusPromptOutcome.DISABLED
         promptIndex >= 2 && !settings.secondPromptEnabled -> StatusPromptOutcome.SECOND_NOT_NEEDED
-        promptIndex >= 2 && settings.secondPromptHour < settings.promptHour + 4 -> StatusPromptOutcome.SECOND_NOT_NEEDED
+        promptIndex >= 2 && !settings.adaptiveSamplingEnabled && settings.secondPromptHour < settings.promptHour + 4 -> StatusPromptOutcome.SECOND_NOT_NEEDED
         promptIndex >= 2 && (latestRecordedAt == null || !MealLearning.sameDay(latestRecordedAt, now)) -> StatusPromptOutcome.SECOND_NOT_NEEDED
         promptIndex >= 2 && todayRecordCount >= 2 -> StatusPromptOutcome.ALREADY_RECORDED
         promptIndex >= 2 && now - (latestRecordedAt ?: 0L) < MIN_SECOND_PROMPT_GAP_MILLIS -> StatusPromptOutcome.SECOND_NOT_NEEDED
