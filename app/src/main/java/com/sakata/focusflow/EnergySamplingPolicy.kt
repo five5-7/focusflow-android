@@ -33,6 +33,7 @@ object EnergySamplingPolicy {
     private const val STABLE_MIN_SAMPLES = 6
     private const val VARIABLE_MAX_SAMPLES = 12
     private const val DOMINANT_SHARE = 0.6
+    private const val MIN_PROMPT_GAP_MILLIS = 4 * 60 * 60_000L
     private val maintenanceWeekdays = setOf(1, 3, 6) // 周一、周三、周六（ISO）
 
     fun progress(now: Long, checkIns: List<StatusCheckIn>, zone: ZoneId = ZoneId.systemDefault()): EnergySamplingProgress {
@@ -62,14 +63,34 @@ object EnergySamplingPolicy {
         val state = progress(now, checkIns, zone)
         val today = Instant.ofEpochMilli(now).atZone(zone).toLocalDate()
         val start = Instant.ofEpochMilli(startedAt.coerceAtMost(now)).atZone(zone).toLocalDate()
+        val available = if (state.phase == EnergySamplingPhase.BUILDING) {
+            EnergyTimeSlot.entries.filterNot(state.completedSlots::contains)
+        } else {
+            EnergyTimeSlot.entries.toList()
+        }
+
+        // The first delivery rebuilds alarms before the user answers. Once that answer is
+        // saved, recover the optional same-day follow-up from the real record instead of
+        // jumping straight to tomorrow.
+        if (accelerated && state.phase == EnergySamplingPhase.BUILDING) {
+            val todayRecords = checkIns.filter {
+                Instant.ofEpochMilli(it.recordedAt).atZone(zone).toLocalDate() == today
+            }
+            if (todayRecords.size == 1) {
+                val firstRecordedAt = todayRecords.single().recordedAt
+                available.firstOrNull { slot ->
+                    val triggerAt = atHour(today, slot.promptHour, zone)
+                    triggerAt > now && triggerAt - firstRecordedAt >= MIN_PROMPT_GAP_MILLIS
+                }?.let { slot ->
+                    return listOf(EnergyPromptTarget(atHour(today, slot.promptHour, zone), slot, 2))
+                }
+            }
+        }
         for (offset in 0L..14L) {
             val date = today.plusDays(offset)
             if (state.phase == EnergySamplingPhase.MAINTENANCE && date.dayOfWeek.value !in maintenanceWeekdays) continue
             val rotation = ChronoUnit.DAYS.between(start, date).coerceAtLeast(0).toInt()
             val preferred = EnergyTimeSlot.entries[rotation % EnergyTimeSlot.entries.size]
-            val available = if (state.phase == EnergySamplingPhase.BUILDING) {
-                EnergyTimeSlot.entries.filterNot(state.completedSlots::contains)
-            } else EnergyTimeSlot.entries.toList()
             val primarySlot = available.firstOrNull { it == preferred }
                 ?: available.minByOrNull { state.counts[it] ?: 0 }
                 ?: continue

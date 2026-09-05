@@ -21,7 +21,7 @@ object RoadmapData {
     /** 已实现版本演进（1.0 → 当前候选），每版本浓缩 1–3 条，与 CHANGELOG.md 对应。 */
     val evolution: List<RoadmapVersion> = listOf(
         RoadmapVersion("7.4.0", listOf(
-            RoadmapEntry("7.4.0-rc.1", "低成本精力基线采样", "默认每天一次并轮换上午／下午／晚上；稳定时段自动停止日常追问，三时段完成后每周抽查；加速模式需主动开启且每天最多两次。", RoadmapStatus.CANDIDATE)
+            RoadmapEntry("7.4.0", "低成本精力基线采样", "默认每天一次并轮换上午／下午／晚上；稳定时段自动停止日常追问，三时段完成后每周抽查；加速模式需主动开启且每天最多两次。待 CI、真机验收与正式发布。", RoadmapStatus.CANDIDATE)
         )),
         RoadmapVersion("7.3.0", listOf(
             RoadmapEntry("7.3.0-rc.4", "个人精力情境模型", "按上午、下午、晚上建立个人基线；可选第二次询问按样本自动暂停；已根据真机验证移除无法取得厂商数据的外部睡眠接入。", RoadmapStatus.CANDIDATE)

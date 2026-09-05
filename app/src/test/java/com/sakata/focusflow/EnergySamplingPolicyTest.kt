@@ -25,6 +25,21 @@ class EnergySamplingPolicyTest {
         assertTrue(prompts[1].triggerAt - prompts[0].triggerAt >= 4 * 60 * 60_000L)
     }
 
+    @Test fun `accelerated mode keeps a same day follow up after the first check in`() {
+        val first = StatusCheckIn("正常", "学习", at(1, 9))
+        val prompts = EnergySamplingPolicy.nextPrompts(at(1, 9) + 5 * 60_000L, at(1, 7), listOf(first), true, zone)
+
+        assertEquals(listOf(EnergyTimeSlot.AFTERNOON), prompts.map { it.slot })
+        assertEquals(listOf(2), prompts.map { it.promptIndex })
+    }
+
+    @Test fun `accelerated mode does not force a too close same day follow up`() {
+        val first = StatusCheckIn("正常", "学习", at(1, 16))
+        val prompts = EnergySamplingPolicy.nextPrompts(at(1, 16) + 5 * 60_000L, at(1, 7), listOf(first), true, zone)
+
+        assertTrue(prompts.none { it.triggerAt.toLocalDateTime(zone).toLocalDate() == java.time.LocalDate.of(2026, 9, 1) })
+    }
+
     @Test fun `stable slot is skipped while other slots are still building`() {
         val morning = records(9, 6)
         val state = EnergySamplingPolicy.progress(at(20, 12), morning, zone)
@@ -44,4 +59,7 @@ class EnergySamplingPolicyTest {
         assertEquals(EnergySamplingPhase.MAINTENANCE, state.phase)
         assertEquals(1, EnergySamplingPolicy.nextPrompts(at(20, 12), at(1, 7), all, true, zone).size)
     }
+
+    private fun Long.toLocalDateTime(zone: ZoneId): LocalDateTime =
+        java.time.Instant.ofEpochMilli(this).atZone(zone).toLocalDateTime()
 }
