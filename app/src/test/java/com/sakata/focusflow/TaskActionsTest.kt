@@ -126,7 +126,7 @@ class TaskActionsTest {
         val result = TaskActions.resume(listOf(a), a)
         val restored = result.items[0]
         assertEquals("任务", restored.kind)
-        assertEquals("已恢复；今天有空时再做", restored.detail)
+        assertEquals("已恢复；有空时再安排", restored.detail)
         assertNull(restored.scheduledAt)
         assertEquals(TaskEventType.TASK_RESTORED, result.event!!.type)
         assertEquals("整理材料", result.event!!.title)
@@ -165,7 +165,7 @@ class TaskActionsTest {
         val delayed = result.delayedItem
         // 副本不剥离前缀（与原来 saveDelayedItem 一致；事件文案才剥离）
         assertEquals("重新安排：写方案", delayed.title)
-        assertEquals("已改期至周一 13:00；届时会再次出现", delayed.detail)
+        assertEquals(TaskScheduleText.rescheduledDetail(fixedNow + 3 * 3600_000L, 30), delayed.detail)
         assertEquals(fixedNow + 3 * 3600_000L, delayed.scheduledAt)
         assertEquals(30, delayed.durationMinutes)
         assertEquals(false, delayed.dayOnly)
@@ -178,8 +178,8 @@ class TaskActionsTest {
         assertEquals(TaskEventType.TASK_RESCHEDULED, result.event.type)
         assertEquals("写方案", result.event.title)
         assertEquals(fixedNow + 3 * 3600_000L, result.event.scheduledAt)
-        assertEquals("周一 13:00", result.event.extra)
-        assertEquals("写方案 → 周一 13:00", result.baselinePayload)
+        assertEquals(formatDateTime(fixedNow + 3 * 3600_000L), result.event.extra)
+        assertEquals("写方案 → ${formatDateTime(fixedNow + 3 * 3600_000L)}", result.baselinePayload)
     }
 
     @Test fun planDelayed_keepsOtherItems() {
@@ -191,11 +191,18 @@ class TaskActionsTest {
         assertEquals(b.id, result.items[1].id)
     }
 
+    @Test fun planDelayed_preservesScheduledActivityKind() {
+        val activity = item(id = 18, title = "跑步", kind = "活动")
+        val result = TaskActions.planDelayed(listOf(activity), activity, fixedNow, 30, "周一 10:00", "mid", now = fixedNow)
+        assertEquals("活动", result.delayedItem.kind)
+        assertEquals("活动", result.items.single().kind)
+    }
+
     @Test fun scheduledShape_locksTimeAndLabel() {
         val shaped = TaskActions.scheduledShape(item(id = 5, title = "重新安排：整理笔记", priority = "low"), fixedNow + 60_000L, 45, "周一 10:00", "high")
         assertEquals("整理笔记", shaped.title)
         assertEquals("任务", shaped.kind)
-        assertEquals("已安排：周一 10:00 · 45 分钟；可随时改期", shaped.detail)
+        assertEquals(TaskScheduleText.scheduledDetail(fixedNow + 60_000L, 45), shaped.detail)
         assertEquals(fixedNow + 60_000L, shaped.scheduledAt)
         assertEquals(45, shaped.durationMinutes)
         assertEquals(false, shaped.dayOnly)
@@ -207,7 +214,7 @@ class TaskActionsTest {
     @Test fun flexibleShape_keepsWindowAndClearsTime() {
         val shaped = TaskActions.flexibleShape(item(id = 6, title = "重新安排：论文", priority = "low"), fixedNow + 1, fixedNow + 2, 30, "每周二", "high")
         assertEquals("论文", shaped.title)
-        assertEquals("弹性范围：每周二 · 预计 30 分钟；尚未锁定具体时刻", shaped.detail)
+        assertEquals(TaskScheduleText.flexibleDetail(fixedNow + 1, fixedNow + 2, 30), shaped.detail)
         assertNull(shaped.scheduledAt)
         assertEquals(fixedNow + 1, shaped.windowStartAt)
         assertEquals(fixedNow + 2, shaped.windowEndAt)

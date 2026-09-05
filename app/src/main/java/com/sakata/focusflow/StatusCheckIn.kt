@@ -1,9 +1,14 @@
 package com.sakata.focusflow
 
+import java.util.Calendar
+
 data class StatusCheckInSettings(
-    val enabled: Boolean = false,
+    val enabled: Boolean = ReminderFeatureDefaults.STATUS_CHECK_IN_ENABLED,
     val promptHour: Int = 14,
+    val secondPromptEnabled: Boolean = false,
+    val secondPromptHour: Int = 19,
     val snoozeMinutes: Int = 60,
+    val adaptiveSamplingEnabled: Boolean = true,
     /** 询问时刻是否由系统按签到数据自动采纳（设置页显示“已自动调整”；手动调整后关闭，不再自动）。 */
     val promptHourAutoAdjusted: Boolean = false
 )
@@ -14,7 +19,87 @@ data class StatusCheckIn(
     val recordedAt: Long = System.currentTimeMillis()
 )
 
+object ReminderFeatureDefaults {
+    const val STATUS_CHECK_IN_ENABLED = false
+    const val MEAL_REMINDER_ENABLED = false
+    const val MEAL_DURATION_TRACKING_ENABLED = false
+    const val FOREGROUND_DETECTION_ENABLED = false
+}
+
+object ReminderRuleCopy {
+    const val BASELINE_SAVED = "生活阶段会影响饭点学习与睡前建议，但不会自动开启饭点提醒；饭点和用餐结束询问需在设置中分别开启。阶段可在今日页顶部切换。"
+    const val SCHEDULED_ACTIVITY = "到点提醒开始可选；结束时始终由你确认。前台应用检测默认关闭，开启后只增强游戏／视频的收尾文案，不会自动结束或写入实际结束时间。"
+}
+
+enum class StatusPromptOutcome(val label: String) {
+    NONE("尚未触发"),
+    READY("已送达"),
+    DISABLED("功能未开启"),
+    NOTIFICATIONS_BLOCKED("系统通知未允许"),
+    MUTED("一次性静音中"),
+    QUIET_HOURS("免打扰时段已跳过"),
+    ACTIVE_SESSION("活动进行中，已延后"),
+    ALREADY_RECORDED("今天已经记录"),
+    SECOND_NOT_NEEDED("不需要第二次询问"),
+    TOO_LATE("系统送达过晚，已跳过")
+}
+
+data class StatusPromptTrace(
+    val outcome: StatusPromptOutcome = StatusPromptOutcome.NONE,
+    val recordedAt: Long = 0L,
+    val expectedAt: Long = 0L
+)
+
+/** 每日精力询问的唯一决策入口；超时不补发，避免晚上突然出现白天的询问。 */
+object StatusPromptPolicy {
+    const val MAX_DELIVERY_DELAY_MILLIS = 2 * 60 * 60_000L
+    const val MIN_SECOND_PROMPT_GAP_MILLIS = 4 * 60 * 60_000L
+    const val SECOND_SLOT_SAMPLE_TARGET = 6
+
+    fun decide(
+        settings: StatusCheckInSettings,
+        expectedAt: Long,
+        now: Long,
+        notificationsAllowed: Boolean,
+        muted: Boolean,
+        quietHoursSuppressed: Boolean,
+        activeSession: ActivitySession?,
+        latestRecordedAt: Long?,
+        promptIndex: Int = 1,
+        todayRecordCount: Int = if (latestRecordedAt != null && MealLearning.sameDay(latestRecordedAt, now)) 1 else 0,
+        secondSlotRecentSampleCount: Int = 0
+    ): StatusPromptOutcome = when {
+        !settings.enabled -> StatusPromptOutcome.DISABLED
+        promptIndex >= 2 && !settings.secondPromptEnabled -> StatusPromptOutcome.SECOND_NOT_NEEDED
+        promptIndex >= 2 && !settings.adaptiveSamplingEnabled && settings.secondPromptHour < settings.promptHour + 4 -> StatusPromptOutcome.SECOND_NOT_NEEDED
+        promptIndex >= 2 && (latestRecordedAt == null || !MealLearning.sameDay(latestRecordedAt, now)) -> StatusPromptOutcome.SECOND_NOT_NEEDED
+        promptIndex >= 2 && todayRecordCount >= 2 -> StatusPromptOutcome.ALREADY_RECORDED
+        promptIndex >= 2 && now - (latestRecordedAt ?: 0L) < MIN_SECOND_PROMPT_GAP_MILLIS -> StatusPromptOutcome.SECOND_NOT_NEEDED
+        promptIndex >= 2 && secondSlotRecentSampleCount >= SECOND_SLOT_SAMPLE_TARGET -> StatusPromptOutcome.SECOND_NOT_NEEDED
+        !notificationsAllowed -> StatusPromptOutcome.NOTIFICATIONS_BLOCKED
+        muted -> StatusPromptOutcome.MUTED
+        quietHoursSuppressed -> StatusPromptOutcome.QUIET_HOURS
+        activeSession != null -> StatusPromptOutcome.ACTIVE_SESSION
+        promptIndex <= 1 && todayRecordCount >= 1 -> StatusPromptOutcome.ALREADY_RECORDED
+        expectedAt > 0L && now > expectedAt + MAX_DELIVERY_DELAY_MILLIS -> StatusPromptOutcome.TOO_LATE
+        else -> StatusPromptOutcome.READY
+    }
+}
+
 object StatusCheckInCatalog {
     val energies = listOf("偏低", "正常", "充足")
     val activities = listOf("空闲", "学习", "课程", "娱乐", "休息", "运动", "其他")
+}
+
+/** 精力是短期状态；旧记录仍保留，但不能无限期冒充“当前精力”。 */
+object StatusFreshnessPolicy {
+    const val MAX_AGE_MILLIS = 6 * 60 * 60_000L
+
+    fun isCurrent(recordedAt: Long, now: Long = System.currentTimeMillis()): Boolean {
+        if (recordedAt <= 0L || recordedAt > now + 5 * 60_000L || now - recordedAt > MAX_AGE_MILLIS) return false
+        val recorded = Calendar.getInstance().apply { timeInMillis = recordedAt }
+        val current = Calendar.getInstance().apply { timeInMillis = now }
+        return recorded.get(Calendar.YEAR) == current.get(Calendar.YEAR) &&
+            recorded.get(Calendar.DAY_OF_YEAR) == current.get(Calendar.DAY_OF_YEAR)
+    }
 }

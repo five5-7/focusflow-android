@@ -4,7 +4,7 @@ package com.sakata.focusflow
 data class FeatureUsageSnapshot(
     val baselineComplete: Boolean = false,
     val mealRecordCount: Int = 0,
-    val mealReminderEnabled: Boolean = true,
+    val mealReminderEnabled: Boolean = ReminderFeatureDefaults.MEAL_REMINDER_ENABLED,
     val goalCount: Int = 0,
     val confirmedCourseCount: Int = 0,
     val pendingCourseCount: Int = 0,
@@ -34,7 +34,7 @@ object FeatureVisibilityPolicy {
         goals = snapshot.goalCount > 0,
         courseBlocks = snapshot.lifeStage != LifeStage.HOLIDAY && snapshot.confirmedCourseCount > 0,
         campus = snapshot.lifeStage == LifeStage.SCHOOL && snapshot.campusLifeEnabled,
-        energy = snapshot.statusCheckInEnabled || snapshot.statusCheckInCount > 0,
+        energy = true,
         windDown = snapshot.windDownEnabled && snapshot.baselineComplete
     )
 

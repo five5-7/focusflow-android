@@ -28,7 +28,7 @@ internal object NotificationGuidancePolicy {
         val family = family(manufacturer, brand)
         val common = listOf(
             "长按 FocusFlow 图标 → 应用信息 → 通知（或通知管理），开启“允许通知”。",
-            "进入“FocusFlow 任务提醒”和“饭点提醒”，选择提醒／默认或较高优先级。"
+            "进入“FocusFlow 任务提醒”选择提醒／默认或较高优先级；如已开启饭点提醒，再同样检查“饭点提醒”渠道。"
         )
         val vendorStep = when (family) {
             NotificationDeviceFamily.SAMSUNG -> "若看不到通知类别，先到设置 → 通知 → 高级设置，开启“管理每个应用的通知类别”；再为两个类别选择“提醒”并开启“显示为弹出窗口”。"

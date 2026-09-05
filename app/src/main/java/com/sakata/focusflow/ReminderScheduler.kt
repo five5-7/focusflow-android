@@ -40,6 +40,7 @@ object ReminderScheduler {
                         putExtra(ReminderReceiver.EXTRA_ACTIVITY_NAME, session.name)
                         putExtra(ReminderReceiver.EXTRA_SESSION_ID, session.id)
                         putExtra(ReminderReceiver.EXTRA_NEXT_STEP, session.nextStep)
+                        putExtra(ReminderReceiver.EXTRA_ACTIVITY_ENDS_AT, session.endsAt)
                     })
                 }
             } else scheduleActivityReminders(context, session, store.loadActivityReminderSettings())
@@ -55,33 +56,75 @@ object ReminderScheduler {
         settings: StatusCheckInSettings = PrototypeStore(context).loadStatusCheckInSettings()
     ) {
         cancelStatusCheckIn(context)
-        if (!settings.enabled) return
+        if (!settings.enabled) {
+            PrototypeStore(context).saveNextStatusPromptAt(0L)
+            return
+        }
         val now = System.currentTimeMillis()
-        val next = nextDailyTriggerAt(now, settings.promptHour)
-        scheduleStatusCheckInAt(context, next)
+        val store = PrototypeStore(context)
+        val targets = if (settings.adaptiveSamplingEnabled) {
+            EnergySamplingPolicy.nextPrompts(
+                now = now,
+                startedAt = store.ensureEnergySamplingStartedAt(now),
+                checkIns = store.loadStatusCheckIns(365),
+                accelerated = settings.secondPromptEnabled
+            )
+        } else {
+            buildList {
+                add(EnergyPromptTarget(nextDailyTriggerAt(now, settings.promptHour), EnergyTimeSlot.AFTERNOON, 1))
+                if (settings.secondPromptEnabled && settings.secondPromptHour >= settings.promptHour + 4) {
+                    add(EnergyPromptTarget(nextDailyTriggerAt(now, settings.secondPromptHour), EnergyTimeSlot.EVENING, 2))
+                }
+            }
+        }
+        targets.forEach { scheduleStatusCheckInAt(context, it.triggerAt, promptIndex = it.promptIndex) }
+        val scheduled = targets.map { it.triggerAt }
+        PrototypeStore(context).saveNextStatusPromptAt(scheduled.minOrNull() ?: 0L)
     }
 
     fun snoozeStatusCheckIn(context: Context, minutes: Int) {
         cancelStatusCheckIn(context)
-        scheduleStatusCheckInAt(context, System.currentTimeMillis() + minutes.coerceIn(30, 180) * 60_000L)
+        val triggerAt = System.currentTimeMillis() + minutes.coerceIn(30, 180) * 60_000L
+        PrototypeStore(context).saveNextStatusPromptAt(triggerAt)
+        scheduleStatusCheckInAt(context, triggerAt, requestCode = STATUS_CHECK_IN_SNOOZE_REQUEST_CODE)
+    }
+
+    fun scheduleStatusCheckInTest(context: Context) {
+        cancelStatusCheckIn(context)
+        val triggerAt = System.currentTimeMillis() + 60_000L
+        PrototypeStore(context).saveNextStatusPromptAt(triggerAt)
+        scheduleStatusCheckInAt(context, triggerAt, test = true, requestCode = STATUS_CHECK_IN_TEST_REQUEST_CODE)
     }
 
     fun cancelStatusCheckIn(context: Context) {
         val manager = context.getSystemService(AlarmManager::class.java)
-        val pending = PendingIntent.getBroadcast(
-            context,
-            STATUS_CHECK_IN_REQUEST_CODE,
-            Intent(context, ReminderReceiver::class.java).apply { action = ReminderReceiver.ACTION_STATUS_CHECK_IN },
-            PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
-        )
-        pending?.let(manager::cancel)
+        listOf(LEGACY_STATUS_CHECK_IN_REQUEST_CODE, STATUS_CHECK_IN_PRIMARY_REQUEST_CODE, STATUS_CHECK_IN_SECONDARY_REQUEST_CODE, STATUS_CHECK_IN_SNOOZE_REQUEST_CODE, STATUS_CHECK_IN_TEST_REQUEST_CODE).forEach { requestCode ->
+            val pending = PendingIntent.getBroadcast(
+                context,
+                requestCode,
+                Intent(context, ReminderReceiver::class.java).apply { action = ReminderReceiver.ACTION_STATUS_CHECK_IN },
+                PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
+            )
+            pending?.let(manager::cancel)
+        }
     }
 
-    private fun scheduleStatusCheckInAt(context: Context, triggerAt: Long) {
+    private fun scheduleStatusCheckInAt(
+        context: Context,
+        triggerAt: Long,
+        test: Boolean = false,
+        promptIndex: Int = 1,
+        requestCode: Int = if (promptIndex >= 2) STATUS_CHECK_IN_SECONDARY_REQUEST_CODE else STATUS_CHECK_IN_PRIMARY_REQUEST_CODE
+    ) {
         val pending = PendingIntent.getBroadcast(
             context,
-            STATUS_CHECK_IN_REQUEST_CODE,
-            Intent(context, ReminderReceiver::class.java).apply { action = ReminderReceiver.ACTION_STATUS_CHECK_IN },
+            requestCode,
+            Intent(context, ReminderReceiver::class.java).apply {
+                action = ReminderReceiver.ACTION_STATUS_CHECK_IN
+                putExtra(ReminderReceiver.EXTRA_STATUS_PROMPT_EXPECTED_AT, triggerAt)
+                putExtra(ReminderReceiver.EXTRA_STATUS_PROMPT_TEST, test)
+                putExtra(ReminderReceiver.EXTRA_STATUS_PROMPT_INDEX, promptIndex)
+            },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         context.getSystemService(AlarmManager::class.java)
@@ -103,6 +146,7 @@ object ReminderScheduler {
             putExtra(ReminderReceiver.EXTRA_ACTIVITY_NAME, session.name)
             putExtra(ReminderReceiver.EXTRA_SESSION_ID, session.id)
             putExtra(ReminderReceiver.EXTRA_NEXT_STEP, session.nextStep)
+            putExtra(ReminderReceiver.EXTRA_ACTIVITY_ENDS_AT, session.endsAt)
         }
         val pending = PendingIntent.getBroadcast(
             context,
@@ -136,6 +180,7 @@ object ReminderScheduler {
                 action = ReminderReceiver.ACTION_GAME_START
                 putExtra(ReminderReceiver.EXTRA_GAME_SESSION_ID, session.id)
                 putExtra(ReminderReceiver.EXTRA_GAME_TITLE, session.title)
+                putExtra(ReminderReceiver.EXTRA_GAME_PLANNED_AT, session.plannedStartAt)
             }
             val pending = PendingIntent.getBroadcast(context, gameRequestCode(session.id, 1), startIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
             manager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, session.plannedStartAt, pending)
@@ -145,6 +190,7 @@ object ReminderScheduler {
                 action = ReminderReceiver.ACTION_GAME_END
                 putExtra(ReminderReceiver.EXTRA_GAME_SESSION_ID, session.id)
                 putExtra(ReminderReceiver.EXTRA_GAME_TITLE, session.title)
+                putExtra(ReminderReceiver.EXTRA_GAME_PLANNED_AT, session.plannedEndAt)
             }
             val pending = PendingIntent.getBroadcast(context, gameRequestCode(session.id, 2), endIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
             manager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, session.plannedEndAt, pending)
@@ -152,11 +198,12 @@ object ReminderScheduler {
     }
 
     /** 到点仍在玩时，10 分钟后复查一次。 */
-    fun scheduleGameFollowUp(context: Context, sessionId: Long, title: String, at: Long) {
+    fun scheduleGameFollowUp(context: Context, sessionId: Long, title: String, plannedEndAt: Long, at: Long) {
         val followIntent = Intent(context, ReminderReceiver::class.java).apply {
             action = ReminderReceiver.ACTION_GAME_END_FOLLOWUP
             putExtra(ReminderReceiver.EXTRA_GAME_SESSION_ID, sessionId)
             putExtra(ReminderReceiver.EXTRA_GAME_TITLE, title)
+            putExtra(ReminderReceiver.EXTRA_GAME_PLANNED_AT, plannedEndAt)
         }
         val pending = PendingIntent.getBroadcast(context, gameRequestCode(sessionId, 3), followIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         context.getSystemService(AlarmManager::class.java).setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pending)
@@ -287,11 +334,14 @@ object ReminderScheduler {
 
     /** 开始在吃后，按个人时长估计结束时间并提醒“吃完了吗”。 */
     fun scheduleMealEndReminder(context: Context, record: MealRecord, minutes: Int) {
+        val store = PrototypeStore(context)
+        if (!store.loadMealReminderEnabled() || !store.loadMealDurationTrackingEnabled()) return
         val triggerAt = mealEndTriggerAt(record.startedAt, minutes)
         if (triggerAt <= System.currentTimeMillis()) return
         val intent = Intent(context, ReminderReceiver::class.java).apply {
             action = ReminderReceiver.ACTION_MEAL_END_REMINDER
             putExtra(ReminderReceiver.EXTRA_MEAL_TYPE, record.mealType.label)
+            putExtra(ReminderReceiver.EXTRA_MEAL_RECORD_ID, record.id)
         }
         val pending = PendingIntent.getBroadcast(context, mealEndRequestCode(record.mealType), intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         context.getSystemService(AlarmManager::class.java).setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pending)
@@ -305,6 +355,12 @@ object ReminderScheduler {
     fun cancelAllMealReminders(context: Context) {
         MealType.entries.forEach { cancelMealReminder(context, it) }
         cancelPending(context, DAILY_MEAL_REFRESH_REQUEST_CODE, ReminderReceiver.ACTION_DAILY_MEAL_REFRESH)
+    }
+
+    fun cancelMealEndReminders(context: Context) {
+        MealType.entries.forEach { type ->
+            cancelPending(context, mealEndRequestCode(type), ReminderReceiver.ACTION_MEAL_END_REMINDER)
+        }
     }
 
     fun dismissMealForToday(context: Context, type: MealType) {
@@ -321,6 +377,7 @@ object ReminderScheduler {
     }
 
     private fun restoreOpenMealEndReminders(context: Context, records: List<MealRecord>, profile: BaselineProfile) {
+        if (!PrototypeStore(context).loadMealDurationTrackingEnabled()) return
         MealType.entries.forEach { type ->
             val record = MealLearning.latestOpen(records, type) ?: return@forEach
             if (!MealLearning.sameDay(record.startedAt, System.currentTimeMillis())) return@forEach
@@ -346,6 +403,7 @@ object ReminderScheduler {
             action = ReminderReceiver.ACTION_MEAL_REMINDER
             putExtra(ReminderReceiver.EXTRA_MEAL_TYPE, type.label)
             putExtra(ReminderReceiver.EXTRA_MEAL_LEARNED, plan.learned)
+            putExtra(ReminderReceiver.EXTRA_MEAL_PLANNED_AT, triggerAt)
         }
         val pending = PendingIntent.getBroadcast(context, mealRequestCode(type), intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         context.getSystemService(AlarmManager::class.java).setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pending)
@@ -492,7 +550,11 @@ object ReminderScheduler {
         pending?.let(manager::cancel)
     }
 
-    private const val STATUS_CHECK_IN_REQUEST_CODE = 2_900_001
+    private const val LEGACY_STATUS_CHECK_IN_REQUEST_CODE = 2_900_001
+    private const val STATUS_CHECK_IN_PRIMARY_REQUEST_CODE = 2_900_010
+    private const val STATUS_CHECK_IN_SECONDARY_REQUEST_CODE = 2_900_011
+    private const val STATUS_CHECK_IN_SNOOZE_REQUEST_CODE = 2_900_012
+    private const val STATUS_CHECK_IN_TEST_REQUEST_CODE = 2_900_013
     private const val WIND_DOWN_REQUEST_CODE = 2_900_003
     private const val DAILY_MEAL_REFRESH_REQUEST_CODE = 3_000_090
     private const val MEAL_PROMPT_GRACE_MINUTES = 45L

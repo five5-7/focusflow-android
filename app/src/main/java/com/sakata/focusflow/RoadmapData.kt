@@ -18,10 +18,22 @@ data class RoadmapEntry(val version: String, val title: String, val summary: Str
 data class RoadmapVersion(val version: String, val entries: List<RoadmapEntry>)
 
 object RoadmapData {
-    /** 已实现版本演进（1.0 → 7.1.1 候选），每版本浓缩 1–3 条，与 CHANGELOG.md 对应。 */
+    /** 已实现版本演进（1.0 → 当前候选），每版本浓缩 1–3 条，与 CHANGELOG.md 对应。 */
     val evolution: List<RoadmapVersion> = listOf(
+        RoadmapVersion("7.4.0", listOf(
+            RoadmapEntry("7.4.0", "低成本精力基线采样", "默认每天一次并轮换上午／下午／晚上；稳定时段自动停止日常追问，三时段完成后每周抽查；加速模式需主动开启且每天最多两次。待 CI、真机验收与正式发布。", RoadmapStatus.CANDIDATE)
+        )),
+        RoadmapVersion("7.3.0", listOf(
+            RoadmapEntry("7.3.0-rc.4", "个人精力情境模型", "按上午、下午、晚上建立个人基线；可选第二次询问按样本自动暂停；已根据真机验证移除无法取得厂商数据的外部睡眠接入。", RoadmapStatus.CANDIDATE)
+        )),
+        RoadmapVersion("7.2.0", listOf(
+            RoadmapEntry("7.2.0", "可解释且保守的可选提醒", "精力询问显示下一次与最近结果；饭点和用餐结束询问分别默认关闭；前台检测只增强文案、不自动结束；快速入门、帮助、今日页、通知诊断与后台行为统一语义。发布构建候选，建立 Release 前不称为正式版。", RoadmapStatus.CANDIDATE)
+        )),
+        RoadmapVersion("7.1.4", listOf(
+            RoadmapEntry("7.1.4", "活动提醒一致性修复", "六类活动按真实类别提醒且不自动写娱乐状态；旧广播时间核对；改期、移出日程与删除统一同步会话和闹钟。待 CI 与真机提醒验收。", RoadmapStatus.CANDIDATE)
+        )),
         RoadmapVersion("7.1.3", listOf(
-            RoadmapEntry("7.1.3", "图标、顶部滚动与导航反馈", "自适应/单色图标；初始顶部避让与滚动范围分离；主入口淡入淡出，子页底栏圆点/回弹反馈。待真机验收。", RoadmapStatus.CANDIDATE)
+            RoadmapEntry("7.1.3", "图标、顶部滚动与导航反馈", "自适应/单色图标；初始顶部避让与滚动范围分离；主入口淡入淡出，子页底栏圆点/回弹反馈。第二个正式版里程碑。", RoadmapStatus.DONE)
         )),
         RoadmapVersion("7.1.2", listOf(
             RoadmapEntry("7.1.2", "真正悬浮底栏与六色主题", "移除固定底座，列表末尾避让；图标小方块选中动画；独立导航栏第六色、五色兼容及颜色读写修复。待真机视觉验收。", RoadmapStatus.CANDIDATE)
@@ -125,7 +137,7 @@ object RoadmapData {
             RoadmapEntry("5.5", "一站式视频分析＋多轮打磨", "假期自动关校园生活；教程资料折叠；视频分析一站式整理（粘贴字幕→AI 要点→保存教程，模型入口同前）；游戏安排自定义时间与开始提醒可选；作息方案切换同步作息分组；应用清单显示应用名并支持添加本机应用；周回顾 AI 周总结", RoadmapStatus.DONE)
         )),
         RoadmapVersion("5.4", listOf(
-            RoadmapEntry("5.4", "前台应用检测与游戏自律", "加号→「想玩游戏」：按空闲安排游戏时间，到点提醒开始并自动记录状态；到点检测前台应用（应用分类：内置清单＋应用名自动识别＋手动归类），仍在玩则提醒收尾并记录实际结束/超时；周回顾新增游戏自律统计与建议", RoadmapStatus.DONE)
+            RoadmapEntry("5.4", "前台应用检测与游戏自律", "建立空闲活动、应用分类和收尾提醒基础；旧版曾由检测推断结束，7.2 起改为只增强提醒、必须由用户确认结束，历史统计按已确认记录计算。", RoadmapStatus.DONE)
         )),
         RoadmapVersion("5.3", listOf(
             RoadmapEntry("5.3", "新建目标 AI 教程查找", "「搜学习教程」替换生成学习路径按钮：手动三平台搜索＋AI 生成“去哪个平台搜什么”建议，保存即设为标准并回到目标对话框（预填目标名＋预期结果）", RoadmapStatus.DONE)
@@ -151,7 +163,7 @@ object RoadmapData {
             RoadmapEntry("4.2", "识别表格＋本地判断自动排计划", "“按空挡自动排本周目标”：把本周未完成的目标次数排进课程空挡（本地判断避开课程与已有安排、优先更长空档），一键生成带提醒的任务并进入日程，可随时改期", RoadmapStatus.DONE)
         )),
         RoadmapVersion("4.1", listOf(
-            RoadmapEntry("4.1", "生活模式多方案", "同一生活阶段下可另存多套作息方案（命名、最多 8 套），一键切换/删除；饭点与睡前减速按当前方案的阶段自动跟随", RoadmapStatus.DONE),
+            RoadmapEntry("4.1", "生活模式多方案", "同一生活阶段下可另存多套作息方案（命名、最多 8 套），一键切换/删除；已开启的饭点与睡前减速按当前方案计算时间，但切换阶段不会自动开启提醒", RoadmapStatus.DONE),
             RoadmapEntry("4.1", "提醒打扰控制＋常驻快速记录", "免打扰时段（可跨天）静音状态询问/饭点/睡前减速，活动到点与任务提醒保持时间敏感；一次性静音 1 小时/3 小时/到明早；通知栏常驻一条静音通知，一键快速记录到收集箱", RoadmapStatus.DONE),
             RoadmapEntry("4.1", "自动决策与习惯识别", "询问时刻按签到数据自动采纳（设置页标注“已自动调整”，手动调整后不再自动）；今日首页校园生活一键开关；电动车电量偏低时在空挡页给出充电空档建议；睡前减速结合深夜活跃/娱乐时段记录给出更贴合的建议", RoadmapStatus.DONE)
         )),
@@ -347,6 +359,7 @@ object RoadmapData {
 
     /** 后续候选（“想玩游戏拓展”“自律类目标”“空挡建议进阶”已随 5.6/5.7/5.8.2 落地；正式理财已评估移除）。 */
     val future: List<RoadmapEntry> = listOf(
+        RoadmapEntry("后续", "统一设计语言", "建立颜色、字号、间距、圆角、阴影、图标、组件状态与转场令牌；统一主页面、子页面、卡片、弹窗和悬浮导航，覆盖全面屏、普通屏、深色模式、大字体及减少动画设置", RoadmapStatus.CANDIDATE),
         RoadmapEntry("后续", "任意表格识别自动配置计划", "识别课表之外的各类表格（如锻炼计划、阅读计划）自动生成计划（用户澄清 4.4 学习机制提案后重定向，之后讨论）", RoadmapStatus.CANDIDATE),
         RoadmapEntry("后续", "高德地图 SDK 集成", "可视化地图、POI 点选、以设备定位为中心的搜索；代价：包体积增加、SDK key 绑定包名与签名、需要定位权限", RoadmapStatus.CANDIDATE),
         RoadmapEntry("后续", "云同步与多设备备份", "所有数据目前只在本机，无任何云端能力", RoadmapStatus.CANDIDATE),
@@ -365,7 +378,7 @@ fun RoadmapSubpageContent() {
                 Text("每次功能更新递增 0.1；更新记录见版本演进。", style = MaterialTheme.typography.bodySmall)
             }
         }
-        Text("版本演进（1.0 → 7.1.1 候选）", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Text("版本演进（1.0 → 7.4.0 候选）", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         RoadmapData.evolution.forEach { version ->
             Text(version.version, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
             version.entries.forEach { entry ->
