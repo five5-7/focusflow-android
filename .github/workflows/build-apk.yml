@@ -136,6 +136,7 @@ jobs:
           build_tools="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
           test -x "$build_tools/apksigner"
           "$build_tools/apksigner" verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk > apk-verification.txt
+          bash scripts/verify-signing-report.sh apk-verification.txt
           "$build_tools/aapt" dump badging app/build/outputs/apk/release/app-release.apk >> apk-verification.txt
           if grep -q '^application-debuggable' apk-verification.txt; then
             echo "::error::Distribution APK must not be debuggable"
