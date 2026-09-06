@@ -351,8 +351,9 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     val upcomingCommitment = NextActionPlanner.nextCommitment(items, courses)
     val suggestedNextStepName = upcomingCommitment?.title ?: suggestedNextStep?.title.orEmpty()
     // 全部地点：内置目录或地点包为基底，自定义地点按名去重合并（同名自定义胜出）。
-    val basePlaces = campusMapPackage?.places?.takeIf { it.isNotEmpty() } ?: ZijingangTravel.places
-    val campusPlaces = if (campusLifeEnabled) basePlaces.filterNot { b -> customPlaces.any { it.name.lowercase() == b.name.lowercase() } || b.name.lowercase() in hiddenPlaces } + customPlaces else ZijingangTravel.places
+    // 新安装不预置任何校园地点；只有用户导入地点包或自行添加后才参与课程与通勤。
+    val basePlaces = campusMapPackage?.places.orEmpty()
+    val campusPlaces = if (campusLifeEnabled) basePlaces.filterNot { b -> customPlaces.any { it.name.lowercase() == b.name.lowercase() } || b.name.lowercase() in hiddenPlaces } + customPlaces else emptyList()
     /** 统一处理识别结果：去重、保留冲突为待确认课程并生成提示（计算在 CourseSchedule，只保留保存/状态副作用）。 */
     fun applyRecognizedCourses(recognized: List<Course>) {
         val merge = mergeRecognizedCourses(courses, recognized)
@@ -1307,13 +1308,17 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             customPlaces = updated
             store.saveCustomPlaces(updated)
         }
-        if (addCourseOpen) CourseEditorDialog(null, campusPlaces, onDismiss = { addCourseOpen = false }) { course ->
+        if (addCourseOpen) CourseEditorDialog(null, campusPlaces, onDismiss = { addCourseOpen = false }, onOpenCommutePlaces = {
+            addCourseOpen = false; tab = 3; settingsSubPage = SettingsSubPage.COMMUTE_PLACES; settingsBackStack = emptyList()
+        }) { course ->
             courses = courses + course.copy(needsConfirmation = false)
             store.saveCourses(courses)
             ensureCoursePlaceInLibrary(course)
             addCourseOpen = false
         }
-        courseEditor?.let { original -> CourseEditorDialog(original, campusPlaces, onDismiss = { courseEditor = null }) { edited ->
+        courseEditor?.let { original -> CourseEditorDialog(original, campusPlaces, onDismiss = { courseEditor = null }, onOpenCommutePlaces = {
+            courseEditor = null; tab = 3; settingsSubPage = SettingsSubPage.COMMUTE_PLACES; settingsBackStack = emptyList()
+        }) { edited ->
             courses = courses.map { if (it == original) edited.copy(needsConfirmation = false) else it }
             store.saveCourses(courses)
             ensureCoursePlaceInLibrary(edited)
