@@ -360,20 +360,35 @@ internal fun TimelineDayLane(
                                 .background(CONFLICT_TEXT_COLOR, RoundedCornerShape(topStart = 7.dp, bottomStart = 7.dp))
                         )
                     }
-                    if (showLabels) {
+                    val minimumLabelHeight = if (compactBlocks) 44.dp else 22.dp
+                    if (showLabels && event.type != ScheduleType.COMMUTE && height >= minimumLabelHeight) {
                         Column(Modifier.padding(horizontal = 5.dp, vertical = 3.dp)) {
+                            val titleLines = when {
+                                compactBlocks && height >= 76.dp -> 3
+                                compactBlocks -> 2
+                                height >= 56.dp -> 2
+                                else -> 1
+                            }
                             Text(
                                 event.title,
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.Bold,
-                                maxLines = if (labelMode == TimelineLabelMode.TITLE_ONLY) 1 else 2,
+                                maxLines = titleLines,
                                 overflow = TextOverflow.Ellipsis
                             )
-                            if (labelMode == TimelineLabelMode.FULL && height >= 34.dp) {
+                            if (labelMode == TimelineLabelMode.FULL && height >= 40.dp) {
                                 Text(
                                     "${formatMinute(event.startMinute)}–${formatMinute(event.endMinute)}",
                                     style = MaterialTheme.typography.labelSmall,
                                     maxLines = 1
+                                )
+                            }
+                            if (labelMode == TimelineLabelMode.FULL && height >= 82.dp && event.detail.isNotBlank()) {
+                                Text(
+                                    event.detail,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
                         }
