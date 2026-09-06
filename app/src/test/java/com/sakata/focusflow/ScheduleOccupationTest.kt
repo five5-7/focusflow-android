@@ -55,14 +55,14 @@ class ScheduleOccupationTest {
         assertEquals(1, blocks.size)
         val block = blocks.single()
         assertEquals("commute", block.kind)
-        // 下课 525（8:45），estim 走路14+缓冲6=20 → 545；下一课 700 之前，不截断
+        // 下课 525（8:45），估算步行14+缓冲6=20 → 545；下一课 600 之前，不截断
         assertEquals(525, block.startMinute)
         assertEquals(545, block.endMinute)
         assertEquals("", block.title)
     }
 
     @Test fun `commuteBlocks skip courses separated by a long gap`() {
-        val courses = listOf(course("高数", from = 1, to = 1), course("英语", from = 3, to = 3, zone = CampusZone.EAST_TEACHING))
+        val courses = listOf(course("高数", from = 1, to = 1), course("英语", from = 5, to = 5, zone = CampusZone.EAST_TEACHING))
         assertTrue(ScheduleOccupation.commuteBlocks(courses, enabledProfile).isEmpty())
     }
 
@@ -93,7 +93,7 @@ class ScheduleOccupationTest {
     }
 
     @Test fun `dayOccupied includes commute travel when profile enabled`() {
-        val courses = listOf(course("高数", from = 1, to = 1), course("英语", from = 5, to = 5, zone = CampusZone.EAST_TEACHING))
+        val courses = listOf(course("高数", from = 1, to = 1), course("英语", from = 3, to = 3, zone = CampusZone.EAST_TEACHING))
         val withTravel = ScheduleOccupation.dayOccupied(1, courses, emptyList(), enabledProfile)
         val withoutTravel = ScheduleOccupation.dayOccupied(1, courses, emptyList(), null)
         assertTrue(withTravel.size < withoutTravel.size || withTravel.first().first <= withoutTravel.first().first)
