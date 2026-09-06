@@ -90,3 +90,34 @@ internal fun QuickStartDialog(onDismiss: () -> Unit) {
         }
     )
 }
+
+
+/** 覆盖安装后每个版本只展示一次的更新说明；版本名来自 BuildConfig，路线图是唯一详情入口。 */
+internal fun updateHighlightsFor(version: String): List<String> = when {
+    version.startsWith("7.7.0") -> listOf(
+        "默认设置说明与快速入门已按首次使用路径重整。",
+        "更新提示只显示一次；可随时从版本路线图查看完整记录。"
+    )
+    else -> listOf("本次功能更新已安装；完整记录请查看版本路线图。")
+}
+
+@Composable
+internal fun UpdateNoticeDialog(
+    version: String,
+    onDismiss: () -> Unit,
+    onOpenRoadmap: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("已更新至 $version") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("本次更新已完成安装。核心变化：", fontWeight = FontWeight.SemiBold)
+                updateHighlightsFor(version).forEach { Text("• $it") }
+                Text("完整版本记录与后续候选都在版本路线图中。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        },
+        confirmButton = { Button(onClick = onOpenRoadmap) { Text("查看版本路线图") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("稍后查看") } }
+    )
+}
