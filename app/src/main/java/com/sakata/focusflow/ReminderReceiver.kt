@@ -16,33 +16,55 @@ class ReminderReceiver : BroadcastReceiver() {
         val manager = context.getSystemService(NotificationManager::class.java)
         val notificationId = intent.getIntExtra(EXTRA_NOTIFICATION_ID, -1)
         val sessionId = intent.getLongExtra(EXTRA_SESSION_ID, -1L)
-        val activityName = intent.getStringExtra(EXTRA_ACTIVITY_NAME) ?: "当前活动"
-        val nextStep = intent.getStringExtra(EXTRA_NEXT_STEP).orEmpty()
+        var activityName = intent.getStringExtra(EXTRA_ACTIVITY_NAME) ?: "当前活动"
+        var nextStep = intent.getStringExtra(EXTRA_NEXT_STEP).orEmpty()
         val store = PrototypeStore(context)
         when (intent.action) {
             ACTION_STATUS_CHECK_IN -> {
                 val settings = store.loadStatusCheckInSettings()
+                val expectedAt = intent.getLongExtra(EXTRA_STATUS_PROMPT_EXPECTED_AT, -1L)
+                val isTest = intent.getBooleanExtra(EXTRA_STATUS_PROMPT_TEST, false)
+                val promptIndex = intent.getIntExtra(EXTRA_STATUS_PROMPT_INDEX, 1)
                 ReminderScheduler.scheduleDailyStatusCheckIn(context, settings)
-                if (!settings.enabled) return
-                if (suppressNow(store, intent.action)) return
+                val now = System.currentTimeMillis()
+                val quiet = store.loadQuietHoursSettings()
                 val active = store.loadLatestActiveSession()
-                if (active != null) {
+                val todayRecords = store.loadStatusCheckIns(365).filter { MealLearning.sameDay(it.recordedAt, now) }
+                val recentRecords = store.loadStatusCheckIns(365).filter { it.recordedAt >= now - 30L * 24 * 60 * 60_000L }
+                val outcome = StatusPromptPolicy.decide(
+                    settings = settings,
+                    expectedAt = expectedAt,
+                    now = now,
+                    notificationsAllowed = context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED,
+                    muted = !isTest && quiet.isMuted(now),
+                    quietHoursSuppressed = !isTest && quiet.inQuietHours(now) && quiet.suppressStatusCheckIn,
+                    activeSession = active.takeUnless { isTest },
+                    latestRecordedAt = store.loadLatestStatusCheckIn()?.recordedAt.takeUnless { isTest },
+                    promptIndex = if (isTest) 1 else promptIndex,
+                    todayRecordCount = if (isTest) 0 else todayRecords.size,
+                    secondSlotRecentSampleCount = if (isTest || promptIndex < 2) 0 else PersonalEnergyModel.slotSampleCount(expectedAt, recentRecords)
+                )
+                store.saveStatusPromptTrace(StatusPromptTrace(outcome, now, expectedAt))
+                if (outcome == StatusPromptOutcome.ACTIVE_SESSION && active != null) {
                     val minutes = ((active.endsAt - System.currentTimeMillis()) / 60_000L + 10).toInt().coerceIn(30, 180)
                     ReminderScheduler.snoozeStatusCheckIn(context, minutes)
                     return
                 }
-                if (store.loadLatestStatusCheckIn()?.recordedAt?.let(::isSameDayAsNow) == true) return
+                if (outcome != StatusPromptOutcome.READY) return
                 showStatusCheckInNotification(context, manager, settings)
                 return
             }
             ACTION_STATUS_CHECK_IN_SNOOZE -> {
                 if (notificationId >= 0) manager.cancel(notificationId)
-                ReminderScheduler.snoozeStatusCheckIn(context, store.loadStatusCheckInSettings().snoozeMinutes)
+                val settings = store.loadStatusCheckInSettings()
+                if (settings.enabled) ReminderScheduler.snoozeStatusCheckIn(context, settings.snoozeMinutes)
                 return
             }
             ACTION_COMPLETE -> {
                 if (notificationId >= 0) manager.cancel(notificationId)
                 if (sessionId >= 0) {
+                    val current = store.findActivitySession(sessionId)
+                    if (!ActivityReminderFreshness.matches(current, intent.getLongExtra(EXTRA_ACTIVITY_ENDS_AT, -1L))) return
                     store.finishSession(sessionId, ActivitySession.STATUS_COMPLETED, "notification_finish")
                     ReminderScheduler.cancelActivityReminders(context, sessionId)
                 }
@@ -51,30 +73,39 @@ class ReminderReceiver : BroadcastReceiver() {
             ACTION_SKIP -> {
                 if (notificationId >= 0) manager.cancel(notificationId)
                 if (sessionId >= 0) {
+                    val current = store.findActivitySession(sessionId)
+                    if (!ActivityReminderFreshness.matches(current, intent.getLongExtra(EXTRA_ACTIVITY_ENDS_AT, -1L))) return
+                    val active = requireNotNull(current)
                     store.finishSession(sessionId, ActivitySession.STATUS_SKIPPED, "replan")
                     ReminderScheduler.cancelActivityReminders(context, sessionId)
+                    store.addReplanItem(active.nextStep.ifBlank { active.name })
                 }
-                store.addReplanItem(nextStep.ifBlank { activityName })
                 return
             }
             ACTION_SNOOZE -> {
                 if (notificationId >= 0) manager.cancel(notificationId)
+                if (!ActivityReminderFreshness.matches(store.findActivitySession(sessionId), intent.getLongExtra(EXTRA_ACTIVITY_ENDS_AT, -1L))) return
                 val delayed = sessionId.takeIf { it >= 0 }?.let { store.extendSession(it, 10, "通知中延长") }
                 delayed?.let { ReminderScheduler.scheduleActivityReminders(context, it) }
                 return
             }
             ACTION_ACTIVITY_PREVIEW -> {
-                showActivityPreview(context, manager, activityName, nextStep, sessionId)
+                val current = store.findActivitySession(sessionId)
+                if (!ActivityReminderFreshness.matches(current, intent.getLongExtra(EXTRA_ACTIVITY_ENDS_AT, -1L))) return
+                showActivityPreview(context, manager, requireNotNull(current))
                 return
             }
             ACTION_ACTIVITY_END -> {
-                if (sessionId >= 0) store.markSessionAwaitingConfirmation(sessionId)
+                val current = store.findActivitySession(sessionId)
+                if (!ActivityReminderFreshness.matches(current, intent.getLongExtra(EXTRA_ACTIVITY_ENDS_AT, -1L))) return
+                val pending = store.markSessionAwaitingConfirmation(sessionId) ?: return
+                activityName = pending.name
+                nextStep = pending.nextStep
             }
             ACTION_TASK_ADVANCE, ACTION_TASK_DUE -> {
                 showTaskNotification(
                     context,
                     manager,
-                    intent.getStringExtra(EXTRA_TASK_TITLE) ?: "日程任务",
                     intent.getLongExtra(EXTRA_TASK_ID, -1L),
                     intent.getLongExtra(EXTRA_TASK_START_AT, 0L),
                     dueNow = intent.action == ACTION_TASK_DUE
@@ -89,27 +120,52 @@ class ReminderReceiver : BroadcastReceiver() {
             ACTION_MEAL_REMINDER -> {
                 if (suppressNow(store, intent.action)) return
                 val type = MealType.fromLabel(intent.getStringExtra(EXTRA_MEAL_TYPE) ?: "")
-                if (type != null) showMealPromptNotification(context, manager, type, intent.getBooleanExtra(EXTRA_MEAL_LEARNED, false))
+                val plannedAt = intent.getLongExtra(EXTRA_MEAL_PLANNED_AT, -1L)
+                val profile = store.loadBaselineProfile()
+                val records = store.loadMealRecords()
+                val now = System.currentTimeMillis()
+                val todayKey = MealLearning.dayKey(now)
+                if (type == null || !MealReminderFreshness.promptAllowed(
+                        enabled = store.loadMealReminderEnabled(),
+                        profileReady = profile.lifeStage != null,
+                        expectedAt = plannedAt,
+                        now = now,
+                        alreadyStarted = MealLearning.startedToday(records, now, type),
+                        skippedToday = "$todayKey:${type.label}" in store.loadMealSkipDays()
+                    )) return
+                val plan = MealLearning.todayPlan(records, profile, Calendar.getInstance().get(Calendar.DAY_OF_WEEK), type)
+                showMealPromptNotification(context, manager, type, plan.learned, plannedAt.takeIf { it > 0L } ?: System.currentTimeMillis())
                 return
             }
             ACTION_MEAL_DISMISS -> {
                 val type = MealType.fromLabel(intent.getStringExtra(EXTRA_MEAL_TYPE) ?: "")
-                if (type != null) ReminderScheduler.dismissMealForToday(context, type)
+                val expectedAt = intent.getLongExtra(EXTRA_MEAL_PLANNED_AT, -1L)
+                if (type != null && store.loadMealReminderEnabled() && (expectedAt <= 0L || isSameDayAsNow(expectedAt))) {
+                    ReminderScheduler.dismissMealForToday(context, type)
+                }
                 return
             }
             ACTION_MEAL_SNOOZE -> {
                 if (notificationId >= 0) manager.cancel(notificationId)
-                MealType.fromLabel(intent.getStringExtra(EXTRA_MEAL_TYPE) ?: "")?.let { ReminderScheduler.snoozeMealReminder(context, it) }
+                val expectedAt = intent.getLongExtra(EXTRA_MEAL_PLANNED_AT, -1L)
+                if (store.loadMealReminderEnabled() && (expectedAt <= 0L || isSameDayAsNow(expectedAt))) {
+                    MealType.fromLabel(intent.getStringExtra(EXTRA_MEAL_TYPE) ?: "")?.let { ReminderScheduler.snoozeMealReminder(context, it) }
+                }
                 return
             }
             ACTION_MEAL_END_REMINDER -> {
                 if (suppressNow(store, intent.action)) return
                 val type = MealType.fromLabel(intent.getStringExtra(EXTRA_MEAL_TYPE) ?: "")
-                if (type != null) showMealEndNotification(context, manager, type)
+                val expectedRecordId = intent.getLongExtra(EXTRA_MEAL_RECORD_ID, -1L)
+                val record = type?.let { MealLearning.latestOpen(store.loadMealRecords(), it) }
+                if (type != null && MealReminderFreshness.endAllowed(store.loadMealReminderEnabled(), store.loadMealDurationTrackingEnabled(), record, expectedRecordId, System.currentTimeMillis())) {
+                    showMealEndNotification(context, manager, requireNotNull(record))
+                }
                 return
             }
             ACTION_WIND_DOWN -> {
                 if (suppressNow(store, intent.action)) return
+                if (!store.loadWindDownEnabled() || store.loadBaselineProfile().lifeStage == null) return
                 showWindDownNotification(context, manager)
                 return
             }
@@ -118,10 +174,13 @@ class ReminderReceiver : BroadcastReceiver() {
                 val type = MealType.fromLabel(intent.getStringExtra(EXTRA_MEAL_TYPE) ?: "")
                 val store = PrototypeStore(context)
                 val record = type?.let { MealLearning.latestOpen(store.loadMealRecords(), it) }
+                val expectedRecordId = intent.getLongExtra(EXTRA_MEAL_RECORD_ID, -1L)
                 val profile = store.loadBaselineProfile()
                 val minutes = type?.let { MealLearning.predictedMinutes(store.loadMealRecords(), profile.lifeStage, java.util.Calendar.getInstance().get(java.util.Calendar.DAY_OF_WEEK), it) ?: profile.meals.firstOrNull { m -> m.type == it }?.typicalMinutes ?: 20 }
-                if (record != null && type != null && minutes != null) {
-                    ReminderScheduler.scheduleMealEndReminder(context, record.copy(startedAt = System.currentTimeMillis()), minutes)
+                if (type != null && minutes != null && MealReminderFreshness.endAllowed(
+                        store.loadMealReminderEnabled(), store.loadMealDurationTrackingEnabled(), record, expectedRecordId, System.currentTimeMillis()
+                    )) {
+                    ReminderScheduler.scheduleMealEndReminder(context, requireNotNull(record).copy(startedAt = System.currentTimeMillis()), minutes)
                 }
                 return
             }
@@ -132,12 +191,13 @@ class ReminderReceiver : BroadcastReceiver() {
             ACTION_TASK_COMPLETE -> {
                 if (notificationId >= 0) manager.cancel(notificationId)
                 val taskId = intent.getLongExtra(EXTRA_TASK_ID, -1L)
-                if (taskId >= 0) store.findItem(taskId)?.let { task ->
+                val task = store.findItem(taskId)
+                if (taskId >= 0 && TaskReminderActionFreshness.matches(task, intent.getLongExtra(EXTRA_TASK_START_AT, -1L))) task?.let { current ->
                     ReminderScheduler.cancelTaskReminder(context, taskId)
                     store.updateItem(taskId) { it.copy(done = true, completionLevel = "完整完成", completedAt = System.currentTimeMillis()) }
-                    store.appendTaskEvent(TaskRecorder.event(TaskEventType.TASK_COMPLETED, task.id, task.title, extra = "完整完成"))
-                    task.goalId?.let { store.markGoalCompleted(it) }
-                    task.scheduledAt?.let { time ->
+                    store.appendTaskEvent(TaskRecorder.event(TaskEventType.TASK_COMPLETED, current.id, current.title, extra = "完整完成"))
+                    current.goalId?.let { store.markGoalCompleted(it) }
+                    current.scheduledAt?.let { time ->
                         val cal = java.util.Calendar.getInstance().apply { timeInMillis = time }
                         val day = when (cal.get(java.util.Calendar.DAY_OF_WEEK)) { java.util.Calendar.SUNDAY -> 7 else -> cal.get(java.util.Calendar.DAY_OF_WEEK) - 1 }
                         PlanLearning.recordCompleted(store, day, cal.get(java.util.Calendar.HOUR_OF_DAY))
@@ -148,21 +208,30 @@ class ReminderReceiver : BroadcastReceiver() {
             ACTION_TASK_MINIMUM -> {
                 if (notificationId >= 0) manager.cancel(notificationId)
                 val taskId = intent.getLongExtra(EXTRA_TASK_ID, -1L)
-                if (taskId >= 0) store.findItem(taskId)?.let { task ->
+                val task = store.findItem(taskId)
+                if (taskId >= 0 && TaskReminderActionFreshness.matches(task, intent.getLongExtra(EXTRA_TASK_START_AT, -1L))) task?.let { current ->
                     ReminderScheduler.cancelTaskReminder(context, taskId)
                     store.updateItem(taskId) { it.copy(done = true, completionLevel = "最低版本", completedAt = System.currentTimeMillis()) }
-                    store.appendTaskEvent(TaskRecorder.event(TaskEventType.TASK_COMPLETED, task.id, task.title, extra = "最低版本"))
-                    task.goalId?.let { store.markGoalCompleted(it, minimum = true) }
+                    store.appendTaskEvent(TaskRecorder.event(TaskEventType.TASK_COMPLETED, current.id, current.title, extra = "最低版本"))
+                    current.goalId?.let { store.markGoalCompleted(it, minimum = true) }
                 }
                 return
             }
             ACTION_TASK_SNOOZE -> {
                 if (notificationId >= 0) manager.cancel(notificationId)
                 val taskId = intent.getLongExtra(EXTRA_TASK_ID, -1L)
-                store.findItem(taskId)?.let { item ->
-                    val delayed = item.copy(scheduledAt = System.currentTimeMillis() + 60 * 60_000L, detail = "已延后一小时；到时再问你")
+                val item = store.findItem(taskId)
+                if (TaskReminderActionFreshness.matches(item, intent.getLongExtra(EXTRA_TASK_START_AT, -1L))) item?.let { current ->
+                    val now = System.currentTimeMillis()
+                    val delayedAt = now + 60 * 60_000L
+                    val delayed = current.copy(
+                        scheduledAt = delayedAt,
+                        detail = TaskScheduleText.rescheduledDetail(delayedAt, current.durationMinutes),
+                        rescheduleCount = current.rescheduleCount + 1,
+                        lastRescheduledAt = now
+                    )
                     store.updateItem(taskId) { delayed }
-                    store.appendTaskEvent(TaskRecorder.event(TaskEventType.TASK_RESCHEDULED, item.id, item.title, scheduledAt = delayed.scheduledAt ?: 0, extra = "延后一小时"))
+                    store.appendTaskEvent(TaskRecorder.event(TaskEventType.TASK_RESCHEDULED, current.id, current.title, scheduledAt = delayed.scheduledAt ?: 0, extra = "延后一小时"))
                     ReminderScheduler.scheduleTaskReminder(context, delayed)
                 }
                 return
@@ -170,9 +239,16 @@ class ReminderReceiver : BroadcastReceiver() {
             ACTION_TASK_SKIP -> {
                 if (notificationId >= 0) manager.cancel(notificationId)
                 val taskId = intent.getLongExtra(EXTRA_TASK_ID, -1L)
-                if (taskId >= 0) {
+                val current = store.findItem(taskId)
+                if (taskId >= 0 && TaskReminderActionFreshness.matches(current, intent.getLongExtra(EXTRA_TASK_START_AT, -1L))) {
                     ReminderScheduler.cancelTaskReminder(context, taskId)
-                    store.updateItem(taskId) { item -> item.copy(title = if (item.title.startsWith("重新安排：")) item.title else "重新安排：${item.title}", kind = "收集箱", detail = "这次没有做；可以改期、缩短、暂停或放弃", scheduledAt = null) }
+                    store.updateItem(taskId) { item -> item.copy(
+                        title = if (item.title.startsWith("重新安排：")) item.title else "重新安排：${item.title}",
+                        kind = "收集箱",
+                        detail = "这次没有做；可以改期、缩短、暂停或放弃",
+                        recoverySourceScheduledAt = item.recoverySourceScheduledAt ?: item.scheduledAt,
+                        scheduledAt = null
+                    ) }
                     store.findItem(taskId)?.let { updated ->
                         store.appendTaskEvent(TaskRecorder.event(TaskEventType.TASK_TO_INBOX, updated.id, updated.title.removePrefix("重新安排："), extra = "跳过"))
                     }
@@ -193,13 +269,18 @@ class ReminderReceiver : BroadcastReceiver() {
             }
             ACTION_GAME_FINISH -> {
                 if (notificationId >= 0) manager.cancel(notificationId)
-                recordGameActualEnd(context, intent.getLongExtra(EXTRA_GAME_SESSION_ID, -1L), System.currentTimeMillis())
+                val gameSessionId = intent.getLongExtra(EXTRA_GAME_SESSION_ID, -1L)
+                val game = store.loadGameSessions().firstOrNull { it.id == gameSessionId && it.isOpen() }
+                if (game != null && ScheduledActivityPolicy.matchesCurrentPlan(intent.getLongExtra(EXTRA_GAME_PLANNED_AT, -1L), game.plannedEndAt)) {
+                    recordGameActualEnd(context, gameSessionId, System.currentTimeMillis())
+                }
                 return
             }
             ACTION_GAME_EXTEND -> {
                 if (notificationId >= 0) manager.cancel(notificationId)
                 val sessionId = intent.getLongExtra(EXTRA_GAME_SESSION_ID, -1L)
-                PrototypeStore(context).loadGameSessions().firstOrNull { it.id == sessionId && it.isOpen() }?.let { session ->
+                PrototypeStore(context).loadGameSessions().firstOrNull { it.id == sessionId && it.isOpen() &&
+                    ScheduledActivityPolicy.matchesCurrentPlan(intent.getLongExtra(EXTRA_GAME_PLANNED_AT, -1L), it.plannedEndAt) }?.let { session ->
                     val extended = session.copy(plannedEndAt = session.plannedEndAt + 15 * 60_000L)
                     store.updateGameSession(sessionId) { extended }
                     ReminderScheduler.cancelGameReminders(context, sessionId)
@@ -218,18 +299,18 @@ class ReminderReceiver : BroadcastReceiver() {
         val id = (System.currentTimeMillis() % Int.MAX_VALUE).toInt()
         val text = if (nextStep.isBlank()) "预计时间已到。现在结束、延长，或打开 FocusFlow 决定下一步。" else "预计时间已到。下一步：$nextStep"
         val openApp = PendingIntent.getActivity(context, id + 9, Intent(context, MainActivity::class.java), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val current = store.findActivitySession(sessionId) ?: return
         val notification = NotificationCompat.Builder(context, endChannel)
             .setSmallIcon(android.R.drawable.ic_popup_reminder)
             .setContentTitle("$activityName 时间到了")
             .setContentText(text)
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))
             .setContentIntent(openApp)
-            .addAction(0, "结束活动", actionIntent(context, ACTION_COMPLETE, activityName, nextStep, sessionId, id, 1))
+            .addAction(0, "结束活动", actionIntent(context, ACTION_COMPLETE, activityName, nextStep, sessionId, current.endsAt, id, 1))
             .setAutoCancel(true)
             .setOnlyAlertOnce(true)
-        val current = store.findActivitySession(sessionId)
-        if (current != null && current.extensionCount < store.loadActivityReminderSettings().maxExtensions) {
-            notification.addAction(0, "延长 10 分钟", actionIntent(context, ACTION_SNOOZE, activityName, nextStep, sessionId, id, 2))
+        if (current.extensionCount < store.loadActivityReminderSettings().maxExtensions) {
+            notification.addAction(0, "延长 10 分钟", actionIntent(context, ACTION_SNOOZE, activityName, nextStep, sessionId, current.endsAt, id, 2))
         }
         notification.addAction(0, "打开转场", openApp)
         manager.notify(id, notification.build())
@@ -242,9 +323,13 @@ class ReminderReceiver : BroadcastReceiver() {
         return quiet.inQuietHours() && QuietHoursSettings.suppresses(quiet, action ?: "")
     }
 
-    private fun showActivityPreview(context: Context, manager: NotificationManager, activityName: String, nextStep: String, sessionId: Long) {
+    private fun showActivityPreview(context: Context, manager: NotificationManager, session: ActivitySession) {
         if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
+        if (!PrototypeStore(context).loadActivityReminderSettings().notificationsEnabled) return
         ensureChannel(manager, CHANNEL_ACTIVITY_PREVIEW, "活动结束预告")
+        val activityName = session.name
+        val nextStep = session.nextStep
+        val sessionId = session.id
         val id = ((sessionId % Int.MAX_VALUE) + 700).toInt()
         val openApp = PendingIntent.getActivity(context, id, Intent(context, MainActivity::class.java), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val text = if (nextStep.isBlank()) "$activityName 即将到达预计结束时间，可以开始收尾。" else "$activityName 即将结束；接下来准备：$nextStep"
@@ -258,9 +343,11 @@ class ReminderReceiver : BroadcastReceiver() {
             .build())
     }
 
-    private fun showTaskNotification(context: Context, manager: NotificationManager, title: String, taskId: Long, startsAt: Long, dueNow: Boolean) {
+    private fun showTaskNotification(context: Context, manager: NotificationManager, taskId: Long, startsAt: Long, dueNow: Boolean) {
         if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
-        val task = PrototypeStore(context).findItem(taskId) ?: return
+        val store = PrototypeStore(context)
+        if (!store.loadActivityReminderSettings().scheduleRemindersEnabled) return
+        val task = store.findItem(taskId) ?: return
         // 改期与完成可能正好和旧广播交错；以当前存储状态为准，避免幽灵通知。
         if (task.done || task.scheduledAt != startsAt || task.kind in setOf("收集箱", "暂停", "游戏", "活动")) return
         ensureChannel(manager, CHANNEL_TASK, "FocusFlow 任务提醒")
@@ -270,13 +357,13 @@ class ReminderReceiver : BroadcastReceiver() {
         val timing = if (dueNow) "现在该开始了。" else if (minutes <= 1) "即将开始。" else "约 $minutes 分钟后开始。"
         val notification = NotificationCompat.Builder(context, CHANNEL_TASK)
             .setSmallIcon(android.R.drawable.ic_popup_reminder)
-            .setContentTitle(if (dueNow) "到点了：$title" else "即将开始：$title")
+            .setContentTitle(if (dueNow) "到点了：${task.title}" else "即将开始：${task.title}")
             .setContentText("$timing 可开始、稍后或改期。")
             .setContentIntent(openApp)
-            .addAction(0, "完整完成", taskActionIntent(context, ACTION_TASK_COMPLETE, taskId, id, 11))
-            .addAction(0, "稍后 1 小时", taskActionIntent(context, ACTION_TASK_SNOOZE, taskId, id, 12))
+            .addAction(0, "完整完成", taskActionIntent(context, ACTION_TASK_COMPLETE, taskId, startsAt, id, 11))
+            .addAction(0, "稍后 1 小时", taskActionIntent(context, ACTION_TASK_SNOOZE, taskId, startsAt, id, 12))
             .setAutoCancel(true)
-        if (task.goalId != null) notification.addAction(0, "最低版本", taskActionIntent(context, ACTION_TASK_MINIMUM, taskId, id, 13))
+        if (task.goalId != null) notification.addAction(0, "最低版本", taskActionIntent(context, ACTION_TASK_MINIMUM, taskId, startsAt, id, 13))
         manager.notify(id, notification.build())
     }
 
@@ -335,7 +422,7 @@ class ReminderReceiver : BroadcastReceiver() {
             .build())
     }
 
-    private fun showMealPromptNotification(context: Context, manager: NotificationManager, type: MealType, learned: Boolean) {
+    private fun showMealPromptNotification(context: Context, manager: NotificationManager, type: MealType, learned: Boolean, plannedAt: Long) {
         if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
         ensureChannel(manager, CHANNEL_MEAL, "饭点提醒")
         val id = MEAL_NOTIFICATION_BASE + type.ordinal
@@ -346,6 +433,7 @@ class ReminderReceiver : BroadcastReceiver() {
                 flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
                 putExtra(EXTRA_OPEN_MEAL_PROMPT, true)
                 putExtra(EXTRA_MEAL_TYPE, type.label)
+                putExtra(EXTRA_MEAL_PLANNED_AT, plannedAt)
             },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
@@ -356,6 +444,7 @@ class ReminderReceiver : BroadcastReceiver() {
                 action = ACTION_MEAL_SNOOZE
                 putExtra(EXTRA_NOTIFICATION_ID, id)
                 putExtra(EXTRA_MEAL_TYPE, type.label)
+                putExtra(EXTRA_MEAL_PLANNED_AT, plannedAt)
             },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
@@ -365,6 +454,7 @@ class ReminderReceiver : BroadcastReceiver() {
             Intent(context, ReminderReceiver::class.java).apply {
                 action = ACTION_MEAL_DISMISS
                 putExtra(EXTRA_MEAL_TYPE, type.label)
+                putExtra(EXTRA_MEAL_PLANNED_AT, plannedAt)
             },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
@@ -415,8 +505,9 @@ class ReminderReceiver : BroadcastReceiver() {
             .build())
     }
 
-    private fun showMealEndNotification(context: Context, manager: NotificationManager, type: MealType) {
+    private fun showMealEndNotification(context: Context, manager: NotificationManager, record: MealRecord) {
         if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
+        val type = record.mealType
         ensureChannel(manager, CHANNEL_MEAL, "饭点提醒")
         val id = MEAL_NOTIFICATION_BASE + type.ordinal + 10
         val openApp = PendingIntent.getActivity(
@@ -426,6 +517,7 @@ class ReminderReceiver : BroadcastReceiver() {
                 flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
                 putExtra(EXTRA_OPEN_MEAL_FINISH, true)
                 putExtra(EXTRA_MEAL_TYPE, type.label)
+                putExtra(EXTRA_MEAL_RECORD_ID, record.id)
             },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
@@ -436,6 +528,7 @@ class ReminderReceiver : BroadcastReceiver() {
                 action = ACTION_MEAL_STILL_EATING
                 putExtra(EXTRA_NOTIFICATION_ID, id)
                 putExtra(EXTRA_MEAL_TYPE, type.label)
+                putExtra(EXTRA_MEAL_RECORD_ID, record.id)
             },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
@@ -473,97 +566,109 @@ class ReminderReceiver : BroadcastReceiver() {
             now.get(Calendar.DAY_OF_YEAR) == value.get(Calendar.DAY_OF_YEAR)
     }
 
-    private fun taskActionIntent(context: Context, action: String, taskId: Long, notificationId: Int, actionOffset: Int): PendingIntent {
+    private fun taskActionIntent(context: Context, action: String, taskId: Long, startsAt: Long, notificationId: Int, actionOffset: Int): PendingIntent {
         val intent = Intent(context, ReminderReceiver::class.java).apply {
             this.action = action
             putExtra(EXTRA_TASK_ID, taskId)
+            putExtra(EXTRA_TASK_START_AT, startsAt)
             putExtra(EXTRA_NOTIFICATION_ID, notificationId)
         }
         return PendingIntent.getBroadcast(context, notificationId + actionOffset, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
     }
 
-    private fun actionIntent(context: Context, action: String, activityName: String, nextStep: String, sessionId: Long, notificationId: Int, actionOffset: Int): PendingIntent {
+    private fun actionIntent(context: Context, action: String, activityName: String, nextStep: String, sessionId: Long, endsAt: Long, notificationId: Int, actionOffset: Int): PendingIntent {
         val requestCode = notificationId + actionOffset
         val intent = Intent(context, ReminderReceiver::class.java).apply {
             this.action = action
             putExtra(EXTRA_ACTIVITY_NAME, activityName)
             putExtra(EXTRA_NEXT_STEP, nextStep)
             putExtra(EXTRA_SESSION_ID, sessionId)
+            putExtra(EXTRA_ACTIVITY_ENDS_AT, endsAt)
             putExtra(EXTRA_NOTIFICATION_ID, notificationId)
         }
         return PendingIntent.getBroadcast(context, requestCode, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
     }
 
-    private fun gameActionIntent(context: Context, action: String, sessionId: Long, title: String, notificationId: Int, actionOffset: Int): PendingIntent {
+    private fun gameActionIntent(context: Context, action: String, sessionId: Long, title: String, plannedEndAt: Long, notificationId: Int, actionOffset: Int): PendingIntent {
         val intent = Intent(context, ReminderReceiver::class.java).apply {
             this.action = action
             putExtra(EXTRA_GAME_SESSION_ID, sessionId)
             putExtra(EXTRA_GAME_TITLE, title)
+            putExtra(EXTRA_GAME_PLANNED_AT, plannedEndAt)
             putExtra(EXTRA_NOTIFICATION_ID, notificationId)
         }
         return PendingIntent.getBroadcast(context, notificationId + actionOffset, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
     }
 
-    /** 到游戏时间：自动记录当前状态为娱乐并提醒开始。 */
+    /** 空闲活动开始提醒：广播只触发提醒，不据此推断用户已经开始，更不自动写状态签到。 */
     private fun showGameStartNotification(context: Context, manager: NotificationManager, intent: Intent) {
         if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
-        ensureChannel(manager, CHANNEL_GAME, "游戏安排提醒")
         val sessionId = intent.getLongExtra(EXTRA_GAME_SESSION_ID, -1L)
-        val title = intent.getStringExtra(EXTRA_GAME_TITLE) ?: "游戏"
+        val session = PrototypeStore(context).loadGameSessions()
+            .firstOrNull { it.id == sessionId && it.isOpen() } ?: return
+        val expectedStartAt = intent.getLongExtra(EXTRA_GAME_PLANNED_AT, -1L)
+        if (!ScheduledActivityPolicy.matchesCurrentPlan(expectedStartAt, session.plannedStartAt)) return
+        ensureChannel(manager, CHANNEL_GAME, "活动开始与收尾提醒")
         val id = ((sessionId % Int.MAX_VALUE).toInt() + 400).coerceAtLeast(0)
         val openApp = PendingIntent.getActivity(context, id + 9, Intent(context, MainActivity::class.java), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        val store = PrototypeStore(context)
-        store.saveStatusCheckIn(StatusCheckIn(store.loadEnergyLevel(), "娱乐"))
-        val text = "到游戏时间了！已自动记录当前状态为娱乐；到点会提醒你收尾。"
+        val copy = ScheduledActivityPolicy.startCopy(session)
         manager.notify(id, NotificationCompat.Builder(context, CHANNEL_GAME)
             .setSmallIcon(android.R.drawable.ic_popup_reminder)
-            .setContentTitle("开始游戏吧 · $title")
-            .setContentText(text)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setContentTitle(copy.title)
+            .setContentText(copy.body)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(copy.body))
             .setContentIntent(openApp)
             .setAutoCancel(true)
             .build())
     }
 
-    /** 到点检测：游戏/视频类在已授权且开启检测时检查前台是否还在玩；未授权或关闭时只提醒不检测（同其他活动）。到点提醒结束（可结束/延长 15 分钟）并 10 分钟后复查；检测到已不在玩则不再打扰并按时记录结束。 */
+    /** 前台检测只增强文案与决定是否复查；任何不确定结果都不能替用户写入“已结束”。 */
     private fun handleGameEndCheck(context: Context, manager: NotificationManager, intent: Intent, followUp: Boolean) {
         val store = PrototypeStore(context)
         val sessionId = intent.getLongExtra(EXTRA_GAME_SESSION_ID, -1L)
-        val title = intent.getStringExtra(EXTRA_GAME_TITLE) ?: "活动"
         val session = store.loadGameSessions().firstOrNull { it.id == sessionId && it.isOpen() } ?: return
+        val expectedEndAt = intent.getLongExtra(EXTRA_GAME_PLANNED_AT, -1L)
+        if (!ScheduledActivityPolicy.matchesCurrentPlan(expectedEndAt, session.plannedEndAt)) return
+        val title = session.title
         val now = System.currentTimeMillis()
-        val detectionOn = store.loadGameDetectionEnabled() && AppLibrary.hasUsageAccess(context)
-        val targetCategory = when (session.category) {
-            "游戏" -> AppCategory.GAME
-            "视频" -> AppCategory.VIDEO
-            else -> null
+        val detection = ScheduledActivityPolicy.detection(session.category)
+        val targetCategory = when (detection) {
+            ForegroundDetection.GAME -> AppCategory.GAME
+            ForegroundDetection.VIDEO -> AppCategory.VIDEO
+            null -> null
         }
-        val foreground = if (detectionOn && targetCategory != null) AppLibrary.foregroundPackage(context) else null
-        val stillPlaying = foreground != null &&
-            (session.packageName == foreground || AppLibrary.categoryOf(context, foreground, store.loadAppCategories()) == targetCategory)
-        // 无检测类别（学习/休息/运动/自定义）、检测不可用（未授权/关闭）或检测到仍在玩：提醒收尾；否则自动记录按时结束。
-        if (targetCategory == null || !detectionOn || stillPlaying) {
-            if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
-            ensureChannel(manager, CHANNEL_GAME, "活动收尾提醒")
-            val id = ((sessionId % Int.MAX_VALUE).toInt() + 500 + if (followUp) 1 else 0).coerceAtLeast(0)
-            val openApp = PendingIntent.getActivity(context, id + 9, Intent(context, MainActivity::class.java), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-            val text = when {
-                stillPlaying && foreground != null -> if (followUp) "还在玩《${AppLibrary.appLabel(context, foreground)}》？计划时间已经过了，收个尾吧。" else "计划到点了，检测到你还在玩《${AppLibrary.appLabel(context, foreground)}》。"
-                else -> "计划时间到了，收个尾吧（可结束或延长 15 分钟）。"
-            }
-            val notification = NotificationCompat.Builder(context, CHANNEL_GAME)
-                .setSmallIcon(android.R.drawable.ic_popup_reminder)
-                .setContentTitle("$title 时间到了")
-                .setContentText(text)
-                .setStyle(NotificationCompat.BigTextStyle().bigText(text))
-                .setContentIntent(openApp)
-                .addAction(0, "结束", gameActionIntent(context, ACTION_GAME_FINISH, sessionId, title, id, 1))
-                .addAction(0, "延长 15 分钟", gameActionIntent(context, ACTION_GAME_EXTEND, sessionId, title, id, 2))
-                .setAutoCancel(true)
-            manager.notify(id, notification.build())
-            if (!followUp) ReminderScheduler.scheduleGameFollowUp(context, sessionId, title, now + 10 * 60_000L)
+        val detectionEnabled = store.loadGameDetectionEnabled()
+        val hasAccess = AppLibrary.hasUsageAccess(context)
+        val lookback = (now - session.plannedStartAt + 5 * 60_000L).coerceIn(5 * 60_000L, 12 * 60 * 60_000L)
+        val foreground = if (detection != null && detectionEnabled && hasAccess) AppLibrary.foregroundPackage(context, lookback) else null
+        val foregroundCategory = foreground?.let { AppLibrary.categoryOf(context, it, store.loadAppCategories()) }
+        val outcome = ForegroundReminderPolicy.decide(detection, detectionEnabled, hasAccess, foreground, foregroundCategory, session.packageName)
+        store.saveForegroundDetectionTrace(ForegroundDetectionTrace(outcome, foreground.orEmpty(), now))
+
+        // 第二次检查只服务于“确定仍在对应应用”的情况；状态改变或无法识别时停止追问，但不自动结束。
+        if (followUp && outcome != ForegroundDetectionOutcome.MATCHED) return
+        if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
+        ensureChannel(manager, CHANNEL_GAME, "活动收尾提醒")
+        val id = ((sessionId % Int.MAX_VALUE).toInt() + 500 + if (followUp) 1 else 0).coerceAtLeast(0)
+        val openApp = PendingIntent.getActivity(context, id + 9, Intent(context, MainActivity::class.java), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val text = if (outcome == ForegroundDetectionOutcome.MATCHED && foreground != null) {
+            if (followUp) "还在使用《${AppLibrary.appLabel(context, foreground)}》？计划时间已经过了，收个尾吧。"
+            else "计划到点了，检测到《${AppLibrary.appLabel(context, foreground)}》仍在前台。"
         } else {
-            recordGameActualEnd(context, sessionId, now)
+            "计划时间到了，请确认结束或延长 15 分钟。"
+        }
+        manager.notify(id, NotificationCompat.Builder(context, CHANNEL_GAME)
+            .setSmallIcon(android.R.drawable.ic_popup_reminder)
+            .setContentTitle("$title 时间到了")
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setContentIntent(openApp)
+            .addAction(0, "结束", gameActionIntent(context, ACTION_GAME_FINISH, sessionId, title, session.plannedEndAt, id, 1))
+            .addAction(0, "延长 15 分钟", gameActionIntent(context, ACTION_GAME_EXTEND, sessionId, title, session.plannedEndAt, id, 2))
+            .setAutoCancel(true)
+            .build())
+        if (!followUp && outcome == ForegroundDetectionOutcome.MATCHED) {
+            ReminderScheduler.scheduleGameFollowUp(context, sessionId, title, session.plannedEndAt, now + 10 * 60_000L)
         }
     }
 
@@ -607,6 +712,10 @@ class ReminderReceiver : BroadcastReceiver() {
         const val EXTRA_ACTIVITY_NAME = "activity_name"
         const val EXTRA_NEXT_STEP = "next_step"
         const val EXTRA_SESSION_ID = "session_id"
+        const val EXTRA_ACTIVITY_ENDS_AT = "activity_ends_at"
+        const val EXTRA_STATUS_PROMPT_EXPECTED_AT = "status_prompt_expected_at"
+        const val EXTRA_STATUS_PROMPT_TEST = "status_prompt_test"
+        const val EXTRA_STATUS_PROMPT_INDEX = "status_prompt_index"
         const val EXTRA_TASK_ID = "task_id"
         const val EXTRA_TASK_TITLE = "task_title"
         const val EXTRA_TASK_START_AT = "task_start_at"
@@ -617,8 +726,11 @@ class ReminderReceiver : BroadcastReceiver() {
         const val EXTRA_OPEN_MEAL_FINISH = "open_meal_finish"
         const val EXTRA_MEAL_TYPE = "meal_type"
         const val EXTRA_MEAL_LEARNED = "meal_learned"
+        const val EXTRA_MEAL_PLANNED_AT = "meal_planned_at"
+        const val EXTRA_MEAL_RECORD_ID = "meal_record_id"
         const val EXTRA_GAME_SESSION_ID = "game_session_id"
         const val EXTRA_GAME_TITLE = "game_title"
+        const val EXTRA_GAME_PLANNED_AT = "game_planned_at"
         private const val CHANNEL_ACTIVITY_PREVIEW = "focusflow_activity_preview_v2"
         private const val CHANNEL_ACTIVITY_END = "focusflow_activity_end_v3"
         private const val CHANNEL_ACTIVITY_END_GENTLE = "focusflow_activity_end_gentle_v3"

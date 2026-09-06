@@ -16,7 +16,9 @@ class ItemsCodecTest {
         completionLevel = "完整版", completedAt = time + 1000, durationMinutes = 100,
         windowStartAt = time + 300, windowEndAt = time + 900,
         rescheduleCount = 2, lastRescheduledAt = time + 500,
-        recoverySourceScheduledAt = time + 200, priority = "high"
+        recoverySourceScheduledAt = time + 200, priority = "high",
+        captureRoute = "progress", sourceDetail = "最初想到的说明",
+        nextAction = "先找回课程", userNote = "用户备注"
     )
 
     @Test fun roundtrip_preservesAllFields() {
@@ -40,6 +42,11 @@ class ItemsCodecTest {
         assertEquals(time + 500, decoded.lastRescheduledAt)
         assertEquals(time + 200, decoded.recoverySourceScheduledAt)
         assertEquals("high", decoded.priority)
+        assertEquals(CaptureRoute.PROGRESS.storageKey, decoded.captureRoute)
+        assertEquals("最初想到的说明", decoded.sourceDetail)
+        assertEquals("先找回课程", decoded.nextAction)
+        assertNull(decoded.parentCaptureId)
+        assertEquals("用户备注", decoded.userNote)
     }
 
     @Test fun roundtrip_nullableFieldsStayNull() {
@@ -86,5 +93,19 @@ class ItemsCodecTest {
     @Test fun decode_emptyString_returnsEmpty() {
         val result = ItemsCodec.decode("")
         assertEquals(0, result.items.size)
+    }
+
+    @Test fun decode_oldItemWithoutRoutingFields_defaultsToInbox() {
+        val raw = """[{"id":1,"title":"旧记录","detail":"原说明","kind":"收集箱"}]"""
+        val decoded = ItemsCodec.decode(raw).items.single()
+        assertEquals(CaptureRoute.INBOX.storageKey, decoded.captureRoute)
+        assertEquals("", decoded.sourceDetail)
+        assertEquals("", decoded.nextAction)
+        assertNull(decoded.parentCaptureId)
+    }
+
+    @Test fun decode_unknownRoute_fallsBackToInbox() {
+        val decoded = ItemsCodec.decode(ItemsCodec.encode(listOf(item().copy(captureRoute = "future-value")))).items.single()
+        assertEquals(CaptureRoute.INBOX.storageKey, decoded.captureRoute)
     }
 }

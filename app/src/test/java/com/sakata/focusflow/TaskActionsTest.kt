@@ -6,6 +6,38 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class TaskActionsTest {
+    @Test fun nextAction_consumesDraftAndCannotRepeatAfterCompletion() {
+        val parent = Item(id = 900, title = "方向", detail = "原文", kind = "收集箱",
+            captureRoute = "progress", nextAction = "第一步")
+        val first = TaskActions.createNextAction(listOf(parent), parent)
+        val afterCompletion = TaskActions.completeNow(first.items, first.created!!).items
+        val currentParent = afterCompletion.first { it.id == parent.id }
+        assertEquals("", currentParent.nextAction)
+        assertNull(TaskActions.createNextAction(afterCompletion, currentParent).created)
+    }
+
+    @Test fun nextAction_rejectsDeletedParent() {
+        val parent = Item(id = 900, title = "方向", detail = "", kind = "收集箱",
+            captureRoute = "progress", nextAction = "第一步")
+        assertNull(TaskActions.createNextAction(emptyList(), parent).created)
+    }
+
+    @Test fun referenceConversion_detachesChildWithoutDeletingIt() {
+        val parent = Item(id = 900, title = "方向", detail = "", kind = "收集箱", captureRoute = "progress")
+        val child = Item(id = 901, title = "一步", detail = "", kind = "收集箱", parentCaptureId = 900)
+        val converted = TaskActions.routeToReference(listOf(parent, child), child).items
+        assertNull(converted.first { it.id == child.id }.parentCaptureId)
+        assertEquals(2, converted.size)
+    }
+
+    @Test fun deletingParent_keepsChildScheduleAndClearsDanglingLink() {
+        val parent = Item(id = 900, title = "方向", detail = "", kind = "收集箱", captureRoute = "progress")
+        val child = Item(id = 901, title = "一步", detail = "", kind = "任务", parentCaptureId = 900, scheduledAt = 123L)
+        val remaining = TaskActions.abandon(listOf(parent, child), parent).items.single()
+        assertNull(remaining.parentCaptureId)
+        assertEquals(123L, remaining.scheduledAt)
+    }
+
     private val fixedNow = java.util.Calendar.getInstance().apply {
         clear(); set(2026, 0, 5, 10, 0, 0) // 2026-01-05 周一
     }.timeInMillis
@@ -126,7 +158,7 @@ class TaskActionsTest {
         val result = TaskActions.resume(listOf(a), a)
         val restored = result.items[0]
         assertEquals("任务", restored.kind)
-        assertEquals("已恢复；今天有空时再做", restored.detail)
+        assertEquals("已恢复；有空时再安排", restored.detail)
         assertNull(restored.scheduledAt)
         assertEquals(TaskEventType.TASK_RESTORED, result.event!!.type)
         assertEquals("整理材料", result.event!!.title)
@@ -159,13 +191,82 @@ class TaskActionsTest {
         assertEquals(0L, result.event!!.scheduledAt)
     }
 
+    @Test fun routeToProgress_preservesOriginalDetailAndStoresNextAction() {
+        val source = item(id = 41, kind = "收集箱", scheduledAt = null, detail = "我想系统学习编曲")
+        val result = TaskActions.routeToProgress(listOf(source), source, "  找回已经购买的课程  ")
+        val routed = result.items.single()
+        assertEquals(CaptureRoute.PROGRESS.storageKey, routed.captureRoute)
+        assertEquals("我想系统学习编曲", routed.detail)
+        assertEquals("我想系统学习编曲", routed.sourceDetail)
+        assertEquals("找回已经购买的课程", routed.nextAction)
+        assertEquals(TaskEventType.CAPTURE_ROUTED, result.event!!.type)
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun routeToProgress_rejectsBlankNextAction() {
+        val source = item(kind = "收集箱", scheduledAt = null)
+        TaskActions.routeToProgress(listOf(source), source, "  ")
+    }
+
+    @Test fun routeToReference_preservesOriginalTextAndDoesNotCreateTask() {
+        val source = item(id = 42, kind = "收集箱", scheduledAt = null, detail = "以后查阅的资料")
+        val result = TaskActions.routeToReference(listOf(source), source)
+        val routed = result.items.single()
+        assertEquals(CaptureRoute.REFERENCE.storageKey, routed.captureRoute)
+        assertEquals("以后查阅的资料", routed.detail)
+        assertEquals("以后查阅的资料", routed.sourceDetail)
+        assertEquals("", routed.nextAction)
+        assertEquals(TaskEventType.CAPTURE_ROUTED, result.event!!.type)
+    }
+
+    @Test fun createNextAction_keepsParentAndCreatesLinkedInboxItem() {
+        val parent = item(id = 50, title = "学习编曲", kind = "收集箱", scheduledAt = null)
+            .copy(captureRoute = CaptureRoute.PROGRESS.storageKey, nextAction = "确认课程进度")
+        val result = TaskActions.createNextAction(listOf(parent), parent)
+        assertEquals(2, result.items.size)
+        assertEquals(parent.copy(nextAction = ""), result.items.last())
+        assertEquals("确认课程进度", result.created!!.title)
+        assertEquals("收集箱", result.created!!.kind)
+        assertEquals(parent.id, result.created!!.parentCaptureId)
+        assertEquals(TaskEventType.NEXT_ACTION_CREATED, result.event!!.type)
+    }
+
+    @Test fun createNextAction_doesNotDuplicateAnUnfinishedChild() {
+        val parent = item(id = 50, kind = "收集箱", scheduledAt = null)
+            .copy(captureRoute = CaptureRoute.PROGRESS.storageKey, nextAction = "确认课程进度")
+        val child = item(id = 51, kind = "任务").copy(parentCaptureId = parent.id)
+        val result = TaskActions.createNextAction(listOf(parent, child), parent)
+        assertEquals(listOf(parent, child), result.items)
+        assertNull(result.created)
+        assertNull(result.event)
+    }
+
+    @Test fun completedChild_allowsAReplacementNextAction() {
+        val parent = item(id = 50, kind = "收集箱", scheduledAt = null)
+            .copy(captureRoute = CaptureRoute.PROGRESS.storageKey, nextAction = "继续下一节")
+        val completed = item(id = 51, kind = "任务").copy(parentCaptureId = parent.id, done = true)
+        val result = TaskActions.createNextAction(listOf(parent, completed), parent)
+        assertTrue(result.created != null)
+        assertEquals(3, result.items.size)
+    }
+
+    @Test fun restoreCaptureToInbox_keepsSourceDetailForFutureRecovery() {
+        val parent = item(id = 60, kind = "收集箱", scheduledAt = null, detail = "原文")
+            .copy(captureRoute = CaptureRoute.PROGRESS.storageKey, sourceDetail = "原文", nextAction = "一步")
+        val restored = TaskActions.restoreCaptureToInbox(listOf(parent), parent).items.single()
+        assertEquals(CaptureRoute.INBOX.storageKey, restored.captureRoute)
+        assertEquals("原文", restored.detail)
+        assertEquals("原文", restored.sourceDetail)
+        assertEquals("", restored.nextAction)
+    }
+
     @Test fun planDelayed_buildsRescheduledCopy() {
         val a = item(id = 8, title = "重新安排：写方案", scheduledAt = fixedNow, rescheduleCount = 2, priority = "low")
         val result = TaskActions.planDelayed(listOf(a), a, fixedNow + 3 * 3600_000L, 30, "周一 13:00", "high", now = fixedNow)
         val delayed = result.delayedItem
         // 副本不剥离前缀（与原来 saveDelayedItem 一致；事件文案才剥离）
         assertEquals("重新安排：写方案", delayed.title)
-        assertEquals("已改期至周一 13:00；届时会再次出现", delayed.detail)
+        assertEquals(TaskScheduleText.rescheduledDetail(fixedNow + 3 * 3600_000L, 30), delayed.detail)
         assertEquals(fixedNow + 3 * 3600_000L, delayed.scheduledAt)
         assertEquals(30, delayed.durationMinutes)
         assertEquals(false, delayed.dayOnly)
@@ -178,8 +279,8 @@ class TaskActionsTest {
         assertEquals(TaskEventType.TASK_RESCHEDULED, result.event.type)
         assertEquals("写方案", result.event.title)
         assertEquals(fixedNow + 3 * 3600_000L, result.event.scheduledAt)
-        assertEquals("周一 13:00", result.event.extra)
-        assertEquals("写方案 → 周一 13:00", result.baselinePayload)
+        assertEquals(formatDateTime(fixedNow + 3 * 3600_000L), result.event.extra)
+        assertEquals("写方案 → ${formatDateTime(fixedNow + 3 * 3600_000L)}", result.baselinePayload)
     }
 
     @Test fun planDelayed_keepsOtherItems() {
@@ -191,11 +292,18 @@ class TaskActionsTest {
         assertEquals(b.id, result.items[1].id)
     }
 
+    @Test fun planDelayed_preservesScheduledActivityKind() {
+        val activity = item(id = 18, title = "跑步", kind = "活动")
+        val result = TaskActions.planDelayed(listOf(activity), activity, fixedNow, 30, "周一 10:00", "mid", now = fixedNow)
+        assertEquals("活动", result.delayedItem.kind)
+        assertEquals("活动", result.items.single().kind)
+    }
+
     @Test fun scheduledShape_locksTimeAndLabel() {
         val shaped = TaskActions.scheduledShape(item(id = 5, title = "重新安排：整理笔记", priority = "low"), fixedNow + 60_000L, 45, "周一 10:00", "high")
         assertEquals("整理笔记", shaped.title)
         assertEquals("任务", shaped.kind)
-        assertEquals("已安排：周一 10:00 · 45 分钟；可随时改期", shaped.detail)
+        assertEquals(TaskScheduleText.scheduledDetail(fixedNow + 60_000L, 45), shaped.detail)
         assertEquals(fixedNow + 60_000L, shaped.scheduledAt)
         assertEquals(45, shaped.durationMinutes)
         assertEquals(false, shaped.dayOnly)
@@ -207,7 +315,7 @@ class TaskActionsTest {
     @Test fun flexibleShape_keepsWindowAndClearsTime() {
         val shaped = TaskActions.flexibleShape(item(id = 6, title = "重新安排：论文", priority = "low"), fixedNow + 1, fixedNow + 2, 30, "每周二", "high")
         assertEquals("论文", shaped.title)
-        assertEquals("弹性范围：每周二 · 预计 30 分钟；尚未锁定具体时刻", shaped.detail)
+        assertEquals(TaskScheduleText.flexibleDetail(fixedNow + 1, fixedNow + 2, 30), shaped.detail)
         assertNull(shaped.scheduledAt)
         assertEquals(fixedNow + 1, shaped.windowStartAt)
         assertEquals(fixedNow + 2, shaped.windowEndAt)

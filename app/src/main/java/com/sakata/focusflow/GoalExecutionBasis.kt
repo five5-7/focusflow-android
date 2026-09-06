@@ -1,7 +1,7 @@
 package com.sakata.focusflow
 
 /** Builds the immutable execution context copied into a scheduled task. */
-internal fun goalTaskDetail(goal: Goal, weekday: Int, startMinute: Int): String {
+internal fun goalTaskDetail(goal: Goal, scheduledAt: Long): String {
     val guide = buildString {
         if (goal.firstAction.isNotBlank()) append(" · 第一步：${goal.firstAction}")
         if (goal.resourceTitle.isNotBlank()) {
@@ -11,5 +11,5 @@ internal fun goalTaskDetail(goal: Goal, weekday: Int, startMinute: Int): String 
         if (goal.minimumVersion.isNotBlank()) append(" · 最低版本：${goal.minimumVersion}")
     }
     return "${goal.metricType}：${goal.metricTarget.ifBlank { "本次完成" }} · " +
-        "${weekdayName(weekday)} ${GoalPlanner.displayTime(startMinute)}$guide"
+        "${formatDateTime(scheduledAt)}$guide"
 }
