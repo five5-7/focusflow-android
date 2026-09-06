@@ -96,14 +96,22 @@ internal fun CourseTimetable(
     onEditCourse: (Course) -> Unit
 ) {
     var selected by remember { mutableStateOf<Course?>(null) }
-    val rowHeight = 70.dp
+    var compactView by remember { mutableStateOf(false) }
+    val rowHeight = if (compactView) 48.dp else 70.dp
+    val dayWidth = if (compactView) 86.dp else 116.dp
+    val headerHeight = if (compactView) 38.dp else 44.dp
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
             Column(Modifier.weight(1f)) {
                 Text("固定周课表", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                 Text("周一至周日 · 按学校节次排列", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            TextButton(onClick = onEditPeriods) { Text("节次设置") }
+            Row {
+                TextButton(onClick = { compactView = !compactView }) {
+                    Text(if (compactView) "标准视图" else "缩小视图")
+                }
+                TextButton(onClick = onEditPeriods) { Text("节次设置") }
+            }
         }
         if (courses.none { !it.needsConfirmation }) {
             Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))) {
@@ -112,7 +120,7 @@ internal fun CourseTimetable(
         } else {
             Row(Modifier.fillMaxWidth()) {
                 Column(Modifier.width(62.dp)) {
-                    Box(Modifier.height(44.dp).fillMaxWidth(), contentAlignment = Alignment.Center) { Text("节次", style = MaterialTheme.typography.labelMedium) }
+                    Box(Modifier.height(headerHeight).fillMaxWidth(), contentAlignment = Alignment.Center) { Text("节次", style = MaterialTheme.typography.labelMedium) }
                     table.periods.forEachIndexed { index, period ->
                         Column(
                             Modifier.height(rowHeight).fillMaxWidth().border(BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant)),
@@ -131,6 +139,9 @@ internal fun CourseTimetable(
                             periods = table.periods.size,
                             courses = courses.filter { !it.needsConfirmation && it.weekday == weekday },
                             rowHeight = rowHeight,
+                            dayWidth = dayWidth,
+                            headerHeight = headerHeight,
+                            compactView = compactView,
                             onSelect = { selected = it }
                         )
                     }
@@ -162,14 +173,16 @@ private fun TimetableDayLane(
     periods: Int,
     courses: List<Course>,
     rowHeight: androidx.compose.ui.unit.Dp,
+    dayWidth: androidx.compose.ui.unit.Dp,
+    headerHeight: androidx.compose.ui.unit.Dp,
+    compactView: Boolean,
     onSelect: (Course) -> Unit
 ) {
-    val dayWidth = 116.dp
     val scheme = MaterialTheme.colorScheme
     val courseColors = listOf(scheme.primaryContainer, scheme.secondaryContainer, scheme.tertiaryContainer, scheme.surfaceVariant)
     Column(Modifier.width(dayWidth)) {
         Box(
-            Modifier.height(44.dp).fillMaxWidth().background(if (weekday >= 6) scheme.surfaceVariant.copy(alpha = 0.45f) else scheme.surface),
+            Modifier.height(headerHeight).fillMaxWidth().background(if (weekday >= 6) scheme.surfaceVariant.copy(alpha = 0.45f) else scheme.surface),
             contentAlignment = Alignment.Center
         ) { Text(weekdayName(weekday), fontWeight = FontWeight.SemiBold) }
         Box(Modifier.height(rowHeight * periods.toFloat()).fillMaxWidth()) {
@@ -181,18 +194,24 @@ private fun TimetableDayLane(
                 val color = courseColors[(course.title.hashCode() and Int.MAX_VALUE) % courseColors.size]
                 Column(
                     Modifier
-                        .padding(horizontal = 3.dp, vertical = 2.dp)
+                        .padding(horizontal = if (compactView) 2.dp else 3.dp, vertical = 2.dp)
                         .offset(y = rowHeight * (course.startPeriod - 1).toFloat())
                         .height(rowHeight * span.toFloat() - 4.dp)
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(9.dp))
                         .background(color)
                         .clickable { onSelect(course) }
-                        .padding(7.dp),
+                        .padding(if (compactView) 5.dp else 7.dp),
                     verticalArrangement = Arrangement.spacedBy(2.dp)
                 ) {
-                    Text(course.title, fontWeight = FontWeight.Bold, maxLines = if (span > 1) 2 else 1, overflow = TextOverflow.Ellipsis)
-                    if (span > 1 && course.building.isNotBlank()) Text(course.building, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(
+                        course.title,
+                        style = if (compactView) MaterialTheme.typography.labelMedium else MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = if (!compactView && span > 1) 2 else 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    if (!compactView && span > 1 && course.building.isNotBlank()) Text(course.building, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
         }

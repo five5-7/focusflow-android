@@ -86,6 +86,10 @@ internal fun QuickStartDialog(onDismiss: () -> Unit) {
 
 /** 覆盖安装后每个版本只展示一次的更新说明；版本名来自 BuildConfig，路线图是唯一详情入口。 */
 internal fun updateHighlightsFor(version: String): List<String> = when {
+    version.startsWith("7.8.0-rc.2") -> listOf(
+        "固定周课表新增缩小视图，可在一屏查看更多日期并随时恢复标准视图。",
+        "设置顶部默认说明改为折叠卡片，并统一为当前主题的标准卡片颜色。"
+    )
     version.startsWith("7.8.0") -> listOf(
         "日程新增独立固定课表，按周一至周日和节次展示已确认课程。",
         "首次进入先确认参考节次表；自定义时间会同步用于课程日程和空挡计算。"

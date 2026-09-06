@@ -263,11 +263,22 @@ internal fun categorizedInstalledApps(context: Context, userCategories: Map<Stri
     ) {
     ScrollableWithBar(scrollState = settingsScrollState) {
         Text("设置", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
-        ElevatedCard(colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f))) {
-            Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                Text("默认设置怎么理解", fontWeight = FontWeight.SemiBold)
-                Text("先用“快速记录 → 收集箱 → 安排/推进/参考”即可；AI、地点、课程、提醒和前台应用检测都不是前提。")
-                Text("凡是会改变日程、完成状态或数据去向的操作，都需要你确认。各页的问号会说明默认值、作用、调整方式和影响。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        var defaultHelpExpanded by remember { mutableStateOf(false) }
+        ElevatedCard(onClick = { defaultHelpExpanded = !defaultHelpExpanded }) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("默认设置怎么理解", fontWeight = FontWeight.SemiBold)
+                        Text("默认值、作用与调整影响", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Text(if (defaultHelpExpanded) "收起" else "展开", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
+                }
+                AnimatedVisibility(visible = defaultHelpExpanded) {
+                    Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                        Text("先用“快速记录 → 收集箱 → 安排/推进/参考”即可；AI、地点、课程、提醒和前台应用检测都不是前提。")
+                        Text("凡是会改变日程、完成状态或数据去向的操作，都需要你确认。各页的问号会说明默认值、作用、调整方式和影响。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
             }
         }
         PlanHubItem("外观", "当前主题：${themeOption.label}") { onSubPageChange(SettingsSubPage.APPEARANCE) }
