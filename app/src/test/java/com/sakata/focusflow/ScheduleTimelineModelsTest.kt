@@ -43,9 +43,9 @@ class ScheduleTimelineModelsTest {
     @Test
     fun `conflict note names commute overlap`() {
         val courses = listOf(
-            course("高数", 1, 1), course("英语", 5, 5, CampusZone.EAST_TEACHING)
+            course("高数", 1, 1), course("英语", 3, 3, CampusZone.EAST_TEACHING)
         )
-        val t = task("取快递", at(9, 0), 10) // 540..550 与通勤 525..545 重叠
+        val t = task("取快递", at(9, 0), 10) // 540..550 与短课间通勤 525..545 重叠
         val note = taskConflictNote(t, courses, listOf(t), enabledProfile)
         assertTrue(note != null && note.contains("通勤"))
     }
