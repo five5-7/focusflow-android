@@ -65,8 +65,8 @@ enum class ItemPriority(val label: String, val storageKey: String) {
 }
 
 data class CommuteProfile(
-    val enabled: Boolean = false,
-    val oneWayMinutes: Int = 0,
+    val enabled: Boolean = true,
+    val oneWayMinutes: Int = 10,
     val campusMode: String = "步行",
     val buildingBufferMinutes: Int = 3,
     val eBikeBattery: String = "未知",
