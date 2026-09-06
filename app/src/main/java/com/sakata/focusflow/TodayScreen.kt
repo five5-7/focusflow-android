@@ -103,8 +103,9 @@ import kotlinx.coroutines.withContext
     onReviewActivity: () -> Unit,
     onPickTime: (Item) -> Unit,
     onEdit: (Item) -> Unit,
-    onConvertToGoal: (Item) -> Unit,
-    onAttachToPlan: (Item) -> Unit,
+    onOrganize: (Item) -> Unit,
+    onCreateNextAction: (Item) -> Unit,
+    onRestoreCapture: (Item) -> Unit,
     onShrink: (Item) -> Unit,
     onReturnToInbox: (Item) -> Unit,
     onApplyAdjustment: (Item, DayAdjustment) -> Unit,
@@ -132,6 +133,9 @@ import kotlinx.coroutines.withContext
         }
     }
     val inboxItems = items.filter { !it.done && it.kind == "收集箱" }
+    val pendingInboxItems = inboxItems.filter { CaptureRoute.fromKey(it.captureRoute) == CaptureRoute.INBOX }
+    val progressItems = inboxItems.filter { CaptureRoute.fromKey(it.captureRoute) == CaptureRoute.PROGRESS }
+    val referenceItems = inboxItems.filter { CaptureRoute.fromKey(it.captureRoute) == CaptureRoute.REFERENCE }
     val energyIsCurrent = StatusFreshnessPolicy.isCurrent(energyRecordedAt, now)
     val planningEnergy = if (energyIsCurrent) energyLevel else "正常"
     val nextSuggestion = NextActionPlanner.recommend(items, nextCommitment, planningEnergy, goals, feedback, now, courses, commuteProfile)
@@ -283,8 +287,9 @@ import kotlinx.coroutines.withContext
         if (inboxItems.isEmpty()) {
             Text("暂时没有新想法，点底部 ＋ 随手记录。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         } else {
-            inboxItems.take(2).forEach { item -> InboxItemCard(item, onPickTime, onEdit, onConvertToGoal, onAttachToPlan, onShrink, onPause, onAbandon) }
-            if (inboxItems.size > 2) Text("还有 ${inboxItems.size - 2} 项，进入收集箱继续整理。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            pendingInboxItems.take(2).forEach { item -> InboxItemCard(item, onPickTime, onEdit, onOrganize, onShrink, onPause, onAbandon) }
+            val hidden = inboxItems.size - pendingInboxItems.take(2).size
+            if (hidden > 0) Text("还有 $hidden 项（含逐步推进与参考），进入收集箱继续整理。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         if (visibility.energy) Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))) {
             Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -417,7 +422,21 @@ import kotlinx.coroutines.withContext
                         Text("暂时没有新想法，点底部 ＋ 随手记录。", Modifier.fillMaxWidth().padding(16.dp))
                     }
                 } else {
-                    inboxItems.forEach { item -> InboxItemCard(item, onPickTime, onEdit, onConvertToGoal, onAttachToPlan, onShrink, onPause, onAbandon) }
+                    if (pendingInboxItems.isNotEmpty()) {
+                        Text("待整理 · ${pendingInboxItems.size}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        pendingInboxItems.forEach { item -> InboxItemCard(item, onPickTime, onEdit, onOrganize, onShrink, onPause, onAbandon) }
+                    }
+                    if (progressItems.isNotEmpty()) {
+                        Text("逐步推进 · ${progressItems.size}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        progressItems.forEach { item ->
+                            val activeChild = items.firstOrNull { !it.done && it.parentCaptureId == item.id }
+                            ProgressCaptureCard(item, activeChild, onOrganize, onCreateNextAction, onRestoreCapture, onAbandon)
+                        }
+                    }
+                    if (referenceItems.isNotEmpty()) {
+                        Text("参考 · ${referenceItems.size}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        referenceItems.forEach { item -> ReferenceCaptureCard(item, onRestoreCapture, onAbandon) }
+                    }
                 }
             }
         }
@@ -473,7 +492,7 @@ import kotlinx.coroutines.withContext
     }
 }
 
-@Composable internal fun InboxItemCard(item: Item, onPickTime: (Item) -> Unit, onEdit: (Item) -> Unit, onConvertToGoal: (Item) -> Unit, onAttachToPlan: (Item) -> Unit, onShrink: (Item) -> Unit, onPause: (Item) -> Unit, onAbandon: (Item) -> Unit) {
+@Composable internal fun InboxItemCard(item: Item, onPickTime: (Item) -> Unit, onEdit: (Item) -> Unit, onOrganize: (Item) -> Unit, onShrink: (Item) -> Unit, onPause: (Item) -> Unit, onAbandon: (Item) -> Unit) {
     ElevatedCard { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text(item.title, fontWeight = FontWeight.SemiBold)
         Text(item.detail)
@@ -482,13 +501,12 @@ import kotlinx.coroutines.withContext
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = { onPickTime(item) }) { Text("安排时间") }
                 OutlinedButton(onClick = { onEdit(item) }) { Text("编辑") }
-                OutlinedButton(onClick = { onConvertToGoal(item) }) { Text("转成目标") }
+                OutlinedButton(onClick = { onOrganize(item) }) { Text("整理") }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TextButton(onClick = { onAttachToPlan(item) }) { Text("转为计划的一部分") }
                 TextButton(onClick = { onAbandon(item) }, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("删除") }
             }
-            Text("安排后会从收集箱移到日程，转为计划的一部分后进入弹性安排。", style = MaterialTheme.typography.bodySmall)
+            Text("可直接安排，也可整理为逐步推进、参考或目标。", style = MaterialTheme.typography.bodySmall)
         } else {
             Text("这次不做也没关系。请选择下一步：", style = MaterialTheme.typography.bodySmall)
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -499,6 +517,36 @@ import kotlinx.coroutines.withContext
             }
         }
     } }
+}
+
+@Composable private fun ProgressCaptureCard(item: Item, activeChild: Item?, onOrganize: (Item) -> Unit, onCreateNextAction: (Item) -> Unit, onRestore: (Item) -> Unit, onDelete: (Item) -> Unit) {
+    ElevatedCard { Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(item.title, fontWeight = FontWeight.SemiBold)
+        Text(item.sourceDetail.ifBlank { item.detail }, style = MaterialTheme.typography.bodySmall)
+        Text("下一步：${item.nextAction}", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Medium)
+        if (activeChild != null) Text("已进入${if (activeChild.scheduledAt != null) "日程" else "收集箱"}：${activeChild.title}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Button(onClick = { onCreateNextAction(item) }, enabled = activeChild == null, modifier = Modifier.fillMaxWidth()) {
+            Text(if (activeChild == null) "将下一步放入收集箱" else "已有未完成的下一步")
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            TextButton(onClick = { onOrganize(item) }) { Text("修改") }
+            TextButton(onClick = { onRestore(item) }) { Text("退回") }
+            TextButton(onClick = { onDelete(item) }, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("删除方向") }
+        }
+    } }
+}
+
+@Composable private fun ReferenceCaptureCard(item: Item, onRestore: (Item) -> Unit, onDelete: (Item) -> Unit) {
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))) {
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(item.title, fontWeight = FontWeight.SemiBold)
+            Text(item.sourceDetail.ifBlank { item.detail })
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(onClick = { onRestore(item) }) { Text("退回待整理") }
+                TextButton(onClick = { onDelete(item) }, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("删除") }
+            }
+        }
+    }
 }
 
 internal fun formatActivityRemaining(milliseconds: Long): String {

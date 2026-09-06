@@ -21,7 +21,11 @@ object ItemsCodec {
                 durationMinutes = item.optInt("durationMinutes", 60).coerceIn(5, 360), windowStartAt = item.optLong("windowStartAt").takeIf { it > 0 }, windowEndAt = item.optLong("windowEndAt").takeIf { it > 0 },
                 rescheduleCount = item.optInt("rescheduleCount", 0).coerceAtLeast(0), lastRescheduledAt = item.optLong("lastRescheduledAt").takeIf { it > 0 },
                 recoverySourceScheduledAt = item.optLong("recoverySourceScheduledAt").takeIf { it > 0 },
-                priority = ItemPriority.fromKey(item.optString("priority")).storageKey
+                priority = ItemPriority.fromKey(item.optString("priority")).storageKey,
+                captureRoute = CaptureRoute.fromKey(item.optString("captureRoute")).storageKey,
+                sourceDetail = item.optString("sourceDetail"),
+                nextAction = item.optString("nextAction"),
+                parentCaptureId = item.optLong("parentCaptureId").takeIf { it > 0 }
             )
         }
         val firstByOriginalId = mutableMapOf<Long, Item>()
@@ -49,7 +53,7 @@ object ItemsCodec {
 
     fun encode(items: List<Item>): String = JSONArray().apply {
         items.forEach { item -> put(JSONObject().apply {
-            put("id", item.id); put("title", item.title); put("detail", item.detail); put("kind", item.kind); put("done", item.done); put("scheduledAt", item.scheduledAt ?: 0); put("dayOnly", item.dayOnly); put("goalId", item.goalId ?: 0); put("completionLevel", item.completionLevel); put("completedAt", item.completedAt ?: 0); put("durationMinutes", item.durationMinutes); put("windowStartAt", item.windowStartAt ?: 0); put("windowEndAt", item.windowEndAt ?: 0); put("rescheduleCount", item.rescheduleCount); put("lastRescheduledAt", item.lastRescheduledAt ?: 0); put("recoverySourceScheduledAt", item.recoverySourceScheduledAt ?: 0); put("priority", item.priority)
+            put("id", item.id); put("title", item.title); put("detail", item.detail); put("kind", item.kind); put("done", item.done); put("scheduledAt", item.scheduledAt ?: 0); put("dayOnly", item.dayOnly); put("goalId", item.goalId ?: 0); put("completionLevel", item.completionLevel); put("completedAt", item.completedAt ?: 0); put("durationMinutes", item.durationMinutes); put("windowStartAt", item.windowStartAt ?: 0); put("windowEndAt", item.windowEndAt ?: 0); put("rescheduleCount", item.rescheduleCount); put("lastRescheduledAt", item.lastRescheduledAt ?: 0); put("recoverySourceScheduledAt", item.recoverySourceScheduledAt ?: 0); put("priority", item.priority); put("captureRoute", CaptureRoute.fromKey(item.captureRoute).storageKey); put("sourceDetail", item.sourceDetail); put("nextAction", item.nextAction); put("parentCaptureId", item.parentCaptureId ?: 0)
         }) }
     }.toString()
 }

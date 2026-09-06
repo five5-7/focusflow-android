@@ -97,6 +97,19 @@ class TaskHistoryTest {
     }
 
     @Test
+    fun `capture routing events do not change schedule statistics`() {
+        val events = listOf(
+            TaskRecorder.event(TaskEventType.CAPTURE_ROUTED, itemId = 1, title = "想法", extra = "逐步推进", at = dayAt(0)),
+            TaskRecorder.event(TaskEventType.NEXT_ACTION_CREATED, itemId = 2, title = "下一步", extra = "想法", at = dayAt(0))
+        )
+        val summary = TaskHistory.daySummary(events, dayStartOf(now))
+        assertEquals(0, summary.scheduledCount)
+        assertEquals(0, summary.completedCount)
+        assertEquals(0, summary.rescheduledCount)
+        assertEquals(0, summary.scheduleChangesCount)
+    }
+
+    @Test
     fun `created with scheduled time counts as planned`() {
         val events = listOf(TaskRecorder.event(TaskEventType.TASK_CREATED, itemId = 1, title = "今晚", scheduledAt = dayAt(0), at = dayAt(-1)))
         val summary = TaskHistory.daySummary(events, dayStartOf(now))

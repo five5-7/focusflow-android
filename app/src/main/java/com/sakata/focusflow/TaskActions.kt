@@ -23,6 +23,89 @@ object TaskActions {
         val baselinePayload: String
     )
 
+    data class NextActionResult(
+        val items: List<Item>,
+        val created: Item?,
+        val event: TaskEvent?
+    )
+
+    fun routeToProgress(items: List<Item>, item: Item, nextAction: String): Result {
+        val action = nextAction.trim()
+        require(action.isNotBlank()) { "下一步不能为空" }
+        val updated = item.copy(
+            kind = "收集箱",
+            captureRoute = CaptureRoute.PROGRESS.storageKey,
+            sourceDetail = item.sourceDetail.ifBlank { item.detail },
+            nextAction = action,
+            scheduledAt = null,
+            dayOnly = false,
+            windowStartAt = null,
+            windowEndAt = null,
+            goalId = null
+        )
+        return Result(
+            items.map { if (it.id == item.id) updated else it },
+            TaskRecorder.event(TaskEventType.CAPTURE_ROUTED, item.id, item.title, extra = "逐步推进")
+        )
+    }
+
+    fun routeToReference(items: List<Item>, item: Item): Result {
+        val updated = item.copy(
+            kind = "收集箱",
+            captureRoute = CaptureRoute.REFERENCE.storageKey,
+            sourceDetail = item.sourceDetail.ifBlank { item.detail },
+            nextAction = "",
+            scheduledAt = null,
+            dayOnly = false,
+            windowStartAt = null,
+            windowEndAt = null,
+            goalId = null
+        )
+        return Result(
+            items.map { if (it.id == item.id) updated else it },
+            TaskRecorder.event(TaskEventType.CAPTURE_ROUTED, item.id, item.title, extra = "留作参考")
+        )
+    }
+
+    fun restoreCaptureToInbox(items: List<Item>, item: Item): Result {
+        val updated = item.copy(
+            kind = "收集箱",
+            captureRoute = CaptureRoute.INBOX.storageKey,
+            nextAction = "",
+            scheduledAt = null,
+            dayOnly = false,
+            windowStartAt = null,
+            windowEndAt = null,
+            goalId = null
+        )
+        return Result(
+            items.map { if (it.id == item.id) updated else it },
+            TaskRecorder.event(TaskEventType.CAPTURE_ROUTED, item.id, item.title, extra = "退回待整理")
+        )
+    }
+
+    /** 为父想法创建一个普通收集箱任务；仍有未完成子任务时保持幂等。 */
+    fun createNextAction(items: List<Item>, parent: Item): NextActionResult {
+        if (CaptureRoute.fromKey(parent.captureRoute) != CaptureRoute.PROGRESS || parent.nextAction.isBlank()) {
+            return NextActionResult(items, null, null)
+        }
+        val existing = items.firstOrNull { !it.done && it.parentCaptureId == parent.id }
+        if (existing != null) return NextActionResult(items, null, null)
+        val child = Item(
+            title = parent.nextAction.trim(),
+            detail = "来自逐步推进：${parent.title}",
+            kind = "收集箱",
+            durationMinutes = parent.durationMinutes,
+            priority = parent.priority,
+            parentCaptureId = parent.id
+        )
+        return NextActionResult(
+            listOf(child) + items,
+            child,
+            TaskRecorder.event(TaskEventType.NEXT_ACTION_CREATED, child.id, child.title, extra = parent.title)
+        )
+    }
+
     /** 完成任务（今日页/日程页直接完成）：置完成标记与「完成」事件。 */
     fun completeNow(items: List<Item>, item: Item, now: Long = System.currentTimeMillis()): Result =
         Result(

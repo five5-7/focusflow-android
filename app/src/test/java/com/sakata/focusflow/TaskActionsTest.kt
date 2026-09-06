@@ -159,6 +159,75 @@ class TaskActionsTest {
         assertEquals(0L, result.event!!.scheduledAt)
     }
 
+    @Test fun routeToProgress_preservesOriginalDetailAndStoresNextAction() {
+        val source = item(id = 41, kind = "收集箱", scheduledAt = null, detail = "我想系统学习编曲")
+        val result = TaskActions.routeToProgress(listOf(source), source, "  找回已经购买的课程  ")
+        val routed = result.items.single()
+        assertEquals(CaptureRoute.PROGRESS.storageKey, routed.captureRoute)
+        assertEquals("我想系统学习编曲", routed.detail)
+        assertEquals("我想系统学习编曲", routed.sourceDetail)
+        assertEquals("找回已经购买的课程", routed.nextAction)
+        assertEquals(TaskEventType.CAPTURE_ROUTED, result.event!!.type)
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun routeToProgress_rejectsBlankNextAction() {
+        val source = item(kind = "收集箱", scheduledAt = null)
+        TaskActions.routeToProgress(listOf(source), source, "  ")
+    }
+
+    @Test fun routeToReference_preservesOriginalTextAndDoesNotCreateTask() {
+        val source = item(id = 42, kind = "收集箱", scheduledAt = null, detail = "以后查阅的资料")
+        val result = TaskActions.routeToReference(listOf(source), source)
+        val routed = result.items.single()
+        assertEquals(CaptureRoute.REFERENCE.storageKey, routed.captureRoute)
+        assertEquals("以后查阅的资料", routed.detail)
+        assertEquals("以后查阅的资料", routed.sourceDetail)
+        assertEquals("", routed.nextAction)
+        assertEquals(TaskEventType.CAPTURE_ROUTED, result.event!!.type)
+    }
+
+    @Test fun createNextAction_keepsParentAndCreatesLinkedInboxItem() {
+        val parent = item(id = 50, title = "学习编曲", kind = "收集箱", scheduledAt = null)
+            .copy(captureRoute = CaptureRoute.PROGRESS.storageKey, nextAction = "确认课程进度")
+        val result = TaskActions.createNextAction(listOf(parent), parent)
+        assertEquals(2, result.items.size)
+        assertEquals(parent, result.items.last())
+        assertEquals("确认课程进度", result.created!!.title)
+        assertEquals("收集箱", result.created!!.kind)
+        assertEquals(parent.id, result.created!!.parentCaptureId)
+        assertEquals(TaskEventType.NEXT_ACTION_CREATED, result.event!!.type)
+    }
+
+    @Test fun createNextAction_doesNotDuplicateAnUnfinishedChild() {
+        val parent = item(id = 50, kind = "收集箱", scheduledAt = null)
+            .copy(captureRoute = CaptureRoute.PROGRESS.storageKey, nextAction = "确认课程进度")
+        val child = item(id = 51, kind = "任务").copy(parentCaptureId = parent.id)
+        val result = TaskActions.createNextAction(listOf(parent, child), parent)
+        assertEquals(listOf(parent, child), result.items)
+        assertNull(result.created)
+        assertNull(result.event)
+    }
+
+    @Test fun completedChild_allowsAReplacementNextAction() {
+        val parent = item(id = 50, kind = "收集箱", scheduledAt = null)
+            .copy(captureRoute = CaptureRoute.PROGRESS.storageKey, nextAction = "继续下一节")
+        val completed = item(id = 51, kind = "任务").copy(parentCaptureId = parent.id, done = true)
+        val result = TaskActions.createNextAction(listOf(parent, completed), parent)
+        assertTrue(result.created != null)
+        assertEquals(3, result.items.size)
+    }
+
+    @Test fun restoreCaptureToInbox_keepsSourceDetailForFutureRecovery() {
+        val parent = item(id = 60, kind = "收集箱", scheduledAt = null, detail = "原文")
+            .copy(captureRoute = CaptureRoute.PROGRESS.storageKey, sourceDetail = "原文", nextAction = "一步")
+        val restored = TaskActions.restoreCaptureToInbox(listOf(parent), parent).items.single()
+        assertEquals(CaptureRoute.INBOX.storageKey, restored.captureRoute)
+        assertEquals("原文", restored.detail)
+        assertEquals("原文", restored.sourceDetail)
+        assertEquals("", restored.nextAction)
+    }
+
     @Test fun planDelayed_buildsRescheduledCopy() {
         val a = item(id = 8, title = "重新安排：写方案", scheduledAt = fixedNow, rescheduleCount = 2, priority = "low")
         val result = TaskActions.planDelayed(listOf(a), a, fixedNow + 3 * 3600_000L, 30, "周一 13:00", "high", now = fixedNow)

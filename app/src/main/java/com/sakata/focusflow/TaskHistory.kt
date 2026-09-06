@@ -17,6 +17,8 @@ enum class TaskEventType(val label: String, val storageKey: String) {
     TASK_CONVERTED("转为目标", "task_converted"),
     /** 收集箱项归入已有目标（6.8）。scheduledAt 恒为 0：归入不产生日程计划。 */
     TASK_ATTACHED_TO_PLAN("归入计划", "task_attached_to_plan"),
+    CAPTURE_ROUTED("收集箱整理", "capture_routed"),
+    NEXT_ACTION_CREATED("建立下一步", "next_action_created"),
     TASK_DELETED("删除任务", "task_deleted"),
     TASK_RESTORED("恢复任务", "task_restored");
 

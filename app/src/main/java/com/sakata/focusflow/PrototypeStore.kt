@@ -230,6 +230,27 @@ class PrototypeStore(context: Context) {
         preferences.edit().putString("items", ItemsCodec.encode(items)).apply()
     }
 
+    /** 7.5 整理动作：任务快照与对应历史一次提交，避免中途退出只保存一半。 */
+    fun saveItemsAndTaskEvent(items: List<Item>, event: TaskEvent): Boolean = synchronized(taskHistoryLock) {
+        if (StorageProtection.readOnly) return@synchronized false
+        val events = TaskHistory.append(loadTaskEvents(), event)
+        preferences.edit()
+            .putString("items", ItemsCodec.encode(items))
+            .putString("task_events", TaskEventCodec.encode(events))
+            .commit()
+    }
+
+    /** 收集箱转成目标时，目标、原任务移除与历史必须同时落盘。 */
+    fun saveGoalConversion(goals: List<Goal>, items: List<Item>, event: TaskEvent): Boolean = synchronized(taskHistoryLock) {
+        if (StorageProtection.readOnly) return@synchronized false
+        val events = TaskHistory.append(loadTaskEvents(), event)
+        preferences.edit()
+            .putString("goals", StoredGoalsCodec.encodeGoals(goals))
+            .putString("items", ItemsCodec.encode(items))
+            .putString("task_events", TaskEventCodec.encode(events))
+            .commit()
+    }
+
     fun saveSession(session: ActivitySession) {
         val sessions = loadSessions().filterNot { it.id == session.id } + session
         val values = JSONArray()

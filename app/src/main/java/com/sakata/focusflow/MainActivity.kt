@@ -194,6 +194,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     var goalScheduleTarget by remember { mutableStateOf<Goal?>(null) }
     var flexiblePlanTarget by remember { mutableStateOf<Item?>(null) }
     var inboxEditTarget by remember { mutableStateOf<Item?>(null) }
+    var organizeTarget by remember { mutableStateOf<Item?>(null) }
     var convertTarget by remember { mutableStateOf<Item?>(null) }
     var attachTarget by remember { mutableStateOf<Item?>(null) }
     var schedulePresetExact by remember { mutableStateOf<Long?>(null) }
@@ -399,6 +400,15 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     fun recordTaskEvent(event: TaskEvent) {
         store.appendTaskEvent(event)
         taskEvents = store.loadTaskEvents()
+    }
+
+    fun saveItemsWithEvent(updated: List<Item>, event: TaskEvent): Boolean {
+        val previous = items
+        if (!store.saveItemsAndTaskEvent(updated, event)) return false
+        items = updated
+        ReminderScheduler.syncTaskReminders(context, previous, updated)
+        taskEvents = store.loadTaskEvents()
+        return true
     }
 
     /**
@@ -645,8 +655,17 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                     onReviewActivity = { activeSession?.let { transitionTarget = it } },
                     onPickTime = { item -> inboxScheduleTarget = item },
                     onEdit = { item -> inboxEditTarget = item },
-                    onConvertToGoal = { item -> convertTarget = item },
-                    onAttachToPlan = { item -> attachTarget = item },
+                    onOrganize = { item -> organizeTarget = item },
+                    onCreateNextAction = { parent ->
+                        val result = TaskActions.createNextAction(items, parent)
+                        if (result.created != null) {
+                            saveItemsWithEvent(result.items, result.event!!)
+                        }
+                    },
+                    onRestoreCapture = { item ->
+                        val result = TaskActions.restoreCaptureToInbox(items, item)
+                        saveItemsWithEvent(result.items, result.event!!)
+                    },
                     onShrink = { item ->
                         val result = TaskActions.shrinkToInbox(items, item)
                         saveItems(result.items)
@@ -1312,12 +1331,33 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             editGoalTarget = null
             goalFinderSuggestion = ""
         }
+        organizeTarget?.let { item -> CaptureOrganizeDialog(
+            item = item,
+            onDismiss = { organizeTarget = null },
+            onProgress = { nextAction ->
+                val result = TaskActions.routeToProgress(items, item, nextAction)
+                if (saveItemsWithEvent(result.items, result.event!!)) {
+                    removeScheduledActivity(item.id)
+                    organizeTarget = null
+                }
+            },
+            onReference = {
+                val result = TaskActions.routeToReference(items, item)
+                if (saveItemsWithEvent(result.items, result.event!!)) {
+                    removeScheduledActivity(item.id)
+                    organizeTarget = null
+                }
+            },
+            onConvertToGoal = { organizeTarget = null; convertTarget = item },
+            onAttachToPlan = { organizeTarget = null; attachTarget = item }
+        ) }
         convertTarget?.let { item -> GoalEditorDialog(
             initialGoal = null,
             initialTitle = item.title,
             initialDurationMinutes = item.durationMinutes,
+            initialOutcome = item.sourceDetail.ifBlank { item.detail.removePrefix("刚刚记录 · ") },
             resources = resources,
-            suggestedFirstAction = goalFinderSuggestion,
+            suggestedFirstAction = goalFinderSuggestion.ifBlank { item.nextAction },
             courses = if (baselineProfile.lifeStage == LifeStage.HOLIDAY) emptyList() else courses,
             profile = commuteProfile,
             items = items,
@@ -1327,24 +1367,28 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                 tutorialFinderOpen = true
             }
         ) { goal ->
-            goals = goals + goal
-            store.saveGoals(goals)
             // 转换后条目不再作为任务保留：目标将自行派生效任务（GoalPlanner）。
             val result = TaskActions.convertToGoal(items, item, goal.title)
-            saveItems(result.items)
-            recordTaskEvent(result.event!!)
-            removeScheduledActivity(item.id)
-            convertTarget = null
+            val updatedGoals = goals + goal
+            val previousItems = items
+            if (store.saveGoalConversion(updatedGoals, result.items, result.event!!)) {
+                goals = updatedGoals
+                items = result.items
+                ReminderScheduler.syncTaskReminders(context, previousItems, result.items)
+                taskEvents = store.loadTaskEvents()
+                removeScheduledActivity(item.id)
+                convertTarget = null
+            }
         } }
         attachTarget?.let { item -> AttachToPlanDialog(
             goals = goals,
             onDismiss = { attachTarget = null },
             onAttach = { goal ->
                 val result = TaskActions.attachToGoal(items, item, goal)
-                saveItems(result.items)
-                recordTaskEvent(result.event!!)
-                removeScheduledActivity(item.id)
-                attachTarget = null
+                if (saveItemsWithEvent(result.items, result.event!!)) {
+                    removeScheduledActivity(item.id)
+                    attachTarget = null
+                }
             }
         ) }
         if (addResourceOpen) ResourceEditorDialog(onDismiss = { addResourceOpen = false }) { resource ->
