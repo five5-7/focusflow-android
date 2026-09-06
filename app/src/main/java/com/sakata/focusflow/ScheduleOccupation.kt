@@ -22,6 +22,8 @@ data class OccupiedBlock(
 object ScheduleOccupation {
     /** 全应用唯一的缓冲常量：与固定安排建议保留的分钟数。 */
     const val BUFFER_MINUTES = 15
+    /** 只在短课间显示通勤；更长间隔由用户自由安排，不默认占用。 */
+    const val MAX_COMMUTE_GAP_MINUTES = 90
 
     fun courseBlocks(courses: List<Course>, weekday: Int): List<OccupiedBlock> =
         courses.filter { !it.needsConfirmation && it.weekday == weekday }.map {
@@ -33,8 +35,8 @@ object ScheduleOccupation {
         }
 
     /**
-     * 同一天相邻已确认课程之间的通勤占用：从下课时刻起算，截断到下一课程开始
-     * （赶不上的情况不产生与课程视觉重叠的块）。profile.enabled 时才算。
+     * 同一天相邻已确认课程之间的通勤占用：只处理 90 分钟内的短课间，
+     * 从下课时刻起算并截断到下一课程开始；更长间隔不默认占用。profile.enabled 时才算。
      */
     fun commuteBlocks(courses: List<Course>, profile: CommuteProfile?): List<OccupiedBlock> {
         if (profile?.enabled != true) return emptyList()
@@ -45,9 +47,11 @@ object ScheduleOccupation {
                 daily.sortedBy { it.startPeriod }.zipWithNext().mapNotNull { (from, to) ->
                     val classEnds = CourseGapPlanner.periodEnd(from.endPeriod)
                     val nextStarts = CourseGapPlanner.periodStart(to.startPeriod)
+                    val gap = nextStarts - classEnds
+                    if (gap <= 0 || gap > MAX_COMMUTE_GAP_MINUTES) return@mapNotNull null
                     val travel = ZijingangTravel.estimateMinutes(from.zone, to.zone, profile)
                     val end = minOf(classEnds + travel, nextStarts)
-                    if (end > classEnds) OccupiedBlock(classEnds, end, "commute", "通勤", from.weekday) else null
+                    if (end > classEnds) OccupiedBlock(classEnds, end, "commute", "", from.weekday) else null
                 }
             }
     }
