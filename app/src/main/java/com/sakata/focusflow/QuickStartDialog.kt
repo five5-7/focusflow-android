@@ -86,6 +86,10 @@ internal fun QuickStartDialog(onDismiss: () -> Unit) {
 
 /** 覆盖安装后每个版本只展示一次的更新说明；版本名来自 BuildConfig，路线图是唯一详情入口。 */
 internal fun updateHighlightsFor(version: String): List<String> = when {
+    version.startsWith("7.9.0-rc.2") -> listOf(
+        "收集箱顶部新增全部、待整理、推进和参考入口，可快速切换分类。",
+        "通勤块、统计卡、设置折叠区、滚动条和进度条已统一视觉层级。"
+    )
     version.startsWith("7.9.0") -> listOf(
         "今日、收集箱、日程和课表已减少重复标题与常驻教学，用户内容更靠前。",
         "必要影响和异常说明仍保留，完整规则与功能说明可从帮助和使用说明书查看。"

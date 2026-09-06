@@ -21,6 +21,7 @@ object RoadmapData {
     /** 已实现版本演进（1.0 → 当前候选），每版本浓缩 1–3 条，与 CHANGELOG.md 对应。 */
     val evolution: List<RoadmapVersion> = listOf(
         RoadmapVersion("7.9.0", listOf(
+            RoadmapEntry("7.9.0-rc.2", "统一设计语言第二轮与收集箱分类入口", "收集箱顶部增加全部、待整理、推进和参考筛选；通勤块改为低干扰轨迹视觉；统计、设置折叠区、滚动条与加载／进度条统一主题层级，出行选择适配窄屏。数据与计算逻辑不变。", RoadmapStatus.CANDIDATE),
             RoadmapEntry("7.9.0-rc.1", "统一设计语言第一轮：文本减负", "保存文本取舍与基础视觉规范；清理今日、收集箱、日程和课表中由帮助重复承载的常驻教学、重复标题和界面设计自述，同时保留异常、当前状态与操作影响。不改变任务、课程、提醒和数据逻辑。", RoadmapStatus.CANDIDATE)
         )),
         RoadmapVersion("7.8.0", listOf(
