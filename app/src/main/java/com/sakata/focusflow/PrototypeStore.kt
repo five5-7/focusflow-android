@@ -628,6 +628,13 @@ class PrototypeStore(context: Context) {
         preferences.edit().putBoolean("feature_intro_shown", shown).apply()
     }
 
+    /** 最后一次已向用户展示更新说明的应用版本；同一版本只提示一次。 */
+    fun loadLastSeenAppVersion(): String? = preferences.getString("last_seen_app_version", null)
+
+    fun saveLastSeenAppVersion(version: String) {
+        preferences.edit().putString("last_seen_app_version", version).apply()
+    }
+
     /** 首次完成习惯基线后的“后续在哪找”提示是否已显示过。 */
     fun loadBaselineWhereToFindShown(): Boolean = preferences.getBoolean("baseline_where_to_find_shown", false)
 
