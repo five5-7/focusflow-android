@@ -6,6 +6,38 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class TaskActionsTest {
+    @Test fun nextAction_consumesDraftAndCannotRepeatAfterCompletion() {
+        val parent = Item(id = 900, title = "方向", detail = "原文", kind = "收集箱",
+            captureRoute = "progress", nextAction = "第一步")
+        val first = TaskActions.createNextAction(listOf(parent), parent)
+        val afterCompletion = TaskActions.completeNow(first.items, first.created!!).items
+        val currentParent = afterCompletion.first { it.id == parent.id }
+        assertEquals("", currentParent.nextAction)
+        assertNull(TaskActions.createNextAction(afterCompletion, currentParent).created)
+    }
+
+    @Test fun nextAction_rejectsDeletedParent() {
+        val parent = Item(id = 900, title = "方向", detail = "", kind = "收集箱",
+            captureRoute = "progress", nextAction = "第一步")
+        assertNull(TaskActions.createNextAction(emptyList(), parent).created)
+    }
+
+    @Test fun referenceConversion_detachesChildWithoutDeletingIt() {
+        val parent = Item(id = 900, title = "方向", detail = "", kind = "收集箱", captureRoute = "progress")
+        val child = Item(id = 901, title = "一步", detail = "", kind = "收集箱", parentCaptureId = 900)
+        val converted = TaskActions.routeToReference(listOf(parent, child), child).items
+        assertNull(converted.first { it.id == child.id }.parentCaptureId)
+        assertEquals(2, converted.size)
+    }
+
+    @Test fun deletingParent_keepsChildScheduleAndClearsDanglingLink() {
+        val parent = Item(id = 900, title = "方向", detail = "", kind = "收集箱", captureRoute = "progress")
+        val child = Item(id = 901, title = "一步", detail = "", kind = "任务", parentCaptureId = 900, scheduledAt = 123L)
+        val remaining = TaskActions.abandon(listOf(parent, child), parent).items.single()
+        assertNull(remaining.parentCaptureId)
+        assertEquals(123L, remaining.scheduledAt)
+    }
+
     private val fixedNow = java.util.Calendar.getInstance().apply {
         clear(); set(2026, 0, 5, 10, 0, 0) // 2026-01-05 周一
     }.timeInMillis
@@ -192,7 +224,7 @@ class TaskActionsTest {
             .copy(captureRoute = CaptureRoute.PROGRESS.storageKey, nextAction = "确认课程进度")
         val result = TaskActions.createNextAction(listOf(parent), parent)
         assertEquals(2, result.items.size)
-        assertEquals(parent, result.items.last())
+        assertEquals(parent.copy(nextAction = ""), result.items.last())
         assertEquals("确认课程进度", result.created!!.title)
         assertEquals("收集箱", result.created!!.kind)
         assertEquals(parent.id, result.created!!.parentCaptureId)

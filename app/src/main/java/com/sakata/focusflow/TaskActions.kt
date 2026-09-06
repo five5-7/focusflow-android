@@ -30,9 +30,12 @@ object TaskActions {
     )
 
     fun routeToProgress(items: List<Item>, item: Item, nextAction: String): Result {
+        val current = items.firstOrNull { it.id == item.id } ?: return Result(items)
+        if (current != item || current.done || current.parentCaptureId != null ||
+            items.any { !it.done && it.parentCaptureId == item.id }) return Result(items)
         val action = nextAction.trim()
         require(action.isNotBlank()) { "下一步不能为空" }
-        val updated = item.copy(
+        val updated = item.preservingNote().copy(
             kind = "收集箱",
             captureRoute = CaptureRoute.PROGRESS.storageKey,
             sourceDetail = item.sourceDetail.ifBlank { item.detail },
@@ -50,11 +53,13 @@ object TaskActions {
     }
 
     fun routeToReference(items: List<Item>, item: Item): Result {
-        val updated = item.copy(
+        if (items.none { it == item } || item.done) return Result(items)
+        val updated = item.preservingNote().copy(
             kind = "收集箱",
             captureRoute = CaptureRoute.REFERENCE.storageKey,
             sourceDetail = item.sourceDetail.ifBlank { item.detail },
             nextAction = "",
+            parentCaptureId = null,
             scheduledAt = null,
             dayOnly = false,
             windowStartAt = null,
@@ -62,13 +67,14 @@ object TaskActions {
             goalId = null
         )
         return Result(
-            items.map { if (it.id == item.id) updated else it },
+            items.map { if (it.id == item.id) updated else if (it.parentCaptureId == item.id) it.copy(parentCaptureId = null) else it },
             TaskRecorder.event(TaskEventType.CAPTURE_ROUTED, item.id, item.title, extra = "留作参考")
         )
     }
 
     fun restoreCaptureToInbox(items: List<Item>, item: Item): Result {
-        val updated = item.copy(
+        if (items.none { it == item } || item.done) return Result(items)
+        val updated = item.preservingNote().copy(
             kind = "收集箱",
             captureRoute = CaptureRoute.INBOX.storageKey,
             nextAction = "",
@@ -79,13 +85,16 @@ object TaskActions {
             goalId = null
         )
         return Result(
-            items.map { if (it.id == item.id) updated else it },
+            items.map { if (it.id == item.id) updated else if (it.parentCaptureId == item.id) it.copy(parentCaptureId = null) else it },
             TaskRecorder.event(TaskEventType.CAPTURE_ROUTED, item.id, item.title, extra = "退回待整理")
         )
     }
 
     /** 为父想法创建一个普通收集箱任务；仍有未完成子任务时保持幂等。 */
     fun createNextAction(items: List<Item>, parent: Item): NextActionResult {
+        if (items.none { it == parent } || parent.done || parent.parentCaptureId != null) {
+            return NextActionResult(items, null, null)
+        }
         if (CaptureRoute.fromKey(parent.captureRoute) != CaptureRoute.PROGRESS || parent.nextAction.isBlank()) {
             return NextActionResult(items, null, null)
         }
@@ -100,7 +109,7 @@ object TaskActions {
             parentCaptureId = parent.id
         )
         return NextActionResult(
-            listOf(child) + items,
+            listOf(child) + items.map { if (it.id == parent.id) it.copy(nextAction = "") else it },
             child,
             TaskRecorder.event(TaskEventType.NEXT_ACTION_CREATED, child.id, child.title, extra = parent.title)
         )
@@ -123,53 +132,53 @@ object TaskActions {
     /** 缩为 15 分钟短版并放回收集箱；标题去掉「重新安排：」前缀。 */
     fun shrinkToInbox(items: List<Item>, item: Item): Result =
         Result(
-            items = items.map { if (it.id == item.id) it.copy(title = item.title.removePrefix("重新安排："), kind = "收集箱", detail = "短版：先做 15 分钟；准备好后再安排", recoverySourceScheduledAt = item.recoverySourceScheduledAt ?: item.scheduledAt, scheduledAt = null, dayOnly = false, durationMinutes = 15, windowStartAt = null, windowEndAt = null) else it },
+            items = items.map { if (it.id == item.id) it.preservingNote().copy(title = item.title.removePrefix("重新安排："), kind = "收集箱", detail = "短版：先做 15 分钟；准备好后再安排", recoverySourceScheduledAt = item.recoverySourceScheduledAt ?: item.scheduledAt, scheduledAt = null, dayOnly = false, durationMinutes = 15, windowStartAt = null, windowEndAt = null) else it },
             event = TaskRecorder.event(TaskEventType.TASK_TO_INBOX, item.id, item.title.removePrefix("重新安排："), extra = "缩为 15 分钟")
         )
 
     /** 放回收集箱：清掉时间与范围，保留原调度日记忆（三处共用：回收卡 / 快速改期建议 / 时间轴弹窗）。 */
     fun returnToInbox(items: List<Item>, item: Item): Result =
         Result(
-            items = items.map { if (it.id == item.id) it.copy(kind = "收集箱", recoverySourceScheduledAt = item.recoverySourceScheduledAt ?: item.scheduledAt, scheduledAt = null, dayOnly = false, windowStartAt = null, windowEndAt = null, detail = "已放回收集箱；准备好后再安排") else it },
+            items = items.map { if (it.id == item.id) it.preservingNote().copy(kind = "收集箱", recoverySourceScheduledAt = item.recoverySourceScheduledAt ?: item.scheduledAt, scheduledAt = null, dayOnly = false, windowStartAt = null, windowEndAt = null, detail = "已放回收集箱；准备好后再安排") else it },
             event = TaskRecorder.event(TaskEventType.TASK_TO_INBOX, item.id, item.title.removePrefix("重新安排："))
         )
 
     /** 放弃任务：删除任务并记「放弃」事件。 */
     fun abandon(items: List<Item>, item: Item): Result =
         Result(
-            items = items.filterNot { it.id == item.id },
+            items = items.filterNot { it.id == item.id }.map { if (it.parentCaptureId == item.id) it.copy(parentCaptureId = null) else it },
             event = TaskRecorder.event(TaskEventType.TASK_DELETED, item.id, item.title, extra = "放弃")
         )
 
     /** 删除任务：删除任务并记删除事件（无 extra）。 */
     fun deleteItem(items: List<Item>, item: Item): Result =
         Result(
-            items = items.filterNot { it.id == item.id },
+            items = items.filterNot { it.id == item.id }.map { if (it.parentCaptureId == item.id) it.copy(parentCaptureId = null) else it },
             event = TaskRecorder.event(TaskEventType.TASK_DELETED, item.id, item.title)
         )
 
     /** 暂停任务：只保留暂停标记，无事件。 */
     fun pause(items: List<Item>, item: Item): Result =
-        Result(items = items.map { if (it.id == item.id) it.copy(kind = "暂停", detail = "已暂停；随时可在计划中恢复") else it })
+        Result(items = items.map { if (it.id == item.id) it.preservingNote().copy(kind = "暂停", detail = "已暂停；随时可在计划中恢复") else it })
 
     /** 恢复任务：恢复为任务并记恢复事件（标题去掉「重新安排：」前缀）。 */
     fun resume(items: List<Item>, item: Item): Result =
         Result(
-            items = items.map { if (it.id == item.id) it.copy(kind = "任务", detail = "已恢复；有空时再安排", scheduledAt = null) else it },
+            items = items.map { if (it.id == item.id) it.preservingNote().copy(kind = "任务", detail = "已恢复；有空时再安排", scheduledAt = null) else it },
             event = TaskRecorder.event(TaskEventType.TASK_RESTORED, item.id, item.title.removePrefix("重新安排："))
         )
 
     /** 归入已有目标：按目标附加字段并记归入事件（scheduledAt 恒为 0：归入不产生日程计划）。 */
     fun attachToGoal(items: List<Item>, item: Item, goal: Goal): Result =
         Result(
-            items = items.map { if (it.id == item.id) it.copy(title = item.title.removePrefix("重新安排："), kind = "任务", detail = "属于目标：${goal.title} · 尚未安排具体时间", goalId = goal.id, scheduledAt = null, dayOnly = false, windowStartAt = null, windowEndAt = null) else it },
+            items = items.map { if (it.id == item.id) it.preservingNote().copy(title = item.title.removePrefix("重新安排："), kind = "任务", detail = "属于目标：${goal.title} · 尚未安排具体时间", goalId = goal.id, scheduledAt = null, dayOnly = false, windowStartAt = null, windowEndAt = null) else it },
             event = TaskRecorder.event(TaskEventType.TASK_ATTACHED_TO_PLAN, item.id, item.title.removePrefix("重新安排："), scheduledAt = 0, extra = goal.title)
         )
 
     /** 转为目标：移除原任务并记转换事件（extra=目标标题；scheduledAt 恒为 0）。 */
     fun convertToGoal(items: List<Item>, item: Item, goalTitle: String): Result =
         Result(
-            items = items.filterNot { it.id == item.id },
+            items = items.filterNot { it.id == item.id }.map { if (it.parentCaptureId == item.id) it.copy(parentCaptureId = null) else it },
             event = TaskRecorder.event(TaskEventType.TASK_CONVERTED, item.id, item.title, extra = goalTitle)
         )
 
@@ -183,7 +192,7 @@ object TaskActions {
         priority: String,
         now: Long = System.currentTimeMillis()
     ): DelayedPlan {
-        val delayed = item.copy(
+        val delayed = item.preservingNote().copy(
             // 空闲活动改期后仍须保留活动身份，才能继续使用对应的开始/收尾提醒链。
             kind = if (item.kind == "活动" || item.kind == "游戏") item.kind else "任务",
             detail = TaskScheduleText.rescheduledDetail(scheduledAt, duration),
@@ -206,7 +215,7 @@ object TaskActions {
 
     /** 「安排到具体时刻」的任务外形（快速记录直接安排与收集箱改期共用）。 */
     fun scheduledShape(item: Item, startsAt: Long, duration: Int, @Suppress("UNUSED_PARAMETER") label: String, priority: String): Item =
-        item.copy(
+        item.preservingNote().copy(
             title = item.title.removePrefix("重新安排："),
             kind = "任务",
             detail = TaskScheduleText.scheduledDetail(startsAt, duration),
@@ -220,7 +229,7 @@ object TaskActions {
 
     /** 「保留弹性范围」的任务外形。 */
     fun flexibleShape(item: Item, start: Long, end: Long, duration: Int, @Suppress("UNUSED_PARAMETER") label: String, priority: String): Item =
-        item.copy(
+        item.preservingNote().copy(
             title = item.title.removePrefix("重新安排："),
             kind = "任务",
             detail = TaskScheduleText.flexibleDetail(start, end, duration),

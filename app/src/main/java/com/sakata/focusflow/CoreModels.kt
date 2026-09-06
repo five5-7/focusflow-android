@@ -35,6 +35,8 @@ data class Item(
     val captureRoute: String = CaptureRoute.INBOX.storageKey,
     /** 首次整理时保留的原始说明；系统生成的状态文案不得覆盖它。 */
     val sourceDetail: String = "",
+    // null 表示旧数据尚未分离备注；空字符串表示用户明确清空。
+    val userNote: String? = null,
     /** “逐步推进”当前确认的下一步；为空表示等待补充。 */
     val nextAction: String = "",
     /** 从某条逐步推进想法派生的任务；父条目继续保留在收集箱。 */

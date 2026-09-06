@@ -17,7 +17,8 @@ data class Goal(
     val completionWeekKey: Long = GoalPlanner.currentWeekKey(),
     val desiredOutcome: String = "",
     /** The concrete first action for this goal; optional for 6.1 compatibility. */
-    val firstAction: String = ""
+    val firstAction: String = "",
+    val sourceNotes: String = ""
 )
 
 data class LearningResource(

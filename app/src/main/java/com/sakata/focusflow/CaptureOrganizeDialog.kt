@@ -46,9 +46,10 @@ internal fun CaptureOrganizeDialog(
                     placeholder = { Text("例如：找回课程，确认上次停在哪里") },
                     minLines = 2
                 )
+                if (item.parentCaptureId != null) Text("这是已有方向的一步，不能再嵌套方向；留作参考后会解除关联。", style = MaterialTheme.typography.bodySmall)
                 Button(
                     onClick = { onProgress(nextAction.trim()) },
-                    enabled = nextAction.isNotBlank(),
+                    enabled = nextAction.isNotBlank() && item.parentCaptureId == null,
                     modifier = Modifier.fillMaxWidth()
                 ) { Text("保存为逐步推进") }
                 OutlinedButton(onClick = onReference, modifier = Modifier.fillMaxWidth()) { Text("留作参考") }

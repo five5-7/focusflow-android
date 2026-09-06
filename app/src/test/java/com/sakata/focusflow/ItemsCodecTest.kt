@@ -18,7 +18,7 @@ class ItemsCodecTest {
         rescheduleCount = 2, lastRescheduledAt = time + 500,
         recoverySourceScheduledAt = time + 200, priority = "high",
         captureRoute = "progress", sourceDetail = "最初想到的说明",
-        nextAction = "先找回课程", parentCaptureId = 9L
+        nextAction = "先找回课程", userNote = "用户备注"
     )
 
     @Test fun roundtrip_preservesAllFields() {
@@ -45,7 +45,8 @@ class ItemsCodecTest {
         assertEquals(CaptureRoute.PROGRESS.storageKey, decoded.captureRoute)
         assertEquals("最初想到的说明", decoded.sourceDetail)
         assertEquals("先找回课程", decoded.nextAction)
-        assertEquals(9L, decoded.parentCaptureId)
+        assertNull(decoded.parentCaptureId)
+        assertEquals("用户备注", decoded.userNote)
     }
 
     @Test fun roundtrip_nullableFieldsStayNull() {

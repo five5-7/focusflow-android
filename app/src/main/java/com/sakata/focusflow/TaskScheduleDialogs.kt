@@ -75,7 +75,7 @@ import kotlinx.coroutines.withContext
 
 @Composable internal fun InboxEditDialog(item: Item, onDismiss: () -> Unit, onSave: (String, String, Int, String) -> Unit) {
     var title by remember(item.id) { mutableStateOf(item.title) }
-    var detail by remember(item.id) { mutableStateOf(item.detail.removePrefix("刚刚记录 · ")) }
+    var detail by remember(item.id) { mutableStateOf(item.editableNote()) }
     var duration by remember(item.id) { mutableIntStateOf(item.durationMinutes.coerceIn(5, 360)) }
     var durationValid by remember(item.id) { mutableStateOf(true) }
     var priority by remember(item.id) { mutableStateOf(item.priority) }
