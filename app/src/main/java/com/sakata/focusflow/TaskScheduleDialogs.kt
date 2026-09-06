@@ -574,6 +574,7 @@ internal fun timeOnSameDayAs(target: Long, minute: Int): Long =
         set(java.util.Calendar.MILLISECOND, 0)
     }.timeInMillis
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable internal fun CourseEditorDialog(existing: Course?, places: List<CampusPlace>, onDismiss: () -> Unit, onOpenCommutePlaces: () -> Unit, onSave: (Course) -> Unit) {
     var title by remember { mutableStateOf(existing?.title ?: "") }
     var weekday by remember { mutableIntStateOf(existing?.weekday ?: 1) }
