@@ -35,11 +35,10 @@ internal fun CoursePeriodTableDialog(
         text = {
             ScrollableDialogBox(maxHeight = 500.dp, spacing = 8.dp) {
                 Text(
-                    if (firstSetup) "已根据课程默认规则填入参考时间点。请按学校实际作息确认或修改，保存后进入课表。"
-                    else "修改只会调整课程对应的真实时间，不会改变已录入的星期和节次。",
+                    if (firstSetup) "以下为参考时间，请按学校作息确认；保存后进入课表。"
+                    else "修改课程对应的实际时间，不会改变已录入的星期和节次。",
                     style = MaterialTheme.typography.bodySmall
                 )
-                Text("参考时间不代表学校实际安排；每行只需选择开始和结束时间。", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                 periods.forEachIndexed { index, period ->
                     PeriodTimeRow(
                         index = index,
@@ -104,10 +103,7 @@ internal fun CourseTimetable(
     val headerHeight = if (compactView) 34.dp else 44.dp
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-            Column(Modifier.weight(1f)) {
-                Text("固定周课表", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                Text("周一至周日 · 按学校节次排列", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
+            Spacer(Modifier.weight(1f))
             Row {
                 TextButton(onClick = { onCompactViewChange(!compactView) }) {
                     Text(if (compactView) "标准视图" else "缩小视图")
@@ -176,11 +172,6 @@ internal fun CourseTimetable(
                     }
                 }
             }
-            Text(
-                if (compactView) "完整一周同屏；周五至周日合计不超过两门课时可收纳。" else "左右滑动查看全部七天；色块尽量展示课程名称与地点。",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
         }
     }
     selected?.let { course ->
@@ -215,7 +206,12 @@ private fun TimetableTrailingDaysLane(
         Box(
             Modifier.height(headerHeight).fillMaxWidth().background(scheme.surfaceVariant.copy(alpha = 0.45f)).clickable(onClick = onExpand),
             contentAlignment = Alignment.Center
-        ) { Text("五–日 · ${courses.size} ›", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold) }
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("周五–日", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
+                Text(if (courses.isEmpty()) "无课 ›" else "${courses.size} 门 ›", style = MaterialTheme.typography.labelSmall)
+            }
+        }
         BoxWithConstraints(
             Modifier
                 .height(rowHeight * periods.toFloat())

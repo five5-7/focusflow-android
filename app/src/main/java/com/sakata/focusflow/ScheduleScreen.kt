@@ -119,7 +119,7 @@ internal fun ScheduleScreen(
                         Modifier.padding(12.dp),
                         verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        Text("今日待办（尚未指定时段）", fontWeight = FontWeight.SemiBold)
+                        Text("今日待办 · 未定时间", fontWeight = FontWeight.SemiBold)
                         todayUnslotted.forEach {
                             Text("• ${it.title}", style = MaterialTheme.typography.bodySmall)
                         }

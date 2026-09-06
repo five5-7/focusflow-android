@@ -24,4 +24,12 @@ class UserGuideContentTest {
         assertTrue(copy.contains("设置 → 使用说明书"))
         assertTrue(userGuideChapters.flatMap { it.lines }.joinToString("\n").contains("不会自动展示"))
     }
+
+    @Test fun `today help retains details removed from persistent cards`() {
+        val help = HelpCatalog.today.sections.flatMap { it.lines }.joinToString("\n")
+
+        assertTrue(help.contains("精力只影响弹性任务"))
+        assertTrue(help.contains("休息和娱乐只作为时间记录"))
+        assertTrue(help.contains("退回或删除方向会保留独立步骤"))
+    }
 }

@@ -208,7 +208,6 @@ import kotlinx.coroutines.withContext
                         }
                         TextButton(onClick = onRecordActivity) { Text("记录") }
                     }
-                    Text("记录正在进行的活动；选择娱乐类可顺手设置收尾提醒。", style = MaterialTheme.typography.bodySmall)
                     personalEnergyNotes.forEach { advice -> Text(advice, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.tertiary) }
                     HorizontalDivider()
                     nextSuggestion?.let { suggestion ->
@@ -251,7 +250,7 @@ import kotlinx.coroutines.withContext
             ElevatedCard(colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
                 Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("需要恢复的安排", fontWeight = FontWeight.Bold)
-                    Text("错过或反复改期不等于失败；选一个更容易继续的下一步。", style = MaterialTheme.typography.bodySmall)
+                    Text("选择一个更容易继续的下一步。", style = MaterialTheme.typography.bodySmall)
                     recoveryCandidates.take(3).forEach { candidate ->
                         val adjustment = ScheduleAdjuster.suggest(candidate, items, courses, commuteProfile)
                         Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(3.dp)) {
@@ -288,8 +287,6 @@ import kotlinx.coroutines.withContext
             Text("暂时没有新想法，点底部 ＋ 随手记录。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         } else {
             pendingInboxItems.take(2).forEach { item -> InboxItemCard(item, onPickTime, onEdit, onOrganize, onShrink, onPause, onAbandon) }
-            val hidden = inboxItems.size - pendingInboxItems.take(2).size
-            if (hidden > 0) Text("还有 $hidden 项（含逐步推进与参考），进入收集箱继续整理。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         if (visibility.energy) Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))) {
             Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -304,7 +301,6 @@ import kotlinx.coroutines.withContext
                     Text("每日精力询问尚未开启；你仍可随时手动选择。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     TextButton(onClick = onEnableStatusCheckIn) { Text("开启每日询问") }
                 }
-                Text("只影响弹性任务的推荐顺序，不会移动固定日程。", style = MaterialTheme.typography.bodySmall)
             }
         }
         val todayGoalTasks = items.filter { !it.done && it.goalId != null && it.scheduledAt != null && weekdayOf(it.scheduledAt!!) == weekdayOf(now) }
@@ -388,7 +384,6 @@ import kotlinx.coroutines.withContext
                         val minutes = (((session.actualEndAt ?: session.endsAt) - session.actualStartAt).coerceAtLeast(0) / 60_000L).toInt()
                         Text("${session.name} · $minutes 分钟 · ${if (session.status == ActivitySession.STATUS_COMPLETED) "已结束" else "已重新安排"}", style = MaterialTheme.typography.bodySmall)
                     }
-                    Text("休息和娱乐只作为时间记录，不会被简单判定为负面。", style = MaterialTheme.typography.labelSmall)
                 }
             }
         }
@@ -409,14 +404,13 @@ import kotlinx.coroutines.withContext
             }
         }
         if (visibility.campus) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-            Text("校园生活 ${if (campusLifeEnabled) "开" else "关"} · 校内地点、空挡与路程估算", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("校园生活", style = MaterialTheme.typography.bodyMedium)
             Switch(checked = campusLifeEnabled, onCheckedChange = onCampusLifeEnabledChange)
         }
     }
         }
         SubpageMotion(inboxOpen.takeIf { it }) {
             PlanSubpageFrame(Modifier.fillMaxSize(), "收集箱") {
-                Text("集中处理尚未安排的想法；通过系统返回键或再次点击底栏“今日”回到概览。", style = MaterialTheme.typography.bodySmall)
                 if (inboxItems.isEmpty()) {
                     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))) {
                         Text("暂时没有新想法，点底部 ＋ 随手记录。", Modifier.fillMaxWidth().padding(16.dp))
@@ -509,9 +503,8 @@ import kotlinx.coroutines.withContext
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 TextButton(onClick = { onAbandon(item) }, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("删除") }
             }
-            Text("可直接安排，也可整理为逐步推进、参考或目标。", style = MaterialTheme.typography.bodySmall)
         } else {
-            Text("这次不做也没关系。请选择下一步：", style = MaterialTheme.typography.bodySmall)
+            Text("接下来", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 TextButton(onClick = { onPickTime(item) }) { Text("改期") }
                 TextButton(onClick = { onShrink(item) }) { Text("缩短") }
@@ -542,10 +535,10 @@ import kotlinx.coroutines.withContext
         }
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             TextButton(onClick = { onOrganize(item) }, enabled = activeChild == null) { Text("修改") }
-            TextButton(onClick = { onRestore(item) }) { Text("退回") }
+            TextButton(onClick = { onRestore(item) }) { Text("退回待整理") }
             TextButton(onClick = { onDelete(item) }, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("删除方向") }
         }
-        Text("退回或删除方向不会删除已经生成的步骤，它们将作为独立任务保留。", style = MaterialTheme.typography.labelSmall)
+        Text("退回或删除方向时，已生成的步骤仍会保留。", style = MaterialTheme.typography.labelSmall)
     } }
 }
 

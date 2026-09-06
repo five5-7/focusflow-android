@@ -86,6 +86,10 @@ internal fun QuickStartDialog(onDismiss: () -> Unit) {
 
 /** 覆盖安装后每个版本只展示一次的更新说明；版本名来自 BuildConfig，路线图是唯一详情入口。 */
 internal fun updateHighlightsFor(version: String): List<String> = when {
+    version.startsWith("7.9.0") -> listOf(
+        "今日、收集箱、日程和课表已减少重复标题与常驻教学，用户内容更靠前。",
+        "必要影响和异常说明仍保留，完整规则与功能说明可从帮助和使用说明书查看。"
+    )
     version.startsWith("7.8.0-rc.3") -> listOf(
         "课表缩小视图改为七天同屏；标准视图会在大色块内展示更多课程信息。",
         "应用会记住上次选择的课表视图，首次默认使用缩小视图。"
