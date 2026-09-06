@@ -865,14 +865,14 @@ internal fun categorizedInstalledApps(context: Context, userCategories: Map<Stri
                                             }
                                         }
                                         Text("校内主要方式", fontWeight = FontWeight.SemiBold)
-                                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                             listOf("步行", "自行车", "电动车").forEach { mode -> FilterChip(selected = commuteProfile.campusMode == mode, onClick = { onCommuteChange(commuteProfile.copy(campusMode = mode)) }, label = { Text(mode) }) }
                                         }
                                         Text("地点内进出与找教室缓冲：${commuteProfile.buildingBufferMinutes} 分钟", fontWeight = FontWeight.SemiBold)
                                         Slider(value = commuteProfile.buildingBufferMinutes.toFloat(), onValueChange = { onCommuteChange(commuteProfile.copy(buildingBufferMinutes = it.toInt())) }, valueRange = 1f..10f, steps = 8)
                                         if (commuteProfile.campusMode == "电动车") {
                                             Text("电动车电量", fontWeight = FontWeight.SemiBold)
-                                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                                 listOf("充足", "一般", "偏低", "未知").forEach { level -> FilterChip(selected = commuteProfile.eBikeBattery == level, onClick = { onCommuteChange(commuteProfile.copy(eBikeBattery = level)) }, label = { Text(level) }) }
                                             }
                                             if (commuteProfile.eBikeBattery == "偏低") {
@@ -1335,7 +1335,20 @@ internal fun categorizedInstalledApps(context: Context, userCategories: Map<Stri
     }
 }
 
-@Composable internal fun SettingSwitch(title: String, detail: String, checked: Boolean, onChange: (Boolean) -> Unit) { Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) { Column(Modifier.weight(1f)) { Text(title, fontWeight = FontWeight.SemiBold); Text(detail) }; Switch(checked = checked, onCheckedChange = onChange) } }
+@Composable
+internal fun SettingSwitch(title: String, detail: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(title, fontWeight = FontWeight.SemiBold)
+            Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Switch(checked = checked, onCheckedChange = onChange)
+    }
+}
 
 @Composable
 internal fun CollapsibleSettingsDetails(
@@ -1343,11 +1356,15 @@ internal fun CollapsibleSettingsDetails(
     content: @Composable ColumnScope.() -> Unit
 ) {
     var expanded by remember { mutableStateOf(false) }
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Text(summary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
-        TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "收起设置" else "展开设置") }
-    }
-    AnimatedVisibility(visible = expanded) {
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp), content = content)
+    OutlinedCard(Modifier.fillMaxWidth()) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(summary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "收起" else "展开") }
+            }
+            AnimatedVisibility(visible = expanded) {
+                Column(Modifier.padding(top = 4.dp), verticalArrangement = Arrangement.spacedBy(8.dp), content = content)
+            }
+        }
     }
 }

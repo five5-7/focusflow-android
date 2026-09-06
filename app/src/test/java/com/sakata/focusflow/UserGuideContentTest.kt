@@ -32,4 +32,11 @@ class UserGuideContentTest {
         assertTrue(help.contains("休息和娱乐只作为时间记录"))
         assertTrue(help.contains("退回或删除方向会保留独立步骤"))
     }
+
+    @Test fun `plan help retains activity statistics source after visual cleanup`() {
+        val help = HelpCatalog.plan.sections.flatMap { it.lines }.joinToString("\n")
+
+        assertTrue(help.contains("活动统计只使用"))
+        assertTrue(help.contains("不会自动写入结束时间"))
+    }
 }

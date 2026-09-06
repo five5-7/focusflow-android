@@ -182,20 +182,20 @@ import kotlinx.coroutines.withContext
                     elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
                 ) {
-                    Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("本周执行概览", fontWeight = FontWeight.Bold)
+                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text("本周执行概览", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text(executionSummary.completionPercent?.let { "$it%" } ?: "—", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                                Text("计划完成率", style = MaterialTheme.typography.labelSmall)
+                                Text(executionSummary.completionPercent?.let { "$it%" } ?: "—", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                                Text("计划完成率", style = MaterialTheme.typography.labelMedium)
                             }
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text("${executionSummary.rescheduledCount}", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                                Text("改期", style = MaterialTheme.typography.labelSmall)
+                                Text("${executionSummary.rescheduledCount}", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                                Text("改期", style = MaterialTheme.typography.labelMedium)
                             }
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text("${executionSummary.missedCount}", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                                Text("待恢复", style = MaterialTheme.typography.labelSmall)
+                                Text("${executionSummary.missedCount}", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                                Text("待恢复", style = MaterialTheme.typography.labelMedium)
                             }
                         }
                         Text(
@@ -215,9 +215,9 @@ import kotlinx.coroutines.withContext
                     val totalTarget = goals.sumOf { it.weeklyTarget }
                     Text(if (totalFull >= totalTarget) "本周累计 $totalFull / $totalTarget 次，目标全部达成。" else "本周累计 $totalFull / $totalTarget 次。", fontWeight = FontWeight.Bold)
                     FeedbackInsights.analyze(feedback)?.let { insight ->
-                        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.55f))) {
+                        ElevatedCard {
                             Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Text("长期模式", fontWeight = FontWeight.Bold)
+                                Text("完成反馈趋势", fontWeight = FontWeight.Bold)
                                 Text("${insight.totalCount} 次完成反馈 · 最常见阻碍：${insight.topBarriers.joinToString(" · ") { "${it.first}（${it.second} 次）" }}", style = MaterialTheme.typography.bodySmall)
                                 Text("难度：${insight.difficultyCounts.entries.sortedByDescending { it.value }.joinToString(" · ") { "${it.key} ${it.value} 次" }} · 最低版本 ${(insight.minimumRatio * 100).toInt()}%", style = MaterialTheme.typography.bodySmall)
                                 Text(insight.advice, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
@@ -229,12 +229,11 @@ import kotlinx.coroutines.withContext
                     Text("再积累 ${FeedbackInsights.MIN_FEEDBACK - feedback.size} 次完成反馈后给出长期建议。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 GameStats.summary(gameSessions)?.let { summary ->
-                    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f))) {
+                    ElevatedCard {
                         Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Text("活动自律", fontWeight = FontWeight.Bold)
                             Text(summary, style = MaterialTheme.typography.bodySmall)
                             GameStats.advice(gameSessions)?.let { advice -> Text(advice, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary) }
-                            Text("数据来自“安排空闲活动”中由你确认的结束时间；前台检测只增强游戏／视频的收尾提醒，不会自动写入结束时间。", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                 }
@@ -281,9 +280,9 @@ import kotlinx.coroutines.withContext
                             Text(if (minimum > 0) "本周 $full / ${goal.weeklyTarget} 次 · 最低版本 $minimum 次" else "本周 $full / ${goal.weeklyTarget} 次", style = MaterialTheme.typography.bodySmall)
                             Text("近 4 周：${history.joinToString(" · ")}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                        LinearProgressIndicator(
-                            progress = { (GoalPlanner.completedThisWeek(goal).toFloat() / goal.weeklyTarget).coerceIn(0f, 1f) },
-                            modifier = Modifier.fillMaxWidth()
+                        FocusFlowProgressBar(
+                            progress = GoalPlanner.completedThisWeek(goal).toFloat() / goal.weeklyTarget,
+                            thickness = 6.dp
                         )
                         val startLabel = WeekReview.weekLabel(GoalPlanner.currentWeekKey() - 3 * 7 * 24 * 60 * 60_000L)
                         Text("$startLabel 周起每周完成次数（含最低版本）；反馈可跳过，未记录不计入。", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

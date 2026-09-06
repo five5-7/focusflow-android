@@ -18,6 +18,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -326,19 +328,35 @@ internal fun TimelineDayLane(
             val laneWidth = maxWidth / layout.laneCount.toFloat()
             val blockWidth = if (compactBlocks) laneWidth * 0.9f else laneWidth
             val blockOffset = (laneWidth - blockWidth) / 2f
+            val isCommute = event.type == ScheduleType.COMMUTE
             Surface(
                 modifier = Modifier
                     .offset(x = laneWidth * layout.lane.toFloat() + blockOffset, y = top)
                     .width(blockWidth)
                     .height(height)
                     .clickable { onSelect(event) },
-                color = if (conflict) CONFLICT_RED_BG else eventColor.copy(alpha = 0.88f),
+                color = when {
+                    conflict -> CONFLICT_RED_BG
+                    isCommute -> eventColor.copy(alpha = 0.14f)
+                    else -> eventColor.copy(alpha = 0.88f)
+                },
                 contentColor = Color.White,
-                shape = RoundedCornerShape(7.dp),
-                tonalElevation = if (conflict) 0.dp else 1.dp
+                shape = RoundedCornerShape(if (isCommute) 12.dp else 7.dp),
+                tonalElevation = if (conflict || isCommute) 0.dp else 1.dp
             ) {
                 Box(Modifier.fillMaxSize()) {
-                    if (conflict) {
+                    if (isCommute) {
+                        Canvas(Modifier.matchParentSize().padding(vertical = 4.dp)) {
+                            drawLine(
+                                color = eventColor.copy(alpha = 0.9f),
+                                start = Offset(size.width / 2f, 0f),
+                                end = Offset(size.width / 2f, size.height),
+                                strokeWidth = 2.dp.toPx(),
+                                cap = StrokeCap.Round,
+                                pathEffect = PathEffect.dashPathEffect(floatArrayOf(6.dp.toPx(), 5.dp.toPx()))
+                            )
+                        }
+                    } else if (conflict) {
                         Canvas(Modifier.matchParentSize()) {
                             val step = 24.dp.toPx()
                             var x = -size.height
@@ -361,7 +379,7 @@ internal fun TimelineDayLane(
                         )
                     }
                     val minimumLabelHeight = if (compactBlocks) 44.dp else 22.dp
-                    if (showLabels && event.type != ScheduleType.COMMUTE && height >= minimumLabelHeight) {
+                    if (showLabels && !isCommute && height >= minimumLabelHeight) {
                         Column(Modifier.padding(horizontal = 5.dp, vertical = 3.dp)) {
                             val titleLines = when {
                                 compactBlocks && height >= 76.dp -> 3

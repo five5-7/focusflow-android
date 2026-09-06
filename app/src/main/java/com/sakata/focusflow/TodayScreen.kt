@@ -163,6 +163,7 @@ import kotlinx.coroutines.withContext
         )
     )
     val overviewScrollState = rememberScrollState()
+    var inboxFilter by remember { mutableStateOf("全部") }
     Box(modifier.fillMaxSize()) {
         AnimatedVisibility(
             visible = !inboxOpen,
@@ -411,25 +412,51 @@ import kotlinx.coroutines.withContext
         }
         SubpageMotion(inboxOpen.takeIf { it }) {
             PlanSubpageFrame(Modifier.fillMaxSize(), "收集箱") {
+                Row(
+                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    listOf(
+                        "全部" to inboxItems.size,
+                        "待整理" to pendingInboxItems.size,
+                        "推进" to progressItems.size,
+                        "参考" to referenceItems.size
+                    ).forEach { (label, count) ->
+                        FilterChip(
+                            selected = inboxFilter == label,
+                            onClick = { inboxFilter = label },
+                            label = { Text("$label $count") }
+                        )
+                    }
+                }
                 if (inboxItems.isEmpty()) {
                     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))) {
                         Text("暂时没有新想法，点底部 ＋ 随手记录。", Modifier.fillMaxWidth().padding(16.dp))
                     }
                 } else {
-                    if (pendingInboxItems.isNotEmpty()) {
+                    if ((inboxFilter == "全部" || inboxFilter == "待整理") && pendingInboxItems.isNotEmpty()) {
                         Text("待整理 · ${pendingInboxItems.size}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                         pendingInboxItems.forEach { item -> InboxItemCard(item, onPickTime, onEdit, onOrganize, onShrink, onPause, onAbandon) }
                     }
-                    if (progressItems.isNotEmpty()) {
+                    if ((inboxFilter == "全部" || inboxFilter == "推进") && progressItems.isNotEmpty()) {
                         Text("逐步推进 · ${progressItems.size}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                         progressItems.forEach { item ->
                             val activeChild = items.firstOrNull { !it.done && it.parentCaptureId == item.id }
                             ProgressCaptureCard(item, activeChild, onOrganize, onCreateNextAction, onRestoreCapture, onAbandon, onTaskDone)
                         }
                     }
-                    if (referenceItems.isNotEmpty()) {
+                    if ((inboxFilter == "全部" || inboxFilter == "参考") && referenceItems.isNotEmpty()) {
                         Text("参考 · ${referenceItems.size}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                         referenceItems.forEach { item -> ReferenceCaptureCard(item, onRestoreCapture, onAbandon) }
+                    }
+                    val selectedCount = when (inboxFilter) {
+                        "待整理" -> pendingInboxItems.size
+                        "推进" -> progressItems.size
+                        "参考" -> referenceItems.size
+                        else -> inboxItems.size
+                    }
+                    if (selectedCount == 0) {
+                        Text("当前分类没有内容。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
