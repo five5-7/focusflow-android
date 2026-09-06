@@ -2,7 +2,7 @@
 
 本地优先的 Android 日程与执行辅助应用（`com.sakata.focusflow`）。核心目标不是维护一张完整日历，而是**降低记录压力、按当前状态调整提醒、在错过计划后帮助恢复**。
 
-当前开发候选：**7.6.0-rc.3**（versionCode 493），聚焦课程手动新增、地点与出行参数易懂化：支持周一至周日，使用“第几节开始＋连续几节”，并明确新安装的地点与通勤默认值。7.4.0 已通过自动门禁但尚未建立 GitHub Release；当前正式版仍为 [7.1.3](https://github.com/five5-7/focusflow-android/releases/tag/v7.1.3)。版本规则见 [VERSIONING.md](VERSIONING.md)，更新记录见 [CHANGELOG.md](CHANGELOG.md)。
+当前开发候选：**7.7.0-rc.1**（versionCode 494），聚焦默认设置可解释、零经验快速入门与覆盖安装后的版本更新提示：核心流程、可选工具及数据边界在设置、帮助与快速入门中统一说明；同一版本只提示一次，并可跳转版本路线图。7.4.0 已通过自动门禁但尚未建立 GitHub Release；当前正式版仍为 [7.1.3](https://github.com/five5-7/focusflow-android/releases/tag/v7.1.3)。版本规则见 [VERSIONING.md](VERSIONING.md)，更新记录见 [CHANGELOG.md](CHANGELOG.md)。
 
 > 数据原则：只用你确认过的数据生成建议，数据不足时不打扰、不假装精确。数据只保存在本机。
 
