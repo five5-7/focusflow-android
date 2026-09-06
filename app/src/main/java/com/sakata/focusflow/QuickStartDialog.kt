@@ -86,6 +86,10 @@ internal fun QuickStartDialog(onDismiss: () -> Unit) {
 
 /** 覆盖安装后每个版本只展示一次的更新说明；版本名来自 BuildConfig，路线图是唯一详情入口。 */
 internal fun updateHighlightsFor(version: String): List<String> = when {
+    version.startsWith("7.7.0-rc.2") -> listOf(
+        "新增手动打开的使用说明书，保留完整功能、默认设置与常见问题。",
+        "快速入门新增功能速查，并可跳转说明书；更新提示仍只显示一次。"
+    )
     version.startsWith("7.7.0") -> listOf(
         "默认设置说明与快速入门已按首次使用路径重整。",
         "更新提示只显示一次；可随时从版本路线图查看完整记录。"
