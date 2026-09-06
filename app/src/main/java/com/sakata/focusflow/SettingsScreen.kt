@@ -829,7 +829,18 @@ internal fun categorizedInstalledApps(context: Context, userCategories: Map<Stri
                                     if (commuteProfile.enabled) {
                                         Text("单程约 ${commuteProfile.oneWayMinutes} 分钟（新安装默认 10 分钟）")
                                         Text("这是起步估计，不读取定位；按实际体验调整即可。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                        Slider(value = commuteProfile.oneWayMinutes.toFloat(), onValueChange = { onCommuteChange(commuteProfile.copy(oneWayMinutes = (it / 5).toInt() * 5)) }, valueRange = 5f..60f, steps = 10)
+                                        Text("常用档位", style = MaterialTheme.typography.labelMedium)
+                                        listOf(listOf(5, 10, 15, 20), listOf(30, 45, 60)).forEach { row ->
+                                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                row.forEach { minutes ->
+                                                    FilterChip(
+                                                        selected = commuteProfile.oneWayMinutes == minutes,
+                                                        onClick = { onCommuteChange(commuteProfile.copy(oneWayMinutes = minutes)) },
+                                                        label = { Text("${minutes} 分钟") }
+                                                    )
+                                                }
+                                            }
+                                        }
                                         Text("校内主要方式", fontWeight = FontWeight.SemiBold)
                                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                             listOf("步行", "自行车", "电动车").forEach { mode -> FilterChip(selected = commuteProfile.campusMode == mode, onClick = { onCommuteChange(commuteProfile.copy(campusMode = mode)) }, label = { Text(mode) }) }
