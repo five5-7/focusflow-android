@@ -587,7 +587,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                             TextButton(onClick = { StorageProtection.retry() }) { Text("重试备份") }
                         }
                     }
-                    if (globalLoading) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                    if (globalLoading) FocusFlowProgressBar()
                 }
                 }
             },
