@@ -282,6 +282,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     var courses by remember { mutableStateOf(if (store.hasCourseSetup()) store.loadCourses() else emptyList()) }
     var coursePeriodTable by remember { mutableStateOf(store.loadCoursePeriodTable()) }
     var coursePeriodTableConfigured by remember { mutableStateOf(store.hasCoursePeriodTable()) }
+    var courseTimetableCompact by remember { mutableStateOf(store.loadCourseTimetableCompact()) }
     CourseGapPlanner.configure(coursePeriodTable)
     var courseEditor by remember { mutableStateOf<Course?>(null) }
     var addCourseOpen by remember { mutableStateOf(false) }
@@ -738,7 +739,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                     onMealFinish = { mealFinishOpen = it }
                 )
                 1 -> ScheduleScreen(
-                    pageModifier, items, scheduleCourses, coursePeriodTable, coursePeriodTableConfigured, commuteProfile,
+                    pageModifier, items, scheduleCourses, coursePeriodTable, coursePeriodTableConfigured, courseTimetableCompact, commuteProfile,
                     energyLevel = planningEnergyLevel,
                     onPlanFlexible = { flexiblePlanTarget = it },
                     onAdjustFlexible = { inboxScheduleTarget = it },
@@ -773,6 +774,10 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                         coursePeriodTableConfigured = true
                         CourseGapPlanner.configure(table)
                         store.saveCoursePeriodTable(table)
+                    },
+                    onCourseTimetableCompactChange = { compact ->
+                        courseTimetableCompact = compact
+                        store.saveCourseTimetableCompact(compact)
                     },
                     onEditCourse = { courseEditor = it }
                 )

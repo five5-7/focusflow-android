@@ -27,6 +27,7 @@ internal fun ScheduleScreen(
     courses: List<Course>,
     coursePeriodTable: CoursePeriodTable,
     coursePeriodTableConfigured: Boolean,
+    courseTimetableCompact: Boolean,
     profile: CommuteProfile,
     energyLevel: String,
     onPlanFlexible: (Item) -> Unit,
@@ -37,6 +38,7 @@ internal fun ScheduleScreen(
     onTaskDone: (Item) -> Unit,
     onDeleteItem: (Item) -> Unit,
     onSaveCoursePeriodTable: (CoursePeriodTable) -> Unit,
+    onCourseTimetableCompactChange: (Boolean) -> Unit,
     onEditCourse: (Course) -> Unit
 ) {
     var helpOpen by remember { mutableStateOf(false) }
@@ -138,6 +140,8 @@ internal fun ScheduleScreen(
             CourseTimetable(
                 courses = courses,
                 table = coursePeriodTable,
+                compactView = courseTimetableCompact,
+                onCompactViewChange = onCourseTimetableCompactChange,
                 onEditPeriods = {
                     firstPeriodSetup = false
                     periodTableOpen = true

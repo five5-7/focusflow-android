@@ -579,6 +579,12 @@ class PrototypeStore(context: Context) {
         preferences.edit().putString("course_period_table", values.toString()).apply()
     }
 
+    fun loadCourseTimetableCompact(): Boolean = preferences.getBoolean("course_timetable_compact", true)
+
+    fun saveCourseTimetableCompact(compact: Boolean) {
+        preferences.edit().putBoolean("course_timetable_compact", compact).apply()
+    }
+
     fun loadCourses(): List<Course> =
         decodeGuarded("courses", emptyList(), { json ->
             val values = JSONArray(json)
