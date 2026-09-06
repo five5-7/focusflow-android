@@ -198,7 +198,7 @@ import kotlinx.coroutines.withContext
 
 internal enum class SettingsSubPage(val title: String) {
     ADVANCED("高级工具"),
-    ROADMAP("版本路线图"), CAMPUS_PLACES("校园地点"), COMMUTE_PLACES("通勤与地点"), TUTORIAL_SEARCH("学习路径建议"),
+    USER_GUIDE("使用说明书"), ROADMAP("版本路线图"), CAMPUS_PLACES("校园地点"), COMMUTE_PLACES("通勤与地点"), TUTORIAL_SEARCH("学习路径建议"),
     COURSE_VISION("课表识别（视觉模型）"), APP_DETECTION("前台应用检测"), STABILITY("稳定性与崩溃"),
     APPEARANCE("外观"), ACTIVITY_REMINDERS("日程与活动提醒"), QUIET_HOURS("提醒打扰控制"), CUSTOM_THEME("自定义主题"),
     AI_WEEKLY_SUMMARY("AI 周总结")
@@ -469,7 +469,9 @@ internal fun categorizedInstalledApps(context: Context, userCategories: Map<Stri
         TextButton(onClick = onAddImprovement) { Text("＋ 记录改进想法") }
         improvementNotes.takeLast(3).reversed().forEach { note -> ElevatedCard { Text(note.text, Modifier.padding(10.dp)) } }
         HorizontalDivider()
-        PlanHubItem("快速入门", "从记录到安排的使用路径与默认值说明") { onOpenFeatureIntro() }
+        PlanHubItem("快速入门", "首次使用路径与默认值说明") { onOpenFeatureIntro() }
+        HorizontalDivider()
+        PlanHubItem("使用说明书", "完整功能、默认设置与常见问题；不会自动展示") { onSubPageChange(SettingsSubPage.USER_GUIDE) }
         HorizontalDivider()
         PlanHubItem("版本路线图", "当前 ${BuildConfig.VERSION_NAME} · 构建 #${BuildConfig.CI_RUN_NUMBER} · 更新说明与版本演进") { onSubPageChange(SettingsSubPage.ROADMAP) }
         Text("通知异常时请到“日程与活动提醒”查看检测结果和当前设备的手动路径；精确闹钟按设备支持情况自动处理。")
@@ -477,7 +479,7 @@ internal fun categorizedInstalledApps(context: Context, userCategories: Map<Stri
     }
     SubpageMotion(subPage, depth = { destination ->
         when (destination) {
-            SettingsSubPage.ADVANCED, SettingsSubPage.ROADMAP, SettingsSubPage.APPEARANCE,
+            SettingsSubPage.ADVANCED, SettingsSubPage.USER_GUIDE, SettingsSubPage.ROADMAP, SettingsSubPage.APPEARANCE,
             SettingsSubPage.ACTIVITY_REMINDERS, SettingsSubPage.QUIET_HOURS -> 1
             SettingsSubPage.CAMPUS_PLACES -> 3
             else -> 2
@@ -518,6 +520,7 @@ internal fun categorizedInstalledApps(context: Context, userCategories: Map<Stri
                         PlanHubItem("前台应用检测", if (gameDetectionEnabled) "已开启 · 应用分类" else "未开启") { onSubPageChange(SettingsSubPage.APP_DETECTION) }
                         PlanHubItem("稳定性与崩溃", "本地记录崩溃栈 · 可复制反馈") { onSubPageChange(SettingsSubPage.STABILITY) }
                     }
+                    SettingsSubPage.USER_GUIDE -> UserGuideSubpageContent()
                     SettingsSubPage.ROADMAP -> RoadmapSubpageContent()
                     SettingsSubPage.CAMPUS_PLACES -> CampusPlacesEditorContent(
                         allPlaces = campusPlaces,
