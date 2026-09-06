@@ -357,8 +357,9 @@ class PrototypeStore(context: Context) {
     }
 
     fun loadCommuteProfile(): CommuteProfile = CommuteProfile(
-        enabled = preferences.getBoolean("commute_enabled", false),
-        oneWayMinutes = preferences.getInt("commute_one_way_minutes", 30),
+        // 仅影响从未保存过通勤设置的新安装；已有键继续保留用户选择。
+        enabled = preferences.getBoolean("commute_enabled", true),
+        oneWayMinutes = preferences.getInt("commute_one_way_minutes", 10),
         campusMode = preferences.getString("campus_mode", "步行") ?: "步行",
         buildingBufferMinutes = preferences.getInt("building_buffer_minutes", 3),
         eBikeBattery = preferences.getString("ebike_battery", "未知") ?: "未知",
