@@ -20,6 +20,9 @@ data class RoadmapVersion(val version: String, val entries: List<RoadmapEntry>)
 object RoadmapData {
     /** 已实现版本演进（1.0 → 当前候选），每版本浓缩 1–3 条，与 CHANGELOG.md 对应。 */
     val evolution: List<RoadmapVersion> = listOf(
+        RoadmapVersion("7.7.0", listOf(
+            RoadmapEntry("7.7.0-rc.1", "默认设置说明、快速入门与更新提示", "设置首页增加默认行为总说明；快速入门按“记录→收集箱→安排／推进／参考→日程→完成／恢复”的首次使用路径重写，并说明课程、地点、通勤、提醒、数据和隐私边界。覆盖安装后，同一版本仅显示一次真实版本号与核心变化，可直接跳转版本路线图。", RoadmapStatus.CANDIDATE)
+        )),
         RoadmapVersion("7.6.0", listOf(
             RoadmapEntry("7.6.0-rc.3", "日程通勤块与文字可读性修复", "通勤档位改为自动换行，避免 20 分钟按钮在窄屏被挤压；通勤块仅出现在相邻已确认课程且间隔不超过 90 分钟时，并隐藏块内文字；日程色块按高度决定是否显示文字，空间不足时留空，空间足够时显示多行标题、时间及必要详情。新增近／远课间回归测试。", RoadmapStatus.CANDIDATE),
             RoadmapEntry("7.6.0-rc.2", "常用通勤档位与地点表单简化", "通勤时长使用 5／10／15／20／30／45／60 分钟常用档位；自定义地点只填写名称与用途，新增“其他”，分区自动推断且不再显示经纬度字段。版本路线图和更新记录同步实际 RC 变更。已通过 CI 构建，仍待真机验收。", RoadmapStatus.CANDIDATE),
@@ -367,7 +370,6 @@ object RoadmapData {
 
     /** 后续候选（“想玩游戏拓展”“自律类目标”“空挡建议进阶”已随 5.6/5.7/5.8.2 落地；正式理财已评估移除）。 */
     val future: List<RoadmapEntry> = listOf(
-        RoadmapEntry("7.7.0", "默认设置可解释、零经验快速入门与更新提示", "全应用审计默认值、默认开关与自动行为，在就近帮助、设置、快速入门和版本路线统一解释“默认是什么、为什么、如何修改、影响什么”；按首次使用主流程重写快速入门，使零经验用户理解收集箱→安排／推进→日程→完成／恢复，以及课程、地点、通勤、提醒、数据与隐私边界；覆盖安装或首次进入新版本后仅提示一次真实版本号与核心变化，并可跳转版本路线图", RoadmapStatus.PLANNED),
         RoadmapEntry("后续", "统一设计语言", "建立颜色、字号、间距、圆角、阴影、图标、组件状态与转场令牌；统一主页面、子页面、卡片、弹窗和悬浮导航，覆盖全面屏、普通屏、深色模式、大字体及减少动画设置", RoadmapStatus.CANDIDATE),
         RoadmapEntry("后续", "任意表格识别自动配置计划", "识别课表之外的各类表格（如锻炼计划、阅读计划）自动生成计划（用户澄清 4.4 学习机制提案后重定向，之后讨论）", RoadmapStatus.CANDIDATE),
         RoadmapEntry("后续", "高德地图 SDK 集成", "可视化地图、POI 点选、以设备定位为中心的搜索；代价：包体积增加、SDK key 绑定包名与签名、需要定位权限", RoadmapStatus.CANDIDATE),
@@ -387,7 +389,7 @@ fun RoadmapSubpageContent() {
                 Text("每次功能更新递增 0.1；更新记录见版本演进。", style = MaterialTheme.typography.bodySmall)
             }
         }
-        Text("版本演进（1.0 → 7.5.0 候选）", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Text("版本演进（1.0 → 当前候选）", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         RoadmapData.evolution.forEach { version ->
             Text(version.version, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
             version.entries.forEach { entry ->
