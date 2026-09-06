@@ -215,6 +215,7 @@ internal fun categorizedInstalledApps(context: Context, userCategories: Map<Stri
         .sortedBy { it.second }
 }.getOrDefault(emptyList())
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable internal fun SettingsScreen(modifier: Modifier, settingsScrollState: ScrollState, themeOption: FocusFlowThemeOption, commuteProfile: CommuteProfile, campusLifeEnabled: Boolean, campusMapPackage: CampusMapPackage?, currentCampusPlace: String?, improvementNotes: List<ImprovementNote>, activitySettings: ActivityReminderSettings, statusCheckInSettings: StatusCheckInSettings, statusPromptTrace: StatusPromptTrace, nextStatusPromptAt: Long, onStatusPromptTest: () -> Unit, windDownEnabled: Boolean, checkIns: List<StatusCheckIn>, baselineProfile: BaselineProfile, mealRecords: List<MealRecord>, mealReminderEnabled: Boolean, mealDurationTrackingEnabled: Boolean, onMealDurationTrackingEnabledChange: (Boolean) -> Unit, foregroundDetectionTrace: ForegroundDetectionTrace, subPage: SettingsSubPage?, onSubPageChange: (SettingsSubPage?) -> Unit, onThemeChange: (FocusFlowThemeOption) -> Unit, customThemeColors: FocusFlowThemeColors, onCustomThemeColorsChange: (FocusFlowThemeColors) -> Unit, themePresets: List<ThemePreset>, onThemePresetsChange: (List<ThemePreset>) -> Unit, onRestoreDefaultTheme: () -> Unit, onCommuteChange: (CommuteProfile) -> Unit, onCampusLifeEnabledChange: (Boolean) -> Unit, onCampusMapPackageChange: (CampusMapPackage?) -> Unit, onCurrentCampusPlaceChange: (String?) -> Unit, allPlaces: List<CampusPlace>, customPlaces: List<CampusPlace>, onCustomPlacesChange: (List<CampusPlace>) -> Unit, hiddenPlaces: Set<String>, onToggleHiddenPlace: (String) -> Unit, amapKey: String, onAmapKeyChange: (String) -> Unit, campusCenter: CampusCenter, onCampusCenterChange: (CampusCenter) -> Unit, tutorialSearch: TutorialSearchSettings, onTutorialSearchSettingsChange: (TutorialSearchSettings) -> Unit, aiWeeklySummary: AiWeeklySummarySettings, onAiWeeklySummarySettingsChange: (AiWeeklySummarySettings) -> Unit, courseVision: CourseVisionSettings, onCourseVisionSettingsChange: (CourseVisionSettings) -> Unit, courseVisionGuideOpen: Boolean, onCourseVisionGuideOpenChange: (Boolean) -> Unit, pendingPlaces: List<String>, onAddPendingPlace: (String) -> Unit, onRemovePendingPlace: (String) -> Unit, onActivitySettingsChange: (ActivityReminderSettings) -> Unit, quietHours: QuietHoursSettings, onQuietHoursChange: (QuietHoursSettings) -> Unit, quickCaptureEnabled: Boolean, onQuickCaptureEnabledChange: (Boolean) -> Unit, onStatusCheckInSettingsChange: (StatusCheckInSettings) -> Unit, onWindDownEnabledChange: (Boolean) -> Unit, onAddImprovement: () -> Unit, onOpenBaselineEditor: () -> Unit, onOpenBaselineEvents: () -> Unit, onResetBaseline: () -> Unit, onOpenFeatureIntro: () -> Unit, baselineVariants: List<BaselineProfile>, onSaveBaselineVariant: (String) -> Unit, onSwitchBaselineVariant: (BaselineProfile) -> Unit, onDeleteBaselineVariant: (BaselineProfile) -> Unit, onDayGroupsChange: (List<DayGroup>) -> Unit, baselineVariantNameOpen: Boolean, onBaselineVariantNameOpenChange: (Boolean) -> Unit, onMealReminderEnabledChange: (Boolean) -> Unit, onOpenMealRecords: () -> Unit, recordBaselineEvent: (BaselineEventType, String) -> Unit, gameDetectionEnabled: Boolean, onGameDetectionEnabledChange: (Boolean) -> Unit, appCategories: Map<String, String>, onAppCategoriesChange: (Map<String, String>) -> Unit, hiddenApps: Set<String>, onToggleHiddenApp: (String) -> Unit, videoAnalysisModel: String, onVideoAnalysisModelChange: (String) -> Unit, darkMode: Boolean, onDarkModeChange: (Boolean) -> Unit, onGlobalLoadingChange: (Boolean) -> Unit) {
     val context = LocalContext.current
     val settingsStore = remember(context) { PrototypeStore(context) }
@@ -830,15 +831,16 @@ internal fun categorizedInstalledApps(context: Context, userCategories: Map<Stri
                                         Text("单程约 ${commuteProfile.oneWayMinutes} 分钟（新安装默认 10 分钟）")
                                         Text("这是起步估计，不读取定位；按实际体验调整即可。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                         Text("常用档位", style = MaterialTheme.typography.labelMedium)
-                                        listOf(listOf(5, 10, 15, 20), listOf(30, 45, 60)).forEach { row ->
-                                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                                row.forEach { minutes ->
-                                                    FilterChip(
-                                                        selected = commuteProfile.oneWayMinutes == minutes,
-                                                        onClick = { onCommuteChange(commuteProfile.copy(oneWayMinutes = minutes)) },
-                                                        label = { Text("${minutes} 分钟") }
-                                                    )
-                                                }
+                                        FlowRow(
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            listOf(5, 10, 15, 20, 30, 45, 60).forEach { minutes ->
+                                                FilterChip(
+                                                    selected = commuteProfile.oneWayMinutes == minutes,
+                                                    onClick = { onCommuteChange(commuteProfile.copy(oneWayMinutes = minutes)) },
+                                                    label = { Text("${minutes} 分钟", maxLines = 1) }
+                                                )
                                             }
                                         }
                                         Text("校内主要方式", fontWeight = FontWeight.SemiBold)
