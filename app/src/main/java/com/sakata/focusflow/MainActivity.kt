@@ -270,6 +270,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     var pendingPlaces by remember { mutableStateOf(store.loadPendingPlaces()) }
     var courseVisionGuideOpen by remember { mutableStateOf(false) }
     var featureIntroOpen by remember { mutableStateOf(false) }
+    var updateNoticeOpen by remember { mutableStateOf(false) }
     var baselineWhereToFindOpen by remember { mutableStateOf(false) }
     // 首次开启课表视觉模型且未填 key 时自动弹出申请引导（只弹一次）。
     LaunchedEffect(courseVision.enabled) {
@@ -309,6 +310,17 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
         if (!permissionOnboardingPending && !baselineOnboardingOpen && !baselineWhereToFindOpen && !store.loadFeatureIntroShown()) {
             store.saveFeatureIntroShown(true)
             featureIntroOpen = true
+        }
+    }
+
+    // 首次安装先完成快速入门；既有用户或后续覆盖安装才显示一次版本更新说明。
+    LaunchedEffect(permissionOnboardingPending, baselineOnboardingOpen, baselineWhereToFindOpen, featureIntroOpen) {
+        if (permissionOnboardingPending || baselineOnboardingOpen || baselineWhereToFindOpen || featureIntroOpen) return@LaunchedEffect
+        val seenVersion = store.loadLastSeenAppVersion()
+        if (seenVersion == null && !store.loadFeatureIntroShown()) return@LaunchedEffect
+        if (seenVersion != BuildConfig.VERSION_NAME) {
+            store.saveLastSeenAppVersion(BuildConfig.VERSION_NAME)
+            updateNoticeOpen = true
         }
     }
     var baselineEventsOpen by remember { mutableStateOf(false) }
@@ -1515,7 +1527,22 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             }
         )
         if (baselineWhereToFindOpen) BaselineWhereToFindDialog(onDismiss = { baselineWhereToFindOpen = false })
-        if (featureIntroOpen) WelcomeIntroDialog(onDismiss = { featureIntroOpen = false })
+        if (featureIntroOpen) WelcomeIntroDialog(onDismiss = {
+            store.saveLastSeenAppVersion(BuildConfig.VERSION_NAME)
+            featureIntroOpen = false
+        })
+        if (updateNoticeOpen) UpdateNoticeDialog(
+            version = BuildConfig.VERSION_NAME,
+            onDismiss = { updateNoticeOpen = false },
+            onOpenRoadmap = {
+                updateNoticeOpen = false
+                tab = 3
+                todayInboxOpen = false
+                planPage = null
+                settingsBackStack = emptyList()
+                settingsSubPage = SettingsSubPage.ROADMAP
+            }
+        )
         if (baselineEventsOpen) BaselineEventsDialog(
             events = store.loadBaselineEvents(500),
             onDismiss = { baselineEventsOpen = false },
