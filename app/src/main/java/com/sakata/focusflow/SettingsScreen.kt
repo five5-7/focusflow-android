@@ -827,14 +827,13 @@ internal fun categorizedInstalledApps(context: Context, userCategories: Map<Stri
                                     Text("出行参数", fontWeight = FontWeight.SemiBold)
                                     SettingSwitch("为通勤预留时间", "只保存大致时长，不读取定位", commuteProfile.enabled) { onCommuteChange(commuteProfile.copy(enabled = it)) }
                                     if (commuteProfile.enabled) {
-                                        Text("单程约 ${commuteProfile.oneWayMinutes} 分钟（新安装默认 10 分钟）")
-                                        Text("这是起步估计，不读取定位；按实际体验调整即可。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                        Slider(value = commuteProfile.oneWayMinutes.toFloat(), onValueChange = { onCommuteChange(commuteProfile.copy(oneWayMinutes = (it / 5).toInt() * 5)) }, valueRange = 5f..60f, steps = 10)
+                                        Text("单程约 ${commuteProfile.oneWayMinutes} 分钟")
+                                        Slider(value = commuteProfile.oneWayMinutes.toFloat(), onValueChange = { onCommuteChange(commuteProfile.copy(oneWayMinutes = (it / 5).toInt() * 5)) }, valueRange = 5f..120f, steps = 22)
                                         Text("校内主要方式", fontWeight = FontWeight.SemiBold)
                                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                             listOf("步行", "自行车", "电动车").forEach { mode -> FilterChip(selected = commuteProfile.campusMode == mode, onClick = { onCommuteChange(commuteProfile.copy(campusMode = mode)) }, label = { Text(mode) }) }
                                         }
-                                        Text("地点内进出与找教室缓冲：${commuteProfile.buildingBufferMinutes} 分钟", fontWeight = FontWeight.SemiBold)
+                                        Text("教学楼进出与找教室缓冲：${commuteProfile.buildingBufferMinutes} 分钟", fontWeight = FontWeight.SemiBold)
                                         Slider(value = commuteProfile.buildingBufferMinutes.toFloat(), onValueChange = { onCommuteChange(commuteProfile.copy(buildingBufferMinutes = it.toInt())) }, valueRange = 1f..10f, steps = 8)
                                         if (commuteProfile.campusMode == "电动车") {
                                             Text("电动车电量", fontWeight = FontWeight.SemiBold)
