@@ -575,7 +575,7 @@ internal fun timeOnSameDayAs(target: Long, minute: Int): Long =
     }.timeInMillis
 
 @OptIn(ExperimentalLayoutApi::class)
-@Composable internal fun CourseEditorDialog(existing: Course?, places: List<CampusPlace>, onDismiss: () -> Unit, onOpenCommutePlaces: () -> Unit, onSave: (Course) -> Unit) {
+@Composable internal fun CourseEditorDialog(existing: Course?, places: List<CampusPlace>, maxPeriod: Int = 13, onDismiss: () -> Unit, onOpenCommutePlaces: () -> Unit, onSave: (Course) -> Unit) {
     var title by remember { mutableStateOf(existing?.title ?: "") }
     var weekday by remember { mutableIntStateOf(existing?.weekday ?: 1) }
     var startPeriod by remember { mutableStateOf(existing?.startPeriod?.toString() ?: "1") }
@@ -594,7 +594,7 @@ internal fun timeOnSameDayAs(target: Long, minute: Int): Long =
         title = { Text(if (existing == null) "新增课程" else "编辑课程") },
         text = { Column(Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedTextField(value = title, onValueChange = { title = it }, label = { Text("课程名称") }, singleLine = true)
-            Text("课程会按星期、开始节和连续节数排入周日程；一节默认按 45 分钟计算。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("课程会按星期、开始节和连续节数排入课表与日程；当前节次表共 $maxPeriod 节。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) { (1..7).forEach { day -> FilterChip(selected = weekday == day, onClick = { weekday = day }, label = { Text(weekdayName(day)) }) } }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(modifier = Modifier.weight(1f), value = startPeriod, onValueChange = { startPeriod = it.filter(Char::isDigit) }, label = { Text("第几节开始") }, singleLine = true)
@@ -607,7 +607,7 @@ internal fun timeOnSameDayAs(target: Long, minute: Int): Long =
             if (customSelected) OutlinedTextField(value = customName, onValueChange = { customName = it }, label = { Text("地点名称（自填，按东/西/北自动猜分区）") }, singleLine = true, modifier = Modifier.fillMaxWidth())
             TextButton(onClick = onOpenCommutePlaces) { Text("管理地点与出行参数") }
         } },
-        confirmButton = { Button(enabled = title.isNotBlank() && parsedStart != null && parsedCount != null && parsedEnd != null && parsedStart in 1..13 && parsedCount in 1..13 && parsedEnd in parsedStart..13 && buildingName.isNotBlank(), onClick = {
+        confirmButton = { Button(enabled = title.isNotBlank() && parsedStart != null && parsedCount != null && parsedEnd != null && parsedStart in 1..maxPeriod && parsedCount in 1..maxPeriod && parsedEnd in parsedStart..maxPeriod && buildingName.isNotBlank(), onClick = {
             val zone = if (customSelected) CourseScreenshotParser.zoneByPrefix(buildingName) else (place?.zone ?: CampusZone.WEST_TEACHING)
             onSave(Course(title, weekday, parsedStart ?: 1, parsedEnd ?: 1, buildingName, zone, false))
         }) { Text("保存") } },

@@ -551,6 +551,34 @@ class PrototypeStore(context: Context) {
 
     fun hasCourseSetup(): Boolean = preferences.getBoolean("course_setup_done", false)
 
+    fun hasCoursePeriodTable(): Boolean = preferences.contains("course_period_table")
+
+    fun loadCoursePeriodTable(): CoursePeriodTable = decodeGuarded(
+        "course_period_table",
+        CoursePeriodTable.reference(),
+        { json ->
+            val values = JSONArray(json)
+            CoursePeriodTable(List(values.length()) { index ->
+                values.getJSONObject(index).let { value ->
+                    CoursePeriodTime(value.getInt("startMinute"), value.getInt("endMinute"))
+                }
+            }).takeIf(CoursePeriodTable::isValid) ?: CoursePeriodTable.reference()
+        },
+        { !it.isValid() }
+    )
+
+    fun saveCoursePeriodTable(table: CoursePeriodTable) {
+        require(table.isValid()) { "课程节次表无效" }
+        val values = JSONArray()
+        table.periods.forEach { period ->
+            values.put(JSONObject().apply {
+                put("startMinute", period.startMinute)
+                put("endMinute", period.endMinute)
+            })
+        }
+        preferences.edit().putString("course_period_table", values.toString()).apply()
+    }
+
     fun loadCourses(): List<Course> =
         decodeGuarded("courses", emptyList(), { json ->
             val values = JSONArray(json)

@@ -20,6 +20,9 @@ data class RoadmapVersion(val version: String, val entries: List<RoadmapEntry>)
 object RoadmapData {
     /** 已实现版本演进（1.0 → 当前候选），每版本浓缩 1–3 条，与 CHANGELOG.md 对应。 */
     val evolution: List<RoadmapVersion> = listOf(
+        RoadmapVersion("7.8.0", listOf(
+            RoadmapEntry("7.8.0-rc.1", "独立固定课表与学校节次表", "日程页增加独立“课表”视图，按周一至周日固定顺序和学校节次排列，只显示已确认课程，不混入任务、活动或通勤；首次进入先确认预填的参考时间点，可逐节修改、增减节次。自定义节次时间同步用于课程日程、空挡和通勤计算，已有课程的星期与节次不被改写。", RoadmapStatus.CANDIDATE)
+        )),
         RoadmapVersion("7.7.0", listOf(
             RoadmapEntry("7.7.0-rc.2", "手动使用说明书与快速入门速查", "设置新增“使用说明书”独立页面，完整说明核心流程、页面与功能、提醒与后台、默认设置、课程地点通勤目标、数据隐私和常见问题；它不会自动展示。快速入门保留首次使用路径，并增加功能速查与说明书入口。", RoadmapStatus.CANDIDATE),
             RoadmapEntry("7.7.0-rc.1", "默认设置说明、快速入门与更新提示", "设置首页增加默认行为总说明；快速入门按“记录→收集箱→安排／推进／参考→日程→完成／恢复”的首次使用路径重写，并说明课程、地点、通勤、提醒、数据和隐私边界。覆盖安装后，同一版本仅显示一次真实版本号与核心变化，可直接跳转版本路线图。", RoadmapStatus.CANDIDATE)

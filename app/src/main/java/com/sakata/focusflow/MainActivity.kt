@@ -280,6 +280,9 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
         }
     }
     var courses by remember { mutableStateOf(if (store.hasCourseSetup()) store.loadCourses() else emptyList()) }
+    var coursePeriodTable by remember { mutableStateOf(store.loadCoursePeriodTable()) }
+    var coursePeriodTableConfigured by remember { mutableStateOf(store.hasCoursePeriodTable()) }
+    CourseGapPlanner.configure(coursePeriodTable)
     var courseEditor by remember { mutableStateOf<Course?>(null) }
     var addCourseOpen by remember { mutableStateOf(false) }
     var courseImportRunning by remember { mutableStateOf(false) }
@@ -735,7 +738,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                     onMealFinish = { mealFinishOpen = it }
                 )
                 1 -> ScheduleScreen(
-                    pageModifier, items, scheduleCourses, commuteProfile,
+                    pageModifier, items, scheduleCourses, coursePeriodTable, coursePeriodTableConfigured, commuteProfile,
                     energyLevel = planningEnergyLevel,
                     onPlanFlexible = { flexiblePlanTarget = it },
                     onAdjustFlexible = { inboxScheduleTarget = it },
@@ -764,7 +767,14 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                         saveItems(result.items)
                         recordTaskEvent(result.event!!)
                         removeScheduledActivity(item.id)
-                    }
+                    },
+                    onSaveCoursePeriodTable = { table ->
+                        coursePeriodTable = table
+                        coursePeriodTableConfigured = true
+                        CourseGapPlanner.configure(table)
+                        store.saveCoursePeriodTable(table)
+                    },
+                    onEditCourse = { courseEditor = it }
                 )
                 2 -> PlansScreen(
                     pageModifier, items, courses, commuteProfile, baselineProfile.lifeStage,
@@ -1320,7 +1330,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             customPlaces = updated
             store.saveCustomPlaces(updated)
         }
-        if (addCourseOpen) CourseEditorDialog(null, campusPlaces, onDismiss = { addCourseOpen = false }, onOpenCommutePlaces = {
+        if (addCourseOpen) CourseEditorDialog(null, campusPlaces, maxPeriod = coursePeriodTable.periods.size, onDismiss = { addCourseOpen = false }, onOpenCommutePlaces = {
             addCourseOpen = false; tab = 3; settingsSubPage = SettingsSubPage.COMMUTE_PLACES; settingsBackStack = emptyList()
         }) { course ->
             courses = courses + course.copy(needsConfirmation = false)
@@ -1328,7 +1338,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             ensureCoursePlaceInLibrary(course)
             addCourseOpen = false
         }
-        courseEditor?.let { original -> CourseEditorDialog(original, campusPlaces, onDismiss = { courseEditor = null }, onOpenCommutePlaces = {
+        courseEditor?.let { original -> CourseEditorDialog(original, campusPlaces, maxPeriod = coursePeriodTable.periods.size, onDismiss = { courseEditor = null }, onOpenCommutePlaces = {
             courseEditor = null; tab = 3; settingsSubPage = SettingsSubPage.COMMUTE_PLACES; settingsBackStack = emptyList()
         }) { edited ->
             courses = courses.map { if (it == original) edited.copy(needsConfirmation = false) else it }

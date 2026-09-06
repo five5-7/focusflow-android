@@ -10,6 +10,20 @@ data class Course(
     val needsConfirmation: Boolean = true
 )
 
+data class CoursePeriodTime(val startMinute: Int, val endMinute: Int)
+
+data class CoursePeriodTable(val periods: List<CoursePeriodTime>) {
+    companion object {
+        private val referenceStarts = listOf(480, 530, 600, 650, 700, 805, 855, 905, 975, 1025, 1130, 1180, 1230)
+        fun reference(): CoursePeriodTable = CoursePeriodTable(referenceStarts.map { CoursePeriodTime(it, it + 45) })
+    }
+
+    fun isValid(): Boolean = periods.isNotEmpty() && periods.size <= 20 && periods.withIndex().all { (index, period) ->
+        period.startMinute in 0 until period.endMinute && period.endMinute <= 24 * 60 &&
+            (index == 0 || periods[index - 1].endMinute <= period.startMinute)
+    }
+}
+
 data class CourseGap(val from: Course, val to: Course, val minutesFree: Int, val travelMinutes: Int, val suggestedStartMinute: Int)
 
 /** 课表识别结果合并计算：去重后新增的待确认课程、与已确认课程的冲突、互相冲突数与提示文案。 */
@@ -57,11 +71,15 @@ data class FreeWindow(
 /** 课程从课表截图或手动录入，发布版不再内置任何示例课程。 */
 
 object CourseGapPlanner {
-    // Each teaching period is modeled as 45 minutes; longer breaks are retained in the timetable start times.
-    private val periodStarts = listOf(480, 530, 600, 650, 700, 805, 855, 905, 975, 1025, 1130, 1180, 1230)
+    // The reference table preserves the historical 45-minute behavior until the user confirms a school timetable.
+    @Volatile private var activeTable: CoursePeriodTable = CoursePeriodTable.reference()
 
-    fun periodStart(period: Int): Int = periodStarts[period.coerceIn(1, periodStarts.size) - 1]
-    fun periodEnd(period: Int): Int = periodStart(period) + 45
+    fun configure(table: CoursePeriodTable) {
+        activeTable = table.takeIf(CoursePeriodTable::isValid) ?: CoursePeriodTable.reference()
+    }
+
+    fun periodStart(period: Int): Int = activeTable.periods[period.coerceIn(1, activeTable.periods.size) - 1].startMinute
+    fun periodEnd(period: Int): Int = activeTable.periods[period.coerceIn(1, activeTable.periods.size) - 1].endMinute
 
     /** occupied：日程里已有安排（任务/事项）按星期几的占用分钟段；计算空挡时会扣除这些占用。 */
     fun gaps(courses: List<Course>, profile: CommuteProfile, occupied: Map<Int, List<IntRange>> = emptyMap()): List<CourseGap> = courses
@@ -69,8 +87,8 @@ object CourseGapPlanner {
         .values
         .flatMap { daily ->
             daily.sortedBy { it.startPeriod }.zipWithNext().map { (from, to) ->
-                val classEnds = periodStarts[from.endPeriod - 1] + 45
-                val nextStarts = periodStarts[to.startPeriod - 1]
+                val classEnds = periodEnd(from.endPeriod)
+                val nextStarts = periodStart(to.startPeriod)
                 val travel = ZijingangTravel.estimateMinutes(from.zone, to.zone, profile)
                 val (start, minutes) = longestFreeRun(classEnds + travel, nextStarts, occupied[from.weekday].orEmpty())
                 CourseGap(from, to, minutes, travel, start)
@@ -85,7 +103,7 @@ object CourseGapPlanner {
             val base = if (daily.isEmpty()) {
                 listOf(FreeWindow(weekday, dayStartMinute, dayEndMinute, dayEndMinute - dayStartMinute, "整天空闲"))
             } else {
-                val lastEnd = periodStarts[daily.last().endPeriod - 1] + 45
+                val lastEnd = periodEnd(daily.last().endPeriod)
                 listOf(FreeWindow(weekday, lastEnd, dayEndMinute, dayEndMinute - lastEnd, "课后空闲"))
             }
             base.flatMap { subtractOccupied(it, occupied[weekday].orEmpty()) }.filter { it.minutes >= 60 }
