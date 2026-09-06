@@ -28,6 +28,7 @@ internal fun ScheduleScreen(
     coursePeriodTable: CoursePeriodTable,
     coursePeriodTableConfigured: Boolean,
     courseTimetableCompact: Boolean,
+    courseTimetableTrailingDaysExpanded: Boolean,
     profile: CommuteProfile,
     energyLevel: String,
     onPlanFlexible: (Item) -> Unit,
@@ -39,6 +40,7 @@ internal fun ScheduleScreen(
     onDeleteItem: (Item) -> Unit,
     onSaveCoursePeriodTable: (CoursePeriodTable) -> Unit,
     onCourseTimetableCompactChange: (Boolean) -> Unit,
+    onCourseTimetableTrailingDaysExpandedChange: (Boolean) -> Unit,
     onEditCourse: (Course) -> Unit
 ) {
     var helpOpen by remember { mutableStateOf(false) }
@@ -142,6 +144,8 @@ internal fun ScheduleScreen(
                 table = coursePeriodTable,
                 compactView = courseTimetableCompact,
                 onCompactViewChange = onCourseTimetableCompactChange,
+                trailingDaysExpanded = courseTimetableTrailingDaysExpanded,
+                onTrailingDaysExpandedChange = onCourseTimetableTrailingDaysExpandedChange,
                 onEditPeriods = {
                     firstPeriodSetup = false
                     periodTableOpen = true

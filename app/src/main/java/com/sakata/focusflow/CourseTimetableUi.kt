@@ -94,6 +94,8 @@ internal fun CourseTimetable(
     table: CoursePeriodTable,
     compactView: Boolean,
     onCompactViewChange: (Boolean) -> Unit,
+    trailingDaysExpanded: Boolean,
+    onTrailingDaysExpandedChange: (Boolean) -> Unit,
     onEditPeriods: () -> Unit,
     onEditCourse: (Course) -> Unit
 ) {
@@ -119,11 +121,13 @@ internal fun CourseTimetable(
             }
         } else {
             if (compactView) {
+                val confirmedCourses = courses.filter { !it.needsConfirmation }
+                val trailingCourses = confirmedCourses.filter { it.weekday in 5..7 }
+                val trailingDaysCollapsible = trailingCourses.size <= 2
+                val trailingDaysCollapsed = trailingDaysCollapsible && !trailingDaysExpanded
                 Row(Modifier.fillMaxWidth()) {
                     TimetablePeriodRail(table, rowHeight, headerHeight, compact = true, modifier = Modifier.width(36.dp))
-                    val confirmedCourses = courses.filter { !it.needsConfirmation }
-                    val trailingDaysEmpty = (5..7).all { weekday -> confirmedCourses.none { it.weekday == weekday } }
-                    val visibleDays = if (trailingDaysEmpty) 1..4 else 1..7
+                    val visibleDays = if (trailingDaysCollapsed) 1..4 else 1..7
                     visibleDays.forEach { weekday ->
                         TimetableDayLane(
                             modifier = Modifier.weight(1f),
@@ -136,14 +140,21 @@ internal fun CourseTimetable(
                             onSelect = { selected = it }
                         )
                     }
-                    if (trailingDaysEmpty) {
-                        TimetableEmptyDaysLane(
-                            label = "五–日",
+                    if (trailingDaysCollapsed) {
+                        TimetableTrailingDaysLane(
+                            courses = trailingCourses,
                             periods = table.periods.size,
                             rowHeight = rowHeight,
                             headerHeight = headerHeight,
-                            modifier = Modifier.weight(0.72f)
+                            modifier = Modifier.weight(if (trailingCourses.isEmpty()) 0.72f else 1.18f),
+                            onExpand = { onTrailingDaysExpandedChange(true) },
+                            onSelect = { selected = it }
                         )
+                    }
+                }
+                if (trailingDaysCollapsible && trailingDaysExpanded) {
+                    TextButton(onClick = { onTrailingDaysExpandedChange(false) }, modifier = Modifier.align(Alignment.End)) {
+                        Text("收纳周五至周日")
                     }
                 }
             } else {
@@ -166,7 +177,7 @@ internal fun CourseTimetable(
                 }
             }
             Text(
-                if (compactView) "完整一周同屏；周五至周日均无课时合并为空白区。" else "左右滑动查看全部七天；色块尽量展示课程名称与地点。",
+                if (compactView) "完整一周同屏；周五至周日合计不超过两门课时可收纳。" else "左右滑动查看全部七天；色块尽量展示课程名称与地点。",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -190,27 +201,59 @@ internal fun CourseTimetable(
 }
 
 @Composable
-private fun TimetableEmptyDaysLane(
-    label: String,
+private fun TimetableTrailingDaysLane(
+    courses: List<Course>,
     periods: Int,
     rowHeight: androidx.compose.ui.unit.Dp,
     headerHeight: androidx.compose.ui.unit.Dp,
-    modifier: Modifier
+    modifier: Modifier,
+    onExpand: () -> Unit,
+    onSelect: (Course) -> Unit
 ) {
     val scheme = MaterialTheme.colorScheme
     Column(modifier) {
         Box(
-            Modifier.height(headerHeight).fillMaxWidth().background(scheme.surfaceVariant.copy(alpha = 0.45f)),
+            Modifier.height(headerHeight).fillMaxWidth().background(scheme.surfaceVariant.copy(alpha = 0.45f)).clickable(onClick = onExpand),
             contentAlignment = Alignment.Center
-        ) { Text(label, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold) }
-        Box(
+        ) { Text("五–日 · ${courses.size} ›", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold) }
+        BoxWithConstraints(
             Modifier
                 .height(rowHeight * periods.toFloat())
                 .fillMaxWidth()
                 .border(BorderStroke(0.5.dp, scheme.outlineVariant)),
             contentAlignment = Alignment.Center
         ) {
-            Text("无课", style = MaterialTheme.typography.labelSmall, color = scheme.onSurfaceVariant)
+            Column(Modifier.matchParentSize()) {
+                repeat(periods) { Box(Modifier.height(rowHeight).fillMaxWidth().border(BorderStroke(0.5.dp, scheme.outlineVariant))) }
+            }
+            if (courses.isEmpty()) {
+                Text("无课", style = MaterialTheme.typography.labelSmall, color = scheme.onSurfaceVariant)
+            } else {
+                courses.filter { it.startPeriod in 1..periods }.forEach { course ->
+                    val overlapping = courses.filter { other ->
+                        course.startPeriod <= other.endPeriod && other.startPeriod <= course.endPeriod
+                    }.sortedBy { it.weekday }
+                    val laneIndex = overlapping.indexOf(course).coerceAtLeast(0)
+                    val laneWidth = maxWidth / overlapping.size.coerceAtLeast(1)
+                    val span = (course.endPeriod.coerceAtMost(periods) - course.startPeriod + 1).coerceAtLeast(1)
+                    val color = listOf(scheme.primaryContainer, scheme.secondaryContainer, scheme.tertiaryContainer)[course.weekday % 3]
+                    Column(
+                        Modifier
+                            .offset(x = laneWidth * laneIndex, y = rowHeight * (course.startPeriod - 1).toFloat())
+                            .width(laneWidth)
+                            .height(rowHeight * span.toFloat())
+                            .padding(2.dp)
+                            .clip(RoundedCornerShape(7.dp))
+                            .background(color)
+                            .clickable { onSelect(course) }
+                            .padding(3.dp),
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Text(weekdayName(course.weekday), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, maxLines = 1)
+                        Text(course.title, style = MaterialTheme.typography.labelSmall, maxLines = span.coerceAtMost(2), overflow = TextOverflow.Ellipsis)
+                    }
+                }
+            }
         }
     }
 }

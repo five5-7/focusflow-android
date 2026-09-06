@@ -585,6 +585,13 @@ class PrototypeStore(context: Context) {
         preferences.edit().putBoolean("course_timetable_compact", compact).apply()
     }
 
+    fun loadCourseTimetableTrailingDaysExpanded(): Boolean =
+        preferences.getBoolean("course_timetable_trailing_days_expanded", false)
+
+    fun saveCourseTimetableTrailingDaysExpanded(expanded: Boolean) {
+        preferences.edit().putBoolean("course_timetable_trailing_days_expanded", expanded).apply()
+    }
+
     fun loadCourses(): List<Course> =
         decodeGuarded("courses", emptyList(), { json ->
             val values = JSONArray(json)

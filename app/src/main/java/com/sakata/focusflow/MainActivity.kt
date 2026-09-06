@@ -283,6 +283,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     var coursePeriodTable by remember { mutableStateOf(store.loadCoursePeriodTable()) }
     var coursePeriodTableConfigured by remember { mutableStateOf(store.hasCoursePeriodTable()) }
     var courseTimetableCompact by remember { mutableStateOf(store.loadCourseTimetableCompact()) }
+    var courseTimetableTrailingDaysExpanded by remember { mutableStateOf(store.loadCourseTimetableTrailingDaysExpanded()) }
     CourseGapPlanner.configure(coursePeriodTable)
     var courseEditor by remember { mutableStateOf<Course?>(null) }
     var addCourseOpen by remember { mutableStateOf(false) }
@@ -739,7 +740,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                     onMealFinish = { mealFinishOpen = it }
                 )
                 1 -> ScheduleScreen(
-                    pageModifier, items, scheduleCourses, coursePeriodTable, coursePeriodTableConfigured, courseTimetableCompact, commuteProfile,
+                    pageModifier, items, scheduleCourses, coursePeriodTable, coursePeriodTableConfigured, courseTimetableCompact, courseTimetableTrailingDaysExpanded, commuteProfile,
                     energyLevel = planningEnergyLevel,
                     onPlanFlexible = { flexiblePlanTarget = it },
                     onAdjustFlexible = { inboxScheduleTarget = it },
@@ -778,6 +779,10 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                     onCourseTimetableCompactChange = { compact ->
                         courseTimetableCompact = compact
                         store.saveCourseTimetableCompact(compact)
+                    },
+                    onCourseTimetableTrailingDaysExpandedChange = { expanded ->
+                        courseTimetableTrailingDaysExpanded = expanded
+                        store.saveCourseTimetableTrailingDaysExpanded(expanded)
                     },
                     onEditCourse = { courseEditor = it }
                 )
