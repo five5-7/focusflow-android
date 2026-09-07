@@ -913,6 +913,12 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                     gameSessions = gameSessions,
                     checkIns = statusCheckIns,
                     taskEvents = taskEvents,
+                    onReplaceTaskEvents = { updated ->
+                        if (store.replaceTaskEvents(updated)) {
+                            taskEvents = updated
+                            true
+                        } else false
+                    },
                     store = store
                 )
                 else -> SettingsScreen(pageModifier, settingsScrollState, themeOption, commuteProfile, campusLifeEnabled, campusMapPackage, currentCampusPlace, improvementNotes, activitySettings, statusCheckInSettings, statusPromptTrace = statusPromptTrace, nextStatusPromptAt = nextStatusPromptAt, onStatusPromptTest = {

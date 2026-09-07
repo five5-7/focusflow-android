@@ -140,6 +140,24 @@ private fun ConfirmedCourses(confirmed: List<Course>, onEdit: (Course) -> Unit, 
     val conflicting = confirmed.filter { course ->
         course.enabled && confirmed.any { other -> other.enabled && other != course && coursesOverlap(course, other) }
     }
+    if (selecting) {
+        val allSelected = confirmed.all { it in selected }
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("已选 ${selected.size}/${confirmed.size} 门", style = MaterialTheme.typography.labelMedium)
+            Row {
+                TextButton(onClick = { selected = if (allSelected) emptySet() else confirmed.toSet() }) {
+                    Text(if (allSelected) "取消全选" else "全选")
+                }
+                TextButton(enabled = selected.isNotEmpty(), onClick = { pendingDelete = selected }) {
+                    Text("删除所选", color = MaterialTheme.colorScheme.error)
+                }
+            }
+        }
+    }
     if (conflicting.isNotEmpty()) {
         Text(
             "⚠ ${conflicting.size} 门课程时间冲突，请编辑修正",
@@ -152,25 +170,26 @@ private fun ConfirmedCourses(confirmed: List<Course>, onEdit: (Course) -> Unit, 
                 color = CONFLICT_BLOCK_COLOR,
                 border = BorderStroke(1.dp, CONFLICT_TEXT_COLOR)
             ) {
-                Row(
+                Column(
                     Modifier.fillMaxWidth().padding(12.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    if (selecting) Checkbox(checked = course in selected, onCheckedChange = { checked -> selected = if (checked) selected + course else selected - course })
-                    Column(Modifier.weight(1f)) {
-                        CourseIdentity(course, CONFLICT_TEXT_COLOR)
-                        val overlapped = confirmed.firstOrNull { other ->
-                            other.enabled && other != course && coursesOverlap(course, other)
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        if (selecting) Checkbox(checked = course in selected, onCheckedChange = { checked -> selected = if (checked) selected + course else selected - course })
+                        Column(Modifier.weight(1f)) {
+                            CourseIdentity(course, CONFLICT_TEXT_COLOR)
                         }
-                        Text(
-                            "与${overlapped?.let { "《${it.title}》" } ?: "另一门课"}重叠",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = CONFLICT_TEXT_COLOR
-                        )
                     }
+                    val overlapped = confirmed.firstOrNull { other ->
+                        other.enabled && other != course && coursesOverlap(course, other)
+                    }
+                    Text(
+                        "与${overlapped?.let { "《${it.title}》" } ?: "另一门课"}重叠",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = CONFLICT_TEXT_COLOR
+                    )
                     if (!selecting) {
-                        Column(horizontalAlignment = Alignment.End) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                             TextButton(onClick = { onEdit(course) }) { Text("编辑") }
                             TextButton(onClick = { onToggle(course) }) { Text(if (course.enabled) "停用" else "启用") }
                             TextButton(onClick = { pendingDelete = setOf(course) }) { Text("删除", color = MaterialTheme.colorScheme.error) }
@@ -182,27 +201,22 @@ private fun ConfirmedCourses(confirmed: List<Course>, onEdit: (Course) -> Unit, 
     }
     confirmed.filterNot { it in conflicting }.sortedWith(courseOrder).forEach { course ->
         ElevatedCard {
-            Row(
+            Column(
                 Modifier.fillMaxWidth().padding(12.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                if (selecting) Checkbox(checked = course in selected, onCheckedChange = { checked -> selected = if (checked) selected + course else selected - course })
-                Column(Modifier.weight(1f)) { CourseIdentity(course) }
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    if (selecting) Checkbox(checked = course in selected, onCheckedChange = { checked -> selected = if (checked) selected + course else selected - course })
+                    Column(Modifier.weight(1f)) { CourseIdentity(course) }
+                }
                 if (!selecting) {
-                    Column(horizontalAlignment = Alignment.End) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                         TextButton(onClick = { onEdit(course) }) { Text("编辑") }
                         TextButton(onClick = { onToggle(course) }) { Text(if (course.enabled) "停用" else "启用") }
                         TextButton(onClick = { pendingDelete = setOf(course) }) { Text("删除", color = MaterialTheme.colorScheme.error) }
                     }
                 }
             }
-        }
-    }
-    if (selecting) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
-            Text("已选 ${selected.size} 门", style = MaterialTheme.typography.labelMedium)
-            TextButton(enabled = selected.isNotEmpty(), onClick = { pendingDelete = selected }) { Text("删除所选", color = MaterialTheme.colorScheme.error) }
         }
     }
     pendingDelete?.let { targets ->

@@ -103,6 +103,10 @@ internal fun CampusLifeChoiceDialog(onEnable: () -> Unit, onSkip: () -> Unit) {
 
 /** 覆盖安装后每个版本只展示一次的更新说明；版本名来自 BuildConfig，路线图是唯一详情入口。 */
 internal fun updateHighlightsFor(version: String): List<String> = when {
+    version.startsWith("7.12.0") -> listOf(
+        "课程批量管理增加全选，课程卡片操作区与空挡周视图已重新整理。",
+        "历史记录可以单删、批删或清空全部，相关统计会按剩余记录重新计算。"
+    )
     version.startsWith("7.11.0") -> listOf(
         "课程可以设置生效期、停用、单门删除或批量删除；空挡内容改为分类切换。",
         "通勤增加可调距离档位，并可决定未知路线是否使用默认时间。"

@@ -3,6 +3,7 @@ package com.sakata.focusflow
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -33,7 +34,8 @@ internal fun PlanGapsSection(
     val occupied = occupiedByWeekday(items)
     val freeWindows = CourseGapPlanner.freeWindows(planningCourses, occupied = occupied)
     val recommendations = gapRecommendations(gaps, freeWindows, goals, items, store)
-    var selectedView by remember { mutableStateOf(if (tableExpanded) "课表" else "建议") }
+    val availability = availabilitySlots(gaps, freeWindows)
+    var selectedView by remember { mutableStateOf(if (tableExpanded) "空挡图" else "建议") }
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
         Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("查看空挡", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
@@ -43,13 +45,13 @@ internal fun PlanGapsSection(
                     "建议" to recommendations.size,
                     "课间" to gaps.count { it.minutesFree >= 10 },
                     "自由时段" to freeWindows.size,
-                    "课表" to planningCourses.size
+                    "空挡图" to availability.size
                 ).forEach { (label, count) ->
                     FilterChip(
                         selected = selectedView == label,
                         onClick = {
                             selectedView = label
-                            onTableExpandedChange(label == "课表")
+                            onTableExpandedChange(label == "空挡图")
                         },
                         label = { Text("$label $count") }
                     )
@@ -59,11 +61,118 @@ internal fun PlanGapsSection(
     }
     when (selectedView) {
         "建议" -> if (recommendations.isEmpty()) {
-            Text("当前空挡没有可匹配的目标或弹性任务。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                gapSuggestionEmptyMessage(planningCourses, availability, goals, items),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         } else GapRecommendations(recommendations, checkIns, onScheduleGoal, onScheduleFlexible)
         "课间" -> CourseGaps(gaps, confirmedCourseCount)
         "自由时段" -> if (freeWindows.isEmpty()) Text("当前没有不少于 60 分钟的自由时段。", style = MaterialTheme.typography.bodySmall) else FreeWindows(freeWindows)
-        else -> GapTimelineContent(planningCourses, profile)
+        else -> AvailabilityTimeline(availability)
+    }
+}
+
+internal data class AvailabilitySlot(
+    val weekday: Int,
+    val startMinute: Int,
+    val endMinute: Int,
+    val minutes: Int,
+    val kind: String
+)
+
+internal fun availabilitySlots(gaps: List<CourseGap>, freeWindows: List<FreeWindow>): List<AvailabilitySlot> =
+    (gaps.filter { it.minutesFree >= 10 }.map {
+        AvailabilitySlot(it.from.weekday, it.suggestedStartMinute, it.suggestedStartMinute + it.minutesFree, it.minutesFree, "课间")
+    } + freeWindows.map {
+        AvailabilitySlot(it.weekday, it.startMinute, it.endMinute, it.minutes, it.kind)
+    }).sortedWith(compareBy<AvailabilitySlot> { it.weekday }.thenBy { it.startMinute })
+
+internal fun gapSuggestionEmptyMessage(
+    planningCourses: List<Course>,
+    availability: List<AvailabilitySlot>,
+    goals: List<Goal>,
+    items: List<Item>
+): String {
+    if (availability.isEmpty()) return if (planningCourses.isEmpty()) {
+        "本周没有生效课程或可用时段数据，先检查校园生活、课程生效期和已有安排。"
+    } else {
+        "课程、已有安排和通勤时间扣除后，目前没有可安排的空挡。"
+    }
+    val unfinishedGoals = goals.filter { GoalPlanner.completedThisWeek(it) < it.weeklyTarget }
+    val flexibleItems = items.filter { it.kind == "任务" && it.scheduledAt == null }
+    if (unfinishedGoals.isEmpty() && flexibleItems.isEmpty()) {
+        return "有 ${availability.size} 个可用时段，但没有待完成目标或未定时任务；可先查看课间、自由时段或新增目标。"
+    }
+    val longest = availability.maxOf { it.minutes }
+    val shortestCandidate = (unfinishedGoals.map { it.durationMinutes } + flexibleItems.map { it.durationMinutes }).minOrNull()
+    if (shortestCandidate != null && shortestCandidate > longest) {
+        return "有 ${availability.size} 个可用时段，但现有内容最短需 $shortestCandidate 分钟，超过最长空挡 $longest 分钟。"
+    }
+    return "有 ${availability.size} 个可用时段，但当前筛选条件下没有生成内容建议；可到课间或自由时段查看具体时间。"
+}
+
+@Composable
+private fun AvailabilityTimeline(slots: List<AvailabilitySlot>) {
+    if (slots.isEmpty()) {
+        Text("当前没有可绘制的净可用时段。", style = MaterialTheme.typography.bodySmall)
+        return
+    }
+    ElevatedCard {
+        Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("本周净可用时间", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text("已扣除课程间通勤和已有安排；色块越长，可连续使用的时间越多。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(Modifier.fillMaxWidth()) {
+                Spacer(Modifier.width(42.dp))
+                Row(Modifier.weight(1f), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("08:00", style = MaterialTheme.typography.labelSmall)
+                    Text("15:00", style = MaterialTheme.typography.labelSmall)
+                    Text("22:00", style = MaterialTheme.typography.labelSmall)
+                }
+            }
+            (1..7).forEach { day ->
+                val daily = slots.filter { it.weekday == day }
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+                    Text(weekdayName(day), Modifier.width(42.dp).padding(top = 7.dp), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        AvailabilityLane(daily, Modifier.fillMaxWidth())
+                        Text(
+                            if (daily.isEmpty()) "无可用时段" else daily.joinToString(" · ") { "${formatMinute(it.startMinute)}–${formatMinute(it.endMinute)} ${it.minutes}分" },
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 2
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AvailabilityLane(slots: List<AvailabilitySlot>, modifier: Modifier = Modifier) {
+    val start = 8 * 60
+    val end = 22 * 60
+    BoxWithConstraints(
+        modifier.height(32.dp),
+        contentAlignment = Alignment.CenterStart
+    ) {
+        Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surfaceVariant, shape = RoundedCornerShape(8.dp)) {}
+        slots.forEach { slot ->
+            val left = ((slot.startMinute.coerceIn(start, end) - start).toFloat() / (end - start)).coerceIn(0f, 1f)
+            val right = ((slot.endMinute.coerceIn(start, end) - start).toFloat() / (end - start)).coerceIn(left, 1f)
+            if (right > left) {
+                Surface(
+                    modifier = Modifier.offset(x = maxWidth * left).width((maxWidth * (right - left)).coerceAtLeast(3.dp)).height(24.dp),
+                    color = if (slot.kind == "课间") MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.tertiaryContainer,
+                    shape = RoundedCornerShape(7.dp)
+                ) {
+                    if (slot.minutes >= 60) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text("${slot.minutes}分", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                    }
+                }
+            }
+        }
     }
 }
 

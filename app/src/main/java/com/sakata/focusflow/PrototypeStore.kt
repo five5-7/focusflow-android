@@ -761,6 +761,19 @@ class PrototypeStore(context: Context) {
         decodeGuarded("task_events", emptyList(), { TaskEventCodec.decode(it) }, { it.isEmpty() })
             .takeLast(limit.coerceAtLeast(1))
 
+    /**
+     * 用户管理历史时替换完整事件集。即使清空，也保留迁移完成标记，避免下次启动
+     * 又从现有任务推断并补回用户已经删除的记录。
+     */
+    fun replaceTaskEvents(events: List<TaskEvent>): Boolean = synchronized(taskHistoryLock) {
+        if (StorageProtection.readOnly) return@synchronized false
+        preferences.edit().apply {
+            if (events.isEmpty()) remove("task_events")
+            else putString("task_events", TaskEventCodec.encode(events))
+            putBoolean("task_history_migrated_v65_0", true)
+        }.commit()
+    }
+
     /** 6.5 一次性迁移：已执行过则直接返回 false；否则按存量 items 补齐可推断事件并置位标记。 */
     fun migrateTaskHistory(): Boolean {
         if (preferences.getBoolean("task_history_migrated_v65_0", false)) return false

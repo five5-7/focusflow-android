@@ -169,4 +169,18 @@ class TaskHistoryTest {
         assertEquals(3, TaskHistory.recentEvents(events, limit = 3).size)
         assertEquals(10L, TaskHistory.recentEvents(events, limit = 3).first().itemId)
     }
+
+    @Test fun deletingSelectedEventsRecomputesFromRemainingInput() {
+        val scheduled = TaskRecorder.event(TaskEventType.TASK_SCHEDULED, 1L, "任务", scheduledAt = now, at = now - 1000)
+        val completed = TaskRecorder.event(TaskEventType.TASK_COMPLETED, 1L, "任务", at = now)
+        val untouched = TaskRecorder.event(TaskEventType.TASK_RESCHEDULED, 2L, "另一任务", scheduledAt = now, at = now)
+
+        val remaining = TaskHistory.without(listOf(scheduled, completed, untouched), setOf(completed.id))
+        val summary = TaskHistory.daySummary(remaining, dayStartOf(now))
+
+        assertEquals(listOf(scheduled, untouched), remaining)
+        assertEquals(0, summary.completedCount)
+        assertEquals(2, summary.scheduledCount)
+        assertEquals(1, summary.rescheduledCount)
+    }
 }

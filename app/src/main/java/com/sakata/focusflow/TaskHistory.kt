@@ -138,6 +138,10 @@ object TaskHistory {
     /** Display limits must never change statistical input. */
     fun append(events: List<TaskEvent>, event: TaskEvent): List<TaskEvent> = events + event
 
+    /** 删除只按稳定事件 id 匹配；同标题、同任务或同一时刻的其他事件不受影响。 */
+    fun without(events: List<TaskEvent>, eventIds: Set<Long>): List<TaskEvent> =
+        if (eventIds.isEmpty()) events else events.filterNot { it.id in eventIds }
+
     /** 自然日 00:00（与 TimeUtils 使用同一 Calendar 日界定义）。 */
     fun dayStartOf(millis: Long): Long {
         val calendar = Calendar.getInstance().apply { timeInMillis = millis }
