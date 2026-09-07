@@ -1,5 +1,7 @@
 # FocusFlow
 
+当前开发候选：**8.0.0-rc.1**（versionCode 508），整合 7.9–7.12 的今日状态、校园生活、课程与通勤、空挡图、历史管理和统一设计语言；基础功能已通过 Run 297 自动门禁，仍待真机验收。
+
 本地优先的 Android 日程与执行辅助应用（`com.sakata.focusflow`）。核心目标不是维护一张完整日历，而是**降低记录压力、按当前状态调整提醒、在错过计划后帮助恢复**。
 
 当前开发候选：**7.12.0-rc.3**（versionCode 507），课程批量管理增加全选并重新平衡卡片操作布局；空挡建议会解释零结果原因，七天纵向空挡图会完整显示课前、课间与课后可用时段；任务历史支持单删、批删、全选当前和带范围说明的一键清空，删除后由剩余事件重新计算统计。7.4.0 已通过自动门禁但尚未建立 GitHub Release；当前正式版仍为 [7.1.3](https://github.com/five5-7/focusflow-android/releases/tag/v7.1.3)。版本规则见 [VERSIONING.md](VERSIONING.md)，更新记录见 [CHANGELOG.md](CHANGELOG.md)。
