@@ -52,6 +52,11 @@ internal fun PlanHistorySection(events: List<TaskEvent>, onReplaceEvents: (List<
                 selectedIds = emptySet()
             }) { Text(if (selecting) "完成" else "批量管理") }
         }
+        if (events.isNotEmpty()) Text(
+            "清空全部只删除历史事件，不删除现有任务；完成率、改期次数和本周摘要会按剩余记录重算。",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
     if (selecting && recent.isNotEmpty()) {
         val visibleIds = recent.map { it.id }.toSet()

@@ -1,6 +1,7 @@
 package com.sakata.focusflow
 
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -14,6 +15,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import java.time.LocalDate
 
 @Composable
 internal fun PlanGapsSection(
@@ -39,7 +43,6 @@ internal fun PlanGapsSection(
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
         Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("查看空挡", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            Text("按用途切换，避免建议、时间段和课表同时堆在一页。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 listOf(
                     "建议" to recommendations.size,
@@ -118,61 +121,99 @@ private fun AvailabilityTimeline(slots: List<AvailabilitySlot>) {
         Text("当前没有可绘制的净可用时段。", style = MaterialTheme.typography.bodySmall)
         return
     }
-    ElevatedCard {
-        Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("本周净可用时间", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            Text("已扣除课程间通勤和已有安排；色块越长，可连续使用的时间越多。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Row(Modifier.fillMaxWidth()) {
-                Spacer(Modifier.width(42.dp))
-                Row(Modifier.weight(1f), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("08:00", style = MaterialTheme.typography.labelSmall)
-                    Text("15:00", style = MaterialTheme.typography.labelSmall)
-                    Text("22:00", style = MaterialTheme.typography.labelSmall)
-                }
+    var selectedDay by remember { mutableStateOf(LocalDate.now().dayOfWeek.value) }
+    // Expand the shared scale for supplied early/late intervals instead of clipping them.
+    val start = minOf(8 * 60, slots.minOf { it.startMinute } / 60 * 60)
+    val end = maxOf(22 * 60, (slots.maxOf { it.endMinute } + 59) / 60 * 60)
+    val chartHeight = 336.dp
+    val colors = MaterialTheme.colorScheme
+    val daily = slots.filter { it.weekday == selectedDay }
+    Card(colors = CardDefaults.cardColors(containerColor = colors.surfaceContainerLow)) {
+        Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("一周空挡", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                AvailabilityLegend("课间", true)
+                AvailabilityLegend("自由时段", false)
             }
-            (1..7).forEach { day ->
-                val daily = slots.filter { it.weekday == day }
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
-                    Text(weekdayName(day), Modifier.width(42.dp).padding(top = 7.dp), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                        AvailabilityLane(daily, Modifier.fillMaxWidth())
-                        Text(
-                            if (daily.isEmpty()) "无可用时段" else daily.joinToString(" · ") { "${formatMinute(it.startMinute)}–${formatMinute(it.endMinute)} ${it.minutes}分" },
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 2
-                        )
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Box(Modifier.width(40.dp).height(chartHeight + 48.dp)) {
+                    (start..end step 60).forEach { minute ->
+                        if ((minute - start) % 120 == 0 || minute == end) {
+                            Text(
+                                formatMinute(minute),
+                                Modifier.offset(y = 40.dp + chartHeight * ((minute - start).toFloat() / (end - start))),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = colors.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+                (1..7).forEach { day ->
+                    val selected = selectedDay == day
+                    Column(Modifier.weight(1f)) {
+                        Surface(
+                            onClick = { selectedDay = day },
+                            color = if (selected) colors.primaryContainer else colors.surfaceContainerLow,
+                            contentColor = if (selected) colors.onPrimaryContainer else colors.onSurfaceVariant,
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                                .semantics { contentDescription = "${weekdayName(day)}，查看空挡详情" }
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Text(listOf("一", "二", "三", "四", "五", "六", "日")[day - 1], style = MaterialTheme.typography.labelLarge)
+                            }
+                        }
+                        Box(Modifier.fillMaxWidth().height(chartHeight).clickable { selectedDay = day }) {
+                            (start..end step 60).forEach { minute ->
+                                HorizontalDivider(
+                                    Modifier.offset(y = chartHeight * ((minute - start).toFloat() / (end - start))),
+                                    color = colors.outlineVariant
+                                )
+                            }
+                            slots.filter { it.weekday == day && it.endMinute > it.startMinute }.forEach { slot ->
+                                Surface(
+                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 2.dp)
+                                        .offset(y = chartHeight * ((slot.startMinute - start).toFloat() / (end - start)))
+                                        .height(chartHeight * ((slot.endMinute - slot.startMinute).toFloat() / (end - start))),
+                                    color = if (slot.kind == "课间") colors.primary else colors.tertiary,
+                                    shape = RoundedCornerShape(4.dp)
+                                ) {}
+                            }
+                        }
                     }
                 }
             }
+            Text("${weekdayName(selectedDay)} · ${daily.size} 个时段", style = MaterialTheme.typography.titleSmall)
+            if (daily.isEmpty()) {
+                Text("当天没有可显示的空挡。", style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant)
+            }
+            daily.forEach { slot ->
+                Row(
+                    Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("${formatMinute(slot.startMinute)}–${formatMinute(slot.endMinute)}", style = MaterialTheme.typography.bodyLarge)
+                        Text(slot.kind, style = MaterialTheme.typography.labelMedium, color = colors.onSurfaceVariant)
+                    }
+                    Text("${slot.minutes} 分钟", style = MaterialTheme.typography.labelLarge)
+                }
+            }
+            Text("点选星期查看明细；留白表示没有展示的可用时段，不代表已安排。", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
         }
     }
 }
 
 @Composable
-private fun AvailabilityLane(slots: List<AvailabilitySlot>, modifier: Modifier = Modifier) {
-    val start = 8 * 60
-    val end = 22 * 60
-    BoxWithConstraints(
-        modifier.height(32.dp),
-        contentAlignment = Alignment.CenterStart
-    ) {
-        Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surfaceVariant, shape = RoundedCornerShape(8.dp)) {}
-        slots.forEach { slot ->
-            val left = ((slot.startMinute.coerceIn(start, end) - start).toFloat() / (end - start)).coerceIn(0f, 1f)
-            val right = ((slot.endMinute.coerceIn(start, end) - start).toFloat() / (end - start)).coerceIn(left, 1f)
-            if (right > left) {
-                Surface(
-                    modifier = Modifier.offset(x = maxWidth * left).width((maxWidth * (right - left)).coerceAtLeast(3.dp)).height(24.dp),
-                    color = if (slot.kind == "课间") MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.tertiaryContainer,
-                    shape = RoundedCornerShape(7.dp)
-                ) {
-                    if (slot.minutes >= 60) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text("${slot.minutes}分", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold, maxLines = 1)
-                    }
-                }
-            }
-        }
+private fun AvailabilityLegend(label: String, betweenCourses: Boolean) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Surface(
+            Modifier.size(8.dp, 16.dp),
+            color = if (betweenCourses) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.tertiary,
+            shape = RoundedCornerShape(4.dp)
+        ) {}
+        Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
