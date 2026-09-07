@@ -669,6 +669,13 @@ class PrototypeStore(context: Context) {
         preferences.edit().putBoolean("feature_intro_shown", shown).apply()
     }
 
+    /** New-install choice shown before quick start; absent on upgrades must not prompt existing users. */
+    fun loadCampusLifeChoiceShown(): Boolean = preferences.getBoolean("campus_life_choice_shown", false)
+
+    fun saveCampusLifeChoiceShown(shown: Boolean) {
+        preferences.edit().putBoolean("campus_life_choice_shown", shown).apply()
+    }
+
     /** 最后一次已向用户展示更新说明的应用版本；同一版本只提示一次。 */
     fun loadLastSeenAppVersion(): String? = preferences.getString("last_seen_app_version", null)
 

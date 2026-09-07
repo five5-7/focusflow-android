@@ -28,7 +28,8 @@ internal val quickStartChapters = listOf(
     HelpSection("默认行为与边界", listOf(
         "核心记录、收集箱和手动安排无需 AI、地点或任何额外权限。",
         "固定日程不会被自动移动；建议、缩短、改期和完成都必须由你确认。",
-        "新安装没有预置地点；通勤预留默认开启并先按单程 10 分钟估计，不读取定位。课程、地点和通勤都可稍后在设置调整。",
+        "首次启动可选择是否启用校园生活。关闭时课程不参与今日、日程、空挡或推荐，但课程、节次和地点数据仍保留；可到 设置 → 高级工具 → 通勤与地点 重新开启。",
+        "新安装没有预置地点；启用校园生活后，通勤预留先按单程 10 分钟估计且不读取定位。课程、地点和通勤都可稍后在设置调整。",
         "每日精力询问默认关闭；饭点提醒默认关闭，用餐结束询问是另一个默认关闭的开关；前台应用检测默认关闭且绝不会自动结束活动。AI 也默认关闭，只有你主动开启后才会工作；这些功能不会自动改设置。"
     )),
     HelpSection("何时配置可选工具", listOf(
@@ -83,9 +84,29 @@ internal fun QuickStartDialog(onDismiss: () -> Unit) {
     )
 }
 
+@Composable
+internal fun CampusLifeChoiceDialog(onEnable: () -> Unit, onSkip: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onSkip,
+        title = { Text("启用校园生活？") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("开启后可使用课程、固定课表、节次表、校园地点和校内通勤估算。")
+                Text("暂不开启也不影响收集箱、普通日程和目标；之后可到 设置 → 高级工具 → 通勤与地点 开启。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        },
+        confirmButton = { Button(onClick = onEnable) { Text("启用校园生活") } },
+        dismissButton = { TextButton(onClick = onSkip) { Text("暂不开启") } }
+    )
+}
+
 
 /** 覆盖安装后每个版本只展示一次的更新说明；版本名来自 BuildConfig，路线图是唯一详情入口。 */
 internal fun updateHighlightsFor(version: String): List<String> = when {
+    version.startsWith("7.10.0") -> listOf(
+        "校园生活现在统一控制课程、课表、节次、地点和校内通勤；首次安装会先询问是否启用。",
+        "修复当前位置空选择页；今日状态选择电动车后可直接调整并查看电量。"
+    )
     version.startsWith("7.9.0-rc.4") -> listOf(
         "今日页顶部新增可折叠的状态入口，集中调整生活阶段、精力和出行方式。",
         "通勤块符号修正与统一设计语言第二轮保持不变。"

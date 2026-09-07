@@ -30,6 +30,8 @@ internal fun ScheduleScreen(
     courseTimetableCompact: Boolean,
     courseTimetableTrailingDaysExpanded: Boolean,
     profile: CommuteProfile,
+    campusLifeEnabled: Boolean,
+    onCampusLifeRequired: () -> Unit,
     energyLevel: String,
     onPlanFlexible: (Item) -> Unit,
     onAdjustFlexible: (Item) -> Unit,
@@ -98,7 +100,8 @@ internal fun ScheduleScreen(
                 FilterChip(
                     selected = scheduleMode == "课表",
                     onClick = {
-                        if (coursePeriodTableConfigured) scheduleMode = "课表"
+                        if (!campusLifeEnabled) onCampusLifeRequired()
+                        else if (coursePeriodTableConfigured) scheduleMode = "课表"
                         else {
                             firstPeriodSetup = true
                             periodTableOpen = true

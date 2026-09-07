@@ -477,7 +477,11 @@ private fun TodayStatusPanel(
     val summary = buildList {
         lifeStage?.label?.let(::add)
         add(if (energyIsCurrent) "精力$energyLevel" else "精力待更新")
-        add(if (campusLifeEnabled) commuteProfile.campusMode else "校园生活关")
+        add(
+            if (!campusLifeEnabled) "校园生活关"
+            else if (commuteProfile.campusMode == "电动车") "电动车／电量${commuteProfile.eBikeBattery}"
+            else commuteProfile.campusMode
+        )
     }.joinToString(" · ")
     OutlinedCard {
         Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp)) {
@@ -518,6 +522,11 @@ private fun TodayStatusPanel(
                     if (campusLifeEnabled) {
                         StatusChoiceRow("出行方式", listOf("步行", "自行车", "电动车"), commuteProfile.campusMode) { mode ->
                             onCommuteProfileChange(commuteProfile.copy(campusMode = mode))
+                        }
+                        if (commuteProfile.campusMode == "电动车") {
+                            StatusChoiceRow("电动车电量", listOf("充足", "一般", "偏低", "未知"), commuteProfile.eBikeBattery) { battery ->
+                                onCommuteProfileChange(commuteProfile.copy(eBikeBattery = battery))
+                            }
                         }
                     }
                 }

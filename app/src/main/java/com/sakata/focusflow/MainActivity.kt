@@ -252,7 +252,15 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     var energyRecordedAt by remember { mutableLongStateOf(store.loadEnergyRecordedAt()) }
     val planningEnergyLevel = if (StatusFreshnessPolicy.isCurrent(energyRecordedAt)) energyLevel else "正常"
     var commuteProfile by remember { mutableStateOf(store.loadCommuteProfile()) }
-    var campusLifeEnabled by remember { mutableStateOf(store.loadCampusLifeEnabled()) }
+    var campusLifeEnabled by remember {
+        mutableStateOf(
+            CampusLifePolicy.initialEnabled(
+                stored = store.loadCampusLifeEnabled(),
+                featureIntroShown = store.loadFeatureIntroShown(),
+                choiceShown = store.loadCampusLifeChoiceShown()
+            )
+        )
+    }
     var hiddenPlaces by remember { mutableStateOf(store.loadHiddenPlaces()) }
     var campusMapPackage by remember { mutableStateOf(store.loadCampusMapPackage()) }
     var currentCampusPlace by remember { mutableStateOf(store.loadCurrentCampusPlace()) }
@@ -270,6 +278,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     var pendingPlaces by remember { mutableStateOf(store.loadPendingPlaces()) }
     var courseVisionGuideOpen by remember { mutableStateOf(false) }
     var featureIntroOpen by remember { mutableStateOf(false) }
+    var campusLifeChoiceOpen by remember { mutableStateOf(false) }
     var updateNoticeOpen by remember { mutableStateOf(false) }
     var baselineWhereToFindOpen by remember { mutableStateOf(false) }
     // 首次开启课表视觉模型且未填 key 时自动弹出申请引导（只弹一次）。
@@ -310,17 +319,25 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     LaunchedEffect(permissionOnboardingPending) {
         if (!permissionOnboardingPending && !store.loadOnboardingDone()) baselineOnboardingOpen = true
     }
-    // 首次启动快速入门：等权限申请、习惯基线引导与基线提示结束后再弹（只弹一次），之后可从 设置 → 快速入门 再次打开。
+    // 仅新安装在快速入门前询问一次；已有用户升级时不弹出，也不改写现有校园生活设置。
     LaunchedEffect(permissionOnboardingPending, baselineOnboardingOpen, baselineWhereToFindOpen) {
-        if (!permissionOnboardingPending && !baselineOnboardingOpen && !baselineWhereToFindOpen && !store.loadFeatureIntroShown()) {
+        if (!permissionOnboardingPending && !baselineOnboardingOpen && !baselineWhereToFindOpen &&
+            !store.loadFeatureIntroShown() && !store.loadCampusLifeChoiceShown()
+        ) campusLifeChoiceOpen = true
+    }
+    // 首次启动快速入门：校园生活选择完成后再弹，避免两个弹窗叠在一起。
+    LaunchedEffect(permissionOnboardingPending, baselineOnboardingOpen, baselineWhereToFindOpen, campusLifeChoiceOpen) {
+        if (!permissionOnboardingPending && !baselineOnboardingOpen && !baselineWhereToFindOpen && !campusLifeChoiceOpen &&
+            store.loadCampusLifeChoiceShown() && !store.loadFeatureIntroShown()
+        ) {
             store.saveFeatureIntroShown(true)
             featureIntroOpen = true
         }
     }
 
     // 首次安装先完成快速入门；既有用户或后续覆盖安装才显示一次版本更新说明。
-    LaunchedEffect(permissionOnboardingPending, baselineOnboardingOpen, baselineWhereToFindOpen, featureIntroOpen) {
-        if (permissionOnboardingPending || baselineOnboardingOpen || baselineWhereToFindOpen || featureIntroOpen) return@LaunchedEffect
+    LaunchedEffect(permissionOnboardingPending, baselineOnboardingOpen, baselineWhereToFindOpen, campusLifeChoiceOpen, featureIntroOpen) {
+        if (permissionOnboardingPending || baselineOnboardingOpen || baselineWhereToFindOpen || campusLifeChoiceOpen || featureIntroOpen) return@LaunchedEffect
         val seenVersion = store.loadLastSeenAppVersion()
         if (seenVersion == null && !store.loadFeatureIntroShown()) return@LaunchedEffect
         if (seenVersion != BuildConfig.VERSION_NAME) {
@@ -365,7 +382,8 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
         .filter { !it.done && it.kind != "收集箱" && it.kind != "暂停" }
         .sortedWith(compareBy<Item> { it.scheduledAt ?: Long.MAX_VALUE }.thenBy { it.title })
         .firstOrNull()
-    val upcomingCommitment = NextActionPlanner.nextCommitment(items, courses)
+    val activeCourses = if (baselineProfile.lifeStage == LifeStage.HOLIDAY || !campusLifeEnabled) emptyList() else courses
+    val upcomingCommitment = NextActionPlanner.nextCommitment(items, activeCourses)
     val suggestedNextStepName = upcomingCommitment?.title ?: suggestedNextStep?.title.orEmpty()
     // 全部地点：内置目录或地点包为基底，自定义地点按名去重合并（同名自定义胜出）。
     // 新安装不预置任何校园地点；只有用户导入地点包或自行添加后才参与课程与通勤。
@@ -599,8 +617,8 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             // Applied and consumed once for both root pages and their animated children.
             val pageModifier = Modifier.padding(padding).consumeWindowInsets(padding)
                 .padding(bottom = if (keyboardVisible) floatingBarHeight else 0.dp)
-            // 假期阶段不把课程当作日程：日程/今日摘要/空挡/目标建议均不显示课程（课程管理页仍保留）。
-            val scheduleCourses = if (baselineProfile.lifeStage == LifeStage.HOLIDAY) emptyList<Course>() else courses
+            // 假期或校园生活关闭时，课程不参与今日、日程、空挡与目标建议；原数据仍保留。
+            val scheduleCourses = activeCourses
             Box(pageModifier) {
             // Equal depth means a sibling cross-fade, never a hierarchical slide.
             SubpageMotion(tab, depth = { 0 }) { visibleTab ->
@@ -630,14 +648,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                             store.saveBaselineProfile(baselineProfile)
                             ReminderScheduler.scheduleDailyWindDown(context, baselineProfile)
                             ReminderScheduler.scheduleDailyMealReminders(context, baselineProfile)
-                            // 假期不按校园作息：自动关闭校园生活；切回上学/考试周自动重新开启。
-                            if (stage == LifeStage.HOLIDAY && campusLifeEnabled) {
-                                campusLifeEnabled = false
-                                store.saveCampusLifeEnabled(false)
-                            } else if (previous.lifeStage == LifeStage.HOLIDAY && !campusLifeEnabled) {
-                                campusLifeEnabled = true
-                                store.saveCampusLifeEnabled(true)
-                            }
+                            // 生活阶段只影响当下参与计算的课程，不替用户开关校园生活。
                             store.appendBaselineEvent(BaselineRecorder.event(BaselineEventType.LIFE_STAGE_SET, stage.label))
                         }
                     },
@@ -745,6 +756,8 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                 )
                 1 -> ScheduleScreen(
                     pageModifier, items, scheduleCourses, coursePeriodTable, coursePeriodTableConfigured, courseTimetableCompact, courseTimetableTrailingDaysExpanded, commuteProfile,
+                    campusLifeEnabled = campusLifeEnabled,
+                    onCampusLifeRequired = { scope.launch { snackbarHostState.showSnackbar(CampusLifePolicy.disabledMessage()) } },
                     energyLevel = planningEnergyLevel,
                     onPlanFlexible = { flexiblePlanTarget = it },
                     onAdjustFlexible = { inboxScheduleTarget = it },
@@ -792,6 +805,8 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                 )
                 2 -> PlansScreen(
                     pageModifier, items, courses, commuteProfile, baselineProfile.lifeStage,
+                    campusLifeEnabled = campusLifeEnabled,
+                    onCampusLifeRequired = { scope.launch { snackbarHostState.showSnackbar(CampusLifePolicy.disabledMessage()) } },
                     page = planPage,
                                     onPageChange = { planPage = it; if (it == PlanPage.REVIEW) gameSessions = store.loadGameSessions(); if (it == PlanPage.HISTORY) taskEvents = store.loadTaskEvents() },
                     onResume = { item ->
@@ -934,6 +949,8 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                 }, onCampusLifeEnabledChange = { enabled ->
                     campusLifeEnabled = enabled
                     store.saveCampusLifeEnabled(enabled)
+                }, onCampusLifeRequired = {
+                    scope.launch { snackbarHostState.showSnackbar(CampusLifePolicy.disabledMessage()) }
                 }, onCampusMapPackageChange = { updated ->
                     campusMapPackage = updated
                     store.saveCampusMapPackage(updated)
@@ -1112,7 +1129,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             onGamePlan = { addMenuOpen = false; gamePlanOpen = true }
         )
         if (gamePlanOpen) GamePlanDialog(
-            courses = if (baselineProfile.lifeStage == LifeStage.HOLIDAY) emptyList() else courses,
+            courses = activeCourses,
             profile = commuteProfile,
             items = items,
             onDismiss = { gamePlanOpen = false },
@@ -1364,7 +1381,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             initialGoal = editGoalTarget,
             resources = resources,
             suggestedFirstAction = goalFinderSuggestion,
-            courses = if (baselineProfile.lifeStage == LifeStage.HOLIDAY) emptyList() else courses,
+            courses = activeCourses,
             profile = commuteProfile,
             items = items,
             onDismiss = { addGoalOpen = false; editGoalTarget = null; goalFinderSuggestion = "" },
@@ -1406,7 +1423,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             initialOutcome = item.editableNote(),
             resources = resources,
             suggestedFirstAction = goalFinderSuggestion.ifBlank { item.nextAction },
-            courses = if (baselineProfile.lifeStage == LifeStage.HOLIDAY) emptyList() else courses,
+            courses = activeCourses,
             profile = commuteProfile,
             items = items,
             onDismiss = { convertTarget = null; goalFinderSuggestion = "" },
@@ -1551,6 +1568,20 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             }
         )
         if (baselineWhereToFindOpen) BaselineWhereToFindDialog(onDismiss = { baselineWhereToFindOpen = false })
+        if (campusLifeChoiceOpen) CampusLifeChoiceDialog(
+            onEnable = {
+                campusLifeEnabled = true
+                store.saveCampusLifeEnabled(true)
+                store.saveCampusLifeChoiceShown(true)
+                campusLifeChoiceOpen = false
+            },
+            onSkip = {
+                campusLifeEnabled = false
+                store.saveCampusLifeEnabled(false)
+                store.saveCampusLifeChoiceShown(true)
+                campusLifeChoiceOpen = false
+            }
+        )
         if (featureIntroOpen) WelcomeIntroDialog(onDismiss = {
             store.saveLastSeenAppVersion(BuildConfig.VERSION_NAME)
             featureIntroOpen = false
