@@ -20,8 +20,10 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.BorderStroke
@@ -94,6 +96,7 @@ import kotlinx.coroutines.withContext
     goals: List<Goal>,
     feedback: List<TaskFeedback>,
     commuteProfile: CommuteProfile,
+    onCommuteProfileChange: (CommuteProfile) -> Unit,
     activeSession: ActivitySession?,
     activityHistory: List<ActivitySession>,
     nextCommitment: ActivityCommitment?,
@@ -126,6 +129,7 @@ import kotlinx.coroutines.withContext
 ) {
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     var helpOpen by remember { mutableStateOf(false) }
+    var statusPanelOpen by remember { mutableStateOf(false) }
     LaunchedEffect(activeSession?.id, activeSession?.endsAt) {
         while (true) {
             now = System.currentTimeMillis()
@@ -175,14 +179,20 @@ import kotlinx.coroutines.withContext
             Text("今日概览", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
             HelpToggleButton(onClick = { helpOpen = true })
         }
-        if (baselineProfile.lifeStage != null) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text("当前：${baselineProfile.lifeStage.label}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                LifeStage.entries.forEach { stage ->
-                    FilterChip(selected = baselineProfile.lifeStage == stage, onClick = { onSwitchLifeStage(stage) }, label = { Text(stage.label) })
-                }
-            }
-        }
+        TodayStatusPanel(
+            expanded = statusPanelOpen,
+            onExpandedChange = { statusPanelOpen = it },
+            lifeStage = baselineProfile.lifeStage,
+            onSwitchLifeStage = onSwitchLifeStage,
+            energyLevel = energyLevel,
+            energyIsCurrent = energyIsCurrent,
+            energyRecordedAt = energyRecordedAt,
+            onEnergyLevelChange = onEnergyLevelChange,
+            campusLifeEnabled = campusLifeEnabled,
+            onCampusLifeEnabledChange = onCampusLifeEnabledChange,
+            commuteProfile = commuteProfile,
+            onCommuteProfileChange = onCommuteProfileChange
+        )
         val agenda = todayAgenda(courses, items, now)
         val nowCal = java.util.Calendar.getInstance().apply { timeInMillis = now }
         val currentMinute = nowCal.get(java.util.Calendar.HOUR_OF_DAY) * 60 + nowCal.get(java.util.Calendar.MINUTE)
@@ -289,20 +299,8 @@ import kotlinx.coroutines.withContext
         } else {
             pendingInboxItems.take(2).forEach { item -> InboxItemCard(item, onPickTime, onEdit, onOrganize, onShrink, onPause, onAbandon) }
         }
-        if (visibility.energy) Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))) {
-            Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(if (energyIsCurrent) "当前精力" else "精力（尚未更新）", fontWeight = FontWeight.Bold)
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    listOf("偏低", "正常", "充足").forEach { level ->
-                        FilterChip(selected = energyIsCurrent && energyLevel == level, onClick = { onEnergyLevelChange(level) }, label = { Text(level) })
-                    }
-                }
-                if (!energyIsCurrent && energyRecordedAt > 0L) Text("上次记录：${formatDateTime(energyRecordedAt)}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                if (!statusCheckInEnabled) {
-                    Text("每日精力询问尚未开启；你仍可随时手动选择。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    TextButton(onClick = onEnableStatusCheckIn) { Text("开启每日询问") }
-                }
-            }
+        if (visibility.energy && !statusCheckInEnabled) {
+            TextButton(onClick = onEnableStatusCheckIn) { Text("开启每日精力询问") }
         }
         val todayGoalTasks = items.filter { !it.done && it.goalId != null && it.scheduledAt != null && weekdayOf(it.scheduledAt!!) == weekdayOf(now) }
         val goalsRemaining = goals.count { it.weeklyTarget > GoalPlanner.completedThisWeek(it) }
@@ -404,10 +402,6 @@ import kotlinx.coroutines.withContext
                 }
             }
         }
-        if (visibility.campus) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-            Text("校园生活", style = MaterialTheme.typography.bodyMedium)
-            Switch(checked = campusLifeEnabled, onCheckedChange = onCampusLifeEnabledChange)
-        }
     }
         }
         SubpageMotion(inboxOpen.takeIf { it }) {
@@ -462,6 +456,85 @@ import kotlinx.coroutines.withContext
             }
         }
         if (helpOpen) HelpDialog(title = HelpCatalog.today.title, sections = HelpCatalog.today.sections, onDismiss = { helpOpen = false })
+    }
+}
+
+@Composable
+private fun TodayStatusPanel(
+    expanded: Boolean,
+    onExpandedChange: (Boolean) -> Unit,
+    lifeStage: LifeStage?,
+    onSwitchLifeStage: (LifeStage) -> Unit,
+    energyLevel: String,
+    energyIsCurrent: Boolean,
+    energyRecordedAt: Long,
+    onEnergyLevelChange: (String) -> Unit,
+    campusLifeEnabled: Boolean,
+    onCampusLifeEnabledChange: (Boolean) -> Unit,
+    commuteProfile: CommuteProfile,
+    onCommuteProfileChange: (CommuteProfile) -> Unit
+) {
+    val summary = buildList {
+        lifeStage?.label?.let(::add)
+        add(if (energyIsCurrent) "精力$energyLevel" else "精力待更新")
+        add(if (campusLifeEnabled) commuteProfile.campusMode else "校园生活关")
+    }.joinToString(" · ")
+    OutlinedCard {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp)) {
+            Row(
+                Modifier.fillMaxWidth().clickable { onExpandedChange(!expanded) },
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text("今日状态", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    Text(summary, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Text(if (expanded) "收起" else "调整", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+            }
+            AnimatedVisibility(
+                visible = expanded,
+                enter = expandVertically(animationSpec = tween(200), expandFrom = Alignment.Top) + fadeIn(tween(160)),
+                exit = shrinkVertically(animationSpec = tween(180), shrinkTowards = Alignment.Top) + fadeOut(tween(120))
+            ) {
+                Column(Modifier.fillMaxWidth().padding(top = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    HorizontalDivider()
+                    lifeStage?.let { current ->
+                        StatusChoiceRow("生活阶段", LifeStage.entries.map { it.label }, current.label) { label ->
+                            LifeStage.entries.firstOrNull { it.label == label }?.let(onSwitchLifeStage)
+                        }
+                    }
+                    StatusChoiceRow("精力", listOf("偏低", "正常", "充足"), energyLevel.takeIf { energyIsCurrent }.orEmpty(), onEnergyLevelChange)
+                    if (!energyIsCurrent && energyRecordedAt > 0L) {
+                        Text("上次记录：${formatDateTime(energyRecordedAt)}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                        Column(Modifier.weight(1f)) {
+                            Text("校园生活", fontWeight = FontWeight.SemiBold)
+                            Text("关闭不会删除已有数据", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Switch(checked = campusLifeEnabled, onCheckedChange = onCampusLifeEnabledChange)
+                    }
+                    if (campusLifeEnabled) {
+                        StatusChoiceRow("出行方式", listOf("步行", "自行车", "电动车"), commuteProfile.campusMode) { mode ->
+                            onCommuteProfileChange(commuteProfile.copy(campusMode = mode))
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun StatusChoiceRow(label: String, options: List<String>, selected: String, onSelect: (String) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(label, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            options.forEach { option ->
+                FilterChip(selected = selected == option, onClick = { onSelect(option) }, label = { Text(option) })
+            }
+        }
     }
 }
 

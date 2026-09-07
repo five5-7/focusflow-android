@@ -86,6 +86,14 @@ internal fun QuickStartDialog(onDismiss: () -> Unit) {
 
 /** 覆盖安装后每个版本只展示一次的更新说明；版本名来自 BuildConfig，路线图是唯一详情入口。 */
 internal fun updateHighlightsFor(version: String): List<String> = when {
+    version.startsWith("7.9.0-rc.4") -> listOf(
+        "今日页顶部新增可折叠的状态入口，集中调整生活阶段、精力和出行方式。",
+        "通勤块符号修正与统一设计语言第二轮保持不变。"
+    )
+    version.startsWith("7.9.0-rc.3") -> listOf(
+        "修正通勤块在较短时间段中容易呈现为感叹号的问题。",
+        "统一设计语言第二轮与收集箱分类入口保持不变。"
+    )
     version.startsWith("7.9.0-rc.2") -> listOf(
         "收集箱顶部新增全部、待整理、推进和参考入口，可快速切换分类。",
         "通勤块、统计卡、设置折叠区、滚动条和进度条已统一视觉层级。"

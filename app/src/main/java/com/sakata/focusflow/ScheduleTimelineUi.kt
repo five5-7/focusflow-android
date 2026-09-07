@@ -18,8 +18,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.PathEffect
-import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -345,18 +343,7 @@ internal fun TimelineDayLane(
                 tonalElevation = if (conflict || isCommute) 0.dp else 1.dp
             ) {
                 Box(Modifier.fillMaxSize()) {
-                    if (isCommute) {
-                        Canvas(Modifier.matchParentSize().padding(vertical = 4.dp)) {
-                            drawLine(
-                                color = eventColor.copy(alpha = 0.9f),
-                                start = Offset(size.width / 2f, 0f),
-                                end = Offset(size.width / 2f, size.height),
-                                strokeWidth = 2.dp.toPx(),
-                                cap = StrokeCap.Round,
-                                pathEffect = PathEffect.dashPathEffect(floatArrayOf(6.dp.toPx(), 5.dp.toPx()))
-                            )
-                        }
-                    } else if (conflict) {
+                    if (conflict && !isCommute) {
                         Canvas(Modifier.matchParentSize()) {
                             val step = 24.dp.toPx()
                             var x = -size.height

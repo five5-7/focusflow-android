@@ -664,6 +664,10 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                     activityHistory = activityHistory,
                     nextCommitment = upcomingCommitment,
                     commuteProfile = commuteProfile,
+                    onCommuteProfileChange = { updated ->
+                        commuteProfile = updated
+                        store.saveCommuteProfile(updated)
+                    },
                     onStartActivity = { activityPreset = null; activityOpen = true },
                     onStartSuggestion = { suggestion, minimumVersion ->
                         val minutes = if (minimumVersion) suggestion.minimumMinutes else suggestion.item.durationMinutes.coerceIn(5, 360)

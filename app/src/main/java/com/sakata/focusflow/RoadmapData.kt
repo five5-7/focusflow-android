@@ -20,7 +20,12 @@ data class RoadmapVersion(val version: String, val entries: List<RoadmapEntry>)
 object RoadmapData {
     /** 已实现版本演进（1.0 → 当前候选），每版本浓缩 1–3 条，与 CHANGELOG.md 对应。 */
     val evolution: List<RoadmapVersion> = listOf(
+        RoadmapVersion("7.10.0", listOf(
+            RoadmapEntry("7.10.0", "校园生活功能边界与首次引导", "校园生活作为课表、节次表、校园地点与校内通勤等能力的总开关；首次启动询问是否开启。关闭后按功能价值分别隐藏入口，或保留入口并在点击时提示前往“设置 → 高级工具 → 校园生活”开启；不自动开启、不删除既有课程和设置。快速上手与使用说明书同步解释功能范围和关闭后的影响。", RoadmapStatus.PLANNED)
+        )),
         RoadmapVersion("7.9.0", listOf(
+            RoadmapEntry("7.9.0-rc.4", "今日状态顶部聚合", "生活阶段、精力、校园生活和出行方式集中到今日页顶部折叠入口；收起显示真实摘要，展开后统一调整，原保存与排程行为不变。补充聚合器布局、动画、窄屏及状态边界规范。", RoadmapStatus.CANDIDATE),
+            RoadmapEntry("7.9.0-rc.3", "通勤块符号修正", "移除低矮通勤块中容易看成感叹号的中央虚线，只保留低干扰圆角色块与点击详情；通勤生成、占用计算和课程数据不变。", RoadmapStatus.CANDIDATE),
             RoadmapEntry("7.9.0-rc.2", "统一设计语言第二轮与收集箱分类入口", "收集箱顶部增加全部、待整理、推进和参考筛选；通勤块改为低干扰轨迹视觉；统计、设置折叠区、滚动条与加载／进度条统一主题层级，出行选择适配窄屏。数据与计算逻辑不变。", RoadmapStatus.CANDIDATE),
             RoadmapEntry("7.9.0-rc.1", "统一设计语言第一轮：文本减负", "保存文本取舍与基础视觉规范；清理今日、收集箱、日程和课表中由帮助重复承载的常驻教学、重复标题和界面设计自述，同时保留异常、当前状态与操作影响。不改变任务、课程、提醒和数据逻辑。", RoadmapStatus.CANDIDATE)
         )),
