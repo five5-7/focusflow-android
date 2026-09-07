@@ -1,10 +1,10 @@
 # FocusFlow
 
-当前开发候选：**8.0.0-rc.3**（versionCode 510）。本轮收束通知与前台并发保存、跨日期及跨午夜占用、重叠课程通勤和暂停任务边界；任务、历史与目标计数采用原子提交，旧页面快照不能覆盖通知操作。rc.2 已通过 Run 300 自动门禁；rc.3 仍需新的完整构建和真机验收。
+当前发布版本：**8.0.0**（versionCode 511）。本版整合 7.9–7.12，并收束计划页崩溃、逾期提示、通知与前台并发保存、跨日期及跨午夜占用、重叠课程通勤和暂停任务边界。rc.3 基线已通过 Run 303 全部门禁并完成真机验收；正式版本身仍须通过独立完整 CI 后合并发布。
 
 本地优先的 Android 日程与执行辅助应用（`com.sakata.focusflow`）。核心目标不是维护一张完整日历，而是**降低记录压力、按当前状态调整提醒、在错过计划后帮助恢复**。
 
-当前正式版仍为 [7.1.3](https://github.com/five5-7/focusflow-android/releases/tag/v7.1.3)。候选版只用于构建和真机验收，不等于已发布；版本规则见 [VERSIONING.md](VERSIONING.md)，更新记录见 [CHANGELOG.md](CHANGELOG.md)。
+最新正式版为 [8.0.0](https://github.com/five5-7/focusflow-android/releases/tag/v8.0.0)。候选版只用于构建和真机验收，不等于已发布；版本规则见 [VERSIONING.md](VERSIONING.md)，更新记录见 [CHANGELOG.md](CHANGELOG.md)。
 
 > 数据原则：只用你确认过的数据生成建议，数据不足时不打扰、不假装精确。数据只保存在本机。
 
