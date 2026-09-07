@@ -78,13 +78,13 @@ fun mergeRecognizedCourses(courses: List<Course>, recognized: List<Course>): Rec
     return RecognizeMerge(added, conflicts, innerConflicts, message)
 }
 
-/** 自由时段：课间空挡之外的可用时间——课后到晚上的整块空闲、没有课的整天。 */
+/** 自由时段：课间空挡之外的可用时间——第一节课前、最后一节课后、没有课的整天。 */
 data class FreeWindow(
     val weekday: Int,
     val startMinute: Int,
     val endMinute: Int,
     val minutes: Int,
-    /** "课后空闲" 或 "整天空闲" */
+    /** "课前空闲"、"课后空闲" 或 "整天空闲" */
     val kind: String
 )
 
@@ -115,7 +115,7 @@ object CourseGapPlanner {
             }
         }
 
-    /** 课间空挡之外的自由时段：最后一节课后到晚上、以及没有课的整天；扣除已有安排后切成剩余子段。课间空挡仍由 gaps() 提供。 */
+    /** 课间空挡之外的自由时段：第一节课前、最后一节课后、以及没有课的整天；扣除已有安排后切成剩余子段。课间空挡仍由 gaps() 提供。 */
     fun freeWindows(courses: List<Course>, dayStartMinute: Int = 8 * 60, dayEndMinute: Int = 22 * 60, occupied: Map<Int, List<IntRange>> = emptyMap()): List<FreeWindow> {
         val confirmed = courses.filter { !it.needsConfirmation }
         return (1..7).flatMap { weekday ->
@@ -123,8 +123,15 @@ object CourseGapPlanner {
             val base = if (daily.isEmpty()) {
                 listOf(FreeWindow(weekday, dayStartMinute, dayEndMinute, dayEndMinute - dayStartMinute, "整天空闲"))
             } else {
+                val firstStart = periodStart(daily.first().startPeriod).coerceIn(dayStartMinute, dayEndMinute)
                 val lastEnd = periodEnd(daily.last().endPeriod)
-                listOf(FreeWindow(weekday, lastEnd, dayEndMinute, dayEndMinute - lastEnd, "课后空闲"))
+                    .coerceIn(dayStartMinute, dayEndMinute)
+                listOfNotNull(
+                    FreeWindow(weekday, dayStartMinute, firstStart, firstStart - dayStartMinute, "课前空闲")
+                        .takeIf { it.minutes > 0 },
+                    FreeWindow(weekday, lastEnd, dayEndMinute, dayEndMinute - lastEnd, "课后空闲")
+                        .takeIf { it.minutes > 0 }
+                )
             }
             base.flatMap { subtractOccupied(it, occupied[weekday].orEmpty()) }.filter { it.minutes >= 60 }
         }
