@@ -292,7 +292,7 @@ class PrototypeStore(context: Context) {
     }
 
     /** Notification task action: freshness check, item/event update and goal count share one commit. */
-    fun mutateScheduledTask(
+    internal fun mutateScheduledTask(
         id: Long,
         expectedScheduledAt: Long,
         completionMinimum: Boolean? = null,
