@@ -1,9 +1,14 @@
 package com.sakata.focusflow
 
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -28,19 +33,38 @@ internal fun PlanGapsSection(
     val occupied = occupiedByWeekday(items)
     val freeWindows = CourseGapPlanner.freeWindows(planningCourses, occupied = occupied)
     val recommendations = gapRecommendations(gaps, freeWindows, goals, items, store)
-    if (recommendations.isNotEmpty()) {
-        GapRecommendations(
-            recommendations,
-            checkIns,
-            onScheduleGoal,
-            onScheduleFlexible
-        )
-        HorizontalDivider()
+    var selectedView by remember { mutableStateOf(if (tableExpanded) "课表" else "建议") }
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
+        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("查看空挡", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text("按用途切换，避免建议、时间段和课表同时堆在一页。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(
+                    "建议" to recommendations.size,
+                    "课间" to gaps.count { it.minutesFree >= 10 },
+                    "自由时段" to freeWindows.size,
+                    "课表" to planningCourses.size
+                ).forEach { (label, count) ->
+                    FilterChip(
+                        selected = selectedView == label,
+                        onClick = {
+                            selectedView = label
+                            onTableExpandedChange(label == "课表")
+                        },
+                        label = { Text("$label $count") }
+                    )
+                }
+            }
+        }
     }
-    GapTableToggle(tableExpanded) { onTableExpandedChange(!tableExpanded) }
-    if (tableExpanded) GapTimelineContent(planningCourses, profile)
-    CourseGaps(gaps, confirmedCourseCount)
-    FreeWindows(freeWindows)
+    when (selectedView) {
+        "建议" -> if (recommendations.isEmpty()) {
+            Text("当前空挡没有可匹配的目标或弹性任务。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        } else GapRecommendations(recommendations, checkIns, onScheduleGoal, onScheduleFlexible)
+        "课间" -> CourseGaps(gaps, confirmedCourseCount)
+        "自由时段" -> if (freeWindows.isEmpty()) Text("当前没有不少于 60 分钟的自由时段。", style = MaterialTheme.typography.bodySmall) else FreeWindows(freeWindows)
+        else -> GapTimelineContent(planningCourses, profile)
+    }
 }
 
 @Composable
@@ -176,24 +200,6 @@ private fun GapRecommendations(
                     }
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun GapTableToggle(expanded: Boolean, onToggle: () -> Unit) {
-    Card(Modifier.fillMaxWidth().clickable(onClick = onToggle)) {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text("空挡课表视图", fontWeight = FontWeight.SemiBold)
-            Text(
-                if (expanded) "收起 ▴" else "展开 ▾",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary
-            )
         }
     }
 }

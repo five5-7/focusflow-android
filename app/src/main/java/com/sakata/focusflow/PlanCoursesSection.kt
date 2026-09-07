@@ -5,6 +5,10 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -23,7 +27,9 @@ internal fun PlanCoursesSection(
     onClearAwaitingCourses: () -> Unit,
     onConfirmCourse: (Course) -> Unit,
     onEditCourse: (Course) -> Unit,
-    onIgnoreCourse: (Course) -> Unit
+    onIgnoreCourse: (Course) -> Unit,
+    onToggleCourse: (Course) -> Unit,
+    onDeleteCourses: (Set<Course>) -> Unit
 ) {
     Text("从课表截图开始", fontWeight = FontWeight.Bold)
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -60,7 +66,7 @@ internal fun PlanCoursesSection(
         onIgnoreCourse
     )
     HorizontalDivider()
-    ConfirmedCourses(confirmedCourses, onEditCourse)
+    ConfirmedCourses(confirmedCourses, onEditCourse, onToggleCourse, onDeleteCourses)
 }
 
 @Composable
@@ -116,14 +122,23 @@ private fun PendingCourses(
 }
 
 @Composable
-private fun ConfirmedCourses(confirmed: List<Course>, onEdit: (Course) -> Unit) {
-    Text("已确认课程", fontWeight = FontWeight.Bold)
+private fun ConfirmedCourses(confirmed: List<Course>, onEdit: (Course) -> Unit, onToggle: (Course) -> Unit, onDelete: (Set<Course>) -> Unit) {
+    var selecting by remember { mutableStateOf(false) }
+    var selected by remember { mutableStateOf(emptySet<Course>()) }
+    var pendingDelete by remember { mutableStateOf<Set<Course>?>(null) }
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+        Text("已确认课程", fontWeight = FontWeight.Bold)
+        if (confirmed.isNotEmpty()) TextButton(onClick = {
+            selecting = !selecting
+            if (!selecting) selected = emptySet()
+        }) { Text(if (selecting) "完成" else "批量管理") }
+    }
     if (confirmed.isEmpty()) {
         Text("确认课程后，它们会用于周日程和空挡计算。", style = MaterialTheme.typography.bodySmall)
         return
     }
     val conflicting = confirmed.filter { course ->
-        confirmed.any { other -> other != course && coursesOverlap(course, other) }
+        course.enabled && confirmed.any { other -> other.enabled && other != course && coursesOverlap(course, other) }
     }
     if (conflicting.isNotEmpty()) {
         Text(
@@ -142,10 +157,11 @@ private fun ConfirmedCourses(confirmed: List<Course>, onEdit: (Course) -> Unit) 
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    if (selecting) Checkbox(checked = course in selected, onCheckedChange = { checked -> selected = if (checked) selected + course else selected - course })
                     Column(Modifier.weight(1f)) {
                         CourseIdentity(course, CONFLICT_TEXT_COLOR)
                         val overlapped = confirmed.firstOrNull { other ->
-                            other != course && coursesOverlap(course, other)
+                            other.enabled && other != course && coursesOverlap(course, other)
                         }
                         Text(
                             "与${overlapped?.let { "《${it.title}》" } ?: "另一门课"}重叠",
@@ -153,7 +169,13 @@ private fun ConfirmedCourses(confirmed: List<Course>, onEdit: (Course) -> Unit) 
                             color = CONFLICT_TEXT_COLOR
                         )
                     }
-                    TextButton(onClick = { onEdit(course) }) { Text("编辑") }
+                    if (!selecting) {
+                        Column(horizontalAlignment = Alignment.End) {
+                            TextButton(onClick = { onEdit(course) }) { Text("编辑") }
+                            TextButton(onClick = { onToggle(course) }) { Text(if (course.enabled) "停用" else "启用") }
+                            TextButton(onClick = { pendingDelete = setOf(course) }) { Text("删除", color = MaterialTheme.colorScheme.error) }
+                        }
+                    }
                 }
             }
         }
@@ -165,10 +187,42 @@ private fun ConfirmedCourses(confirmed: List<Course>, onEdit: (Course) -> Unit) 
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                if (selecting) Checkbox(checked = course in selected, onCheckedChange = { checked -> selected = if (checked) selected + course else selected - course })
                 Column(Modifier.weight(1f)) { CourseIdentity(course) }
-                TextButton(onClick = { onEdit(course) }) { Text("编辑") }
+                if (!selecting) {
+                    Column(horizontalAlignment = Alignment.End) {
+                        TextButton(onClick = { onEdit(course) }) { Text("编辑") }
+                        TextButton(onClick = { onToggle(course) }) { Text(if (course.enabled) "停用" else "启用") }
+                        TextButton(onClick = { pendingDelete = setOf(course) }) { Text("删除", color = MaterialTheme.colorScheme.error) }
+                    }
+                }
             }
         }
+    }
+    if (selecting) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+            Text("已选 ${selected.size} 门", style = MaterialTheme.typography.labelMedium)
+            TextButton(enabled = selected.isNotEmpty(), onClick = { pendingDelete = selected }) { Text("删除所选", color = MaterialTheme.colorScheme.error) }
+        }
+    }
+    pendingDelete?.let { targets ->
+        AlertDialog(
+            onDismissRequest = { pendingDelete = null },
+            title = { Text(if (targets.size == 1) "删除这门课程？" else "删除所选 ${targets.size} 门课程？") },
+            text = { Text("课程将从课表、日程和空挡计算中移除；节次表、地点、任务和历史记录不会删除。") },
+            confirmButton = {
+                Button(
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                    onClick = {
+                        onDelete(targets)
+                        selected = emptySet()
+                        selecting = false
+                        pendingDelete = null
+                    }
+                ) { Text("确认删除") }
+            },
+            dismissButton = { TextButton(onClick = { pendingDelete = null }) { Text("取消") } }
+        )
     }
 }
 
@@ -180,9 +234,17 @@ private fun CourseIdentity(course: Course, titleColor: androidx.compose.ui.graph
         color = titleColor ?: LocalContentColor.current
     )
     Text(
-        "第 ${course.startPeriod}–${course.endPeriod} 节 · ${course.building}",
+        "第 ${course.startPeriod}–${course.endPeriod} 节 · ${course.building}" +
+            (if (!course.enabled) " · 已停用" else courseDateRangeText(course)),
         style = MaterialTheme.typography.bodySmall
     )
+}
+
+private fun courseDateRangeText(course: Course): String = when {
+    course.effectiveFromEpochDay != null && course.effectiveUntilEpochDay != null -> " · ${java.time.LocalDate.ofEpochDay(course.effectiveFromEpochDay)} 至 ${java.time.LocalDate.ofEpochDay(course.effectiveUntilEpochDay)}"
+    course.effectiveFromEpochDay != null -> " · ${java.time.LocalDate.ofEpochDay(course.effectiveFromEpochDay)} 起"
+    course.effectiveUntilEpochDay != null -> " · 至 ${java.time.LocalDate.ofEpochDay(course.effectiveUntilEpochDay)}"
+    else -> ""
 }
 
 private val courseOrder = compareBy<Course> { it.weekday }.thenBy { it.startPeriod }

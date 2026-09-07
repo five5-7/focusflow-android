@@ -39,17 +39,18 @@ object ZijingangTravel {
 
     fun estimateMinutes(from: CampusZone, to: CampusZone, profile: CommuteProfile): Int {
         calibratedMinutes(from, to, profile)?.let { return it }
-        val walkingMinutes = if (from == to) 2 else when (setOf(from, to)) {
-            setOf(CampusZone.WEST_TEACHING, CampusZone.EAST_TEACHING) -> 14
-            setOf(CampusZone.WEST_TEACHING, CampusZone.NORTH_TEACHING) -> 11
-            setOf(CampusZone.WEST_TEACHING, CampusZone.CHEMISTRY_LABS) -> 12
-            setOf(CampusZone.EAST_TEACHING, CampusZone.NORTH_TEACHING) -> 10
-            setOf(CampusZone.EAST_TEACHING, CampusZone.EAST_STADIUM) -> 8
-            setOf(CampusZone.EAST_TEACHING, CampusZone.LIBRARY) -> 8
-            setOf(CampusZone.LIBRARY, CampusZone.EAST_STADIUM) -> 9
-            else -> 12
+        val walkingMinutes = if (from == to) profile.nearMinutes else when (setOf(from, to)) {
+            setOf(CampusZone.EAST_TEACHING, CampusZone.EAST_STADIUM),
+            setOf(CampusZone.EAST_TEACHING, CampusZone.LIBRARY),
+            setOf(CampusZone.LIBRARY, CampusZone.EAST_STADIUM) -> profile.fairlyNearMinutes
+            setOf(CampusZone.WEST_TEACHING, CampusZone.NORTH_TEACHING),
+            setOf(CampusZone.WEST_TEACHING, CampusZone.CHEMISTRY_LABS),
+            setOf(CampusZone.EAST_TEACHING, CampusZone.NORTH_TEACHING) -> profile.fairlyFarMinutes
+            setOf(CampusZone.WEST_TEACHING, CampusZone.EAST_TEACHING) -> profile.farMinutes
+            else -> if (profile.useDefaultForUnknown) profile.oneWayMinutes else 0
         }
-        // 其他分区（自定义）没有距离矩阵数据，一律走默认 12 分钟兜底，可手动校准。
+        if (walkingMinutes <= 0) return 0
+        // 档位只是可调整的规划缓冲；实测路线校准始终优先，不把校内分区当作导航距离。
         val travel = when (profile.campusMode) {
             "自行车" -> maxOf(3, (walkingMinutes * 0.6).toInt())
             "电动车" -> maxOf(3, (walkingMinutes * 0.5).toInt())

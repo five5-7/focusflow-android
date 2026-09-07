@@ -360,6 +360,11 @@ class PrototypeStore(context: Context) {
         // 仅影响从未保存过通勤设置的新安装；已有键继续保留用户选择。
         enabled = preferences.getBoolean("commute_enabled", true),
         oneWayMinutes = preferences.getInt("commute_one_way_minutes", 10),
+        useDefaultForUnknown = preferences.getBoolean("commute_default_unknown", true),
+        nearMinutes = preferences.getInt("commute_tier_near", 5),
+        fairlyNearMinutes = preferences.getInt("commute_tier_fairly_near", 10),
+        fairlyFarMinutes = preferences.getInt("commute_tier_fairly_far", 15),
+        farMinutes = preferences.getInt("commute_tier_far", 25),
         campusMode = preferences.getString("campus_mode", "步行") ?: "步行",
         buildingBufferMinutes = preferences.getInt("building_buffer_minutes", 3),
         eBikeBattery = preferences.getString("ebike_battery", "未知") ?: "未知",
@@ -374,6 +379,11 @@ class PrototypeStore(context: Context) {
         preferences.edit()
             .putBoolean("commute_enabled", profile.enabled)
             .putInt("commute_one_way_minutes", profile.oneWayMinutes)
+            .putBoolean("commute_default_unknown", profile.useDefaultForUnknown)
+            .putInt("commute_tier_near", profile.nearMinutes)
+            .putInt("commute_tier_fairly_near", profile.fairlyNearMinutes)
+            .putInt("commute_tier_fairly_far", profile.fairlyFarMinutes)
+            .putInt("commute_tier_far", profile.farMinutes)
             .putString("campus_mode", profile.campusMode)
             .putInt("building_buffer_minutes", profile.buildingBufferMinutes)
             .putString("ebike_battery", profile.eBikeBattery)
@@ -599,7 +609,11 @@ class PrototypeStore(context: Context) {
                 val course = values.getJSONObject(index)
                 Course(
                     title = course.getString("title"), weekday = course.getInt("weekday"), startPeriod = course.getInt("startPeriod"), endPeriod = course.getInt("endPeriod"),
-                    building = course.getString("building"), zone = CampusZone.valueOf(course.getString("zone")), needsConfirmation = course.optBoolean("needsConfirmation", false)
+                    building = course.getString("building"), zone = CampusZone.valueOf(course.getString("zone")), needsConfirmation = course.optBoolean("needsConfirmation", false),
+                    enabled = course.optBoolean("enabled", true),
+                    effectiveFromEpochDay = course.optLong("effectiveFromEpochDay", Long.MIN_VALUE).takeUnless { it == Long.MIN_VALUE },
+                    effectiveUntilEpochDay = course.optLong("effectiveUntilEpochDay", Long.MIN_VALUE).takeUnless { it == Long.MIN_VALUE },
+                    id = course.optLong("id", 0L).takeIf { it > 0L } ?: newItemId()
                 )
             }
         }, { it.isEmpty() })
@@ -609,6 +623,10 @@ class PrototypeStore(context: Context) {
         courses.forEach { course -> values.put(JSONObject().apply {
             put("title", course.title); put("weekday", course.weekday); put("startPeriod", course.startPeriod); put("endPeriod", course.endPeriod)
             put("building", course.building); put("zone", course.zone.name); put("needsConfirmation", course.needsConfirmation)
+            put("enabled", course.enabled)
+            course.effectiveFromEpochDay?.let { put("effectiveFromEpochDay", it) }
+            course.effectiveUntilEpochDay?.let { put("effectiveUntilEpochDay", it) }
+            put("id", course.id)
         }) }
         preferences.edit().putBoolean("course_setup_done", true).putString("courses", values.toString()).apply()
     }

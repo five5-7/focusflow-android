@@ -856,9 +856,16 @@ internal fun categorizedInstalledApps(context: Context, userCategories: Map<Stri
                                     Text("出行参数", fontWeight = FontWeight.SemiBold)
                                     SettingSwitch("为通勤预留时间", "只保存大致时长，不读取定位", commuteProfile.enabled) { onCommuteChange(commuteProfile.copy(enabled = it)) }
                                     if (commuteProfile.enabled) {
-                                        Text("单程约 ${commuteProfile.oneWayMinutes} 分钟（新安装默认 10 分钟）")
-                                        Text("这是起步估计，不读取定位；按实际体验调整即可。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                        Text("常用档位", style = MaterialTheme.typography.labelMedium)
+                                        SettingSwitch(
+                                            "未知路线使用默认时间",
+                                            "没有路线记录或可判断档位时才使用；关闭后不自动预留",
+                                            commuteProfile.useDefaultForUnknown
+                                        ) { onCommuteChange(commuteProfile.copy(useDefaultForUnknown = it)) }
+                                        if (commuteProfile.useDefaultForUnknown) {
+                                            Text("未知路线默认 ${commuteProfile.oneWayMinutes} 分钟")
+                                        }
+                                        Text("这只是规划缓冲，不读取定位；实测路线记录会优先使用。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text("未知路线默认值", style = MaterialTheme.typography.labelMedium)
                                         FlowRow(
                                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                                             verticalArrangement = Arrangement.spacedBy(6.dp)
@@ -870,6 +877,30 @@ internal fun categorizedInstalledApps(context: Context, userCategories: Map<Stri
                                                     label = { Text("${minutes} 分钟", maxLines = 1) }
                                                 )
                                             }
+                                        }
+                                        Text("距离档位", fontWeight = FontWeight.SemiBold)
+                                        Text("学校楼名不统一，档位只用于粗略安排，可按自己的校园调整。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        listOf(
+                                            "近" to commuteProfile.nearMinutes,
+                                            "较近" to commuteProfile.fairlyNearMinutes,
+                                            "较远" to commuteProfile.fairlyFarMinutes,
+                                            "远" to commuteProfile.farMinutes
+                                        ).forEach { (label, minutes) ->
+                                            Text("$label · ${minutes} 分钟", style = MaterialTheme.typography.labelMedium)
+                                            Slider(
+                                                value = minutes.toFloat(),
+                                                onValueChange = { value ->
+                                                    val updated = when (label) {
+                                                        "近" -> commuteProfile.copy(nearMinutes = value.toInt().coerceIn(1, commuteProfile.fairlyNearMinutes))
+                                                        "较近" -> commuteProfile.copy(fairlyNearMinutes = value.toInt().coerceIn(commuteProfile.nearMinutes, commuteProfile.fairlyFarMinutes))
+                                                        "较远" -> commuteProfile.copy(fairlyFarMinutes = value.toInt().coerceIn(commuteProfile.fairlyNearMinutes, commuteProfile.farMinutes))
+                                                        else -> commuteProfile.copy(farMinutes = value.toInt().coerceIn(commuteProfile.fairlyFarMinutes, 45))
+                                                    }
+                                                    onCommuteChange(updated)
+                                                },
+                                                valueRange = 1f..45f,
+                                                steps = 43
+                                            )
                                         }
                                         Text("校内主要方式", fontWeight = FontWeight.SemiBold)
                                         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {

@@ -576,6 +576,7 @@ internal fun timeOnSameDayAs(target: Long, minute: Int): Long =
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable internal fun CourseEditorDialog(existing: Course?, places: List<CampusPlace>, maxPeriod: Int = 13, onDismiss: () -> Unit, onOpenCommutePlaces: () -> Unit, onSave: (Course) -> Unit) {
+    val context = LocalContext.current
     var title by remember { mutableStateOf(existing?.title ?: "") }
     var weekday by remember { mutableIntStateOf(existing?.weekday ?: 1) }
     var startPeriod by remember { mutableStateOf(existing?.startPeriod?.toString() ?: "1") }
@@ -585,6 +586,9 @@ internal fun timeOnSameDayAs(target: Long, minute: Int): Long =
     var place by remember(availablePlaces, existing?.building) { mutableStateOf(existingPlace) }
     var customSelected by remember(existing?.building) { mutableStateOf(existing?.building != null && existingPlace == null) }
     var customName by remember(existing?.building) { mutableStateOf(if (existingPlace == null) (existing?.building ?: "") else "") }
+    var enabled by remember(existing) { mutableStateOf(existing?.enabled ?: true) }
+    var effectiveFrom by remember(existing) { mutableStateOf(existing?.effectiveFromEpochDay) }
+    var effectiveUntil by remember(existing) { mutableStateOf(existing?.effectiveUntilEpochDay) }
     val parsedStart = startPeriod.toIntOrNull()
     val parsedCount = lessonCount.toIntOrNull()
     val parsedEnd = parsedStart?.let { start -> parsedCount?.let { start + it - 1 } }
@@ -592,13 +596,33 @@ internal fun timeOnSameDayAs(target: Long, minute: Int): Long =
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(if (existing == null) "新增课程" else "编辑课程") },
-        text = { Column(Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        text = { Column(Modifier.heightIn(max = 520.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedTextField(value = title, onValueChange = { title = it }, label = { Text("课程名称") }, singleLine = true)
             Text("课程会按星期、开始节和连续节数排入课表与日程；当前节次表共 $maxPeriod 节。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) { (1..7).forEach { day -> FilterChip(selected = weekday == day, onClick = { weekday = day }, label = { Text(weekdayName(day)) }) } }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(modifier = Modifier.weight(1f), value = startPeriod, onValueChange = { startPeriod = it.filter(Char::isDigit) }, label = { Text("第几节开始") }, singleLine = true)
                 OutlinedTextField(modifier = Modifier.weight(1f), value = lessonCount, onValueChange = { lessonCount = it.filter(Char::isDigit) }, label = { Text("连续几节") }, singleLine = true)
+            }
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                Column(Modifier.weight(1f)) {
+                    Text("课程生效", fontWeight = FontWeight.SemiBold)
+                    Text("关闭后保留课程资料，但不参与课表、日程和空挡计算。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Switch(checked = enabled, onCheckedChange = { enabled = it })
+            }
+            Text("生效期（可选）", fontWeight = FontWeight.SemiBold)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                OutlinedButton(onClick = { showCourseDatePicker(context, effectiveFrom) { effectiveFrom = it } }) {
+                    Text(effectiveFrom?.let { "开始 ${formatCourseDate(it)}" } ?: "设置开始日期")
+                }
+                OutlinedButton(onClick = { showCourseDatePicker(context, effectiveUntil) { effectiveUntil = it } }) {
+                    Text(effectiveUntil?.let { "结束 ${formatCourseDate(it)}" } ?: "设置结束日期")
+                }
+                if (effectiveFrom != null || effectiveUntil != null) TextButton(onClick = { effectiveFrom = null; effectiveUntil = null }) { Text("清除生效期") }
+            }
+            if (effectiveFrom != null && effectiveUntil != null && effectiveFrom!! > effectiveUntil!!) {
+                Text("结束日期不能早于开始日期", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
             }
             Text("地点", fontWeight = FontWeight.SemiBold)
             Text("地点用于课程显示和已开启的出行时间估算；没有地点包时可直接自填。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -607,12 +631,39 @@ internal fun timeOnSameDayAs(target: Long, minute: Int): Long =
             if (customSelected) OutlinedTextField(value = customName, onValueChange = { customName = it }, label = { Text("地点名称（自填，按东/西/北自动猜分区）") }, singleLine = true, modifier = Modifier.fillMaxWidth())
             TextButton(onClick = onOpenCommutePlaces) { Text("管理地点与出行参数") }
         } },
-        confirmButton = { Button(enabled = title.isNotBlank() && parsedStart != null && parsedCount != null && parsedEnd != null && parsedStart in 1..maxPeriod && parsedCount in 1..maxPeriod && parsedEnd in parsedStart..maxPeriod && buildingName.isNotBlank(), onClick = {
+        confirmButton = { Button(enabled = title.isNotBlank() && parsedStart != null && parsedCount != null && parsedEnd != null && parsedStart in 1..maxPeriod && parsedCount in 1..maxPeriod && parsedEnd in parsedStart..maxPeriod && buildingName.isNotBlank() && (effectiveFrom == null || effectiveUntil == null || effectiveFrom!! <= effectiveUntil!!), onClick = {
             val zone = if (customSelected) CourseScreenshotParser.zoneByPrefix(buildingName) else (place?.zone ?: CampusZone.WEST_TEACHING)
-            onSave(Course(title, weekday, parsedStart ?: 1, parsedEnd ?: 1, buildingName, zone, false))
+            onSave(
+                Course(
+                    title = title,
+                    weekday = weekday,
+                    startPeriod = parsedStart ?: 1,
+                    endPeriod = parsedEnd ?: 1,
+                    building = buildingName,
+                    zone = zone,
+                    needsConfirmation = false,
+                    enabled = enabled,
+                    effectiveFromEpochDay = effectiveFrom,
+                    effectiveUntilEpochDay = effectiveUntil,
+                    id = existing?.id ?: newItemId()
+                )
+            )
         }) { Text("保存") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }
     )
+}
+
+private fun formatCourseDate(epochDay: Long): String = java.time.LocalDate.ofEpochDay(epochDay).toString()
+
+private fun showCourseDatePicker(context: Context, initialEpochDay: Long?, onSelect: (Long) -> Unit) {
+    val initial = initialEpochDay?.let(java.time.LocalDate::ofEpochDay) ?: java.time.LocalDate.now()
+    DatePickerDialog(
+        context,
+        { _, year, month, day -> onSelect(java.time.LocalDate.of(year, month + 1, day).toEpochDay()) },
+        initial.year,
+        initial.monthValue - 1,
+        initial.dayOfMonth
+    ).show()
 }
 
 /** 快速记录解析草稿：预览确认后作为收集箱项保存（明天路径只取 title）。 */

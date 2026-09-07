@@ -382,7 +382,8 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
         .filter { !it.done && it.kind != "收集箱" && it.kind != "暂停" }
         .sortedWith(compareBy<Item> { it.scheduledAt ?: Long.MAX_VALUE }.thenBy { it.title })
         .firstOrNull()
-    val activeCourses = if (baselineProfile.lifeStage == LifeStage.HOLIDAY || !campusLifeEnabled) emptyList() else courses
+    val activeCourses = if (baselineProfile.lifeStage == LifeStage.HOLIDAY || !campusLifeEnabled) emptyList()
+        else CourseActivationPolicy.activeInUpcomingWeek(courses.filter { !it.needsConfirmation })
     val upcomingCommitment = NextActionPlanner.nextCommitment(items, activeCourses)
     val suggestedNextStepName = upcomingCommitment?.title ?: suggestedNextStep?.title.orEmpty()
     // 全部地点：内置目录或地点包为基底，自定义地点按名去重合并（同名自定义胜出）。
@@ -843,6 +844,14 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                         }
                     },
                     onEditCourse = { courseEditor = it },
+                    onToggleCourse = { course ->
+                        courses = courses.map { if (it == course) it.copy(enabled = !it.enabled) else it }
+                        store.saveCourses(courses)
+                    },
+                    onDeleteCourses = { targets ->
+                        courses = courses.filterNot { it in targets }
+                        store.saveCourses(courses)
+                    },
                     goals = goals,
                     onAddGoal = { goalFinderSuggestion = ""; addGoalOpen = true },
                     onEditGoal = { goal -> goalFinderSuggestion = ""; editGoalTarget = goal },

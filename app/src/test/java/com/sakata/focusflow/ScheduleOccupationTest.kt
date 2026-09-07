@@ -55,9 +55,9 @@ class ScheduleOccupationTest {
         assertEquals(1, blocks.size)
         val block = blocks.single()
         assertEquals("commute", block.kind)
-        // 下课 525（8:45），估算步行14+缓冲6=20 → 545；下一课 600 之前，不截断
+        // 下课 525（8:45），估算“远”档25+缓冲6=31 → 556；下一课 600 之前，不截断
         assertEquals(525, block.startMinute)
-        assertEquals(545, block.endMinute)
+        assertEquals(556, block.endMinute)
         assertEquals("", block.title)
     }
 
@@ -69,7 +69,7 @@ class ScheduleOccupationTest {
     @Test fun `commuteBlocks truncate when next class starts before travel ends`() {
         val courses = listOf(course("高数", from = 1, to = 1), course("英语", from = 2, to = 2, zone = CampusZone.EAST_TEACHING))
         val block = ScheduleOccupation.commuteBlocks(courses, enabledProfile).single()
-        // 剩 5 分钟空挡，通勤估算 20 分钟 → 截断到下一课开始
+        // 剩 5 分钟空挡，通勤估算 31 分钟 → 截断到下一课开始
         assertEquals(525, block.startMinute)
         assertEquals(530, block.endMinute)
     }
@@ -99,7 +99,7 @@ class ScheduleOccupationTest {
         assertTrue(withTravel.size < withoutTravel.size || withTravel.first().first <= withoutTravel.first().first)
         // p1 与 p3 相隔 75 分钟，生成通勤；膨胀后两组区间仍不相邻
         assertEquals(2, withTravel.size)
-        assertEquals(465..559, withTravel.first())
+        assertEquals(465..570, withTravel.first())
         assertEquals(585..659, withTravel.last())
     }
 

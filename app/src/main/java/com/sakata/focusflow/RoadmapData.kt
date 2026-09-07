@@ -20,6 +20,9 @@ data class RoadmapVersion(val version: String, val entries: List<RoadmapEntry>)
 object RoadmapData {
     /** 已实现版本演进（1.0 → 当前候选），每版本浓缩 1–3 条，与 CHANGELOG.md 对应。 */
     val evolution: List<RoadmapVersion> = listOf(
+        RoadmapVersion("7.11.0", listOf(
+            RoadmapEntry("7.11.0-rc.1", "课程、空挡与通勤完善", "课程支持生效开关、可选起止日期、单门删除和批量删除；空挡按建议、课间、自由时段和课表切换；通勤使用实测校准、四档距离与可关闭的未知路线默认兜底。", RoadmapStatus.CANDIDATE)
+        )),
         RoadmapVersion("7.10.0", listOf(
             RoadmapEntry("7.10.0-rc.1", "校园生活功能边界与首次引导", "校园生活统一控制课程、课表、节次、地点和校内通勤；新安装先询问是否启用。关闭后课程与课表入口提示完整开启路径，空挡建议隐藏，通勤设置入口保留；已有数据不删除。修复当前位置空选择页，电动车模式补充电量快捷状态。", RoadmapStatus.CANDIDATE)
         )),

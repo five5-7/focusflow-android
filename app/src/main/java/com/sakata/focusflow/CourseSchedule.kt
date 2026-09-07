@@ -7,8 +7,28 @@ data class Course(
     val endPeriod: Int,
     val building: String,
     val zone: CampusZone,
-    val needsConfirmation: Boolean = true
+    val needsConfirmation: Boolean = true,
+    val enabled: Boolean = true,
+    val effectiveFromEpochDay: Long? = null,
+    val effectiveUntilEpochDay: Long? = null,
+    val id: Long = newItemId()
 )
+
+object CourseActivationPolicy {
+    fun isActiveOn(course: Course, epochDay: Long): Boolean =
+        course.enabled &&
+            (course.effectiveFromEpochDay == null || epochDay >= course.effectiveFromEpochDay) &&
+            (course.effectiveUntilEpochDay == null || epochDay <= course.effectiveUntilEpochDay)
+
+    fun nextOccurrenceEpochDay(course: Course, todayEpochDay: Long): Long {
+        val currentWeekday = java.time.LocalDate.ofEpochDay(todayEpochDay).dayOfWeek.value
+        val offset = (course.weekday - currentWeekday + 7) % 7
+        return todayEpochDay + offset
+    }
+
+    fun activeInUpcomingWeek(courses: List<Course>, todayEpochDay: Long = java.time.LocalDate.now().toEpochDay()): List<Course> =
+        courses.filter { course -> isActiveOn(course, nextOccurrenceEpochDay(course, todayEpochDay)) }
+}
 
 data class CoursePeriodTime(val startMinute: Int, val endMinute: Int)
 
@@ -38,7 +58,7 @@ data class RecognizeMerge(
 fun mergeRecognizedCourses(courses: List<Course>, recognized: List<Course>): RecognizeMerge {
     val existing = courses.map { listOf(it.weekday, it.startPeriod, it.endPeriod, it.title.trim()) }.toSet()
     val added = recognized.filterNot { listOf(it.weekday, it.startPeriod, it.endPeriod, it.title.trim()) in existing }
-    val confirmed = courses.filter { !it.needsConfirmation }
+    val confirmed = courses.filter { !it.needsConfirmation && it.enabled }
     val conflicts = added.filter { new -> confirmed.any { coursesOverlap(new, it) } }
     val innerConflicts = added.count { new -> added.any { other -> other != new && coursesOverlap(new, other) } }
     val message = when {

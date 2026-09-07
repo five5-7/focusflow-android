@@ -103,6 +103,10 @@ internal fun CampusLifeChoiceDialog(onEnable: () -> Unit, onSkip: () -> Unit) {
 
 /** 覆盖安装后每个版本只展示一次的更新说明；版本名来自 BuildConfig，路线图是唯一详情入口。 */
 internal fun updateHighlightsFor(version: String): List<String> = when {
+    version.startsWith("7.11.0") -> listOf(
+        "课程可以设置生效期、停用、单门删除或批量删除；空挡内容改为分类切换。",
+        "通勤增加可调距离档位，并可决定未知路线是否使用默认时间。"
+    )
     version.startsWith("7.10.0") -> listOf(
         "校园生活现在统一控制课程、课表、节次、地点和校内通勤；首次安装会先询问是否启用。",
         "修复当前位置空选择页；今日状态选择电动车后可直接调整并查看电量。"

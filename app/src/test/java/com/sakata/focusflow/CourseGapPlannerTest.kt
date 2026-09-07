@@ -12,9 +12,9 @@ class CourseGapPlannerTest {
     @Test fun gaps_sameZone() {
         val gaps = CourseGapPlanner.gaps(listOf(a, b), profile)
         assertEquals(1, gaps.size)
-        assertEquals(8, gaps[0].travelMinutes)       // 同区 2 分钟 + 缓冲 3×2
-        assertEquals(67, gaps[0].minutesFree)        // (600-525) - 8
-        assertEquals(533, gaps[0].suggestedStartMinute) // 525 + 8
+        assertEquals(11, gaps[0].travelMinutes)       // “近”档 5 分钟 + 缓冲 3×2
+        assertEquals(64, gaps[0].minutesFree)         // (600-525) - 11
+        assertEquals(536, gaps[0].suggestedStartMinute) // 525 + 11
     }
 
     @Test fun gaps_occupiedMovesStartToLongestRun() {
