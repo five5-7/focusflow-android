@@ -77,7 +77,7 @@ class ScheduleOccupationTest {
     @Test fun `commuteBlocks keep the latest end across nested courses`() {
         val long = course("长课", from = 1, to = 5)
         val nested = course("嵌套课", from = 2, to = 2, zone = CampusZone.EAST_TEACHING)
-        val later = course("后续课", from = 7, to = 7, zone = CampusZone.EAST_TEACHING)
+        val later = course("后续课", from = 6, to = 6, zone = CampusZone.EAST_TEACHING)
 
         val blocks = ScheduleOccupation.commuteBlocks(listOf(long, nested, later), enabledProfile)
 

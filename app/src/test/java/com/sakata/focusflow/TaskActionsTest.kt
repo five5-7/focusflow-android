@@ -151,7 +151,7 @@ class TaskActionsTest {
         val result = TaskActions.pause(listOf(scheduled), scheduled)
         assertEquals("暂停", result.items[0].kind)
         assertEquals("已暂停；随时可在计划中恢复", result.items[0].detail)
-        assertEquals(fixedNow, result.items[0].recoverySourceScheduledAt)
+        assertEquals(scheduled.scheduledAt, result.items[0].recoverySourceScheduledAt)
         assertNull(result.items[0].scheduledAt)
         assertNull(result.items[0].windowStartAt)
         assertNull(result.items[0].windowEndAt)
