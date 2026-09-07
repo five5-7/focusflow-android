@@ -122,6 +122,18 @@ class NextActionPlannerTest {
         assertEquals("sooner", commitment?.title)
     }
 
+    @Test
+    fun `next commitment evaluates courses against supplied day`() {
+        val now = at(monday, 7, 0)
+        val mondayCourse = Course("早课", 1, 1, 1, "西1", CampusZone.WEST_TEACHING, needsConfirmation = false)
+        val tuesdayCourse = mondayCourse.copy(title = "周二课", weekday = 2)
+
+        val commitment = NextActionPlanner.nextCommitment(emptyList(), listOf(tuesdayCourse, mondayCourse), now)
+
+        assertEquals("早课（西1）", commitment?.title)
+        assertEquals(at(monday, 8, 0), commitment?.startsAt)
+    }
+
     // ---------- 6.9 增量：优先级 + 今日剩余空挡 ----------
 
     @Test

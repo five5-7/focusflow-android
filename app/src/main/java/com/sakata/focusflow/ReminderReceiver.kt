@@ -191,12 +191,17 @@ class ReminderReceiver : BroadcastReceiver() {
             ACTION_TASK_COMPLETE -> {
                 if (notificationId >= 0) manager.cancel(notificationId)
                 val taskId = intent.getLongExtra(EXTRA_TASK_ID, -1L)
-                val task = store.findItem(taskId)
-                if (taskId >= 0 && TaskReminderActionFreshness.matches(task, intent.getLongExtra(EXTRA_TASK_START_AT, -1L))) task?.let { current ->
+                val mutation = taskId.takeIf { it >= 0 }?.let {
+                    store.mutateScheduledTask(
+                        id = taskId,
+                        expectedScheduledAt = intent.getLongExtra(EXTRA_TASK_START_AT, -1L),
+                        completionMinimum = false,
+                        transform = { current -> current.copy(done = true, completionLevel = "完整完成", completedAt = System.currentTimeMillis()) },
+                        event = { current, _ -> TaskRecorder.event(TaskEventType.TASK_COMPLETED, current.id, current.title, extra = "完整完成") }
+                    )
+                }
+                mutation?.let { (current, _) ->
                     ReminderScheduler.cancelTaskReminder(context, taskId)
-                    store.updateItem(taskId) { it.copy(done = true, completionLevel = "完整完成", completedAt = System.currentTimeMillis()) }
-                    store.appendTaskEvent(TaskRecorder.event(TaskEventType.TASK_COMPLETED, current.id, current.title, extra = "完整完成"))
-                    current.goalId?.let { store.markGoalCompleted(it) }
                     current.scheduledAt?.let { time ->
                         val cal = java.util.Calendar.getInstance().apply { timeInMillis = time }
                         val day = when (cal.get(java.util.Calendar.DAY_OF_WEEK)) { java.util.Calendar.SUNDAY -> 7 else -> cal.get(java.util.Calendar.DAY_OF_WEEK) - 1 }
@@ -208,50 +213,71 @@ class ReminderReceiver : BroadcastReceiver() {
             ACTION_TASK_MINIMUM -> {
                 if (notificationId >= 0) manager.cancel(notificationId)
                 val taskId = intent.getLongExtra(EXTRA_TASK_ID, -1L)
-                val task = store.findItem(taskId)
-                if (taskId >= 0 && TaskReminderActionFreshness.matches(task, intent.getLongExtra(EXTRA_TASK_START_AT, -1L))) task?.let { current ->
+                val mutation = taskId.takeIf { it >= 0 }?.let {
+                    store.mutateScheduledTask(
+                        id = taskId,
+                        expectedScheduledAt = intent.getLongExtra(EXTRA_TASK_START_AT, -1L),
+                        completionMinimum = true,
+                        transform = { current -> current.copy(done = true, completionLevel = "最低版本", completedAt = System.currentTimeMillis()) },
+                        event = { current, _ -> TaskRecorder.event(TaskEventType.TASK_COMPLETED, current.id, current.title, extra = "最低版本") }
+                    )
+                }
+                mutation?.let {
                     ReminderScheduler.cancelTaskReminder(context, taskId)
-                    store.updateItem(taskId) { it.copy(done = true, completionLevel = "最低版本", completedAt = System.currentTimeMillis()) }
-                    store.appendTaskEvent(TaskRecorder.event(TaskEventType.TASK_COMPLETED, current.id, current.title, extra = "最低版本"))
-                    current.goalId?.let { store.markGoalCompleted(it, minimum = true) }
                 }
                 return
             }
             ACTION_TASK_SNOOZE -> {
                 if (notificationId >= 0) manager.cancel(notificationId)
                 val taskId = intent.getLongExtra(EXTRA_TASK_ID, -1L)
-                val item = store.findItem(taskId)
-                if (TaskReminderActionFreshness.matches(item, intent.getLongExtra(EXTRA_TASK_START_AT, -1L))) item?.let { current ->
-                    val now = System.currentTimeMillis()
-                    val delayedAt = now + 60 * 60_000L
-                    val delayed = current.copy(
-                        scheduledAt = delayedAt,
-                        detail = TaskScheduleText.rescheduledDetail(delayedAt, current.durationMinutes),
-                        rescheduleCount = current.rescheduleCount + 1,
-                        lastRescheduledAt = now
+                val now = System.currentTimeMillis()
+                val delayedAt = now + 60 * 60_000L
+                val mutation = taskId.takeIf { it >= 0 }?.let {
+                    store.mutateScheduledTask(
+                        id = taskId,
+                        expectedScheduledAt = intent.getLongExtra(EXTRA_TASK_START_AT, -1L),
+                        transform = { current -> current.copy(
+                            scheduledAt = delayedAt,
+                            detail = TaskScheduleText.rescheduledDetail(delayedAt, current.durationMinutes),
+                            rescheduleCount = current.rescheduleCount + 1,
+                            lastRescheduledAt = now
+                        ) },
+                        event = { current, delayed -> TaskRecorder.event(
+                            TaskEventType.TASK_RESCHEDULED,
+                            current.id,
+                            current.title,
+                            scheduledAt = delayed.scheduledAt ?: 0,
+                            extra = "延后一小时"
+                        ) }
                     )
-                    store.updateItem(taskId) { delayed }
-                    store.appendTaskEvent(TaskRecorder.event(TaskEventType.TASK_RESCHEDULED, current.id, current.title, scheduledAt = delayed.scheduledAt ?: 0, extra = "延后一小时"))
-                    ReminderScheduler.scheduleTaskReminder(context, delayed)
                 }
+                mutation?.let { ReminderScheduler.scheduleTaskReminder(context, it.after) }
                 return
             }
             ACTION_TASK_SKIP -> {
                 if (notificationId >= 0) manager.cancel(notificationId)
                 val taskId = intent.getLongExtra(EXTRA_TASK_ID, -1L)
-                val current = store.findItem(taskId)
-                if (taskId >= 0 && TaskReminderActionFreshness.matches(current, intent.getLongExtra(EXTRA_TASK_START_AT, -1L))) {
+                val mutation = taskId.takeIf { it >= 0 }?.let {
+                    store.mutateScheduledTask(
+                        id = taskId,
+                        expectedScheduledAt = intent.getLongExtra(EXTRA_TASK_START_AT, -1L),
+                        transform = { item -> item.copy(
+                            title = if (item.title.startsWith("重新安排：")) item.title else "重新安排：${item.title}",
+                            kind = "收集箱",
+                            detail = "这次没有做；可以改期、缩短、暂停或放弃",
+                            recoverySourceScheduledAt = item.recoverySourceScheduledAt ?: item.scheduledAt,
+                            scheduledAt = null
+                        ) },
+                        event = { _, updated -> TaskRecorder.event(
+                            TaskEventType.TASK_TO_INBOX,
+                            updated.id,
+                            updated.title.removePrefix("重新安排："),
+                            extra = "跳过"
+                        ) }
+                    )
+                }
+                if (mutation != null) {
                     ReminderScheduler.cancelTaskReminder(context, taskId)
-                    store.updateItem(taskId) { item -> item.copy(
-                        title = if (item.title.startsWith("重新安排：")) item.title else "重新安排：${item.title}",
-                        kind = "收集箱",
-                        detail = "这次没有做；可以改期、缩短、暂停或放弃",
-                        recoverySourceScheduledAt = item.recoverySourceScheduledAt ?: item.scheduledAt,
-                        scheduledAt = null
-                    ) }
-                    store.findItem(taskId)?.let { updated ->
-                        store.appendTaskEvent(TaskRecorder.event(TaskEventType.TASK_TO_INBOX, updated.id, updated.title.removePrefix("重新安排："), extra = "跳过"))
-                    }
                 }
                 return
             }

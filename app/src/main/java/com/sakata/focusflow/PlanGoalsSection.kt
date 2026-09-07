@@ -223,7 +223,7 @@ private fun GoalExecutionCard(
     onScheduleGoal: (Goal, GoalSuggestion) -> Unit,
     onChooseTime: (Goal) -> Unit
 ) {
-    val suggestions = GoalPlanner.suggestions(goal, planningCourses, profile, occupiedByWeekday(items))
+    val suggestions = GoalPlanner.suggestions(goal, planningCourses, profile, items)
     ElevatedCard {
         Column(
             Modifier.fillMaxWidth().padding(14.dp),

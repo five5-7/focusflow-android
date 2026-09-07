@@ -32,7 +32,7 @@ object FlexiblePlanner {
         return (0..6).mapNotNull { dayOffset ->
             val day = startOfDay(now, dayOffset)
             val weekday = weekday(day)
-            val occupied = ScheduleOccupation.dayOccupied(weekday, courses, items, profile, excludeId = item.id)
+            val occupied = ScheduleOccupation.dayOccupied(weekday, courses, items, profile, excludeId = item.id, targetDay = day)
             val earliest = if (dayOffset == 0) maxOf(DAY_START, roundUpToHalfHour(minuteOfDay(now) + 15)) else DAY_START
             val candidates = (earliest..(DAY_END - duration) step 30).filter { start ->
                 val end = start + duration

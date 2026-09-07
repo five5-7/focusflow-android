@@ -74,6 +74,17 @@ class ScheduleOccupationTest {
         assertEquals(530, block.endMinute)
     }
 
+    @Test fun `commuteBlocks keep the latest end across nested courses`() {
+        val long = course("长课", from = 1, to = 5)
+        val nested = course("嵌套课", from = 2, to = 2, zone = CampusZone.EAST_TEACHING)
+        val later = course("后续课", from = 7, to = 7, zone = CampusZone.EAST_TEACHING)
+
+        val blocks = ScheduleOccupation.commuteBlocks(listOf(long, nested, later), enabledProfile)
+
+        assertEquals(1, blocks.size)
+        assertEquals(CourseGapPlanner.periodEnd(5), blocks.single().startMinute)
+    }
+
     @Test fun `nextFreeSlot clamps before six in the morning and returns first free slot`() {
         assertEquals(360, ScheduleOccupation.nextFreeSlot(1, 300, 30, emptyList(), emptyList(), null))
     }

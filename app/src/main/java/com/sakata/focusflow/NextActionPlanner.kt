@@ -103,7 +103,7 @@ internal object NextActionPlanner {
         val fromMinute = ScheduleOccupation.minuteOfDay(now)
         val endOfDay = 24 * 60
         if (fromMinute >= endOfDay) return null
-        val occupied = ScheduleOccupation.dayOccupied(weekday, courses, items, profile)
+        val occupied = ScheduleOccupation.dayOccupied(weekday, courses, items, profile, targetDay = now)
         var free = 0
         var cursor = fromMinute
         while (cursor < endOfDay) {
@@ -122,14 +122,15 @@ internal object NextActionPlanner {
     /** 下一条固定安排（任务+课程），「距离下一个承诺」的判断输入。 */
     fun nextCommitment(items: List<Item>, courses: List<Course>, now: Long = System.currentTimeMillis()): ActivityCommitment? {
         val taskCommitments = items.mapNotNull { item -> item.scheduledAt?.takeIf { !item.done && it > now }?.let { ActivityCommitment(item.title, it) } }
-        val courseCommitments = courses.filter { !it.needsConfirmation && it.weekday == todayWeekday() }.mapNotNull { course ->
-            val startsAt = todayAtMinute(CourseGapPlanner.periodStart(course.startPeriod))
+        val courseCommitments = courses.filter { !it.needsConfirmation && it.weekday == ScheduleOccupation.weekdayOf(now) }.mapNotNull { course ->
+            val startsAt = atMinute(now, CourseGapPlanner.periodStart(course.startPeriod))
             startsAt.takeIf { it > now }?.let { ActivityCommitment("${course.title}（${course.building}）", it) }
         }
         return (taskCommitments + courseCommitments).minByOrNull(ActivityCommitment::startsAt)
     }
 
-    private fun todayAtMinute(minute: Int): Long = java.util.Calendar.getInstance().apply {
+    private fun atMinute(day: Long, minute: Int): Long = java.util.Calendar.getInstance().apply {
+        timeInMillis = day
         set(java.util.Calendar.HOUR_OF_DAY, minute / 60)
         set(java.util.Calendar.MINUTE, minute % 60)
         set(java.util.Calendar.SECOND, 0)

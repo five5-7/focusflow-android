@@ -109,28 +109,36 @@ object CourseGapPlanner {
 
     /** occupied：日程里已有安排（任务/事项）按星期几的占用分钟段；计算空挡时会扣除这些占用。 */
     fun gaps(courses: List<Course>, profile: CommuteProfile, occupied: Map<Int, List<IntRange>> = emptyMap()): List<CourseGap> = courses
+        .filter { !it.needsConfirmation && it.enabled }
         .groupBy { it.weekday }
         .values
         .flatMap { daily ->
-            daily.sortedBy { it.startPeriod }.zipWithNext().map { (from, to) ->
+            val ordered = daily.sortedBy { it.startPeriod }
+            // A short course nested in a longer one must not move the occupied
+            // boundary backwards. Retain the latest-ending preceding course.
+            var boundary = ordered.first()
+            ordered.drop(1).map { to ->
+                val from = boundary
                 val classEnds = periodEnd(from.endPeriod)
                 val nextStarts = periodStart(to.startPeriod)
                 val travel = ZijingangTravel.estimateMinutes(from.zone, to.zone, profile)
                 val (start, minutes) = longestFreeRun(classEnds + travel, nextStarts, occupied[from.weekday].orEmpty())
+                if (periodEnd(to.endPeriod) > classEnds) boundary = to
                 CourseGap(from, to, minutes, travel, start)
             }
         }
 
     /** 课间空挡之外的自由时段：第一节课前、最后一节课后、以及没有课的整天；扣除已有安排后切成剩余子段。课间空挡仍由 gaps() 提供。 */
     fun freeWindows(courses: List<Course>, dayStartMinute: Int = 8 * 60, dayEndMinute: Int = 22 * 60, occupied: Map<Int, List<IntRange>> = emptyMap()): List<FreeWindow> {
-        val confirmed = courses.filter { !it.needsConfirmation }
+        if (dayEndMinute <= dayStartMinute) return emptyList()
+        val confirmed = courses.filter { !it.needsConfirmation && it.enabled }
         return (1..7).flatMap { weekday ->
             val daily = confirmed.filter { it.weekday == weekday }.sortedBy { it.startPeriod }
             val base = if (daily.isEmpty()) {
                 listOf(FreeWindow(weekday, dayStartMinute, dayEndMinute, dayEndMinute - dayStartMinute, "整天空闲"))
             } else {
                 val firstStart = periodStart(daily.first().startPeriod).coerceIn(dayStartMinute, dayEndMinute)
-                val lastEnd = periodEnd(daily.last().endPeriod)
+                val lastEnd = daily.maxOf { periodEnd(it.endPeriod) }
                     .coerceIn(dayStartMinute, dayEndMinute)
                 listOfNotNull(
                     FreeWindow(weekday, dayStartMinute, firstStart, firstStart - dayStartMinute, "课前空闲")

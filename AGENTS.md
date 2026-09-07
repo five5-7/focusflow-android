@@ -31,7 +31,7 @@
 - Keep structure-only changes separate from behavior changes.
 - Update `CHANGELOG.md`, `README.md`, and `RoadmapData.kt` only when a release scope is actually implemented.
 - Follow `VERSIONING.md`; a CI `run-N` is not a product version and a successful build is not a release.
-- The current development candidate is `8.0.0-rc.2` / versionCode 509. The current official release remains `7.1.3`; earlier 7.4–7.12 candidates are historical inputs to this integration candidate.
+- The current development candidate is `8.0.0-rc.3` / versionCode 510. The current official release remains `7.1.3`; earlier 7.4–7.12 candidates are historical inputs to this integration candidate.
 - Do not allocate a new version merely to record an idea; keep uncommitted ideas in the future-candidate section until a coherent scope is frozen.
 - Do not merge a pull request without explicit user confirmation.
 

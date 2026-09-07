@@ -5,6 +5,50 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CourseGapPlannerTest {
+    @org.junit.Before fun resetPeriodTable() {
+        CourseGapPlanner.configure(CoursePeriodTable.reference())
+    }
+
+    @Test fun nestedCoursesDoNotCreateFreeTimeInsideLongCourse() {
+        val long = a.copy(endPeriod = 5)
+        val nested = b.copy(startPeriod = 2, endPeriod = 2)
+        val third = b.copy(startPeriod = 4, endPeriod = 4)
+        val gaps = CourseGapPlanner.gaps(listOf(long, nested, third), profile)
+        assertEquals(2, gaps.size)
+        assertTrue(gaps.all { it.minutesFree == 0 })
+    }
+
+    @Test fun gapAfterNestedCourseStartsAfterLongestPrecedingCourse() {
+        val long = a.copy(endPeriod = 5)
+        val nested = b.copy(startPeriod = 2, endPeriod = 2)
+        val later = b.copy(startPeriod = 7, endPeriod = 7)
+        val gap = CourseGapPlanner.gaps(listOf(later, nested, long), profile).last()
+        assertEquals(long.id, gap.from.id)
+        assertEquals(CourseGapPlanner.periodEnd(5) + gap.travelMinutes, gap.suggestedStartMinute)
+        assertEquals(CourseGapPlanner.periodStart(7) - gap.suggestedStartMinute, gap.minutesFree)
+    }
+
+    @Test fun generatedFreeIntervalsNeverOverlapAnyCourse() {
+        val random = kotlin.random.Random(8002)
+        repeat(500) { sample ->
+            val courses = List(random.nextInt(1, 13)) { index ->
+                val start = random.nextInt(1, 14)
+                a.copy(id = index.toLong() + 1, startPeriod = start,
+                    endPeriod = random.nextInt(start, 14))
+            }
+            val intervals = CourseGapPlanner.gaps(courses, profile)
+                .filter { it.minutesFree > 0 }
+                .map { it.suggestedStartMinute to it.suggestedStartMinute + it.minutesFree } +
+                CourseGapPlanner.freeWindows(courses).filter { it.weekday == 1 }
+                    .map { it.startMinute to it.endMinute }
+            intervals.forEach { (start, end) ->
+                assertTrue("sample=$sample interval=$start..$end", courses.none {
+                    start < CourseGapPlanner.periodEnd(it.endPeriod) &&
+                        end > CourseGapPlanner.periodStart(it.startPeriod)
+                })
+            }
+        }
+    }
     private val profile = CommuteProfile() // 步行, 楼内缓冲 3
     private val a = Course("高数", 1, 1, 1, "西1教学楼", CampusZone.WEST_TEACHING, needsConfirmation = false)
     private val b = Course("线代", 1, 3, 3, "西2教学楼", CampusZone.WEST_TEACHING, needsConfirmation = false)

@@ -117,7 +117,7 @@ internal fun activityTitleLabel(category: String): String = when (category) {
     var customTime by remember { mutableStateOf<Long?>(null) }
     val durationNumber = duration.toIntOrNull()
     val suggestions = remember(durationNumber, courses, profile, items) {
-        GoalPlanner.suggestions(Goal(title = "活动", weeklyTarget = 1, durationMinutes = durationNumber ?: 60), courses, profile, occupiedByWeekday(items)).take(5)
+        GoalPlanner.suggestions(Goal(title = "活动", weeklyTarget = 1, durationMinutes = durationNumber ?: 60), courses, profile, items).take(5)
     }
     val chosen = selected ?: customTime?.let { at ->
         val cal = java.util.Calendar.getInstance().apply { timeInMillis = at }
@@ -189,7 +189,7 @@ internal fun activityTitleLabel(category: String): String = when (category) {
                 val freeSlot = if (durationOk) ScheduleOccupation.nextFreeSlot(
                     ScheduleOccupation.weekdayOf(plannedAt),
                     ScheduleOccupation.minuteOfDay(plannedAt),
-                    d, courses, items, profile
+                    d, courses, items, profile, targetDay = plannedAt
                 ) else null
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     freeSlot?.let { slot ->

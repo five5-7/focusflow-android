@@ -364,7 +364,7 @@ internal fun DurationPicker(initialMinutes: Int, onChange: (Int?) -> Unit) {
                         val freeSlot = ScheduleOccupation.nextFreeSlot(
                             ScheduleOccupation.weekdayOf(chosen),
                             ScheduleOccupation.minuteOfDay(chosen),
-                            duration, courses, items, profile, excludeId = item.id
+                            duration, courses, items, profile, excludeId = item.id, targetDay = chosen
                         )
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             freeSlot?.let { slot ->
@@ -412,7 +412,7 @@ internal fun DurationPicker(initialMinutes: Int, onChange: (Int?) -> Unit) {
             ScheduleOccupation.nextFreeSlot(
                 ScheduleOccupation.weekdayOf(chosenTime),
                 ScheduleOccupation.minuteOfDay(chosenTime),
-                duration, courses, items, profile, excludeId = item.id
+                duration, courses, items, profile, excludeId = item.id, targetDay = chosenTime
             )
         }
     }
@@ -506,7 +506,7 @@ internal fun GoalScheduleDialog(
             ScheduleOccupation.nextFreeSlot(
                 ScheduleOccupation.weekdayOf(chosenTime),
                 ScheduleOccupation.minuteOfDay(chosenTime),
-                goal.durationMinutes, courses, items, profile
+                goal.durationMinutes, courses, items, profile, targetDay = chosenTime
             )
         }
     }

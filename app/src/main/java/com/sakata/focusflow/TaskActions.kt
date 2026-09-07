@@ -159,7 +159,15 @@ object TaskActions {
 
     /** 暂停任务：只保留暂停标记，无事件。 */
     fun pause(items: List<Item>, item: Item): Result =
-        Result(items = items.map { if (it.id == item.id) it.preservingNote().copy(kind = "暂停", detail = "已暂停；随时可在计划中恢复") else it })
+        Result(items = items.map { if (it.id == item.id) it.preservingNote().copy(
+            kind = "暂停",
+            detail = "已暂停；随时可在计划中恢复",
+            recoverySourceScheduledAt = it.recoverySourceScheduledAt ?: it.scheduledAt,
+            scheduledAt = null,
+            dayOnly = false,
+            windowStartAt = null,
+            windowEndAt = null
+        ) else it })
 
     /** 恢复任务：恢复为任务并记恢复事件（标题去掉「重新安排：」前缀）。 */
     fun resume(items: List<Item>, item: Item): Result =

@@ -21,7 +21,7 @@ object RoadmapData {
     /** 已实现版本演进（1.0 → 当前候选），每版本浓缩 1–3 条，与 CHANGELOG.md 对应。 */
     val evolution: List<RoadmapVersion> = listOf(
         RoadmapVersion("8.0.0", listOf(
-            RoadmapEntry("8.0.0-rc.1", "稳定版整合候选", "整合 7.9–7.12 的今日状态、校园生活、课程管理、通勤估算、空挡视图、历史管理与统一设计语言；当前候选已通过 Run 297 自动门禁，待真机验收后再转正式版。", RoadmapStatus.CANDIDATE)
+            RoadmapEntry("8.0.0-rc.3", "稳定版整合候选", "整合 7.9–7.12，并收束计划页崩溃、逾期提示、通知并发写入、跨日期占用、重叠课程与暂停任务边界；rc.2 已通过 Run 300，当前候选待独立构建与真机验收。", RoadmapStatus.CANDIDATE)
         )),
         RoadmapVersion("7.12.0", listOf(
             RoadmapEntry("7.12.0-rc.3", "数据管理与课程／空挡界面修整", "已并入 8.0：课程批量管理、建议零结果说明、七天纵向空挡图与历史删除统计重算。", RoadmapStatus.DONE)

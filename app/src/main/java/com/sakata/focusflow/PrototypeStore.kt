@@ -11,6 +11,8 @@ data class ThemePreset(val name: String, val colors: FocusFlowThemeColors)
 
 private val taskHistoryLock = Any()
 
+internal data class StoredTaskMutation(val before: Item, val after: Item)
+
 /** Deliberately small offline persistence for the first test build. */
 class PrototypeStore(context: Context) {
     private val appContext = context.applicationContext
@@ -226,29 +228,103 @@ class PrototypeStore(context: Context) {
         return canonicalItems
     }
 
-    fun saveItems(items: List<Item>) {
+    private fun saveItems(items: List<Item>) = synchronized(taskHistoryLock) {
         preferences.edit().putString("items", ItemsCodec.encode(items)).apply()
     }
 
+    /** UI writes derived from an in-memory snapshot must not replace a newer receiver write. */
+    fun saveItemsIfUnchanged(items: List<Item>, expectedItems: List<Item>): Boolean = synchronized(taskHistoryLock) {
+        if (StorageProtection.readOnly || !TaskSnapshotPolicy.canSave(expectedItems, loadItems())) {
+            return@synchronized false
+        }
+        preferences.edit().putString("items", ItemsCodec.encode(items)).commit()
+    }
+
     /** 7.5 整理动作：任务快照与对应历史一次提交，避免中途退出只保存一半。 */
-    fun saveItemsAndTaskEvent(items: List<Item>, event: TaskEvent): Boolean = synchronized(taskHistoryLock) {
+    fun saveItemsAndTaskEvents(items: List<Item>, events: List<TaskEvent>, expectedItems: List<Item>? = null): Boolean = synchronized(taskHistoryLock) {
         if (StorageProtection.readOnly) return@synchronized false
-        val events = TaskHistory.append(loadTaskEvents(), event)
+        if (expectedItems != null && !TaskSnapshotPolicy.canSave(expectedItems, loadItems())) return@synchronized false
+        val updatedEvents = events.fold(loadTaskEvents()) { history, event -> TaskHistory.append(history, event) }
         preferences.edit()
             .putString("items", ItemsCodec.encode(items))
-            .putString("task_events", TaskEventCodec.encode(events))
+            .putString("task_events", TaskEventCodec.encode(updatedEvents))
+            .commit()
+    }
+
+    fun saveItemsAndTaskEvent(items: List<Item>, event: TaskEvent, expectedItems: List<Item>? = null): Boolean =
+        saveItemsAndTaskEvents(items, listOf(event), expectedItems)
+
+    fun saveItemsTaskEventsAndGoals(
+        items: List<Item>,
+        events: List<TaskEvent>,
+        goals: List<Goal>,
+        expectedItems: List<Item>,
+        expectedGoals: List<Goal>
+    ): Boolean = synchronized(taskHistoryLock) {
+        if (StorageProtection.readOnly || !TaskSnapshotPolicy.canSave(expectedItems, loadItems()) || expectedGoals != loadGoals()) {
+            return@synchronized false
+        }
+        val updatedEvents = events.fold(loadTaskEvents()) { history, event -> TaskHistory.append(history, event) }
+        preferences.edit()
+            .putString("items", ItemsCodec.encode(items))
+            .putString("task_events", TaskEventCodec.encode(updatedEvents))
+            .putString("goals", StoredGoalsCodec.encodeGoals(goals))
             .commit()
     }
 
     /** 收集箱转成目标时，目标、原任务移除与历史必须同时落盘。 */
-    fun saveGoalConversion(goals: List<Goal>, items: List<Item>, event: TaskEvent): Boolean = synchronized(taskHistoryLock) {
+    fun saveGoalConversion(
+        goals: List<Goal>,
+        items: List<Item>,
+        event: TaskEvent,
+        expectedGoals: List<Goal>? = null,
+        expectedItems: List<Item>? = null
+    ): Boolean = if (expectedGoals != null && expectedItems != null) {
+        saveItemsTaskEventsAndGoals(items, listOf(event), goals, expectedItems, expectedGoals)
+    } else synchronized(taskHistoryLock) {
         if (StorageProtection.readOnly) return@synchronized false
-        val events = TaskHistory.append(loadTaskEvents(), event)
+        val updatedEvents = TaskHistory.append(loadTaskEvents(), event)
         preferences.edit()
             .putString("goals", StoredGoalsCodec.encodeGoals(goals))
             .putString("items", ItemsCodec.encode(items))
-            .putString("task_events", TaskEventCodec.encode(events))
+            .putString("task_events", TaskEventCodec.encode(updatedEvents))
             .commit()
+    }
+
+    /** Notification task action: freshness check, item/event update and goal count share one commit. */
+    fun mutateScheduledTask(
+        id: Long,
+        expectedScheduledAt: Long,
+        completionMinimum: Boolean? = null,
+        transform: (Item) -> Item,
+        event: (Item, Item) -> TaskEvent
+    ): StoredTaskMutation? = synchronized(taskHistoryLock) {
+        if (StorageProtection.readOnly) return@synchronized null
+        val currentItems = loadItems()
+        val before = currentItems.firstOrNull { it.id == id } ?: return@synchronized null
+        if (!TaskReminderActionFreshness.matches(before, expectedScheduledAt)) return@synchronized null
+        val after = transform(before)
+        val updatedItems = currentItems.map { if (it.id == id) after else it }
+        val updatedEvents = TaskHistory.append(loadTaskEvents(), event(before, after))
+        val editor = preferences.edit()
+            .putString("items", ItemsCodec.encode(updatedItems))
+            .putString("task_events", TaskEventCodec.encode(updatedEvents))
+        if (completionMinimum != null && before.goalId != null) {
+            val key = GoalPlanner.currentWeekKey()
+            val updatedGoals = loadGoals().map { goal ->
+                if (goal.id != before.goalId) goal
+                else if (goal.completionWeekKey == key) {
+                    if (completionMinimum) goal.copy(minimumCompletionsThisWeek = goal.minimumCompletionsThisWeek + 1)
+                    else goal.copy(completedThisWeek = goal.completedThisWeek + 1)
+                } else if (completionMinimum) {
+                    goal.copy(minimumCompletionsThisWeek = 1, completionWeekKey = key)
+                } else {
+                    goal.copy(completedThisWeek = 1, minimumCompletionsThisWeek = 0, completionWeekKey = key)
+                }
+            }
+            editor.putString("goals", StoredGoalsCodec.encodeGoals(updatedGoals))
+        }
+        if (editor.commit()) StoredTaskMutation(before, after) else null
     }
 
     fun saveSession(session: ActivitySession) {
@@ -331,29 +407,30 @@ class PrototypeStore(context: Context) {
             .apply()
     }
 
-    fun addReplanItem(activityName: String) {
+    fun addReplanItem(activityName: String): Boolean = synchronized(taskHistoryLock) {
         val item = Item(title = "重新安排：$activityName", detail = "由未完成的活动转回；可以改期、缩短或暂停", kind = "收集箱")
-        saveItems(listOf(item) + loadItems())
-        appendTaskEvent(TaskRecorder.event(TaskEventType.TASK_CREATED, item.id, item.title))
-    }
-
-    fun updateItem(id: Long, transform: (Item) -> Item) {
-        saveItems(loadItems().map { if (it.id == id) transform(it) else it })
+        val current = loadItems()
+        saveItemsAndTaskEvent(
+            listOf(item) + current,
+            TaskRecorder.event(TaskEventType.TASK_CREATED, item.id, item.title),
+            expectedItems = current
+        )
     }
 
     fun findItem(id: Long): Item? = loadItems().firstOrNull { it.id == id }
 
-    fun recoverMissedGoalTasks(): List<Item> {
+    fun recoverMissedGoalTasks(): List<Item> = synchronized(taskHistoryLock) {
         val cutoff = System.currentTimeMillis() - 2 * 60 * 60_000L
         val all = loadItems()
+        val events = mutableListOf<TaskEvent>()
         val recovered = all.map { item ->
             if (item.goalId != null && item.kind == "任务" && !item.done && (item.scheduledAt ?: Long.MAX_VALUE) < cutoff) {
-                appendTaskEvent(TaskRecorder.event(TaskEventType.TASK_TO_INBOX, item.id, item.title, extra = "错过自动放回"))
+                events += TaskRecorder.event(TaskEventType.TASK_TO_INBOX, item.id, item.title, extra = "错过自动放回")
                 item.copy(title = if (item.title.startsWith("重新安排：")) item.title else "重新安排：${item.title}", kind = "收集箱", detail = "上次目标安排未确认；可改期、缩短、暂停或放弃", scheduledAt = null)
             } else item
         }
-        if (recovered != all) saveItems(recovered)
-        return recovered
+        if (recovered != all && !saveItemsAndTaskEvents(recovered, events, expectedItems = all)) return@synchronized loadItems()
+        recovered
     }
 
     fun loadCommuteProfile(): CommuteProfile = CommuteProfile(
@@ -638,11 +715,9 @@ class PrototypeStore(context: Context) {
         preferences.edit().putString("goals", StoredGoalsCodec.encodeGoals(goals)).apply()
     }
 
-    fun markGoalCompleted(goalId: Long, minimum: Boolean = false) {
-        val key = GoalPlanner.currentWeekKey()
-        saveGoals(loadGoals().map { goal -> if (goal.id != goalId) goal else if (goal.completionWeekKey == key) {
-            if (minimum) goal.copy(minimumCompletionsThisWeek = goal.minimumCompletionsThisWeek + 1) else goal.copy(completedThisWeek = goal.completedThisWeek + 1)
-        } else if (minimum) goal.copy(minimumCompletionsThisWeek = 1, completionWeekKey = key) else goal.copy(completedThisWeek = 1, minimumCompletionsThisWeek = 0, completionWeekKey = key) })
+    fun saveGoalsIfUnchanged(goals: List<Goal>, expectedGoals: List<Goal>): Boolean = synchronized(taskHistoryLock) {
+        if (StorageProtection.readOnly || expectedGoals != loadGoals()) return@synchronized false
+        preferences.edit().putString("goals", StoredGoalsCodec.encodeGoals(goals)).commit()
     }
 
     fun loadResources(): List<LearningResource> =
