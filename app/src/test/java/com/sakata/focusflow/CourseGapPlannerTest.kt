@@ -28,4 +28,41 @@ class CourseGapPlannerTest {
     @Test fun gaps_noAdjacentCourses() {
         assertTrue(CourseGapPlanner.gaps(listOf(a), profile).isEmpty())
     }
+
+    @Test fun gaps_overlappingCoursesReturnZeroInsteadOfCrashing() {
+        val overlapping = b.copy(startPeriod = 1, endPeriod = 2)
+
+        val gap = CourseGapPlanner.gaps(listOf(a, overlapping), profile).single()
+
+        assertEquals(0, gap.minutesFree)
+        assertEquals(CourseGapPlanner.periodStart(overlapping.startPeriod), gap.suggestedStartMinute)
+    }
+
+    @Test fun gaps_commuteLongerThanBreakReturnsZeroInsteadOfCrashing() {
+        val nextPeriod = b.copy(startPeriod = 2, endPeriod = 2, zone = CampusZone.EAST_TEACHING)
+        val longCommute = profile.copy(farMinutes = 25)
+
+        val gap = CourseGapPlanner.gaps(listOf(a, nextPeriod), longCommute).single()
+
+        assertEquals(0, gap.minutesFree)
+        assertEquals(CourseGapPlanner.periodStart(nextPeriod.startPeriod), gap.suggestedStartMinute)
+    }
+
+    @Test fun gaps_activityInsideInvalidGapStillReturnsZero() {
+        val nextPeriod = b.copy(startPeriod = 2, endPeriod = 2, zone = CampusZone.EAST_TEACHING)
+        val occupiedByActivity = mapOf(1 to listOf(520 until 565))
+
+        val gap = CourseGapPlanner.gaps(listOf(a, nextPeriod), profile.copy(farMinutes = 25), occupiedByActivity).single()
+
+        assertEquals(0, gap.minutesFree)
+    }
+
+    @Test fun deleteCourseUsesStableIdEvenWhenDialogSnapshotIsStale() {
+        val other = a.copy(id = newItemId())
+        val changedSnapshot = a.copy(enabled = false)
+
+        val remaining = removeCoursesById(listOf(a, other), listOf(changedSnapshot))
+
+        assertEquals(listOf(other), remaining)
+    }
 }

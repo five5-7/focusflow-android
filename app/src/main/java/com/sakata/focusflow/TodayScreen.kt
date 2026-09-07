@@ -225,6 +225,14 @@ import kotlinx.coroutines.withContext
                         val item = suggestion.item
                         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                RecoveryInsights.overdueLabel(item, now)?.let { label ->
+                                    Text(
+                                        "$label · 请选择完成、改时间或重新安排",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.error,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
                                 Text(item.title, fontWeight = FontWeight.SemiBold)
                                 Text(item.detail)
                                 Text(suggestion.reason, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.tertiary)
@@ -267,7 +275,9 @@ import kotlinx.coroutines.withContext
                         Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                             Text(candidate.item.title.removePrefix("重新安排："), fontWeight = FontWeight.SemiBold)
                             Text(
-                                if (candidate.reason == RecoveryReason.MISSED) "原安排已错过" else "已改期 ${candidate.item.rescheduleCount} 次",
+                                if (candidate.reason == RecoveryReason.MISSED) {
+                                    RecoveryInsights.overdueLabel(candidate.item, now) ?: "原安排已错过"
+                                } else "已改期 ${candidate.item.rescheduleCount} 次",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )

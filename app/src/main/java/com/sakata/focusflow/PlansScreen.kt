@@ -103,7 +103,7 @@ import kotlinx.coroutines.withContext
                     confirmedCourseCount = confirmedCourses.size,
                     pendingCourseCount = awaitingCourses.size,
                     conflictingCourseCount = conflictingCourses.size,
-                    gapCount = gaps.size,
+                    gapCount = gaps.count { it.minutesFree >= 10 },
                     goalCount = goals.size,
                     resourceCount = resources.size,
                     completedThisWeek = goals.sumOf { GoalPlanner.completedThisWeek(it) },

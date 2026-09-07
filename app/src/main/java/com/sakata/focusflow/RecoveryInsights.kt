@@ -20,6 +20,19 @@ data class WeeklyExecutionSummary(
 
 /** 只根据本地任务记录给出恢复入口；不自动移动或删除任务。 */
 object RecoveryInsights {
+    fun overdueLabel(item: Item, now: Long = System.currentTimeMillis()): String? {
+        val scheduledAt = item.scheduledAt ?: return null
+        val overdueBy = now - (scheduledAt + item.durationMinutes.coerceAtLeast(1) * 60_000L)
+        if (item.done || overdueBy <= 0L) return null
+        val days = overdueBy / (24 * 60 * 60_000L)
+        val hours = overdueBy / (60 * 60_000L)
+        return when {
+            days >= 1 -> "已逾期 ${days} 天"
+            hours >= 1 -> "已逾期 ${hours} 小时"
+            else -> "刚刚逾期"
+        }
+    }
+
     fun candidates(items: List<Item>, now: Long = System.currentTimeMillis()): List<RecoveryCandidate> =
         items.asSequence()
             .filter { !it.done && it.kind !in setOf("收集箱", "暂停") }

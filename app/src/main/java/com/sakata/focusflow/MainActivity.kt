@@ -845,11 +845,11 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                     },
                     onEditCourse = { courseEditor = it },
                     onToggleCourse = { course ->
-                        courses = courses.map { if (it == course) it.copy(enabled = !it.enabled) else it }
+                        courses = courses.map { if (it.id == course.id) it.copy(enabled = !it.enabled) else it }
                         store.saveCourses(courses)
                     },
                     onDeleteCourses = { targets ->
-                        courses = courses.filterNot { it in targets }
+                        courses = removeCoursesById(courses, targets)
                         store.saveCourses(courses)
                     },
                     goals = goals,

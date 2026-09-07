@@ -30,6 +30,12 @@ object CourseActivationPolicy {
         courses.filter { course -> isActiveOn(course, nextOccurrenceEpochDay(course, todayEpochDay)) }
 }
 
+/** 删除只以持久化 ID 为边界，不依赖对话框中可能已过期的整个课程快照。 */
+internal fun removeCoursesById(courses: List<Course>, targets: Collection<Course>): List<Course> {
+    val targetIds = targets.mapTo(mutableSetOf()) { it.id }
+    return courses.filterNot { it.id in targetIds }
+}
+
 data class CoursePeriodTime(val startMinute: Int, val endMinute: Int)
 
 data class CoursePeriodTable(val periods: List<CoursePeriodTime>) {
@@ -139,6 +145,9 @@ object CourseGapPlanner {
 
     /** 在 [start, end) 区间内扣除占用段，返回最长连续空闲段的起点与长度（全被占用时长度 0）。 */
     private fun longestFreeRun(start: Int, end: Int, occupied: List<IntRange>): Pair<Int, Int> {
+        // 重叠课程，或“下课＋通勤”已晚于下节课开始时，不存在可用区间。
+        // 先在边界层返回 0，避免后续 coerceIn(start, end) 因 start > end 崩溃。
+        if (end <= start) return end to 0
         val ranges = occupied
             .map { it.first.coerceIn(start, end) to (it.last + 1).coerceIn(start, end) }
             .filter { it.first < it.second }
