@@ -31,7 +31,7 @@
 - Keep structure-only changes separate from behavior changes.
 - Update `CHANGELOG.md`, `README.md`, and `RoadmapData.kt` only when a release scope is actually implemented.
 - Follow `VERSIONING.md`; a CI `run-N` is not a product version and a successful build is not a release.
-- The current release version is `8.0.0` / versionCode 511. Its rc.3 baseline passed Run 303 and device acceptance; the release commit must pass its own complete CI before merge. Earlier 7.4–7.12 candidates are historical inputs to this release.
+- The current development candidate is `8.0.0-rc.4` / versionCode 512. It fixes rolling seven-day gap occupation after the unreleased 8.0.0 build was merged; the current official release remains `7.1.3` until a verified 8.0.0 GitHub Release exists.
 - Do not allocate a new version merely to record an idea; keep uncommitted ideas in the future-candidate section until a coherent scope is frozen.
 - Do not merge a pull request without explicit user confirmation.
 
