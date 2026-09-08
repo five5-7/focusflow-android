@@ -8,6 +8,8 @@
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- 8.1.0 检查更新：应用内下载正式版 APK 后请求系统安装（Android 8+ 需用户授予“未知来源”）。 -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" tools:ignore="ProtectedPermissions" />
     <!-- Android 11+ 包可见性：声明后 queryIntentActivities 才能扫到全部启动器应用（用于应用分类）。 -->
     <queries>
@@ -24,6 +26,16 @@
         android:label="FocusFlow"
         android:theme="@style/Theme.FocusFlow">
         <receiver android:name=".ReminderReceiver" android:exported="false" />
+        <!-- 8.1.0 检查更新：向系统安装器暴露下载的 APK。 -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
         <service
             android:name=".QuickCaptureService"
             android:exported="false"

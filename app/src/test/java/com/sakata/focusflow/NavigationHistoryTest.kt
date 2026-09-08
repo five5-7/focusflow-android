@@ -79,6 +79,49 @@ class NavigationHistoryTest {
     }
 
     @Test
+    fun abABounceCollapsesToA() {
+        val h = NavHistory()
+        val a = snap(1)
+        val b = snap(2)
+        h.goTo(a)
+        h.goTo(b)
+        h.goTo(a) // A→B→A 抵消：等同只发生了 ROOT→A
+        assertEquals(a, h.current)
+        assertEquals(PageSnapshot.ROOT, h.back())
+        assertNull(h.back())
+        assertEquals(a, h.forward()) // 折返回到 a
+        assertFalse(h.canGoForward())
+    }
+
+    @Test
+    fun entriesAndJumpTo() {
+        val h = NavHistory()
+        val a = snap(1)
+        val b = snap(2)
+        val c = snap(3)
+        h.goTo(a); h.goTo(b); h.goTo(c)
+        assertEquals(listOf(PageSnapshot.ROOT, a, b, c), h.entries())
+        assertTrue(h.jumpTo(a))
+        assertEquals(a, h.current)
+        assertFalse(h.canGoForward())
+        assertEquals(PageSnapshot.ROOT, h.back())
+        assertNull(h.back())
+        // c 与 a 都已不在回退轨迹中（a 在折返栈，不参与 jumpTo）
+        assertFalse(h.jumpTo(c))
+        assertFalse(h.jumpTo(a))
+    }
+
+    @Test
+    fun snapshotLabels() {
+        assertEquals("今日主页", PageSnapshot.ROOT.label)
+        assertEquals("今日 · 收集箱", snap(0, inbox = true).label)
+        assertEquals("日程", snap(1).label)
+        assertEquals("计划 · 目标与执行", snap(2, plan = PlanPage.GOALS).label)
+        assertEquals("设置 · 外观", PageSnapshot(3, false, null, SettingsSubPage.APPEARANCE, emptyList()).label)
+        assertEquals("设置主页", snap(3).label)
+    }
+
+    @Test
     fun capacityDropsOldestBackEntry() {
         val h = NavHistory(capacity = 2)
         h.goTo(snap(1))

@@ -18,12 +18,6 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -46,6 +40,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.graphics.luminance
 import androidx.core.view.WindowCompat
+import androidx.core.content.FileProvider
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
@@ -56,8 +51,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
@@ -80,6 +73,8 @@ import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import kotlin.math.pow
+import java.io.File
+import java.net.URL
 import java.util.Locale
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -385,6 +380,12 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     var settingsBackStack by remember { mutableStateOf<List<SettingsSubPage>>(emptyList()) }
     // 8.1.0 课程编辑器挂起：从课程编辑器跳转「管理地点与出行参数」时暂存，回到课程页自动重开（草稿箱恢复内容）。
     var suspendedCourseEditor by remember { mutableStateOf<SuspendedCourseEditor?>(null) }
+    // 8.1.0 会话历史列表弹窗（长按底栏回退键打开）。
+    var historyListOpen by remember { mutableStateOf(false) }
+    // 8.1.0 检查更新（仅 GitHub 正式版；下载后调系统安装）。
+    var updateCheckState by remember { mutableStateOf(UpdateCheckState()) }
+    var autoCheckUpdates by remember { mutableStateOf(store.loadAutoCheckUpdates()) }
+    var downloadedUpdate by remember { mutableStateOf<File?>(null) }
     // 8.1.0 导航历史与草稿保险箱（会话内）：页面目的地变化统一记录，回退/折返键恢复快照。
     val navHistory = remember { NavHistory() }
     val draftVault = remember { DraftVault() }
@@ -423,6 +424,88 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             suspendedCourseEditor = null
             val original = suspended.original
             if (original == null) addCourseOpen = true else courseEditor = original
+        }
+    }
+
+    // 8.1.0 检查更新：下载正式版 APK 到应用缓存并交给系统安装器。
+    fun installUpdate(file: File) {
+        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, "application/vnd.android.package-archive")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        runCatching { context.startActivity(intent) }
+    }
+
+    fun downloadUpdate(url: String, versionName: String): File {
+        val dir = File(context.cacheDir, "updates").apply { mkdirs() }
+        val file = File(dir, "FocusFlow-$versionName.apk")
+        val conn = URL(url).openConnection() as java.net.HttpURLConnection
+        conn.connectTimeout = 20000
+        conn.readTimeout = 120000
+        conn.inputStream.use { input -> file.outputStream().use { output -> input.copyTo(output) } }
+        return file
+    }
+
+    /** 检查 GitHub 正式版；silent 时静默（自动检查），发现新正式版只提示一次、不下载。 */
+    fun checkForUpdate(silent: Boolean = false) {
+        if (!silent && downloadedUpdate != null) {
+            installUpdate(downloadedUpdate!!)
+            return
+        }
+        scope.launch {
+            updateCheckState = UpdateCheckState(checking = true, message = "正在检查 GitHub 正式版…")
+            val release = withContext(Dispatchers.IO) { runCatching { UpdateChecker.fetchLatestFormal() }.getOrNull() }
+            val latest = release?.versionName
+            val newer = latest != null && UpdateChecker.isNewer(BuildConfig.VERSION_NAME, latest)
+            if (release == null) {
+                updateCheckState = UpdateCheckState(message = "检查失败：无法访问 GitHub")
+                return@launch
+            }
+            if (silent) {
+                updateCheckState = UpdateCheckState(latestFormal = latest, message = if (newer) "发现新正式版 ${release.versionName}" else "已是最新正式版 ${release.versionName}")
+                if (newer) {
+                    val result = snackbarHostState.showSnackbar(
+                        message = "发现新正式版 ${release.versionName}，可到 设置 → 检查更新 下载安装",
+                        actionLabel = "查看",
+                        withDismissAction = true
+                    )
+                    if (result == SnackbarResult.ActionPerformed) {
+                        goTo(PageSnapshot(3, todayInboxOpen, planPage, null, emptyList()))
+                    }
+                }
+                return@launch
+            }
+            if (!newer) {
+                updateCheckState = UpdateCheckState(latestFormal = latest, message = "当前已是最新正式版 ${release.versionName}")
+                return@launch
+            }
+            val apkUrl = release.apkUrl
+            if (apkUrl == null) {
+                updateCheckState = UpdateCheckState(latestFormal = latest, message = "发现新正式版 ${release.versionName}，请到发布页下载")
+                runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(release.pageUrl))) }
+                return@launch
+            }
+            updateCheckState = UpdateCheckState(checking = true, latestFormal = latest, message = "正在下载 ${release.versionName}…")
+            val file = withContext(Dispatchers.IO) { runCatching { downloadUpdate(apkUrl, release.versionName) }.getOrNull() }
+            if (file == null) {
+                updateCheckState = UpdateCheckState(latestFormal = latest, message = "下载失败，请稍后重试")
+            } else {
+                downloadedUpdate = file
+                updateCheckState = UpdateCheckState(latestFormal = latest, message = "已下载 ${release.versionName}，点击安装")
+            }
+        }
+    }
+
+    // 8.1.0 自动检查更新：开关开启时每次启动检查一次（同一天去重）。
+    LaunchedEffect(Unit) {
+        if (autoCheckUpdates) {
+            val day = java.text.SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(java.util.Date())
+            if (store.loadLastUpdateCheckDay() != day) {
+                store.saveLastUpdateCheckDay(day)
+                checkForUpdate(silent = true)
+            }
         }
     }
 
@@ -615,16 +698,33 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             settingsBackStack = if (index == 3) emptyList() else settingsBackStack
         ))
     }
-    // 8.1.0 退出确认：仅页签主页（无子页）时，第一次返回弹提示，提示期内再次返回才真正退出。
+    // 8.1.0 两级退出：非今日页主页按返回先回今日主页；今日页主页按返回二次确认退出，可记忆不再提示。
     // 子页返回处理器在本处理器之后组合，子页打开时优先；弹窗是独立窗口，返回不会到达这里。
     var lastExitPromptAt by remember { mutableLongStateOf(0L) }
+    var exitConfirmDisabled by remember { mutableStateOf(store.loadExitConfirmDisabled()) }
     BackHandler(enabled = !todayInboxOpen && planPage == null && settingsSubPage == null) {
-        val now = System.currentTimeMillis()
-        if (now - lastExitPromptAt <= EXIT_PROMPT_WINDOW_MS) {
+        if (tab != 0) {
+            goTo(PageSnapshot(0, false, planPage, settingsSubPage, settingsBackStack))
+        } else if (exitConfirmDisabled) {
             (context as? android.app.Activity)?.finish()
         } else {
-            lastExitPromptAt = now
-            scope.launch { snackbarHostState.showSnackbar("再按一次返回键退出应用") }
+            val now = System.currentTimeMillis()
+            if (now - lastExitPromptAt <= EXIT_PROMPT_WINDOW_MS) {
+                (context as? android.app.Activity)?.finish()
+            } else {
+                lastExitPromptAt = now
+                scope.launch {
+                    val result = snackbarHostState.showSnackbar(
+                        message = "再按一次返回键退出应用",
+                        actionLabel = "不再提示",
+                        withDismissAction = true
+                    )
+                    if (result == SnackbarResult.ActionPerformed) {
+                        exitConfirmDisabled = true
+                        store.saveExitConfirmDisabled(true)
+                    }
+                }
+            }
         }
     }
     BackHandler(enabled = tab == 0 && todayInboxOpen) { goTo(pageSnapshot().copy(todayInboxOpen = false)) }
@@ -1223,7 +1323,19 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                 }, darkMode = darkMode, onDarkModeChange = { enabled ->
                     darkMode = enabled
                     store.saveDarkMode(enabled)
-                }, onGlobalLoadingChange = { globalLoading = it })
+                }, onGlobalLoadingChange = { globalLoading = it },
+                    exitConfirmDisabled = exitConfirmDisabled,
+                    onExitConfirmEnabledChange = { enabled ->
+                        exitConfirmDisabled = !enabled
+                        store.saveExitConfirmDisabled(!enabled)
+                    },
+                    autoCheckUpdates = autoCheckUpdates,
+                    onAutoCheckUpdatesChange = { enabled ->
+                        autoCheckUpdates = enabled
+                        store.saveAutoCheckUpdates(enabled)
+                    },
+                    updateCheckState = updateCheckState,
+                    onCheckUpdate = { checkForUpdate() })
             }
         }
             } // primary destination motion
@@ -1247,39 +1359,15 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             },
             onSelectTab = { selectTab(it) },
             onAdd = { addMenuOpen = true },
+            canGoBack = navHistory.canGoBack(),
+            canGoForward = navHistory.canGoForward(),
+            onBackHistory = { goBackHistory() },
+            onForwardHistory = { goForwardHistory() },
+            onLongPressBack = { historyListOpen = true },
             modifier = Modifier.align(Alignment.BottomCenter).onSizeChanged {
                 floatingBarHeight = with(density) { it.height.toDp() }
             }
         )
-        // 8.1.0 回退/折返浮动键：仅在有历史时淡入显示，悬浮于底栏两端圆角上方（8dp 间隙），不遮挡底栏。
-        AnimatedVisibility(
-            visible = navHistory.canGoBack(),
-            enter = fadeIn(tween(160)),
-            exit = fadeOut(tween(120)),
-            modifier = Modifier.align(Alignment.BottomStart)
-        ) {
-            HistoryFloatingKey(
-                onClick = { goBackHistory() },
-                icon = Icons.AutoMirrored.Filled.ArrowBack,
-                description = "回退到上一个页面",
-                background = themeSpec.navigationBarColor,
-                modifier = Modifier.padding(start = 10.dp, bottom = floatingBarHeight + 8.dp)
-            )
-        }
-        AnimatedVisibility(
-            visible = navHistory.canGoForward(),
-            enter = fadeIn(tween(160)),
-            exit = fadeOut(tween(120)),
-            modifier = Modifier.align(Alignment.BottomEnd)
-        ) {
-            HistoryFloatingKey(
-                onClick = { goForwardHistory() },
-                icon = Icons.AutoMirrored.Filled.ArrowForward,
-                description = "折返到后一个页面",
-                background = themeSpec.navigationBarColor,
-                modifier = Modifier.padding(end = 10.dp, bottom = floatingBarHeight + 8.dp)
-            )
-        }
         if (!hasTopNotice) StatusBarScrim(topSafety, Modifier.align(Alignment.TopCenter))
         } // page with overlaid navigation; no full-width bottom surface
         if (addMenuOpen) AddMenuDialog(
@@ -1873,6 +1961,15 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                 )
             } else mealFinishOpen = null
         }
+        if (historyListOpen) HistoryListDialog(
+            entries = navHistory.entries(),
+            current = navHistory.current,
+            onSelect = { target ->
+                if (navHistory.jumpTo(target)) applySnapshot(navHistory.current)
+                historyListOpen = false
+            },
+            onDismiss = { historyListOpen = false }
+        )
         if (mealRecordsOpen) MealRecordsDialog(
             records = mealRecords,
             onDismiss = { mealRecordsOpen = false },

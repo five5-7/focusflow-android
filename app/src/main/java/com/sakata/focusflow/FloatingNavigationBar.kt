@@ -1,18 +1,27 @@
 package com.sakata.focusflow
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -44,30 +53,6 @@ import androidx.compose.ui.unit.dp
 internal fun navigationContentColor(background: Color): Color =
     if (contrastRatio(Color.Black, background) >= contrastRatio(Color.White, background)) Color.Black else Color.White
 
-/** 8.1.0 回退/折返浮动键：仅在有历史时由宿主显示，视觉语言与悬浮导航栏一致（圆角、描边、阴影）。 */
-@Composable
-internal fun HistoryFloatingKey(
-    onClick: () -> Unit,
-    icon: ImageVector,
-    description: String,
-    background: Color,
-    modifier: Modifier = Modifier
-) {
-    Surface(
-        onClick = onClick,
-        modifier = modifier.size(40.dp).semantics { stateDescription = description },
-        shape = CircleShape,
-        color = background,
-        tonalElevation = 0.dp,
-        shadowElevation = 6.dp,
-        border = BorderStroke(1.dp, navigationContentColor(background).copy(alpha = 0.12f))
-    ) {
-        Box(contentAlignment = Alignment.Center) {
-            Icon(icon, contentDescription = description, tint = navigationContentColor(background), modifier = Modifier.size(22.dp))
-        }
-    }
-}
-
 internal fun navigationIndicatorColor(background: Color, primary: Color): Color =
     if (contrastRatio(background, primary) >= 1.5) primary.copy(alpha = 1f) else navigationContentColor(background)
 
@@ -81,6 +66,11 @@ internal fun FloatingNavigationBar(
     selectedPageDescription: String,
     onSelectTab: (Int) -> Unit,
     onAdd: () -> Unit,
+    canGoBack: Boolean = false,
+    canGoForward: Boolean = false,
+    onBackHistory: () -> Unit = {},
+    onForwardHistory: () -> Unit = {},
+    onLongPressBack: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val background by animateColorAsState(containerColor, tween(220), label = "navigationTheme")
@@ -106,6 +96,20 @@ internal fun FloatingNavigationBar(
                         Modifier.width(contentWidth).selectableGroup(),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        // 8.1.0 回退键：有上级时展开出现；长按弹会话历史列表。
+                        AnimatedVisibility(
+                            visible = canGoBack,
+                            enter = expandHorizontally(tween(180)) + fadeIn(tween(180)),
+                            exit = shrinkHorizontally(tween(150)) + fadeOut(tween(150))
+                        ) {
+                            HistoryBarKey(
+                                onClick = onBackHistory,
+                                onLongPress = onLongPressBack,
+                                icon = Icons.AutoMirrored.Filled.ArrowBack,
+                                description = "回退到上一个页面；长按查看历史",
+                                background = background
+                            )
+                        }
                         val labels = listOf("今日", "日程", "计划", "设置")
                         val icons = listOf(Icons.Filled.Home, Icons.Filled.DateRange, Icons.Filled.List, Icons.Filled.Settings)
                         labels.forEachIndexed { index, label ->
@@ -131,11 +135,93 @@ internal fun FloatingNavigationBar(
                                 onClick = { onSelectTab(index) }
                             )
                         }
+                        // 8.1.0 折返键：有下级时展开出现。
+                        AnimatedVisibility(
+                            visible = canGoForward,
+                            enter = expandHorizontally(tween(180)) + fadeIn(tween(180)),
+                            exit = shrinkHorizontally(tween(150)) + fadeOut(tween(150))
+                        ) {
+                            HistoryBarKey(
+                                onClick = onForwardHistory,
+                                onLongPress = null,
+                                icon = Icons.AutoMirrored.Filled.ArrowForward,
+                                description = "折返到后一个页面",
+                                background = background
+                            )
+                        }
                     }
                 }
             }
         }
     }
+}
+
+/** 8.1.0 底栏内历史键槽位：固定窄宽，与页签同高，淡入/展开出现。 */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun HistoryBarKey(
+    onClick: () -> Unit,
+    onLongPress: (() -> Unit)?,
+    icon: ImageVector,
+    description: String,
+    background: Color
+) {
+    val longClickModifier = if (onLongPress != null) {
+        Modifier.combinedClickable(onClick = onClick, onLongClick = onLongPress)
+    } else {
+        Modifier.combinedClickable(onClick = onClick)
+    }
+    Box(
+        modifier = Modifier
+            .width(40.dp)
+            .heightIn(min = FloatingNavigationLayout.MIN_ITEM_HEIGHT_DP.dp)
+            .clip(RoundedCornerShape(FloatingNavigationLayout.ITEM_RADIUS_DP.dp))
+            .then(longClickModifier)
+            .semantics { stateDescription = description }
+            .padding(horizontal = 4.dp, vertical = 8.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(icon, contentDescription = description, tint = navigationContentColor(background), modifier = Modifier.size(20.dp))
+    }
+}
+
+/** 8.1.0 会话页面历史列表：最近的在最上，点选直达并截断其后历史。 */
+@Composable
+internal fun HistoryListDialog(
+    entries: List<PageSnapshot>,
+    current: PageSnapshot,
+    onSelect: (PageSnapshot) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val reversed = entries.reversed()
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("本次会话的页面历史") },
+        text = {
+            Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
+                reversed.forEach { snapshot ->
+                    val isCurrent = snapshot == current
+                    Surface(
+                        onClick = { onSelect(snapshot) },
+                        shape = RoundedCornerShape(8.dp),
+                        color = if (isCurrent) MaterialTheme.colorScheme.primary.copy(alpha = 0.14f) else Color.Transparent
+                    ) {
+                        Row(
+                            Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                snapshot.label,
+                                fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
+                                color = if (isCurrent) MaterialTheme.colorScheme.primary else Color.Unspecified
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("关闭") } }
+    )
 }
 
 @Composable

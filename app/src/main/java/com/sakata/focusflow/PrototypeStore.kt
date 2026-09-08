@@ -913,6 +913,27 @@ class PrototypeStore(context: Context) {
         preferences.edit().putBoolean("quick_capture_enabled", enabled).apply()
     }
 
+    /** 8.1.0 退出确认：默认开启（false=要确认）；「不再提示」后为 true。 */
+    fun loadExitConfirmDisabled(): Boolean = preferences.getBoolean("exit_confirm_disabled", false)
+
+    fun saveExitConfirmDisabled(disabled: Boolean) {
+        preferences.edit().putBoolean("exit_confirm_disabled", disabled).apply()
+    }
+
+    /** 8.1.0 自动检查更新：默认关闭；开启后启动时静默检查 GitHub 正式版。 */
+    fun loadAutoCheckUpdates(): Boolean = preferences.getBoolean("auto_check_updates", false)
+
+    fun saveAutoCheckUpdates(enabled: Boolean) {
+        preferences.edit().putBoolean("auto_check_updates", enabled).apply()
+    }
+
+    /** 8.1.0 记住上次静默检查的日期（key），同一天不重复检查。 */
+    fun loadLastUpdateCheckDay(): String = preferences.getString("last_update_check_day", "") ?: ""
+
+    fun saveLastUpdateCheckDay(day: String) {
+        preferences.edit().putString("last_update_check_day", day).apply()
+    }
+
     fun loadGameDetectionEnabled(): Boolean = preferences.getBoolean("game_detection_enabled", ReminderFeatureDefaults.FOREGROUND_DETECTION_ENABLED)
 
     fun saveGameDetectionEnabled(enabled: Boolean) {
