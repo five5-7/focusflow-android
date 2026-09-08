@@ -132,7 +132,7 @@ internal fun FloatingNavigationBar(
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 shape = barShape,
-                color = background, tonalElevation = 0.dp, shadowElevation = 6.dp,
+                color = background, tonalElevation = 0.dp, shadowElevation = 3.dp,
                 border = BorderStroke(2.dp, navigationContentColor(background).copy(alpha = 0.40f))
             ) {
                 // Internal padding contains BOTH selected background and ripple within the outer corners.
@@ -183,7 +183,7 @@ internal fun FloatingNavigationBar(
                 onLongPress = onLongPressBack,
                 description = "回退到上一个页面；长按查看历史",
                 tint = navigationContentColor(background),
-                modifier = Modifier.align(Alignment.TopStart).offset(x = 3.dp, y = 1.dp)
+                modifier = Modifier.align(Alignment.TopStart).offset(x = 8.dp, y = 1.dp)
             )
             CornerSymbol(
                 visible = canGoForward,
@@ -193,7 +193,7 @@ internal fun FloatingNavigationBar(
                 onLongPress = null,
                 description = "折返到后一个页面",
                 tint = navigationContentColor(background),
-                modifier = Modifier.align(Alignment.TopEnd).offset(x = (-3).dp, y = 1.dp)
+                modifier = Modifier.align(Alignment.TopEnd).offset(x = (-8).dp, y = 1.dp)
             )
         }
     }
