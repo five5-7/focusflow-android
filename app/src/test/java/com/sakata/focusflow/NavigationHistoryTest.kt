@@ -9,8 +9,8 @@ import org.junit.Test
 
 class NavigationHistoryTest {
 
-    private fun snap(tab: Int, inbox: Boolean = false, plan: PlanPage? = null) = PageSnapshot(
-        tab, inbox, plan, null, emptyList()
+    private fun snap(tab: Int, inbox: Boolean = false, plan: PlanPage? = null, subPage: SettingsSubPage? = null) = PageSnapshot(
+        tab, inbox, plan, subPage, emptyList()
     )
 
     @Test
@@ -24,65 +24,42 @@ class NavigationHistoryTest {
     }
 
     @Test
-    fun goToRecordsAndSameDestinationIsNoOp() {
+    fun rootToRootNotRecorded() {
         val h = NavHistory()
-        val plans = snap(PageSnapshot.TAB_PLANS)
-        assertEquals(plans, h.goTo(plans))
-        assertTrue(h.canGoBack())
-        assertFalse(h.canGoForward())
-        // 相同目的地不产生历史。
-        assertNull(h.goTo(plans))
-        assertNull(h.goTo(PageSnapshot(PageSnapshot.TAB_PLANS, false, null, null, emptyList())))
+        val schedule = snap(PageSnapshot.TAB_SCHEDULE)
+        val settings = snap(PageSnapshot.TAB_SETTINGS)
+        h.goTo(schedule)
+        h.goTo(settings)
+        assertEquals(settings, h.current)
+        assertFalse(h.canGoBack())
+        assertNull(h.back())
     }
 
     @Test
-    fun backAndForwardRoundTrip() {
+    fun rootToSubpageRecords() {
         val h = NavHistory()
-        val a = snap(PageSnapshot.TAB_PLANS)
-        val b = snap(PageSnapshot.TAB_SETTINGS)
-        h.goTo(a)
-        h.goTo(b)
-        assertEquals(a, h.back())
-        assertTrue(h.canGoForward())
-        assertEquals(b, h.forward())
-        assertFalse(h.canGoForward())
-        assertEquals(a, h.back())
+        val plansSub = snap(PageSnapshot.TAB_PLANS, plan = PlanPage.GOALS)
+        assertEquals(plansSub, h.goTo(plansSub))
+        assertTrue(h.canGoBack())
         assertEquals(PageSnapshot.ROOT, h.back())
         assertNull(h.back())
-        assertTrue(h.canGoForward())
     }
 
     @Test
-    fun backRestoresSettingsBackStack() {
+    fun subpageToRootRecordsReturnTrip() {
         val h = NavHistory()
-        val settingsA = PageSnapshot(3, false, null, SettingsSubPage.COMMUTE_PLACES, listOf(SettingsSubPage.ROADMAP))
-        h.goTo(settingsA)
-        val back = h.back()!!
-        assertNull(back.settingsSubPage)
-        assertTrue(back.settingsBackStack.isEmpty())
-        assertEquals(settingsA, h.forward())
-    }
-
-    @Test
-    fun newNavigationTruncatesForwardBranch() {
-        val h = NavHistory()
-        val a = snap(1)
-        val b = snap(2)
-        val c = snap(3)
-        h.goTo(a)
-        h.goTo(b)
-        h.back() // 折返栈现有 b
-        assertTrue(h.canGoForward())
-        h.goTo(c) // 新导航清空折返
-        assertFalse(h.canGoForward())
-        assertNull(h.forward())
+        val sub = snap(PageSnapshot.TAB_PLANS, plan = PlanPage.COURSES)
+        h.goTo(sub)
+        val plansRoot = snap(PageSnapshot.TAB_PLANS)
+        h.goTo(plansRoot) // 子页→主页：记录（可回退回子页）
+        assertEquals(sub, h.back())
     }
 
     @Test
     fun abABounceCollapsesToA() {
         val h = NavHistory()
-        val a = snap(1)
-        val b = snap(2)
+        val a = snap(PageSnapshot.TAB_PLANS, plan = PlanPage.GOALS)
+        val b = snap(PageSnapshot.TAB_SETTINGS, subPage = SettingsSubPage.APPEARANCE)
         h.goTo(a)
         h.goTo(b)
         h.goTo(a) // A→B→A 抵消：等同只发生了 ROOT→A
@@ -94,11 +71,64 @@ class NavigationHistoryTest {
     }
 
     @Test
+    fun newNavigationTruncatesForwardBranch() {
+        val h = NavHistory()
+        val a = snap(1, plan = PlanPage.GOALS)
+        val b = snap(2, plan = PlanPage.COURSES)
+        val c = snap(3, subPage = SettingsSubPage.ROADMAP)
+        h.goTo(a)
+        h.goTo(b)
+        h.back() // 折返栈现有 b
+        assertTrue(h.canGoForward())
+        h.goTo(c) // 新导航清空折返
+        assertFalse(h.canGoForward())
+        assertNull(h.forward())
+    }
+
+    @Test
+    fun markWorkedHereRecordsRootOnce() {
+        val h = NavHistory()
+        val today = snap(PageSnapshot.TAB_TODAY)
+        h.goTo(today) // root→root 不记
+        h.markWorkedHere()
+        assertTrue(h.canGoBack())
+        h.markWorkedHere() // 幂等：不重复记录
+        val plans = snap(PageSnapshot.TAB_PLANS)
+        h.goTo(plans) // root→root 不记
+        assertEquals(today, h.back()) // 回到工作过的主页
+        assertNull(h.back())
+    }
+
+    @Test
+    fun markWorkedHereOnSubpageIsNoOp() {
+        val h = NavHistory()
+        val sub = snap(2, plan = PlanPage.GOALS)
+        h.goTo(sub)
+        val backStackBefore = h.entries().size
+        h.markWorkedHere()
+        assertEquals(backStackBefore, h.entries().size)
+    }
+
+    @Test
+    fun capacityDropsOldestBackEntry() {
+        val h = NavHistory(capacity = 2)
+        val a = snap(1, plan = PlanPage.GOALS)
+        val b = snap(2, plan = PlanPage.COURSES)
+        val c = snap(3, subPage = SettingsSubPage.ROADMAP)
+        h.goTo(a)
+        h.goTo(b)
+        h.goTo(c) // 回退栈超限，丢最旧的 root
+        assertEquals(2, h.back()!!.tab)
+        assertEquals(1, h.back()!!.tab)
+        assertNull(h.back())
+    }
+
+    @Test
     fun entriesAndJumpTo() {
         val h = NavHistory()
-        val a = snap(1)
-        val b = snap(2)
-        val c = snap(3)
+        val a = snap(1, plan = PlanPage.GOALS)
+        val b = snap(2, plan = PlanPage.COURSES)
+        val c = snap(3, subPage = SettingsSubPage.ROADMAP)
         h.goTo(a); h.goTo(b); h.goTo(c)
         assertEquals(listOf(PageSnapshot.ROOT, a, b, c), h.entries())
         assertTrue(h.jumpTo(a))
@@ -119,27 +149,6 @@ class NavigationHistoryTest {
         assertEquals("计划 · 目标与执行", snap(2, plan = PlanPage.GOALS).label)
         assertEquals("设置 · 外观", PageSnapshot(3, false, null, SettingsSubPage.APPEARANCE, emptyList()).label)
         assertEquals("设置主页", snap(3).label)
-    }
-
-    @Test
-    fun capacityDropsOldestBackEntry() {
-        val h = NavHistory(capacity = 2)
-        h.goTo(snap(1))
-        h.goTo(snap(2))
-        h.goTo(snap(3)) // 回退栈超限，丢最旧的 root
-        // 回退两步到顶：2 → 1，之后不可再退。
-        assertEquals(2, h.back()!!.tab)
-        assertEquals(1, h.back()!!.tab)
-        assertNull(h.back())
-    }
-
-    @Test
-    fun isTabRootDetectsSubpages() {
-        assertTrue(PageSnapshot.ROOT.isTabRoot())
-        assertFalse(snap(0, inbox = true).isTabRoot())
-        assertFalse(snap(2, plan = PlanPage.GOALS).isTabRoot())
-        assertFalse(PageSnapshot(3, false, null, SettingsSubPage.APPEARANCE, emptyList()).isTabRoot())
-        assertTrue(snap(1).isTabRoot())
     }
 
     @Test

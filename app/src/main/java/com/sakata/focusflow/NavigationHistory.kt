@@ -51,7 +51,7 @@ internal class NavHistory(private val capacity: Int = 30) {
     var current: PageSnapshot = PageSnapshot.ROOT
         private set
 
-    /** 记录一次用户导航并应用新目的地；无变化或去抖抵消时返回 null。 */
+    /** 记录一次用户导航并应用新目的地；无变化、去抖抵消或主页↔主页时返回 null。 */
     fun goTo(next: PageSnapshot): PageSnapshot? {
         if (next == current) return null
         if (backStack.isNotEmpty() && next == backStack.last()) {
@@ -61,11 +61,29 @@ internal class NavHistory(private val capacity: Int = 30) {
             current = next
             return next
         }
+        // 规则 v3：主页↔主页的跳转不记录（底栏一键可达，不值得回退）。
+        if (current.isTabRoot() && next.isTabRoot()) {
+            forwardStack.clear()
+            current = next
+            return next
+        }
         backStack.addLast(current)
         while (backStack.size > capacity) backStack.removeFirst()
         forwardStack.clear()
         current = next
         return next
+    }
+
+    /**
+     * 规则 v3 数据操作兜底：在主页做了实质数据操作时调用，把当前主页记为可回退的一步（幂等）。
+     * 子页无需处理（进入子页时已记录）。
+     */
+    fun markWorkedHere() {
+        if (!current.isTabRoot()) return
+        if (backStack.isNotEmpty() && backStack.last() == current) return
+        backStack.addLast(current)
+        while (backStack.size > capacity) backStack.removeFirst()
+        forwardStack.clear()
     }
 
     fun canGoBack(): Boolean = backStack.isNotEmpty()

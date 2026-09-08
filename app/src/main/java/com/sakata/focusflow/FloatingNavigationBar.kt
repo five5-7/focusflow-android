@@ -1,14 +1,9 @@
 package com.sakata.focusflow
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.expandHorizontally
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
@@ -38,6 +33,7 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalDensity
@@ -91,97 +87,101 @@ internal fun FloatingNavigationBar(
             // Internal padding contains BOTH selected background and ripple within the outer corners.
             BoxWithConstraints(Modifier.padding(FloatingNavigationLayout.INNER_PADDING_DP.dp)) {
                 val contentWidth = maxWidth.coerceAtLeast(FloatingNavigationLayout.MIN_CONTENT_WIDTH_DP.dp)
-                Box(Modifier.horizontalScroll(rememberScrollState())) {
-                    Row(
-                        Modifier.width(contentWidth).selectableGroup(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        // 8.1.0 回退键：有上级时展开出现；长按弹会话历史列表。
-                        AnimatedVisibility(
-                            visible = canGoBack,
-                            enter = expandHorizontally(tween(180)) + fadeIn(tween(180)),
-                            exit = shrinkHorizontally(tween(150)) + fadeOut(tween(150))
+                Box {
+                    // 8.1.0 底栏形变：两端圆瓣在页签下层缩放淡入，出现/消失不挤压任何页签。
+                    HistoryLobe(
+                        visible = canGoBack,
+                        onClick = onBackHistory,
+                        onLongPress = onLongPressBack,
+                        icon = Icons.AutoMirrored.Filled.ArrowBack,
+                        description = "回退到上一个页面；长按查看历史",
+                        background = background,
+                        modifier = Modifier.align(Alignment.CenterStart)
+                    )
+                    Box(Modifier.horizontalScroll(rememberScrollState())) {
+                        Row(
+                            Modifier.width(contentWidth).selectableGroup(),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            HistoryBarKey(
-                                onClick = onBackHistory,
-                                onLongPress = onLongPressBack,
-                                icon = Icons.AutoMirrored.Filled.ArrowBack,
-                                description = "回退到上一个页面；长按查看历史",
-                                background = background
-                            )
-                        }
-                        val labels = listOf("今日", "日程", "计划", "设置")
-                        val icons = listOf(Icons.Filled.Home, Icons.Filled.DateRange, Icons.Filled.List, Icons.Filled.Settings)
-                        labels.forEachIndexed { index, label ->
-                            if (index == 2) Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                                Surface(
-                                    onClick = onAdd, modifier = Modifier.size(48.dp),
-                                    shape = RoundedCornerShape(16.dp),
-                                    color = indicator, contentColor = navigationContentColor(indicator)
-                                ) {
-                                    Box(contentAlignment = Alignment.Center) {
-                                        Icon(Icons.Filled.Add, contentDescription = "添加")
+                            val labels = listOf("今日", "日程", "计划", "设置")
+                            val icons = listOf(Icons.Filled.Home, Icons.Filled.DateRange, Icons.Filled.List, Icons.Filled.Settings)
+                            labels.forEachIndexed { index, label ->
+                                if (index == 2) Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                                    Surface(
+                                        onClick = onAdd, modifier = Modifier.size(48.dp),
+                                        shape = RoundedCornerShape(16.dp),
+                                        color = indicator, contentColor = navigationContentColor(indicator)
+                                    ) {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Icon(Icons.Filled.Add, contentDescription = "添加")
+                                        }
                                     }
                                 }
+                                FloatingNavigationItem(
+                                    label, icons[index], selectedTab == index, background, indicator,
+                                    Modifier.weight(1f).semantics {
+                                        if (selectedTab == index) stateDescription = selectedPageDescription +
+                                            if (hasSubpage) "；再次点击返回${label}主页" else ""
+                                    },
+                                    hasSubpage = selectedTab == index && hasSubpage,
+                                    destinationKey = if (selectedTab == index) selectedPageDescription else label,
+                                    onClick = { onSelectTab(index) }
+                                )
                             }
-                            FloatingNavigationItem(
-                                label, icons[index], selectedTab == index, background, indicator,
-                                Modifier.weight(1f).semantics {
-                                    if (selectedTab == index) stateDescription = selectedPageDescription +
-                                        if (hasSubpage) "；再次点击返回${label}主页" else ""
-                                },
-                                hasSubpage = selectedTab == index && hasSubpage,
-                                destinationKey = if (selectedTab == index) selectedPageDescription else label,
-                                onClick = { onSelectTab(index) }
-                            )
-                        }
-                        // 8.1.0 折返键：有下级时展开出现。
-                        AnimatedVisibility(
-                            visible = canGoForward,
-                            enter = expandHorizontally(tween(180)) + fadeIn(tween(180)),
-                            exit = shrinkHorizontally(tween(150)) + fadeOut(tween(150))
-                        ) {
-                            HistoryBarKey(
-                                onClick = onForwardHistory,
-                                onLongPress = null,
-                                icon = Icons.AutoMirrored.Filled.ArrowForward,
-                                description = "折返到后一个页面",
-                                background = background
-                            )
                         }
                     }
+                    HistoryLobe(
+                        visible = canGoForward,
+                        onClick = onForwardHistory,
+                        onLongPress = null,
+                        icon = Icons.AutoMirrored.Filled.ArrowForward,
+                        description = "折返到后一个页面",
+                        background = background,
+                        modifier = Modifier.align(Alignment.CenterEnd)
+                    )
                 }
             }
         }
     }
 }
 
-/** 8.1.0 底栏内历史键槽位：固定窄宽，与页签同高，淡入/展开出现。 */
+/** 8.1.0 底栏两端圆瓣：与底栏同色同描边，缩放淡入；先于页签组合（绘制在下层，不遮挡图标主体）。 */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun HistoryBarKey(
+private fun HistoryLobe(
+    visible: Boolean,
     onClick: () -> Unit,
     onLongPress: (() -> Unit)?,
     icon: ImageVector,
     description: String,
-    background: Color
+    background: Color,
+    modifier: Modifier = Modifier
 ) {
-    val longClickModifier = if (onLongPress != null) {
+    val progress by animateFloatAsState(if (visible) 1f else 0f, tween(220), label = "historyLobe")
+    if (progress <= 0.01f) return
+    val lobeColor = navigationContentColor(background)
+    val clickModifier = if (onLongPress != null) {
         Modifier.combinedClickable(onClick = onClick, onLongClick = onLongPress)
     } else {
         Modifier.combinedClickable(onClick = onClick)
     }
     Box(
-        modifier = Modifier
-            .width(40.dp)
-            .heightIn(min = FloatingNavigationLayout.MIN_ITEM_HEIGHT_DP.dp)
-            .clip(RoundedCornerShape(FloatingNavigationLayout.ITEM_RADIUS_DP.dp))
-            .then(longClickModifier)
-            .semantics { stateDescription = description }
-            .padding(horizontal = 4.dp, vertical = 8.dp),
+        modifier = modifier
+            .size(44.dp)
+            .graphicsLayer {
+                scaleX = progress
+                scaleY = progress
+                alpha = progress
+            }
+            .drawBehind {
+                drawCircle(background)
+                drawCircle(lobeColor.copy(alpha = 0.14f), style = Stroke(width = 1.dp.toPx()))
+            }
+            .then(clickModifier)
+            .semantics { stateDescription = description },
         contentAlignment = Alignment.Center
     ) {
-        Icon(icon, contentDescription = description, tint = navigationContentColor(background), modifier = Modifier.size(20.dp))
+        Icon(icon, contentDescription = description, tint = lobeColor, modifier = Modifier.size(20.dp))
     }
 }
 

@@ -385,6 +385,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     // 8.1.0 检查更新（仅 GitHub 正式版；下载后调系统安装）。
     var updateCheckState by remember { mutableStateOf(UpdateCheckState()) }
     var autoCheckUpdates by remember { mutableStateOf(store.loadAutoCheckUpdates()) }
+    var acceptRcUpdates by remember { mutableStateOf(store.loadAcceptRcUpdates()) }
     var downloadedUpdate by remember { mutableStateOf<File?>(null) }
     // 8.1.0 导航历史与草稿保险箱（会话内）：页面目的地变化统一记录，回退/折返键恢复快照。
     val navHistory = remember { NavHistory() }
@@ -455,19 +456,20 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             return
         }
         scope.launch {
-            updateCheckState = UpdateCheckState(checking = true, message = "正在检查 GitHub 正式版…")
-            val release = withContext(Dispatchers.IO) { runCatching { UpdateChecker.fetchLatestFormal() }.getOrNull() }
+            updateCheckState = UpdateCheckState(checking = true, message = "正在检查 GitHub 更新…")
+            val release = withContext(Dispatchers.IO) { runCatching { UpdateChecker.fetchLatest(includePrerelease = acceptRcUpdates) }.getOrNull() }
             val latest = release?.versionName
-            val newer = latest != null && UpdateChecker.isNewer(BuildConfig.VERSION_NAME, latest)
+            val newer = latest != null && UpdateChecker.isNewer(BuildConfig.VERSION_NAME, latest, release.isFormal)
+            val kind = if (release?.isFormal == true) "正式版" else "候选版"
             if (release == null) {
                 updateCheckState = UpdateCheckState(message = "检查失败：无法访问 GitHub")
                 return@launch
             }
             if (silent) {
-                updateCheckState = UpdateCheckState(latestFormal = latest, message = if (newer) "发现新正式版 ${release.versionName}" else "已是最新正式版 ${release.versionName}")
+                updateCheckState = UpdateCheckState(latestFormal = latest, message = if (newer) "发现新$kind ${release.versionName}" else "已是最新$kind ${release.versionName}")
                 if (newer) {
                     val result = snackbarHostState.showSnackbar(
-                        message = "发现新正式版 ${release.versionName}，可到 设置 → 检查更新 下载安装",
+                        message = "发现新$kind ${release.versionName}，可到 设置 → 检查更新 下载安装",
                         actionLabel = "查看",
                         withDismissAction = true
                     )
@@ -478,12 +480,12 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                 return@launch
             }
             if (!newer) {
-                updateCheckState = UpdateCheckState(latestFormal = latest, message = "当前已是最新正式版 ${release.versionName}")
+                updateCheckState = UpdateCheckState(latestFormal = latest, message = "当前已是最新$kind ${release.versionName}")
                 return@launch
             }
             val apkUrl = release.apkUrl
             if (apkUrl == null) {
-                updateCheckState = UpdateCheckState(latestFormal = latest, message = "发现新正式版 ${release.versionName}，请到发布页下载")
+                updateCheckState = UpdateCheckState(latestFormal = latest, message = "发现新$kind ${release.versionName}，请到发布页下载")
                 runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(release.pageUrl))) }
                 return@launch
             }
@@ -546,6 +548,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             val updated = courses + merge.added
             courses = updated
             store.saveCourses(updated)
+            navHistory.markWorkedHere()
         }
         courseImportMessage = merge.message
         courseImportRunning = false
@@ -583,6 +586,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
         items = updated
         ReminderScheduler.syncTaskReminders(context, previous, updated)
         taskEvents = store.loadTaskEvents()
+        navHistory.markWorkedHere()
         return true
     }
 
@@ -600,6 +604,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
         items = updated
         ReminderScheduler.syncTaskReminders(context, previous, updated)
         taskEvents = store.loadTaskEvents()
+        navHistory.markWorkedHere()
         return true
     }
 
@@ -617,6 +622,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             return false
         }
         goals = updated
+        navHistory.markWorkedHere()
         return true
     }
 
@@ -1333,6 +1339,11 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                     onAutoCheckUpdatesChange = { enabled ->
                         autoCheckUpdates = enabled
                         store.saveAutoCheckUpdates(enabled)
+                    },
+                    acceptRcUpdates = acceptRcUpdates,
+                    onAcceptRcUpdatesChange = { enabled ->
+                        acceptRcUpdates = enabled
+                        store.saveAcceptRcUpdates(enabled)
                     },
                     updateCheckState = updateCheckState,
                     onCheckUpdate = { checkForUpdate() })

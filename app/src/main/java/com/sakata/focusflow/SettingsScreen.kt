@@ -218,7 +218,7 @@ private data class AddInstalledAppDraft(val query: String, val selectedPkg: Stri
 internal enum class SettingsSubPage(val title: String) {
     ADVANCED("高级工具"),
     USER_GUIDE("使用说明书"), ROADMAP("版本路线图"), CAMPUS_PLACES("校园地点"), COMMUTE_PLACES("通勤与地点"), TUTORIAL_SEARCH("学习路径建议"),
-    COURSE_VISION("课表识别（视觉模型）"), APP_DETECTION("前台应用检测"), STABILITY("稳定性与崩溃"),
+    COURSE_VISION("课表识别（视觉模型）"), APP_DETECTION("前台应用检测"), STABILITY("稳定性与崩溃"), UPDATES("检查更新"),
     APPEARANCE("外观"), ACTIVITY_REMINDERS("日程与活动提醒"), QUIET_HOURS("提醒打扰控制"), CUSTOM_THEME("自定义主题"),
     AI_WEEKLY_SUMMARY("AI 周总结")
 }
@@ -238,7 +238,7 @@ internal fun categorizedInstalledApps(context: Context, userCategories: Map<Stri
 private data class BaselineVariantDraft(val name: String)
 
 @OptIn(ExperimentalLayoutApi::class)
-@Composable internal fun SettingsScreen(modifier: Modifier, settingsScrollState: ScrollState, themeOption: FocusFlowThemeOption, commuteProfile: CommuteProfile, campusLifeEnabled: Boolean, campusMapPackage: CampusMapPackage?, currentCampusPlace: String?, improvementNotes: List<ImprovementNote>, activitySettings: ActivityReminderSettings, statusCheckInSettings: StatusCheckInSettings, statusPromptTrace: StatusPromptTrace, nextStatusPromptAt: Long, onStatusPromptTest: () -> Unit, windDownEnabled: Boolean, checkIns: List<StatusCheckIn>, baselineProfile: BaselineProfile, mealRecords: List<MealRecord>, mealReminderEnabled: Boolean, mealDurationTrackingEnabled: Boolean, onMealDurationTrackingEnabledChange: (Boolean) -> Unit, foregroundDetectionTrace: ForegroundDetectionTrace, subPage: SettingsSubPage?, onSubPageChange: (SettingsSubPage?) -> Unit, onThemeChange: (FocusFlowThemeOption) -> Unit, customThemeColors: FocusFlowThemeColors, onCustomThemeColorsChange: (FocusFlowThemeColors) -> Unit, themePresets: List<ThemePreset>, onThemePresetsChange: (List<ThemePreset>) -> Unit, onRestoreDefaultTheme: () -> Unit, onCommuteChange: (CommuteProfile) -> Unit, onCampusLifeEnabledChange: (Boolean) -> Unit, onCampusLifeRequired: () -> Unit, onCampusMapPackageChange: (CampusMapPackage?) -> Unit, onCurrentCampusPlaceChange: (String?) -> Unit, allPlaces: List<CampusPlace>, customPlaces: List<CampusPlace>, onCustomPlacesChange: (List<CampusPlace>) -> Unit, hiddenPlaces: Set<String>, onToggleHiddenPlace: (String) -> Unit, amapKey: String, onAmapKeyChange: (String) -> Unit, campusCenter: CampusCenter, onCampusCenterChange: (CampusCenter) -> Unit, tutorialSearch: TutorialSearchSettings, onTutorialSearchSettingsChange: (TutorialSearchSettings) -> Unit, aiWeeklySummary: AiWeeklySummarySettings, onAiWeeklySummarySettingsChange: (AiWeeklySummarySettings) -> Unit, courseVision: CourseVisionSettings, onCourseVisionSettingsChange: (CourseVisionSettings) -> Unit, courseVisionGuideOpen: Boolean, onCourseVisionGuideOpenChange: (Boolean) -> Unit, pendingPlaces: List<String>, onAddPendingPlace: (String) -> Unit, onRemovePendingPlace: (String) -> Unit, onActivitySettingsChange: (ActivityReminderSettings) -> Unit, quietHours: QuietHoursSettings, onQuietHoursChange: (QuietHoursSettings) -> Unit, quickCaptureEnabled: Boolean, onQuickCaptureEnabledChange: (Boolean) -> Unit, onStatusCheckInSettingsChange: (StatusCheckInSettings) -> Unit, onWindDownEnabledChange: (Boolean) -> Unit, onAddImprovement: () -> Unit, onOpenBaselineEditor: () -> Unit, onOpenBaselineEvents: () -> Unit, onResetBaseline: () -> Unit, onOpenFeatureIntro: () -> Unit, baselineVariants: List<BaselineProfile>, onSaveBaselineVariant: (String) -> Unit, onSwitchBaselineVariant: (BaselineProfile) -> Unit, onDeleteBaselineVariant: (BaselineProfile) -> Unit, onDayGroupsChange: (List<DayGroup>) -> Unit, baselineVariantNameOpen: Boolean, onBaselineVariantNameOpenChange: (Boolean) -> Unit, onMealReminderEnabledChange: (Boolean) -> Unit, onOpenMealRecords: () -> Unit, recordBaselineEvent: (BaselineEventType, String) -> Unit, gameDetectionEnabled: Boolean, onGameDetectionEnabledChange: (Boolean) -> Unit, appCategories: Map<String, String>, onAppCategoriesChange: (Map<String, String>) -> Unit, hiddenApps: Set<String>, onToggleHiddenApp: (String) -> Unit, videoAnalysisModel: String, onVideoAnalysisModelChange: (String) -> Unit, darkMode: Boolean, onDarkModeChange: (Boolean) -> Unit, onGlobalLoadingChange: (Boolean) -> Unit, exitConfirmDisabled: Boolean, onExitConfirmEnabledChange: (Boolean) -> Unit, autoCheckUpdates: Boolean, onAutoCheckUpdatesChange: (Boolean) -> Unit, updateCheckState: UpdateCheckState, onCheckUpdate: () -> Unit) {
+@Composable internal fun SettingsScreen(modifier: Modifier, settingsScrollState: ScrollState, themeOption: FocusFlowThemeOption, commuteProfile: CommuteProfile, campusLifeEnabled: Boolean, campusMapPackage: CampusMapPackage?, currentCampusPlace: String?, improvementNotes: List<ImprovementNote>, activitySettings: ActivityReminderSettings, statusCheckInSettings: StatusCheckInSettings, statusPromptTrace: StatusPromptTrace, nextStatusPromptAt: Long, onStatusPromptTest: () -> Unit, windDownEnabled: Boolean, checkIns: List<StatusCheckIn>, baselineProfile: BaselineProfile, mealRecords: List<MealRecord>, mealReminderEnabled: Boolean, mealDurationTrackingEnabled: Boolean, onMealDurationTrackingEnabledChange: (Boolean) -> Unit, foregroundDetectionTrace: ForegroundDetectionTrace, subPage: SettingsSubPage?, onSubPageChange: (SettingsSubPage?) -> Unit, onThemeChange: (FocusFlowThemeOption) -> Unit, customThemeColors: FocusFlowThemeColors, onCustomThemeColorsChange: (FocusFlowThemeColors) -> Unit, themePresets: List<ThemePreset>, onThemePresetsChange: (List<ThemePreset>) -> Unit, onRestoreDefaultTheme: () -> Unit, onCommuteChange: (CommuteProfile) -> Unit, onCampusLifeEnabledChange: (Boolean) -> Unit, onCampusLifeRequired: () -> Unit, onCampusMapPackageChange: (CampusMapPackage?) -> Unit, onCurrentCampusPlaceChange: (String?) -> Unit, allPlaces: List<CampusPlace>, customPlaces: List<CampusPlace>, onCustomPlacesChange: (List<CampusPlace>) -> Unit, hiddenPlaces: Set<String>, onToggleHiddenPlace: (String) -> Unit, amapKey: String, onAmapKeyChange: (String) -> Unit, campusCenter: CampusCenter, onCampusCenterChange: (CampusCenter) -> Unit, tutorialSearch: TutorialSearchSettings, onTutorialSearchSettingsChange: (TutorialSearchSettings) -> Unit, aiWeeklySummary: AiWeeklySummarySettings, onAiWeeklySummarySettingsChange: (AiWeeklySummarySettings) -> Unit, courseVision: CourseVisionSettings, onCourseVisionSettingsChange: (CourseVisionSettings) -> Unit, courseVisionGuideOpen: Boolean, onCourseVisionGuideOpenChange: (Boolean) -> Unit, pendingPlaces: List<String>, onAddPendingPlace: (String) -> Unit, onRemovePendingPlace: (String) -> Unit, onActivitySettingsChange: (ActivityReminderSettings) -> Unit, quietHours: QuietHoursSettings, onQuietHoursChange: (QuietHoursSettings) -> Unit, quickCaptureEnabled: Boolean, onQuickCaptureEnabledChange: (Boolean) -> Unit, onStatusCheckInSettingsChange: (StatusCheckInSettings) -> Unit, onWindDownEnabledChange: (Boolean) -> Unit, onAddImprovement: () -> Unit, onOpenBaselineEditor: () -> Unit, onOpenBaselineEvents: () -> Unit, onResetBaseline: () -> Unit, onOpenFeatureIntro: () -> Unit, baselineVariants: List<BaselineProfile>, onSaveBaselineVariant: (String) -> Unit, onSwitchBaselineVariant: (BaselineProfile) -> Unit, onDeleteBaselineVariant: (BaselineProfile) -> Unit, onDayGroupsChange: (List<DayGroup>) -> Unit, baselineVariantNameOpen: Boolean, onBaselineVariantNameOpenChange: (Boolean) -> Unit, onMealReminderEnabledChange: (Boolean) -> Unit, onOpenMealRecords: () -> Unit, recordBaselineEvent: (BaselineEventType, String) -> Unit, gameDetectionEnabled: Boolean, onGameDetectionEnabledChange: (Boolean) -> Unit, appCategories: Map<String, String>, onAppCategoriesChange: (Map<String, String>) -> Unit, hiddenApps: Set<String>, onToggleHiddenApp: (String) -> Unit, videoAnalysisModel: String, onVideoAnalysisModelChange: (String) -> Unit, darkMode: Boolean, onDarkModeChange: (Boolean) -> Unit, onGlobalLoadingChange: (Boolean) -> Unit, exitConfirmDisabled: Boolean, onExitConfirmEnabledChange: (Boolean) -> Unit, autoCheckUpdates: Boolean, onAutoCheckUpdatesChange: (Boolean) -> Unit, acceptRcUpdates: Boolean, onAcceptRcUpdatesChange: (Boolean) -> Unit, updateCheckState: UpdateCheckState, onCheckUpdate: () -> Unit) {
     val context = LocalContext.current
     val settingsStore = remember(context) { PrototypeStore(context) }
     val settingsLifecycleOwner = LocalLifecycleOwner.current
@@ -319,10 +319,6 @@ private data class BaselineVariantDraft(val name: String)
         SettingSwitch("常驻快速记录通知", "通知栏常驻一条通知，随时一键快速记录到收集箱；关闭后通知消失", quickCaptureEnabled, onQuickCaptureEnabledChange)
         HorizontalDivider()
         SettingSwitch("退出确认", "今日页按返回需二次确认；其他页面先回到今日页。关闭后直接退出", !exitConfirmDisabled) { onExitConfirmEnabledChange(it) }
-        HorizontalDivider()
-        SettingSwitch("自动检查更新", "启动时静默检查你的 GitHub 仓库，只接受正式版；发现新正式版提示一次", autoCheckUpdates, onAutoCheckUpdatesChange)
-        HorizontalDivider()
-        PlanHubItem("检查更新", updateCheckState.message ?: "仅接受 GitHub 正式版更新") { onCheckUpdate() }
         HorizontalDivider()
         SettingsSectionHeader("状态询问", onHelp = { helpBlock = SettingsBlock.STATUS_CHECK_IN })
         SettingSwitch("每日低打扰询问", "询问精力与当前活动；关闭后不会删除已有记录", statusCheckInSettings.enabled) {
@@ -507,6 +503,8 @@ private data class BaselineVariantDraft(val name: String)
         SettingsSectionHeader("改进清单", onHelp = { helpBlock = SettingsBlock.IMPROVEMENTS })
         TextButton(onClick = onAddImprovement) { Text("＋ 记录改进想法") }
         improvementNotes.takeLast(3).reversed().forEach { note -> ElevatedCard { Text(note.text, Modifier.padding(10.dp)) } }
+        HorizontalDivider()
+        PlanHubItem("检查更新", updateCheckState.message ?: "手动或自动检查；仅接受 GitHub 正式版更新") { onSubPageChange(SettingsSubPage.UPDATES) }
         HorizontalDivider()
         PlanHubItem("快速入门", "首次使用路径与默认值说明") { onOpenFeatureIntro() }
         HorizontalDivider()
@@ -1322,6 +1320,28 @@ private data class BaselineVariantDraft(val name: String)
                             Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))) {
                                 Text(crashText.takeLast(4000), Modifier.fillMaxWidth().padding(10.dp), style = MaterialTheme.typography.bodySmall)
                             }
+                        }
+                    }
+                    SettingsSubPage.UPDATES -> {
+                        var confirmRcOpen by remember { mutableStateOf(false) }
+                        Text(updateCheckState.message ?: "手动检查或自动检查；数据源仅本仓库 GitHub Releases，只接受正式版更新。", style = MaterialTheme.typography.bodySmall)
+                        Button(onClick = onCheckUpdate, enabled = !updateCheckState.checking) { Text("检查更新") }
+                        if (updateCheckState.latestFormal != null) {
+                            Text("最新可用：${updateCheckState.latestFormal}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        SettingSwitch("自动检查更新", "启动时静默检查一次（同一天去重）；发现新版本提示一次", autoCheckUpdates, onAutoCheckUpdatesChange)
+                        SettingSwitch("接受候选版（非正式版）", "候选版未经完整验收，可能包含缺陷或数据风险；仅建议开发者与验收设备开启", acceptRcUpdates) { enabled ->
+                            if (enabled) confirmRcOpen = true else onAcceptRcUpdatesChange(false)
+                        }
+                        Text("安装需「未知来源」授权；发布包均为稳定签名，候选版仅供测试，正式版用户不会收到同基号候选。", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        if (confirmRcOpen) {
+                            AlertDialog(
+                                onDismissRequest = { confirmRcOpen = false },
+                                title = { Text("开启候选版推送？") },
+                                text = { Text("候选版（rc）未经完整验收，可能包含缺陷或数据风险；只建议开发者／验收设备开启。仍要开启吗？") },
+                                confirmButton = { Button(onClick = { confirmRcOpen = false; onAcceptRcUpdatesChange(true) }) { Text("仍然开启") } },
+                                dismissButton = { TextButton(onClick = { confirmRcOpen = false }) { Text("取消") } }
+                            )
                         }
                     }
                 }

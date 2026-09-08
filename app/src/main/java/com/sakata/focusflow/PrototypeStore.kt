@@ -927,6 +927,13 @@ class PrototypeStore(context: Context) {
         preferences.edit().putBoolean("auto_check_updates", enabled).apply()
     }
 
+    /** 8.1.0 接受候选版（非正式版）推送：默认关闭；仅供开发者/验收使用。 */
+    fun loadAcceptRcUpdates(): Boolean = preferences.getBoolean("accept_rc_updates", false)
+
+    fun saveAcceptRcUpdates(enabled: Boolean) {
+        preferences.edit().putBoolean("accept_rc_updates", enabled).apply()
+    }
+
     /** 8.1.0 记住上次静默检查的日期（key），同一天不重复检查。 */
     fun loadLastUpdateCheckDay(): String = preferences.getString("last_update_check_day", "") ?: ""
 

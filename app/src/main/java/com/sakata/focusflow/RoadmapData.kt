@@ -21,7 +21,7 @@ object RoadmapData {
     /** 已实现版本演进（1.0 → 当前版本），每版本浓缩 1–3 条，与 CHANGELOG.md 对应。 */
     val evolution: List<RoadmapVersion> = listOf(
         RoadmapVersion("8.1.0", listOf(
-            RoadmapEntry("8.1.0-rc.4", "退出确认与页面历史", "根页面返回先提示、提示期内再次返回才退出（非今日页先回今日主页）；回退／折返键整合进悬浮底栏并带展开动画，长按回退键弹会话历史列表；弹窗草稿关闭后重开自动恢复、新建弹窗可一键清空；检查更新只接受 GitHub 正式版。", RoadmapStatus.CANDIDATE)
+            RoadmapEntry("8.1.0-rc.5", "退出确认与页面历史", "根页面返回先提示、提示期内再次返回才退出（非今日页先回今日主页）；回退／折返为底栏两端圆瓣形变，长按回退键弹会话历史列表；历史规则 v3（主页↔主页不记、工作过的主页可回）；弹窗草稿自动恢复、新建弹窗可清空；检查更新只接受 GitHub 正式版（可勾选稳定签名候选）。", RoadmapStatus.CANDIDATE)
         )),
         RoadmapVersion("8.0.0", listOf(
             RoadmapEntry("8.0.0", "第三个正式版", "集中整理今日状态、收集箱、课表与课程、通勤、空挡、目标和历史，并修复计划页闪退、任务状态被旧页面覆盖及过去日程占用未来空挡的问题。", RoadmapStatus.DONE),
