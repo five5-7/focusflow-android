@@ -41,6 +41,7 @@
 - Add pure Kotlin unit tests for time, planning, migration, and reminder-policy logic.
 - Run `:app:testDebugUnitTest` and `:app:assembleDebug` in CI before offering an APK.
 - Use only the stable-signed GitHub Actions artifact for installation testing.
+- 本地构建与 CI 使用同一签名（见 `docs/signing-policy.md`：证书 SHA-256 `650a17f2…`，即 Android 调试证书；仓库 Secrets 持有该 keystore）。本地构建需设置 `FOCUSFLOW_SIGNING_STORE_FILE`/`FOCUSFLOW_SIGNING_STORE_PASSWORD`/`FOCUSFLOW_SIGNING_KEY_ALIAS`/`FOCUSFLOW_SIGNING_KEY_PASSWORD` 四个环境变量，值从维护者本地签名目录读取（如 `signing/passwords.txt`，三行：storePassword/keyAlias/keyPassword；勿入库、勿回显、勿写入日志）。同一签名保证本地包与 GitHub Release 包可互相覆盖安装，应用内「检查更新」依赖这一点。
 - Target-device verification is OPPO / ColorOS 16 / Android 15, especially notification permission, channels, background restrictions, reboot recovery, and meal-dismiss behavior.
 
 ## Agent handoff
