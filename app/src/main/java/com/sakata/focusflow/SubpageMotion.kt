@@ -37,11 +37,11 @@ internal fun <T : Any> SubpageMotion(
         transitionSpec = {
             val direction = NavigationMotion.direction(initialState?.let(depth) ?: 0, targetState?.let(depth) ?: 0)
             when {
-                direction > 0 -> (slideInHorizontally(tween(220)) { it / 6 } + fadeIn(tween(180))) togetherWith
-                    (slideOutHorizontally(tween(220)) { -it / 12 } + fadeOut(tween(150)))
-                direction < 0 -> (slideInHorizontally(tween(220)) { -it / 12 } + fadeIn(tween(180))) togetherWith
-                    (slideOutHorizontally(tween(220)) { it / 6 } + fadeOut(tween(150)))
-                else -> fadeIn(tween(180)) togetherWith fadeOut(tween(150))
+                direction > 0 -> (slideInHorizontally(tween(motionMillis(220))) { it / 6 } + fadeIn(tween(motionMillis(180)))) togetherWith
+                    (slideOutHorizontally(tween(motionMillis(220))) { -it / 12 } + fadeOut(tween(motionMillis(150))))
+                direction < 0 -> (slideInHorizontally(tween(motionMillis(220))) { -it / 12 } + fadeIn(tween(motionMillis(180)))) togetherWith
+                    (slideOutHorizontally(tween(motionMillis(220))) { it / 6 } + fadeOut(tween(motionMillis(150))))
+                else -> fadeIn(tween(motionMillis(180))) togetherWith fadeOut(tween(motionMillis(150)))
             }.using(null)
         }
     ) { destination ->

@@ -257,6 +257,9 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     var globalLoading by remember { mutableStateOf(false) }
     var themeOption by remember { mutableStateOf(store.loadTheme()) }
     var darkMode by remember { mutableStateOf(store.loadDarkMode()) }
+    // 8.1.0 动画速度（外观页）：全局时长倍率，写入 MotionSettings 供各动画换算。
+    var animationSpeed by remember { mutableStateOf(store.loadAnimationSpeed()) }
+    LaunchedEffect(animationSpeed) { MotionSettings.update(animationSpeed) }
     var customThemeColors by remember { mutableStateOf(store.loadCustomThemeColors() ?: FocusFlowThemeOption.CUSTOM.colors) }
     var themePresets by remember { mutableStateOf(store.loadThemePresets()) }
     // 自定义主题的"恢复默认"目标：最近一次选过的内置主题。
@@ -1346,7 +1349,12 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                         store.saveAcceptRcUpdates(enabled)
                     },
                     updateCheckState = updateCheckState,
-                    onCheckUpdate = { checkForUpdate() })
+                    onCheckUpdate = { checkForUpdate() },
+                    animationSpeed = animationSpeed,
+                    onAnimationSpeedChange = { scale ->
+                        animationSpeed = scale
+                        store.saveAnimationSpeed(scale)
+                    })
             }
         }
             } // primary destination motion

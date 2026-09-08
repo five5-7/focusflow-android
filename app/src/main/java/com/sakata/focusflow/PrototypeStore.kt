@@ -934,6 +934,13 @@ class PrototypeStore(context: Context) {
         preferences.edit().putBoolean("accept_rc_updates", enabled).apply()
     }
 
+    /** 8.1.0 动画速度倍率：0=关闭，0.5=较快，1=标准，1.5=较慢。 */
+    fun loadAnimationSpeed(): Float = preferences.getFloat("animation_speed", 1f)
+
+    fun saveAnimationSpeed(scale: Float) {
+        preferences.edit().putFloat("animation_speed", scale.coerceIn(0f, 1.5f)).apply()
+    }
+
     /** 8.1.0 记住上次静默检查的日期（key），同一天不重复检查。 */
     fun loadLastUpdateCheckDay(): String = preferences.getString("last_update_check_day", "") ?: ""
 

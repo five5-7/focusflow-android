@@ -17,7 +17,13 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.automirrored.outlined.ArrowForward
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.DateRange
+import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.List
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -69,7 +75,7 @@ internal fun FloatingNavigationBar(
     onLongPressBack: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    val background by animateColorAsState(containerColor, tween(220), label = "navigationTheme")
+    val background by animateColorAsState(containerColor, tween(motionMillis(220)), label = "navigationTheme")
     val indicator = navigationIndicatorColor(background, MaterialTheme.colorScheme.primary)
     BoxWithConstraints(
         modifier.fillMaxWidth().windowInsetsPadding(
@@ -80,7 +86,7 @@ internal fun FloatingNavigationBar(
         Surface(
             modifier = Modifier.padding(horizontal = margin, vertical = 8.dp)
                 .widthIn(max = FloatingNavigationLayout.MAX_BAR_WIDTH_DP.dp).fillMaxWidth(),
-            shape = RoundedCornerShape(FloatingNavigationLayout.OUTER_RADIUS_DP.dp),
+            shape = RoundedCornerShape(percent = 50),
             color = background, tonalElevation = 0.dp, shadowElevation = 6.dp,
             border = BorderStroke(1.dp, navigationContentColor(background).copy(alpha = 0.12f))
         ) {
@@ -88,23 +94,13 @@ internal fun FloatingNavigationBar(
             BoxWithConstraints(Modifier.padding(FloatingNavigationLayout.INNER_PADDING_DP.dp)) {
                 val contentWidth = maxWidth.coerceAtLeast(FloatingNavigationLayout.MIN_CONTENT_WIDTH_DP.dp)
                 Box {
-                    // 8.1.0 底栏形变：两端圆瓣在页签下层缩放淡入，出现/消失不挤压任何页签。
-                    HistoryLobe(
-                        visible = canGoBack,
-                        onClick = onBackHistory,
-                        onLongPress = onLongPressBack,
-                        icon = Icons.AutoMirrored.Filled.ArrowBack,
-                        description = "回退到上一个页面；长按查看历史",
-                        background = background,
-                        modifier = Modifier.align(Alignment.CenterStart)
-                    )
                     Box(Modifier.horizontalScroll(rememberScrollState())) {
                         Row(
                             Modifier.width(contentWidth).selectableGroup(),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             val labels = listOf("今日", "日程", "计划", "设置")
-                            val icons = listOf(Icons.Filled.Home, Icons.Filled.DateRange, Icons.Filled.List, Icons.Filled.Settings)
+                            val icons = listOf(Icons.Outlined.Home, Icons.Outlined.DateRange, Icons.Outlined.List, Icons.Outlined.Settings)
                             labels.forEachIndexed { index, label ->
                                 if (index == 2) Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
                                     Surface(
@@ -130,13 +126,25 @@ internal fun FloatingNavigationBar(
                             }
                         }
                     }
+                    // 8.1.0 底栏形变：两端圆瓣在页签上层缩放淡入；实心圆钮，出现/消失不挤压任何页签。
+                    HistoryLobe(
+                        visible = canGoBack,
+                        onClick = onBackHistory,
+                        onLongPress = onLongPressBack,
+                        icon = Icons.AutoMirrored.Outlined.ArrowBack,
+                        description = "回退到上一个页面；长按查看历史",
+                        fill = MaterialTheme.colorScheme.surface,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.align(Alignment.CenterStart)
+                    )
                     HistoryLobe(
                         visible = canGoForward,
                         onClick = onForwardHistory,
                         onLongPress = null,
-                        icon = Icons.AutoMirrored.Filled.ArrowForward,
+                        icon = Icons.AutoMirrored.Outlined.ArrowForward,
                         description = "折返到后一个页面",
-                        background = background,
+                        fill = MaterialTheme.colorScheme.surface,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.align(Alignment.CenterEnd)
                     )
                 }
@@ -145,7 +153,7 @@ internal fun FloatingNavigationBar(
     }
 }
 
-/** 8.1.0 底栏两端圆瓣：与底栏同色同描边，缩放淡入；先于页签组合（绘制在下层，不遮挡图标主体）。 */
+/** 8.1.0 底栏两端圆瓣：实心圆钮（浅色底+描边+软阴影），缩放淡入；先组合页签、后组合圆瓣（绘制在上层）。 */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun HistoryLobe(
@@ -154,12 +162,12 @@ private fun HistoryLobe(
     onLongPress: (() -> Unit)?,
     icon: ImageVector,
     description: String,
-    background: Color,
+    fill: Color,
+    tint: Color,
     modifier: Modifier = Modifier
 ) {
-    val progress by animateFloatAsState(if (visible) 1f else 0f, tween(220), label = "historyLobe")
+    val progress by animateFloatAsState(if (visible) 1f else 0f, tween(motionMillis(220)), label = "historyLobe")
     if (progress <= 0.01f) return
-    val lobeColor = navigationContentColor(background)
     val clickModifier = if (onLongPress != null) {
         Modifier.combinedClickable(onClick = onClick, onLongClick = onLongPress)
     } else {
@@ -174,14 +182,15 @@ private fun HistoryLobe(
                 alpha = progress
             }
             .drawBehind {
-                drawCircle(background)
-                drawCircle(lobeColor.copy(alpha = 0.14f), style = Stroke(width = 1.dp.toPx()))
+                drawCircle(Color.Black.copy(alpha = 0.18f), radius = size.minDimension / 2, center = Offset(size.width / 2, size.height / 2 + 1.dp.toPx()))
+                drawCircle(fill)
+                drawCircle(tint.copy(alpha = 0.25f), style = Stroke(width = 1.dp.toPx()))
             }
             .then(clickModifier)
             .semantics { stateDescription = description },
         contentAlignment = Alignment.Center
     ) {
-        Icon(icon, contentDescription = description, tint = lobeColor, modifier = Modifier.size(20.dp))
+        Icon(icon, contentDescription = description, tint = tint, modifier = Modifier.size(20.dp))
     }
 }
 
@@ -232,18 +241,18 @@ private fun FloatingNavigationItem(
 ) {
     // Animate each slot: no selection block travels across the independent central Add action.
     // Compose respects the system animation-duration scale, including disabled animations.
-    val progress by animateFloatAsState(if (selected) 1f else 0f, tween(200), label = "navigationSelection")
+    val progress by animateFloatAsState(if (selected) 1f else 0f, tween(motionMillis(200)), label = "navigationSelection")
     val fill = lerp(background, indicator, progress)
     val foreground = navigationContentColor(fill)
-    val subpageProgress by animateFloatAsState(if (hasSubpage) 1f else 0f, tween(200), label = "navigationDepth")
+    val subpageProgress by animateFloatAsState(if (hasSubpage) 1f else 0f, tween(motionMillis(200)), label = "navigationDepth")
     val destinationPulse = remember { Animatable(1f) }
     var previousDestination by remember { mutableStateOf(destinationKey) }
     LaunchedEffect(destinationKey) {
         val changed = destinationKey != previousDestination
         previousDestination = destinationKey
         if (selected && changed) {
-            destinationPulse.animateTo(0.90f, tween(80))
-            destinationPulse.animateTo(1f, tween(140))
+            destinationPulse.animateTo(0.90f, tween(motionMillis(80)))
+            destinationPulse.animateTo(1f, tween(motionMillis(140)))
         } else destinationPulse.snapTo(1f)
     }
     Column(
@@ -262,9 +271,15 @@ private fun FloatingNavigationItem(
                     Size(side, side), CornerRadius(12.dp.toPx())
                 )
                 if (subpageProgress > 0f) {
-                    val center = Offset(size.width - 4.dp.toPx(), 4.dp.toPx())
-                    drawCircle(background, 5.dp.toPx() * subpageProgress, center)
-                    drawCircle(navigationContentColor(background), 3.dp.toPx() * subpageProgress, center)
+                    // 8.1.0 副页指示：图标上方的小横条（替代原右上角圆点）。
+                    val pillWidth = 16.dp.toPx() * subpageProgress
+                    val pillHeight = 3.dp.toPx() * subpageProgress
+                    drawRoundRect(
+                        fill,
+                        Offset((size.width - pillWidth) / 2, -2.dp.toPx()),
+                        Size(pillWidth, pillHeight),
+                        CornerRadius(1.5.dp.toPx())
+                    )
                 }
             }, contentAlignment = Alignment.Center
         ) {
