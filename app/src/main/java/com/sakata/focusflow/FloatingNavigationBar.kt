@@ -3,7 +3,6 @@ package com.sakata.focusflow
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -67,35 +66,34 @@ internal fun navigationIndicatorColor(background: Color, primary: Color): Color 
     if (contrastRatio(background, primary) >= 1.5) primary.copy(alpha = 1f) else navigationContentColor(background)
 
 /**
- * 8.1.0 底栏形状：胶囊本体不变（上下界不变），顶部两角按进度生长出圆形小耳（回退/折返）。
- * 耳半径随 progress 从 0 动画生长，描边与阴影都跟随整体轮廓。
+ * 8.1.0 底栏形状：一整块连贯轮廓——上半为两端角向外突出的小圆角矩形（上边平直、角部外凸），
+ * 下半为大圆角胶囊；整体高度不变（上界 y=0、下界 y=H），肩部水平外延 e、上角半径 r1。
  */
-private class CornerEarCapsuleShape(
-    private val progressL: Float,
-    private val progressR: Float,
-    private val earRadiusDp: Float,
-    private val earCenterXDp: Float,
-    private val earCenterYDp: Float
+private class ShoulderCapsuleShape(
+    private val shoulderDp: Float,
+    private val topRadiusDp: Float
 ) : Shape {
     override fun createOutline(size: Size, layoutDirection: LayoutDirection, density: Density): Outline {
         val w = size.width
         val h = size.height
+        val e = with(density) { shoulderDp.dp.toPx() }
+        val r1 = with(density) { topRadiusDp.dp.toPx() }
+        val r2 = h / 2f
         val path = Path().apply {
-            // 胶囊本体
-            addOval(Rect(0f, 0f, w, h))
-            // 左耳：生长中的圆，圆心贴近左上角（向左上突出）
-            if (progressL > 0.01f) {
-                val er = with(density) { earRadiusDp.dp.toPx() } * progressL
-                val cx = with(density) { earCenterXDp.dp.toPx() }
-                val cy = with(density) { earCenterYDp.dp.toPx() }
-                addOval(Rect(cx - er, cy - er, cx + er, cy + er))
-            }
-            if (progressR > 0.01f) {
-                val er = with(density) { earRadiusDp.dp.toPx() } * progressR
-                val cx = w - with(density) { earCenterXDp.dp.toPx() }
-                val cy = with(density) { earCenterYDp.dp.toPx() }
-                addOval(Rect(cx - er, cy - er, cx + er, cy + er))
-            }
+            // 从左下胶囊弧（180°→270°）开始，顺时针一圈
+            moveTo(e, h / 2f)
+            arcTo(Rect(e, 0f, e + 2 * r2, h), 180f, 90f, false)
+            lineTo(w - e - r2, h)
+            arcTo(Rect(w - e - 2 * r2, 0f, w - e, h), 270f, 90f, false)
+            // 右肩：斜向上到上角外凸点
+            lineTo(w, r1)
+            arcTo(Rect(w - 2 * r1, 0f, w, 2 * r1), 0f, -90f, false)
+            // 上边（平直）
+            lineTo(r1, 0f)
+            arcTo(Rect(0f, 0f, 2 * r1, 2 * r1), 270f, -90f, false)
+            // 左肩：斜向下到胶囊左缘
+            lineTo(e, h / 2f)
+            close()
         }
         return Outline.Generic(path)
     }
@@ -120,24 +118,10 @@ internal fun FloatingNavigationBar(
 ) {
     val background by animateColorAsState(containerColor, tween(motionMillis(220)), label = "navigationTheme")
     val indicator = navigationIndicatorColor(background, MaterialTheme.colorScheme.primary)
-    // 8.1.0 顶角双耳：有历史时从胶囊上两角生长出来（形状本身变形），耳内为 < / > 符号。
-    val backEar by animateFloatAsState(
-        targetValue = if (canGoBack) 1f else 0f,
-        animationSpec = if (canGoBack) spring(dampingRatio = 0.72f, stiffness = 420f) else tween(motionMillis(140)),
-        label = "backEar"
-    )
-    val forwardEar by animateFloatAsState(
-        targetValue = if (canGoForward) 1f else 0f,
-        animationSpec = if (canGoForward) spring(dampingRatio = 0.72f, stiffness = 420f) else tween(motionMillis(140)),
-        label = "forwardEar"
-    )
-    val barShape = CornerEarCapsuleShape(
-        progressL = backEar,
-        progressR = forwardEar,
-        earRadiusDp = 18f,
-        earCenterXDp = 10f,
-        earCenterYDp = 10f
-    )
+    // 8.1.0 顶角 < > 符号：仅在有历史时淡入；底栏形状本身保持恒定（肩部胶囊轮廓）。
+    val backSymbol by animateFloatAsState(if (canGoBack) 1f else 0f, tween(motionMillis(180)), label = "backSymbol")
+    val forwardSymbol by animateFloatAsState(if (canGoForward) 1f else 0f, tween(motionMillis(180)), label = "forwardSymbol")
+    val barShape = ShoulderCapsuleShape(shoulderDp = 14f, topRadiusDp = 12f)
     BoxWithConstraints(
         modifier.fillMaxWidth().windowInsetsPadding(
             safeInsets.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal)
@@ -187,24 +171,24 @@ internal fun FloatingNavigationBar(
                             }
                         }
                     }
-                    // 8.1.0 耳内符号：随耳生长淡入；左耳 < 长按弹历史，右耳 >。
+                    // 8.1.0 顶角符号：左角 < 长按弹历史，右角 >；随历史有无淡入。
                     EarSymbol(
-                        progress = backEar,
+                        progress = backSymbol,
                         onClick = onBackHistory,
                         onLongPress = onLongPressBack,
                         icon = Icons.AutoMirrored.Outlined.ArrowBack,
                         description = "回退到上一个页面；长按查看历史",
                         tint = navigationContentColor(background),
-                        modifier = Modifier.offset(x = (-11).dp, y = (-11).dp)
+                        modifier = Modifier.offset(x = (-8).dp, y = (-8).dp)
                     )
                     EarSymbol(
-                        progress = forwardEar,
+                        progress = forwardSymbol,
                         onClick = onForwardHistory,
                         onLongPress = null,
                         icon = Icons.AutoMirrored.Outlined.ArrowForward,
                         description = "折返到后一个页面",
                         tint = navigationContentColor(background),
-                        modifier = Modifier.align(Alignment.TopEnd).offset(x = 11.dp, y = (-11).dp)
+                        modifier = Modifier.align(Alignment.TopEnd).offset(x = 8.dp, y = (-8).dp)
                     )
                 }
             }
@@ -212,7 +196,7 @@ internal fun FloatingNavigationBar(
     }
 }
 
-/** 8.1.0 耳内符号：随耳生长进度淡入；点击回退/折返，长按（左耳）弹历史。 */
+/** 8.1.0 顶角符号：随历史有无淡入；点击回退/折返，长按（左角）弹历史。 */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun EarSymbol(
@@ -232,13 +216,13 @@ private fun EarSymbol(
     }
     Box(
         modifier = modifier
-            .size(26.dp)
+            .size(20.dp)
             .graphicsLayer { alpha = progress.coerceIn(0f, 1f) }
             .then(clickModifier)
             .semantics { stateDescription = description },
         contentAlignment = Alignment.Center
     ) {
-        Icon(icon, contentDescription = description, tint = tint, modifier = Modifier.size(15.dp))
+        Icon(icon, contentDescription = description, tint = tint, modifier = Modifier.size(13.dp))
     }
 }
 
@@ -291,7 +275,8 @@ private fun FloatingNavigationItem(
     // Compose respects the system animation-duration scale, including disabled animations.
     val progress by animateFloatAsState(if (selected) 1f else 0f, tween(motionMillis(200)), label = "navigationSelection")
     val fill = lerp(background, indicator, progress)
-    val foreground = navigationContentColor(fill)
+    // 8.1.0 副页（空心圆环态）时图标改用与底栏对比的深色；实心态按圆底色取对比色。
+    val foreground = if (selected && hasSubpage) navigationContentColor(background) else navigationContentColor(fill)
     val subpageProgress by animateFloatAsState(if (hasSubpage) 1f else 0f, tween(motionMillis(200)), label = "navigationDepth")
     val destinationPulse = remember { Animatable(1f) }
     var previousDestination by remember { mutableStateOf(destinationKey) }
