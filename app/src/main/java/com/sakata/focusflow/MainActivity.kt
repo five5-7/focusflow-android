@@ -77,6 +77,7 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.zIndex
 import kotlin.math.pow
 import java.io.File
 import java.net.URL
@@ -856,6 +857,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             )
             Box(
                 Modifier.fillMaxSize()
+                    .zIndex(if (visibleTab == tab) 1f else 0f)
                     .graphicsLayer { alpha = tabAlpha }
                     .then(
                         if (visibleTab == tab) Modifier

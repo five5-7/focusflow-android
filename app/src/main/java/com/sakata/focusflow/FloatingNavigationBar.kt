@@ -183,7 +183,7 @@ internal fun FloatingNavigationBar(
                 onLongPress = onLongPressBack,
                 description = "回退到上一个页面；长按查看历史",
                 tint = navigationContentColor(background),
-                modifier = Modifier.align(Alignment.TopStart).offset(x = 5.dp, y = 1.dp)
+                modifier = Modifier.align(Alignment.TopStart).offset(x = 2.dp, y = 1.dp)
             )
             CornerSymbol(
                 visible = canGoForward,
@@ -193,7 +193,7 @@ internal fun FloatingNavigationBar(
                 onLongPress = null,
                 description = "折返到后一个页面",
                 tint = navigationContentColor(background),
-                modifier = Modifier.align(Alignment.TopEnd).offset(x = (-5).dp, y = 1.dp)
+                modifier = Modifier.align(Alignment.TopEnd).offset(x = (-2).dp, y = 1.dp)
             )
         }
     }
@@ -220,7 +220,7 @@ private fun CornerSymbol(
     }
     Box(
         modifier = modifier
-            .size(26.dp)
+            .size(28.dp)
             .graphicsLayer { alpha = progress.coerceIn(0f, 1f) }
             .clip(CircleShape)
             .then(clickModifier)
@@ -228,7 +228,7 @@ private fun CornerSymbol(
             .semantics { stateDescription = description },
         contentAlignment = Alignment.Center
     ) {
-        Icon(icon, contentDescription = description, tint = tint, modifier = Modifier.size(18.dp))
+        Icon(icon, contentDescription = description, tint = tint, modifier = Modifier.size(20.dp))
     }
 }
 
