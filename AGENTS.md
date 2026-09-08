@@ -30,6 +30,7 @@
 - Use one feature branch per version or bounded phase; do not work directly on `main`.
 - Keep structure-only changes separate from behavior changes.
 - Update `CHANGELOG.md`, `README.md`, and `RoadmapData.kt` only when a release scope is actually implemented.
+- 应用内更新说明必须在发版时展示该版本核心变化：为每个新版本在 `QuickStartDialog.updateHighlightsFor` 写 2–3 条用户可感知的变化，禁止落入兜底文案；与 `CHANGELOG.md`、`RoadmapData.kt` 同步。
 - Follow `VERSIONING.md`; a CI `run-N` is not a product version and a successful build is not a release.
 - The current release version is `8.0.0` / versionCode 513. Its rc.4 baseline passed Run 306 and targeted device acceptance; the release commit and merged `main` commit must pass complete CI before publication.
 - Do not allocate a new version merely to record an idea; keep uncommitted ideas in the future-candidate section until a coherent scope is frozen.

@@ -103,6 +103,11 @@ internal fun CampusLifeChoiceDialog(onEnable: () -> Unit, onSkip: () -> Unit) {
 
 /** 覆盖安装后每个版本只展示一次的更新说明；版本名来自 BuildConfig，路线图是唯一详情入口。 */
 internal fun updateHighlightsFor(version: String): List<String> = when {
+    version.startsWith("8.1.0") -> listOf(
+        "根页面按返回先提示“再按一次返回键退出应用”，提示期内再次返回才退出；弹窗、子页的返回习惯不变。",
+        "导航有历史时，悬浮底栏两端出现回退／折返浮动键，可跨页签回到刚才操作的页面并恢复当时的页面状态（仅本次运行内）。",
+        "填了一半的表单被误关（返回／取消）后重开自动恢复内容；保存成功后清理草稿。"
+    )
     version.startsWith("7.12.0") -> listOf(
         "课程批量管理增加全选，课程卡片操作区与空挡周视图已重新整理。",
         "历史记录可以单删、批删或清空全部，相关统计会按剩余记录重新计算。"
