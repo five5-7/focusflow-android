@@ -55,6 +55,21 @@ class DatedOccupationTest {
         assertTrue(occupied.isEmpty())
     }
 
+    @Test fun pastDayDoesNotBlockNextWeeksSameWeekday() {
+        val yesterday = task(at("2026-09-07", 9))
+        val nextMonday = task(at("2026-09-14", 10)).copy(id = 2)
+
+        val occupied = occupiedByWeekday(listOf(yesterday, nextMonday), at("2026-09-08", 12))
+
+        assertEquals(listOf(10 * 60 until 11 * 60), occupied[1])
+    }
+
+    @Test fun elapsedPartOfTodayCannotBeRecommendedAgain() {
+        val occupied = occupiedByWeekday(emptyList(), at("2026-09-08", 12, 30))
+
+        assertEquals(listOf(0 until 12 * 60 + 30), occupied[2])
+    }
+
     @Test fun todayAgendaDoesNotReuseLastWeeksWeekday() {
         val previousMonday = task(at("2026-09-07", 9)).copy(title = "上周任务")
         val currentMonday = task(at("2026-09-14", 10)).copy(id = 2, title = "今天任务")

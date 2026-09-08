@@ -177,14 +177,25 @@ object ScheduleOccupation {
         .let { it.get(Calendar.HOUR_OF_DAY) * 60 + it.get(Calendar.MINUTE) }
 }
 
-/** 本周日程里已有安排（有固定时间的任务/事项）按星期几的占用分钟段；dayOnly 与仅时间范围的任务不算固定占用。 */
-internal fun occupiedByWeekday(items: List<Item>, weekKey: Long = GoalPlanner.currentWeekKey()): Map<Int, List<IntRange>> {
-    val weekEnd = Calendar.getInstance().apply { timeInMillis = weekKey; add(Calendar.DAY_OF_YEAR, 7) }.timeInMillis
-    return items.filter { !it.done && !it.dayOnly && it.kind !in setOf("收集箱", "暂停") }.flatMap { item ->
+/**
+ * 从现在起滚动七天内的已有安排，按下一次出现的星期几提供给空挡图。
+ * 已经过完的日期不会占用下周同一星期；今天已经过去的时间不能再被推荐。
+ */
+internal fun occupiedByWeekday(items: List<Item>, nowMillis: Long = System.currentTimeMillis()): Map<Int, List<IntRange>> {
+    val zone = java.time.ZoneId.systemDefault()
+    val today = java.time.Instant.ofEpochMilli(nowMillis).atZone(zone).toLocalDate()
+    val windowStart = today.atStartOfDay(zone).toInstant().toEpochMilli()
+    val windowEnd = today.plusDays(7).atStartOfDay(zone).toInstant().toEpochMilli()
+    val occupied = items.filter { !it.done && !it.dayOnly && it.kind !in setOf("收集箱", "暂停") }.flatMap { item ->
         item.scheduledAt?.let { ScheduleOccupation.segments(it, item.durationMinutes) }.orEmpty()
-    }.filter { (day, _) -> day >= weekKey && day < weekEnd }
+    }.filter { (day, _) -> day >= windowStart && day < windowEnd }
         .map { (day, range) -> ScheduleOccupation.weekdayOf(day) to range
-    }.groupBy({ it.first }, { it.second })
+    }.toMutableList()
+    val elapsedMinute = ScheduleOccupation.minuteOfDay(nowMillis)
+    if (elapsedMinute > 0) {
+        occupied += ScheduleOccupation.weekdayOf(nowMillis) to (0 until elapsedMinute)
+    }
+    return occupied.groupBy({ it.first }, { it.second })
 }
 
 /** Exact-date task occupation without course or buffer; used to build date-correct gap suggestions. */

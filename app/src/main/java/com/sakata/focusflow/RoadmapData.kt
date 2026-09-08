@@ -21,7 +21,8 @@ object RoadmapData {
     /** 已实现版本演进（1.0 → 当前版本），每版本浓缩 1–3 条，与 CHANGELOG.md 对应。 */
     val evolution: List<RoadmapVersion> = listOf(
         RoadmapVersion("8.0.0", listOf(
-            RoadmapEntry("8.0.0", "稳定版整合", "整合 7.9–7.12，并收束计划页崩溃、逾期提示、通知并发写入、跨日期占用、重叠课程与暂停任务边界；rc.3 已通过 Run 303 与真机验收。", RoadmapStatus.DONE)
+            RoadmapEntry("8.0.0", "第三个正式版", "集中整理今日状态、收集箱、课表与课程、通勤、空挡、目标和历史，并修复计划页闪退、任务状态被旧页面覆盖及过去日程占用未来空挡的问题。", RoadmapStatus.DONE),
+            RoadmapEntry("8.0.0-rc.4", "过去的安排不再占用未来", "空挡按今天起的七天计算：昨天的任务不会继续挡住下周同一天，今天已经过去的时间也不会再次推荐；跨过午夜仍在进行的安排照常保留。", RoadmapStatus.DONE)
         )),
         RoadmapVersion("7.12.0", listOf(
             RoadmapEntry("7.12.0-rc.3", "数据管理与课程／空挡界面修整", "已并入 8.0：课程批量管理、建议零结果说明、七天纵向空挡图与历史删除统计重算。", RoadmapStatus.DONE)
@@ -413,7 +414,7 @@ fun RoadmapSubpageContent() {
                 Text("每次功能更新递增 0.1；更新记录见版本演进。", style = MaterialTheme.typography.bodySmall)
             }
         }
-        Text("版本演进（1.0 → 当前版本）", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Text("版本演进（1.0 → 8.0）", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         RoadmapData.evolution.forEach { version ->
             Text(version.version, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
             version.entries.forEach { entry ->
