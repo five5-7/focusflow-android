@@ -16,10 +16,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.automirrored.outlined.ArrowBack
-import androidx.compose.material.icons.automirrored.outlined.ArrowForward
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.DateRange
 import androidx.compose.material.icons.outlined.Home
@@ -57,6 +53,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 
 /** Nav text remains readable independently of the user-selected body text color. */
 internal fun navigationContentColor(background: Color): Color =
@@ -116,16 +113,14 @@ internal fun FloatingNavigationBar(
 ) {
     val background by animateColorAsState(containerColor, tween(motionMillis(220)), label = "navigationTheme")
     val indicator = navigationIndicatorColor(background, MaterialTheme.colorScheme.primary)
-    // 8.1.0 形变：有历史时上两角从小圆角"伸出"（平时为完整胶囊）；< > 符号随之淡入。
+    // 8.1.0 形变：有历史时上两角从小圆角"伸出"（平时为完整胶囊）；< > 符号与形状同步伸缩（同一进度）。
     val historyActive = canGoBack || canGoForward
     val cornerProgress by animateFloatAsState(
         if (historyActive) 1f else 0f,
         tween(motionMillis(240)),
         label = "cornerMorph"
     )
-    val backSymbol by animateFloatAsState(if (canGoBack) 1f else 0f, tween(motionMillis(180)), label = "backSymbol")
-    val forwardSymbol by animateFloatAsState(if (canGoForward) 1f else 0f, tween(motionMillis(180)), label = "forwardSymbol")
-    val barShape = AsymmetricCapsuleShape(cornerProgress = cornerProgress, smallRadiusDp = 16f)
+    val barShape = AsymmetricCapsuleShape(cornerProgress = cornerProgress, smallRadiusDp = 10f)
     BoxWithConstraints(
         modifier.fillMaxWidth().windowInsetsPadding(
             safeInsets.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal)
@@ -157,7 +152,7 @@ internal fun FloatingNavigationBar(
                                 labels.forEachIndexed { index, label ->
                                     if (index == 2) Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
                                         Surface(
-                                            onClick = onAdd, modifier = Modifier.size(48.dp),
+                                            onClick = onAdd, modifier = Modifier.size(52.dp),
                                             shape = CircleShape,
                                             color = indicator, contentColor = navigationContentColor(indicator)
                                         ) {
@@ -182,43 +177,45 @@ internal fun FloatingNavigationBar(
                     }
                 }
             }
-            // 8.1.0 顶角符号：位于 Surface 之外（不被形状裁剪），贴在两顶角向外探出；左角 < 长按弹历史，右角 >。
-            EarSymbol(
-                progress = backSymbol,
+            // 8.1.0 顶角符号：裸 < / > 字符（不带圈），贴两顶角、与形状同步淡入；左角长按弹历史，右角 >。
+            CornerSymbol(
+                visible = canGoBack,
+                progress = cornerProgress,
+                symbol = "<",
                 onClick = onBackHistory,
                 onLongPress = onLongPressBack,
-                icon = Icons.AutoMirrored.Outlined.ArrowBack,
                 description = "回退到上一个页面；长按查看历史",
                 tint = navigationContentColor(background),
-                modifier = Modifier.align(Alignment.TopStart).offset(x = (-8).dp, y = (-8).dp)
+                modifier = Modifier.align(Alignment.TopStart).offset(x = (-7).dp, y = (-6).dp)
             )
-            EarSymbol(
-                progress = forwardSymbol,
+            CornerSymbol(
+                visible = canGoForward,
+                progress = cornerProgress,
+                symbol = ">",
                 onClick = onForwardHistory,
                 onLongPress = null,
-                icon = Icons.AutoMirrored.Outlined.ArrowForward,
                 description = "折返到后一个页面",
                 tint = navigationContentColor(background),
-                modifier = Modifier.align(Alignment.TopEnd).offset(x = 8.dp, y = (-8).dp)
+                modifier = Modifier.align(Alignment.TopEnd).offset(x = 7.dp, y = (-6).dp)
             )
         }
     }
 }
 
-/** 8.1.0 顶角符号：随历史有无淡入；点击回退/折返，长按（左角）弹历史。 */
+/** 8.1.0 顶角符号：裸 < / > 字符（不带圈），与形状同一进度淡入；圆形波纹裁剪避免方形阴影。 */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun EarSymbol(
+private fun CornerSymbol(
+    visible: Boolean,
     progress: Float,
+    symbol: String,
     onClick: () -> Unit,
     onLongPress: (() -> Unit)?,
-    icon: ImageVector,
     description: String,
     tint: Color,
     modifier: Modifier = Modifier
 ) {
-    if (progress <= 0.01f) return
-    val badgeColor = MaterialTheme.colorScheme.surface
+    if (!visible) return
     val clickModifier = if (onLongPress != null) {
         Modifier.combinedClickable(onClick = onClick, onLongClick = onLongPress)
     } else {
@@ -226,19 +223,19 @@ private fun EarSymbol(
     }
     Box(
         modifier = modifier
-            .size(20.dp)
+            .size(22.dp)
             .graphicsLayer { alpha = progress.coerceIn(0f, 1f) }
-            .drawBehind {
-                // 小圆形徽章底：浅色实底 + 细描边 + 轻阴影，保证在任何背景上可读。
-                drawCircle(Color.Black.copy(alpha = 0.10f), radius = 9.dp.toPx(), center = Offset(size.width / 2, size.height / 2 + 0.5.dp.toPx()))
-                drawCircle(badgeColor, radius = 9.dp.toPx())
-                drawCircle(tint.copy(alpha = 0.30f), radius = 9.dp.toPx(), style = Stroke(width = 1.dp.toPx()))
-            }
+            .clip(CircleShape)
             .then(clickModifier)
             .semantics { stateDescription = description },
         contentAlignment = Alignment.Center
     ) {
-        Icon(icon, contentDescription = description, tint = tint, modifier = Modifier.size(12.dp))
+        Text(
+            symbol,
+            color = tint,
+            fontWeight = FontWeight.Bold,
+            fontSize = 15.sp
+        )
     }
 }
 
@@ -313,7 +310,7 @@ private fun FloatingNavigationItem(
         verticalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterVertically)
     ) {
         Box(
-            Modifier.size(40.dp).drawBehind {
+            Modifier.size(44.dp).drawBehind {
                 // 8.1.0 选中态：主页=实心圆；子页=空心圆环（标签同步替换为子页名）。
                 val radius = size.minDimension / 2 * (0.86f + 0.14f * progress) * destinationPulse.value
                 if (hasSubpage && selected) {
