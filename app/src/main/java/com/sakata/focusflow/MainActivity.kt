@@ -42,6 +42,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.core.view.WindowCompat
 import androidx.core.content.FileProvider
 import androidx.compose.ui.draw.drawBehind
@@ -866,15 +867,15 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             // 8.1.0 性能+转场：四个页签常驻组合（零重组），切换按导航类型做位移/缩放/淡入转场。
             listOf(0, 1, 2, 3).forEach { visibleTab ->
             val isVisibleTab = visibleTab == tab
-            val slidePx = with(LocalDensity.current) { (if (lastNavKind == NavKind.JUMP) 44.dp else 28.dp).toPx() }
-            val hiddenScale = if (lastNavKind == NavKind.JUMP) 0.90f else 1f
-            val tabAlpha by animateFloatAsState(if (isVisibleTab) 1f else 0f, tween(motionMillis(160)), label = "tabAlpha$visibleTab")
+            val slidePx = with(LocalDensity.current) { (if (lastNavKind == NavKind.JUMP) 64.dp else 48.dp).toPx() }
+            val hiddenScale = if (lastNavKind == NavKind.JUMP) 0.85f else 1f
+            val tabAlpha by animateFloatAsState(if (isVisibleTab) 1f else 0f, tween(motionMillis(200)), label = "tabAlpha$visibleTab")
             val tabX by animateFloatAsState(
                 if (isVisibleTab) 0f else if (visibleTab < tab) -slidePx else slidePx,
-                tween(motionMillis(180)),
+                tween(motionMillis(220)),
                 label = "tabX$visibleTab"
             )
-            val tabScale by animateFloatAsState(if (isVisibleTab) 1f else hiddenScale, tween(motionMillis(180)), label = "tabScale$visibleTab")
+            val tabScale by animateFloatAsState(if (isVisibleTab) 1f else hiddenScale, tween(motionMillis(220)), label = "tabScale$visibleTab")
             Box(
                 Modifier.fillMaxSize()
                     .zIndex(if (isVisibleTab) 1f else 0f)
@@ -893,6 +894,14 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                         }
                     )
             ) {
+            // 8.1.0 ④：子页返回主页的收敛原点 = 当前页签在底栏的槽位中心（x 分数按 5 槽均分估算）。
+            val collapseOrigins = listOf(
+                TransformOrigin(0.153f, 0.88f),
+                TransformOrigin(0.327f, 0.88f),
+                TransformOrigin(0.673f, 0.88f),
+                TransformOrigin(0.847f, 0.88f)
+            )
+            CompositionLocalProvider(LocalNavCollapseOrigin provides collapseOrigins[visibleTab]) {
             val pageModifier = Modifier.fillMaxSize()
             when (visibleTab) {
                 0 -> TodayScreen(
@@ -1404,6 +1413,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                         animationSpeed = scale
                         store.saveAnimationSpeed(scale)
                     })
+            }
             }
         }
             } // tab fade layer
