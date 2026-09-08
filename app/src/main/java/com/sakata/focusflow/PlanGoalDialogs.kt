@@ -104,6 +104,7 @@ import kotlinx.coroutines.withContext
             Text("先描述你希望得到的结果；详细计划可以稍后由应用根据空档生成。")
             OutlinedTextField(value = title, onValueChange = { title = it }, label = { Text("目标名称") }, singleLine = true)
             OutlinedTextField(value = desiredOutcome, onValueChange = { desiredOutcome = it }, label = { Text("预期结果（例如：能稳定完成每周锻炼）") }, minLines = 2)
+            initialGoal?.sourceNotes?.takeIf { it.isNotBlank() }?.let { Text("原始备注：$it", style = MaterialTheme.typography.bodySmall) }
             OutlinedTextField(value = weekly, onValueChange = { weekly = it.filter(Char::isDigit) }, label = { Text("每周次数") }, singleLine = true)
             OutlinedTextField(value = duration, onValueChange = { duration = it.filter(Char::isDigit) }, label = { Text("预计占用分钟") }, singleLine = true)
             gapSuggest?.let { (fit, median, total) ->
@@ -137,7 +138,7 @@ import kotlinx.coroutines.withContext
                 OutlinedTextField(value = resourceUnit, onValueChange = { resourceUnit = it }, label = { Text("教程章节／练习（可选）") }, singleLine = true)
             }
         } },
-        confirmButton = { Button(enabled = title.isNotBlank() && desiredOutcome.isNotBlank() && metricTarget.isNotBlank() && weeklyNumber != null && durationNumber != null && weeklyNumber in 1..7 && durationNumber in 5..240, onClick = { onSave(Goal(id = initialGoal?.id ?: System.currentTimeMillis(), title = title, weeklyTarget = weeklyNumber ?: 1, durationMinutes = durationNumber ?: 5, metricType = metricType, metricTarget = metricTarget, minimumVersion = suggestedMinimum, resourceTitle = resourceTitle, resourceUnit = resourceUnit, completedThisWeek = initialGoal?.completedThisWeek ?: 0, minimumCompletionsThisWeek = initialGoal?.minimumCompletionsThisWeek ?: 0, completionWeekKey = initialGoal?.completionWeekKey ?: GoalPlanner.currentWeekKey(), desiredOutcome = desiredOutcome, firstAction = firstAction)) }) { Text(if (initialGoal == null) "创建" else "保存") } },
+        confirmButton = { Button(enabled = title.isNotBlank() && desiredOutcome.isNotBlank() && metricTarget.isNotBlank() && weeklyNumber != null && durationNumber != null && weeklyNumber in 1..7 && durationNumber in 5..240, onClick = { onSave(Goal(id = initialGoal?.id ?: System.currentTimeMillis(), title = title, weeklyTarget = weeklyNumber ?: 1, durationMinutes = durationNumber ?: 5, metricType = metricType, metricTarget = metricTarget, minimumVersion = suggestedMinimum, resourceTitle = resourceTitle, resourceUnit = resourceUnit, completedThisWeek = initialGoal?.completedThisWeek ?: 0, minimumCompletionsThisWeek = initialGoal?.minimumCompletionsThisWeek ?: 0, completionWeekKey = initialGoal?.completionWeekKey ?: GoalPlanner.currentWeekKey(), desiredOutcome = desiredOutcome, firstAction = firstAction, sourceNotes = initialGoal?.sourceNotes.orEmpty())) }) { Text(if (initialGoal == null) "创建" else "保存") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }
     )
 }

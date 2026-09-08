@@ -17,6 +17,8 @@ enum class TaskEventType(val label: String, val storageKey: String) {
     TASK_CONVERTED("转为目标", "task_converted"),
     /** 收集箱项归入已有目标（6.8）。scheduledAt 恒为 0：归入不产生日程计划。 */
     TASK_ATTACHED_TO_PLAN("归入计划", "task_attached_to_plan"),
+    CAPTURE_ROUTED("收集箱整理", "capture_routed"),
+    NEXT_ACTION_CREATED("建立下一步", "next_action_created"),
     TASK_DELETED("删除任务", "task_deleted"),
     TASK_RESTORED("恢复任务", "task_restored");
 
@@ -64,7 +66,7 @@ object TaskRecorder {
         val parts = listOf(
             event.type.label,
             event.title.ifBlank { null },
-            event.extra.ifBlank { null },
+            TaskScheduleText.eventExtra(event).ifBlank { null },
             time
         )
         return parts.filterNotNull().joinToString(" · ")
@@ -135,6 +137,10 @@ data class DayTaskSummary(
 object TaskHistory {
     /** Display limits must never change statistical input. */
     fun append(events: List<TaskEvent>, event: TaskEvent): List<TaskEvent> = events + event
+
+    /** 删除只按稳定事件 id 匹配；同标题、同任务或同一时刻的其他事件不受影响。 */
+    fun without(events: List<TaskEvent>, eventIds: Set<Long>): List<TaskEvent> =
+        if (eventIds.isEmpty()) events else events.filterNot { it.id in eventIds }
 
     /** 自然日 00:00（与 TimeUtils 使用同一 Calendar 日界定义）。 */
     fun dayStartOf(millis: Long): Long {

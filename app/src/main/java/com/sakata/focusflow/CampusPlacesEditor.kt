@@ -279,7 +279,6 @@ fun CampusPlacesEditorContent(
         CustomPlaceEditorDialog(
             existing = existing,
             allNames = existingNames - (existing?.name?.lowercase() ?: ""),
-            amapKey = amapKey,
             onDismiss = { addOpen = false; editingName = null },
             onSave = { place ->
                 onSavePlace(existing?.name, place)
@@ -292,25 +291,19 @@ fun CampusPlacesEditorContent(
     addPoi?.let { poi -> AddPoiDialog(poi = poi, onDismiss = { addPoi = null }, onAdd = { addPoi = null; onSavePlace(null, it) }) }
 }
 
-/** 自定义地点新增/编辑对话框：名称、分区、用途、可选经纬度（同填或同空）。 */
+/** 自定义地点新增/编辑对话框：只填写名称和用途；分区由名称自动推断。 */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun CustomPlaceEditorDialog(
     existing: CampusPlace?,
     allNames: Set<String>,
-    amapKey: String,
     onDismiss: () -> Unit,
     onSave: (CampusPlace) -> Unit
 ) {
     var name by remember { mutableStateOf(existing?.name ?: "") }
-    var zone by remember { mutableStateOf(existing?.zone ?: CampusZone.WEST_TEACHING) }
-    var kind by remember { mutableStateOf(existing?.kind ?: "地点") }
-    var latText by remember { mutableStateOf(existing?.lat?.toString() ?: "") }
-    var lngText by remember { mutableStateOf(existing?.lng?.toString() ?: "") }
+    var kind by remember { mutableStateOf(existing?.kind?.takeUnless { it == "地点" } ?: "其他") }
     var message by remember { mutableStateOf<String?>(null) }
-    var geocoding by remember { mutableStateOf(false) }
-    val scope = rememberCoroutineScope()
-    val kindOptions = listOf("教学楼", "实验", "学习", "运动", "地点")
+    val kindOptions = listOf("教学楼", "实验", "学习", "运动", "其他")
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -318,17 +311,6 @@ private fun CustomPlaceEditorDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(value = name, onValueChange = { name = it; message = null }, label = { Text("地点名称") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                Text("分区", style = MaterialTheme.typography.labelMedium)
-                FlowRow {
-                    CampusZone.entries.forEach { option ->
-                        FilterChip(
-                            selected = zone == option,
-                            onClick = { zone = option },
-                            label = { Text(option.label) },
-                            modifier = Modifier.padding(end = 4.dp)
-                        )
-                    }
-                }
                 Text("用途", style = MaterialTheme.typography.labelMedium)
                 FlowRow {
                     kindOptions.forEach { option ->
@@ -340,27 +322,6 @@ private fun CustomPlaceEditorDialog(
                         )
                     }
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(value = latText, onValueChange = { latText = it }, label = { Text("纬度（可选）") }, singleLine = true, modifier = Modifier.weight(1f))
-                    OutlinedTextField(value = lngText, onValueChange = { lngText = it }, label = { Text("经度（可选）") }, singleLine = true, modifier = Modifier.weight(1f))
-                }
-                if (amapKey.isNotBlank()) {
-                    TextButton(
-                        enabled = !geocoding && latText.isNotBlank() && lngText.isNotBlank(),
-                        onClick = {
-                            val lat = latText.toDoubleOrNull()
-                            val lng = lngText.toDoubleOrNull()
-                            if (lat == null || lng == null) { message = "经纬度需要是数字"; return@TextButton }
-                            geocoding = true
-                            scope.launch {
-                                val suggested = AmapWebApi.reverseGeocode(amapKey, lat, lng)
-                                if (suggested != null && name.isBlank()) name = suggested
-                                else if (suggested != null) message = "该坐标位于：$suggested"
-                                geocoding = false
-                            }
-                        }
-                    ) { Text(if (geocoding) "查询中…" else "根据经纬度建议名称") }
-                }
                 message?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary) }
             }
         },
@@ -369,11 +330,7 @@ private fun CustomPlaceEditorDialog(
                 val trimmed = name.trim()
                 if (trimmed.isBlank()) { message = "请填写地点名称"; return@Button }
                 if (trimmed.lowercase() in allNames) { message = "已有同名地点"; return@Button }
-                val lat = latText.toDoubleOrNull()
-                val lng = lngText.toDoubleOrNull()
-                if ((lat == null) != (lng == null)) { message = "经纬度需要一起填写或都留空"; return@Button }
-                if (lat != null && (lat !in -90.0..90.0 || lng!! !in -180.0..180.0)) { message = "经纬度超出范围"; return@Button }
-                onSave(CampusPlace(trimmed, zone, kind, lat, lng))
+                onSave(CampusPlace(trimmed, CourseScreenshotParser.zoneByPrefix(trimmed), kind, existing?.lat, existing?.lng))
             }) { Text("保存") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }
@@ -386,7 +343,7 @@ private fun CustomPlaceEditorDialog(
 private fun AddPoiDialog(poi: AmapPoi, onDismiss: () -> Unit, onAdd: (CampusPlace) -> Unit) {
     var zone by remember { mutableStateOf(CampusZone.WEST_TEACHING) }
     var kind by remember { mutableStateOf(AmapWebApi.suggestKind(poi.type)) }
-    val kindOptions = listOf("教学楼", "实验", "学习", "运动", "地点")
+    val kindOptions = listOf("教学楼", "实验", "学习", "运动", "其他")
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("加入地点") },

@@ -37,3 +37,10 @@ data class ActivityReminderSettings(
 
 data class ActivityCommitment(val title: String, val startsAt: Long)
 
+/** 广播只能作为唤醒信号；活动是否仍有效必须以当前会话为准。 */
+object ActivityReminderFreshness {
+    fun matches(session: ActivitySession?, broadcastEndsAt: Long): Boolean =
+        session != null && session.isOpen() &&
+            (broadcastEndsAt <= 0L || broadcastEndsAt == session.endsAt)
+}
+

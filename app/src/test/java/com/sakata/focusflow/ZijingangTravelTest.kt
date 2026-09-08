@@ -4,19 +4,19 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class ZijingangTravelTest {
-    private val profile = CommuteProfile() // 步行, 缓冲 3
+    private val profile = CommuteProfile(enabled = true) // 步行, 缓冲 3
 
-    @Test fun sameZone_isTwoPlusBuffer() {
-        assertEquals(8, ZijingangTravel.estimateMinutes(CampusZone.WEST_TEACHING, CampusZone.WEST_TEACHING, profile))
+    @Test fun sameZone_usesNearTierPlusBuffer() {
+        assertEquals(11, ZijingangTravel.estimateMinutes(CampusZone.WEST_TEACHING, CampusZone.WEST_TEACHING, profile))
     }
 
     @Test fun westEast_walk() {
-        assertEquals(20, ZijingangTravel.estimateMinutes(CampusZone.WEST_TEACHING, CampusZone.EAST_TEACHING, profile))
+        assertEquals(31, ZijingangTravel.estimateMinutes(CampusZone.WEST_TEACHING, CampusZone.EAST_TEACHING, profile))
     }
 
     @Test fun bikeMode_scalesDown() {
         val bike = profile.copy(campusMode = "自行车")
-        assertEquals(14, ZijingangTravel.estimateMinutes(CampusZone.WEST_TEACHING, CampusZone.EAST_TEACHING, bike))
+        assertEquals(21, ZijingangTravel.estimateMinutes(CampusZone.WEST_TEACHING, CampusZone.EAST_TEACHING, bike))
     }
 
     @Test fun routeKey_symmetric() {

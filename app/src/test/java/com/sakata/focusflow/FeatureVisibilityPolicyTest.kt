@@ -15,7 +15,7 @@ class FeatureVisibilityPolicyTest {
         assertFalse(visible.goals)
         assertFalse(visible.courseBlocks)
         assertFalse(visible.campus)
-        assertFalse(visible.energy)
+        assertTrue(visible.energy)
         assertFalse(visible.windDown)
     }
 
@@ -25,6 +25,7 @@ class FeatureVisibilityPolicyTest {
             FeatureUsageSnapshot(
                 baselineComplete = true,
                 mealRecordCount = 2,
+                mealReminderEnabled = true,
                 goalCount = 1,
                 confirmedCourseCount = 4,
                 lifeStage = LifeStage.SCHOOL,

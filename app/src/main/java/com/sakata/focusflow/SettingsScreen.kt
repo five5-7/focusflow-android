@@ -123,17 +123,22 @@ import kotlinx.coroutines.withContext
     )
 }
 
-@Composable internal fun CampusPlacePickerDialog(title: String, places: List<CampusPlace>, selectedName: String?, onDismiss: () -> Unit, onSelect: (CampusPlace) -> Unit) {
+@Composable internal fun CampusPlacePickerDialog(title: String, places: List<CampusPlace>, selectedName: String?, onDismiss: () -> Unit, onManagePlaces: () -> Unit, onSelect: (CampusPlace) -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = {
             ScrollableDialogBox(maxHeight = 420.dp, spacing = 6.dp) {
-                places.groupBy(CampusPlace::kind).forEach { (kind, groupedPlaces) ->
-                    Text(kind, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
-                    groupedPlaces.forEach { place ->
-                        OutlinedButton(onClick = { onSelect(place) }, modifier = Modifier.fillMaxWidth()) {
-                            Text(if (place.name == selectedName) "✓ ${place.name}" else place.name)
+                if (places.isEmpty()) {
+                    Text("还没有可选地点。请先添加校园地点或导入地点包，已有课程和设置不会被删除。", style = MaterialTheme.typography.bodyMedium)
+                    Button(onClick = onManagePlaces, modifier = Modifier.fillMaxWidth()) { Text("管理校园地点") }
+                } else {
+                    places.groupBy(CampusPlace::kind).forEach { (kind, groupedPlaces) ->
+                        Text(kind, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                        groupedPlaces.forEach { place ->
+                            OutlinedButton(onClick = { onSelect(place) }, modifier = Modifier.fillMaxWidth()) {
+                                Text(if (place.name == selectedName) "✓ ${place.name}" else place.name)
+                            }
                         }
                     }
                 }
@@ -198,7 +203,7 @@ import kotlinx.coroutines.withContext
 
 internal enum class SettingsSubPage(val title: String) {
     ADVANCED("高级工具"),
-    ROADMAP("版本路线图"), CAMPUS_PLACES("校园地点"), COMMUTE_PLACES("通勤与地点"), TUTORIAL_SEARCH("学习路径建议"),
+    USER_GUIDE("使用说明书"), ROADMAP("版本路线图"), CAMPUS_PLACES("校园地点"), COMMUTE_PLACES("通勤与地点"), TUTORIAL_SEARCH("学习路径建议"),
     COURSE_VISION("课表识别（视觉模型）"), APP_DETECTION("前台应用检测"), STABILITY("稳定性与崩溃"),
     APPEARANCE("外观"), ACTIVITY_REMINDERS("日程与活动提醒"), QUIET_HOURS("提醒打扰控制"), CUSTOM_THEME("自定义主题"),
     AI_WEEKLY_SUMMARY("AI 周总结")
@@ -215,7 +220,8 @@ internal fun categorizedInstalledApps(context: Context, userCategories: Map<Stri
         .sortedBy { it.second }
 }.getOrDefault(emptyList())
 
-@Composable internal fun SettingsScreen(modifier: Modifier, settingsScrollState: ScrollState, themeOption: FocusFlowThemeOption, commuteProfile: CommuteProfile, campusLifeEnabled: Boolean, campusMapPackage: CampusMapPackage?, currentCampusPlace: String?, improvementNotes: List<ImprovementNote>, activitySettings: ActivityReminderSettings, statusCheckInSettings: StatusCheckInSettings, windDownEnabled: Boolean, checkIns: List<StatusCheckIn>, baselineProfile: BaselineProfile, mealRecords: List<MealRecord>, mealReminderEnabled: Boolean, subPage: SettingsSubPage?, onSubPageChange: (SettingsSubPage?) -> Unit, onThemeChange: (FocusFlowThemeOption) -> Unit, customThemeColors: FocusFlowThemeColors, onCustomThemeColorsChange: (FocusFlowThemeColors) -> Unit, themePresets: List<ThemePreset>, onThemePresetsChange: (List<ThemePreset>) -> Unit, onRestoreDefaultTheme: () -> Unit, onCommuteChange: (CommuteProfile) -> Unit, onCampusLifeEnabledChange: (Boolean) -> Unit, onCampusMapPackageChange: (CampusMapPackage?) -> Unit, onCurrentCampusPlaceChange: (String?) -> Unit, allPlaces: List<CampusPlace>, customPlaces: List<CampusPlace>, onCustomPlacesChange: (List<CampusPlace>) -> Unit, hiddenPlaces: Set<String>, onToggleHiddenPlace: (String) -> Unit, amapKey: String, onAmapKeyChange: (String) -> Unit, campusCenter: CampusCenter, onCampusCenterChange: (CampusCenter) -> Unit, tutorialSearch: TutorialSearchSettings, onTutorialSearchSettingsChange: (TutorialSearchSettings) -> Unit, aiWeeklySummary: AiWeeklySummarySettings, onAiWeeklySummarySettingsChange: (AiWeeklySummarySettings) -> Unit, courseVision: CourseVisionSettings, onCourseVisionSettingsChange: (CourseVisionSettings) -> Unit, courseVisionGuideOpen: Boolean, onCourseVisionGuideOpenChange: (Boolean) -> Unit, pendingPlaces: List<String>, onAddPendingPlace: (String) -> Unit, onRemovePendingPlace: (String) -> Unit, onActivitySettingsChange: (ActivityReminderSettings) -> Unit, quietHours: QuietHoursSettings, onQuietHoursChange: (QuietHoursSettings) -> Unit, quickCaptureEnabled: Boolean, onQuickCaptureEnabledChange: (Boolean) -> Unit, onStatusCheckInSettingsChange: (StatusCheckInSettings) -> Unit, onWindDownEnabledChange: (Boolean) -> Unit, onAddImprovement: () -> Unit, onOpenBaselineEditor: () -> Unit, onOpenBaselineEvents: () -> Unit, onResetBaseline: () -> Unit, onOpenFeatureIntro: () -> Unit, baselineVariants: List<BaselineProfile>, onSaveBaselineVariant: (String) -> Unit, onSwitchBaselineVariant: (BaselineProfile) -> Unit, onDeleteBaselineVariant: (BaselineProfile) -> Unit, onDayGroupsChange: (List<DayGroup>) -> Unit, baselineVariantNameOpen: Boolean, onBaselineVariantNameOpenChange: (Boolean) -> Unit, onMealReminderEnabledChange: (Boolean) -> Unit, onOpenMealRecords: () -> Unit, recordBaselineEvent: (BaselineEventType, String) -> Unit, gameDetectionEnabled: Boolean, onGameDetectionEnabledChange: (Boolean) -> Unit, appCategories: Map<String, String>, onAppCategoriesChange: (Map<String, String>) -> Unit, hiddenApps: Set<String>, onToggleHiddenApp: (String) -> Unit, videoAnalysisModel: String, onVideoAnalysisModelChange: (String) -> Unit, darkMode: Boolean, onDarkModeChange: (Boolean) -> Unit, onGlobalLoadingChange: (Boolean) -> Unit) {
+@OptIn(ExperimentalLayoutApi::class)
+@Composable internal fun SettingsScreen(modifier: Modifier, settingsScrollState: ScrollState, themeOption: FocusFlowThemeOption, commuteProfile: CommuteProfile, campusLifeEnabled: Boolean, campusMapPackage: CampusMapPackage?, currentCampusPlace: String?, improvementNotes: List<ImprovementNote>, activitySettings: ActivityReminderSettings, statusCheckInSettings: StatusCheckInSettings, statusPromptTrace: StatusPromptTrace, nextStatusPromptAt: Long, onStatusPromptTest: () -> Unit, windDownEnabled: Boolean, checkIns: List<StatusCheckIn>, baselineProfile: BaselineProfile, mealRecords: List<MealRecord>, mealReminderEnabled: Boolean, mealDurationTrackingEnabled: Boolean, onMealDurationTrackingEnabledChange: (Boolean) -> Unit, foregroundDetectionTrace: ForegroundDetectionTrace, subPage: SettingsSubPage?, onSubPageChange: (SettingsSubPage?) -> Unit, onThemeChange: (FocusFlowThemeOption) -> Unit, customThemeColors: FocusFlowThemeColors, onCustomThemeColorsChange: (FocusFlowThemeColors) -> Unit, themePresets: List<ThemePreset>, onThemePresetsChange: (List<ThemePreset>) -> Unit, onRestoreDefaultTheme: () -> Unit, onCommuteChange: (CommuteProfile) -> Unit, onCampusLifeEnabledChange: (Boolean) -> Unit, onCampusLifeRequired: () -> Unit, onCampusMapPackageChange: (CampusMapPackage?) -> Unit, onCurrentCampusPlaceChange: (String?) -> Unit, allPlaces: List<CampusPlace>, customPlaces: List<CampusPlace>, onCustomPlacesChange: (List<CampusPlace>) -> Unit, hiddenPlaces: Set<String>, onToggleHiddenPlace: (String) -> Unit, amapKey: String, onAmapKeyChange: (String) -> Unit, campusCenter: CampusCenter, onCampusCenterChange: (CampusCenter) -> Unit, tutorialSearch: TutorialSearchSettings, onTutorialSearchSettingsChange: (TutorialSearchSettings) -> Unit, aiWeeklySummary: AiWeeklySummarySettings, onAiWeeklySummarySettingsChange: (AiWeeklySummarySettings) -> Unit, courseVision: CourseVisionSettings, onCourseVisionSettingsChange: (CourseVisionSettings) -> Unit, courseVisionGuideOpen: Boolean, onCourseVisionGuideOpenChange: (Boolean) -> Unit, pendingPlaces: List<String>, onAddPendingPlace: (String) -> Unit, onRemovePendingPlace: (String) -> Unit, onActivitySettingsChange: (ActivityReminderSettings) -> Unit, quietHours: QuietHoursSettings, onQuietHoursChange: (QuietHoursSettings) -> Unit, quickCaptureEnabled: Boolean, onQuickCaptureEnabledChange: (Boolean) -> Unit, onStatusCheckInSettingsChange: (StatusCheckInSettings) -> Unit, onWindDownEnabledChange: (Boolean) -> Unit, onAddImprovement: () -> Unit, onOpenBaselineEditor: () -> Unit, onOpenBaselineEvents: () -> Unit, onResetBaseline: () -> Unit, onOpenFeatureIntro: () -> Unit, baselineVariants: List<BaselineProfile>, onSaveBaselineVariant: (String) -> Unit, onSwitchBaselineVariant: (BaselineProfile) -> Unit, onDeleteBaselineVariant: (BaselineProfile) -> Unit, onDayGroupsChange: (List<DayGroup>) -> Unit, baselineVariantNameOpen: Boolean, onBaselineVariantNameOpenChange: (Boolean) -> Unit, onMealReminderEnabledChange: (Boolean) -> Unit, onOpenMealRecords: () -> Unit, recordBaselineEvent: (BaselineEventType, String) -> Unit, gameDetectionEnabled: Boolean, onGameDetectionEnabledChange: (Boolean) -> Unit, appCategories: Map<String, String>, onAppCategoriesChange: (Map<String, String>) -> Unit, hiddenApps: Set<String>, onToggleHiddenApp: (String) -> Unit, videoAnalysisModel: String, onVideoAnalysisModelChange: (String) -> Unit, darkMode: Boolean, onDarkModeChange: (Boolean) -> Unit, onGlobalLoadingChange: (Boolean) -> Unit) {
     val context = LocalContext.current
     val settingsStore = remember(context) { PrototypeStore(context) }
     val settingsLifecycleOwner = LocalLifecycleOwner.current
@@ -262,12 +268,30 @@ internal fun categorizedInstalledApps(context: Context, userCategories: Map<Stri
     ) {
     ScrollableWithBar(scrollState = settingsScrollState) {
         Text("设置", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
+        var defaultHelpExpanded by remember { mutableStateOf(false) }
+        ElevatedCard(onClick = { defaultHelpExpanded = !defaultHelpExpanded }) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("默认设置怎么理解", fontWeight = FontWeight.SemiBold)
+                        Text("默认值、作用与调整影响", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Text(if (defaultHelpExpanded) "收起" else "展开", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
+                }
+                AnimatedVisibility(visible = defaultHelpExpanded) {
+                    Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                        Text("先用“快速记录 → 收集箱 → 安排/推进/参考”即可；AI、地点、课程、提醒和前台应用检测都不是前提。")
+                        Text("凡是会改变日程、完成状态或数据去向的操作，都需要你确认。各页的问号会说明默认值、作用、调整方式和影响。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+        }
         PlanHubItem("外观", "当前主题：${themeOption.label}") { onSubPageChange(SettingsSubPage.APPEARANCE) }
         HorizontalDivider()
         PlanHubItem(
             "日程与活动提醒",
             when {
-                !settingsNotificationHealth.allReadableSettingsReady -> "通知或横幅待检查"
+                !settingsNotificationHealth.allReadableSettingsReady(mealReminderEnabled) -> "通知或横幅待检查"
                 !activitySettings.notificationsEnabled -> "活动提醒已关闭"
                 else -> "日程提前 ${activitySettings.scheduleAdvanceMinutes} 分钟"
             }
@@ -282,15 +306,54 @@ internal fun categorizedInstalledApps(context: Context, userCategories: Map<Stri
             onStatusCheckInSettingsChange(statusCheckInSettings.copy(enabled = it))
         }
         if (statusCheckInSettings.enabled) {
-            Text("每天约 ${statusCheckInSettings.promptHour}:00 询问")
-            Slider(
-                value = statusCheckInSettings.promptHour.toFloat(),
-                onValueChange = { onStatusCheckInSettingsChange(statusCheckInSettings.copy(promptHour = it.toInt(), promptHourAutoAdjusted = false)) },
-                valueRange = 8f..22f,
-                steps = 13
+            CollapsibleSettingsDetails(
+                summary = if (statusCheckInSettings.adaptiveSamplingEnabled) {
+                    EnergySamplingPolicy.summary(System.currentTimeMillis(), checkIns)
+                } else "固定 ${statusCheckInSettings.promptHour}:00${if (statusCheckInSettings.secondPromptEnabled) " · 最多两次" else " · 一次"}"
+            ) {
+            Text(if (statusCheckInSettings.adaptiveSamplingEnabled) "自动轮换上午 9:00、下午 14:00、晚上 19:00" else "每天约 ${statusCheckInSettings.promptHour}:00 询问")
+            Text(
+                if (nextStatusPromptAt > 0L) "下一次预计：${formatDateTime(nextStatusPromptAt)}" else "下一次提醒尚未安排",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            if (statusCheckInSettings.promptHourAutoAdjusted) {
-                Text("已自动调整：根据你的 ${checkIns.size} 次签到设为 ${statusCheckInSettings.promptHour}:00（手动调整后不再自动）", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+            if (statusPromptTrace.recordedAt > 0L) {
+                Text("最近结果：${statusPromptTrace.outcome.label} · ${formatDateTime(statusPromptTrace.recordedAt)}", style = MaterialTheme.typography.bodySmall)
+            }
+            OutlinedButton(onClick = onStatusPromptTest) { Text("一分钟测试精力询问") }
+            SettingSwitch(
+                "自动低成本采样",
+                "默认开启；建模期轮换三个时段，样本充足后改为每周抽查",
+                statusCheckInSettings.adaptiveSamplingEnabled
+            ) { enabled -> onStatusCheckInSettingsChange(statusCheckInSettings.copy(adaptiveSamplingEnabled = enabled)) }
+            if (!statusCheckInSettings.adaptiveSamplingEnabled) {
+                Slider(
+                    value = statusCheckInSettings.promptHour.toFloat(),
+                    onValueChange = { onStatusCheckInSettingsChange(statusCheckInSettings.copy(promptHour = it.toInt(), promptHourAutoAdjusted = false)) },
+                    valueRange = 8f..22f,
+                    steps = 13
+                )
+            }
+            SettingSwitch(
+                if (statusCheckInSettings.adaptiveSamplingEnabled) "加速建模（每天最多两次）" else "可选的晚间第二次询问",
+                if (statusCheckInSettings.adaptiveSamplingEnabled) "默认关闭；只在当天存在间隔至少 4 小时的未完成时段时安排" else "默认关闭；用于补足晚间样本",
+                statusCheckInSettings.secondPromptEnabled
+            ) { enabled ->
+                onStatusCheckInSettingsChange(statusCheckInSettings.copy(secondPromptEnabled = enabled))
+            }
+            if (statusCheckInSettings.secondPromptEnabled && !statusCheckInSettings.adaptiveSamplingEnabled) {
+                Text("第二次约 ${statusCheckInSettings.secondPromptHour}:00；每天最多两次", style = MaterialTheme.typography.bodySmall)
+                Slider(
+                    value = statusCheckInSettings.secondPromptHour.toFloat(),
+                    onValueChange = { hour ->
+                        onStatusCheckInSettingsChange(statusCheckInSettings.copy(secondPromptHour = hour.toInt()))
+                    },
+                    valueRange = 16f..22f,
+                    steps = 5
+                )
+                if (statusCheckInSettings.secondPromptHour < statusCheckInSettings.promptHour + 4) {
+                    Text("第二次需比第一次至少晚 4 小时；当前设置不会安排第二次提醒。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                }
             }
             Text("主动选择稍后时，推迟 ${statusCheckInSettings.snoozeMinutes} 分钟")
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -302,13 +365,14 @@ internal fun categorizedInstalledApps(context: Context, userCategories: Map<Stri
                     )
                 }
             }
-            CheckInInsights.suggestedPromptHour(checkIns)?.let { hour ->
+            if (!statusCheckInSettings.adaptiveSamplingEnabled) CheckInInsights.suggestedPromptHour(checkIns)?.let { hour ->
                 if (hour != statusCheckInSettings.promptHour) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                         Text("根据你的 ${checkIns.size} 次签到，建议询问时间设为 ${hour}:00", style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
                         TextButton(onClick = { onStatusCheckInSettingsChange(statusCheckInSettings.copy(promptHour = hour, promptHourAutoAdjusted = false)) }) { Text("采纳") }
                     }
                 }
+            }
             }
         }
         HorizontalDivider()
@@ -394,8 +458,11 @@ internal fun categorizedInstalledApps(context: Context, userCategories: Map<Stri
             }
         }
         HorizontalDivider()
-        SettingsSectionHeader("饭点学习", onHelp = { helpBlock = SettingsBlock.MEAL_LEARNING })
-        SettingSwitch("饭点提醒", "接近预测饭点时询问是否开始吃饭；只有你确认的时间才会用于学习", mealReminderEnabled, onMealReminderEnabledChange)
+        SettingsSectionHeader("吃饭提醒", onHelp = { helpBlock = SettingsBlock.MEAL_LEARNING })
+        SettingSwitch("饭点提醒", "默认关闭；开启后在预计饭点提醒你好好吃饭，只有你确认开始才会记录", mealReminderEnabled, onMealReminderEnabledChange)
+        if (mealReminderEnabled) {
+            SettingSwitch("用餐结束询问", "可选且默认关闭；用于记录用餐时长，关闭后不再追问“吃完了吗”", mealDurationTrackingEnabled, onMealDurationTrackingEnabledChange)
+        }
         if (baselineProfile.lifeStage == null) {
             Text("完成习惯基线引导后，这里会按“生活阶段 × 星期 × 餐次”展示学到的饭点；数据不足时只用宽松提醒，不会假装精确预测。", style = MaterialTheme.typography.bodySmall)
         } else {
@@ -418,15 +485,17 @@ internal fun categorizedInstalledApps(context: Context, userCategories: Map<Stri
         TextButton(onClick = onAddImprovement) { Text("＋ 记录改进想法") }
         improvementNotes.takeLast(3).reversed().forEach { note -> ElevatedCard { Text(note.text, Modifier.padding(10.dp)) } }
         HorizontalDivider()
-        PlanHubItem("快速入门", "几步上手的核心流程介绍") { onOpenFeatureIntro() }
+        PlanHubItem("快速入门", "首次使用路径与默认值说明") { onOpenFeatureIntro() }
         HorizontalDivider()
-        PlanHubItem("版本路线图", "当前 ${BuildConfig.VERSION_NAME} · 构建 #${BuildConfig.CI_RUN_NUMBER} · 版本演进") { onSubPageChange(SettingsSubPage.ROADMAP) }
+        PlanHubItem("使用说明书", "完整功能、默认设置与常见问题；不会自动展示") { onSubPageChange(SettingsSubPage.USER_GUIDE) }
+        HorizontalDivider()
+        PlanHubItem("版本路线图", "当前 ${BuildConfig.VERSION_NAME} · 构建 #${BuildConfig.CI_RUN_NUMBER} · 更新说明与版本演进") { onSubPageChange(SettingsSubPage.ROADMAP) }
         Text("通知异常时请到“日程与活动提醒”查看检测结果和当前设备的手动路径；精确闹钟按设备支持情况自动处理。")
     }
     }
     SubpageMotion(subPage, depth = { destination ->
         when (destination) {
-            SettingsSubPage.ADVANCED, SettingsSubPage.ROADMAP, SettingsSubPage.APPEARANCE,
+            SettingsSubPage.ADVANCED, SettingsSubPage.USER_GUIDE, SettingsSubPage.ROADMAP, SettingsSubPage.APPEARANCE,
             SettingsSubPage.ACTIVITY_REMINDERS, SettingsSubPage.QUIET_HOURS -> 1
             SettingsSubPage.CAMPUS_PLACES -> 3
             else -> 2
@@ -463,10 +532,13 @@ internal fun categorizedInstalledApps(context: Context, userCategories: Map<Stri
                         PlanHubItem("通勤与地点", if (campusLifeEnabled) "校园生活 开" else "校园生活 关") { onSubPageChange(SettingsSubPage.COMMUTE_PLACES) }
                         PlanHubItem("学习路径建议", if (tutorialSearch.enabled) "已开启${if (tutorialSearch.apiKey.isNotBlank()) " · 已填 key" else ""}" else "未开启") { onSubPageChange(SettingsSubPage.TUTORIAL_SEARCH) }
                         PlanHubItem("AI 周总结", if (aiWeeklySummary.enabled) "已开启${if (aiWeeklySummary.apiKey.isNotBlank()) " · 独立 key" else " · 复用学习路径 key"}" else "未开启") { onSubPageChange(SettingsSubPage.AI_WEEKLY_SUMMARY) }
-                        PlanHubItem("课表识别（视觉模型）", if (courseVision.enabled) "已开启${if (tutorialSearch.apiKey.isNotBlank()) " · 已填 key" else " · 未填 key"}" else "未开启") { onSubPageChange(SettingsSubPage.COURSE_VISION) }
+                        PlanHubItem("课表识别（视觉模型）", if (!campusLifeEnabled) "校园生活关闭 · 点击查看开启方法" else if (courseVision.enabled) "已开启${if (tutorialSearch.apiKey.isNotBlank()) " · 已填 key" else " · 未填 key"}" else "未开启") {
+                            if (campusLifeEnabled) onSubPageChange(SettingsSubPage.COURSE_VISION) else onCampusLifeRequired()
+                        }
                         PlanHubItem("前台应用检测", if (gameDetectionEnabled) "已开启 · 应用分类" else "未开启") { onSubPageChange(SettingsSubPage.APP_DETECTION) }
                         PlanHubItem("稳定性与崩溃", "本地记录崩溃栈 · 可复制反馈") { onSubPageChange(SettingsSubPage.STABILITY) }
                     }
+                    SettingsSubPage.USER_GUIDE -> UserGuideSubpageContent()
                     SettingsSubPage.ROADMAP -> RoadmapSubpageContent()
                     SettingsSubPage.CAMPUS_PLACES -> CampusPlacesEditorContent(
                         allPlaces = campusPlaces,
@@ -617,10 +689,11 @@ internal fun categorizedInstalledApps(context: Context, userCategories: Map<Stri
                             TextButton(onClick = { context.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS, Uri.parse("package:${context.packageName}"))) }) { Text("已拒绝？去系统设置开启") }
                         } else {
                             Text(
-                                if (notificationHealth.allReadableSettingsReady) "Android 可读取的通知与两个渠道均已开启。"
-                                else NotificationHealthPolicy.startupMessage(notificationHealth) ?: "通知设置需要检查。",
+                                if (notificationHealth.allReadableSettingsReady(mealReminderEnabled)) {
+                                    if (mealReminderEnabled) "Android 可读取的通知、日程与饭点渠道均已开启。" else "Android 可读取的通知与日程渠道已开启；饭点提醒当前关闭。"
+                                } else NotificationHealthPolicy.startupMessage(notificationHealth, mealReminderEnabled) ?: "通知设置需要检查。",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = if (notificationHealth.allReadableSettingsReady) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+                                color = if (notificationHealth.allReadableSettingsReady(mealReminderEnabled)) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
                             )
                             Surface(
                                 color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
@@ -783,17 +856,61 @@ internal fun categorizedInstalledApps(context: Context, userCategories: Map<Stri
                                     Text("出行参数", fontWeight = FontWeight.SemiBold)
                                     SettingSwitch("为通勤预留时间", "只保存大致时长，不读取定位", commuteProfile.enabled) { onCommuteChange(commuteProfile.copy(enabled = it)) }
                                     if (commuteProfile.enabled) {
-                                        Text("单程约 ${commuteProfile.oneWayMinutes} 分钟")
-                                        Slider(value = commuteProfile.oneWayMinutes.toFloat(), onValueChange = { onCommuteChange(commuteProfile.copy(oneWayMinutes = (it / 5).toInt() * 5)) }, valueRange = 5f..120f, steps = 22)
+                                        SettingSwitch(
+                                            "未知路线使用默认时间",
+                                            "没有路线记录或可判断档位时才使用；关闭后不自动预留",
+                                            commuteProfile.useDefaultForUnknown
+                                        ) { onCommuteChange(commuteProfile.copy(useDefaultForUnknown = it)) }
+                                        if (commuteProfile.useDefaultForUnknown) {
+                                            Text("未知路线默认 ${commuteProfile.oneWayMinutes} 分钟")
+                                        }
+                                        Text("这只是规划缓冲，不读取定位；实测路线记录会优先使用。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text("未知路线默认值", style = MaterialTheme.typography.labelMedium)
+                                        FlowRow(
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            listOf(5, 10, 15, 20, 30, 45, 60).forEach { minutes ->
+                                                FilterChip(
+                                                    selected = commuteProfile.oneWayMinutes == minutes,
+                                                    onClick = { onCommuteChange(commuteProfile.copy(oneWayMinutes = minutes)) },
+                                                    label = { Text("${minutes} 分钟", maxLines = 1) }
+                                                )
+                                            }
+                                        }
+                                        Text("距离档位", fontWeight = FontWeight.SemiBold)
+                                        Text("学校楼名不统一，档位只用于粗略安排，可按自己的校园调整。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        listOf(
+                                            "近" to commuteProfile.nearMinutes,
+                                            "较近" to commuteProfile.fairlyNearMinutes,
+                                            "较远" to commuteProfile.fairlyFarMinutes,
+                                            "远" to commuteProfile.farMinutes
+                                        ).forEach { (label, minutes) ->
+                                            Text("$label · ${minutes} 分钟", style = MaterialTheme.typography.labelMedium)
+                                            Slider(
+                                                value = minutes.toFloat(),
+                                                onValueChange = { value ->
+                                                    val updated = when (label) {
+                                                        "近" -> commuteProfile.copy(nearMinutes = value.toInt().coerceIn(1, commuteProfile.fairlyNearMinutes))
+                                                        "较近" -> commuteProfile.copy(fairlyNearMinutes = value.toInt().coerceIn(commuteProfile.nearMinutes, commuteProfile.fairlyFarMinutes))
+                                                        "较远" -> commuteProfile.copy(fairlyFarMinutes = value.toInt().coerceIn(commuteProfile.fairlyNearMinutes, commuteProfile.farMinutes))
+                                                        else -> commuteProfile.copy(farMinutes = value.toInt().coerceIn(commuteProfile.fairlyFarMinutes, 45))
+                                                    }
+                                                    onCommuteChange(updated)
+                                                },
+                                                valueRange = 1f..45f,
+                                                steps = 43
+                                            )
+                                        }
                                         Text("校内主要方式", fontWeight = FontWeight.SemiBold)
-                                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                             listOf("步行", "自行车", "电动车").forEach { mode -> FilterChip(selected = commuteProfile.campusMode == mode, onClick = { onCommuteChange(commuteProfile.copy(campusMode = mode)) }, label = { Text(mode) }) }
                                         }
-                                        Text("教学楼进出与找教室缓冲：${commuteProfile.buildingBufferMinutes} 分钟", fontWeight = FontWeight.SemiBold)
+                                        Text("地点内进出与找教室缓冲：${commuteProfile.buildingBufferMinutes} 分钟", fontWeight = FontWeight.SemiBold)
                                         Slider(value = commuteProfile.buildingBufferMinutes.toFloat(), onValueChange = { onCommuteChange(commuteProfile.copy(buildingBufferMinutes = it.toInt())) }, valueRange = 1f..10f, steps = 8)
                                         if (commuteProfile.campusMode == "电动车") {
                                             Text("电动车电量", fontWeight = FontWeight.SemiBold)
-                                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                                 listOf("充足", "一般", "偏低", "未知").forEach { level -> FilterChip(selected = commuteProfile.eBikeBattery == level, onClick = { onCommuteChange(commuteProfile.copy(eBikeBattery = level)) }, label = { Text(level) }) }
                                             }
                                             if (commuteProfile.eBikeBattery == "偏低") {
@@ -1034,7 +1151,7 @@ internal fun categorizedInstalledApps(context: Context, userCategories: Map<Stri
                         }
                         SettingSwitch(
                             "前台应用检测",
-                            "开启后，游戏安排到点时识别前台应用：还在玩游戏类应用就提醒收尾；未授权时只提醒不检测",
+                            "可选且默认关闭；只增强游戏／视频到点提醒文案，无法识别时仍正常提醒，绝不自动结束活动",
                             gameDetectionEnabled,
                             onGameDetectionEnabledChange
                         )
@@ -1048,8 +1165,16 @@ internal fun categorizedInstalledApps(context: Context, userCategories: Map<Stri
                                     }
                                 }
                             } else {
-                                Text("已授予使用情况访问；到点会识别前台应用是否属于游戏类。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                                Text("已授予使用情况访问；判断仅在本机完成。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                             }
+                        }
+                        if (foregroundDetectionTrace.recordedAt > 0L) {
+                            Text(
+                                "最近检测：${foregroundDetectionTrace.outcome.label} · ${formatDateTime(foregroundDetectionTrace.recordedAt)}" +
+                                    foregroundDetectionTrace.packageName.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty(),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
                         HorizontalDivider()
                         Text("应用分类", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
@@ -1219,6 +1344,7 @@ internal fun categorizedInstalledApps(context: Context, userCategories: Map<Stri
         places = campusPlaces,
         selectedName = currentCampusPlace,
         onDismiss = { choosingCurrentPlace = false },
+        onManagePlaces = { choosingCurrentPlace = false; onSubPageChange(SettingsSubPage.CAMPUS_PLACES) },
         onSelect = { selected -> onCurrentCampusPlaceChange(selected.name); choosingCurrentPlace = false }
     )
     if (choosingDestination) CampusPlacePickerDialog(
@@ -1226,6 +1352,7 @@ internal fun categorizedInstalledApps(context: Context, userCategories: Map<Stri
         places = campusPlaces,
         selectedName = previewDestination,
         onDismiss = { choosingDestination = false },
+        onManagePlaces = { choosingDestination = false; onSubPageChange(SettingsSubPage.CAMPUS_PLACES) },
         onSelect = { selected -> previewDestination = selected.name; choosingDestination = false }
     )
     if (campusMapHelpOpen) CampusMapHelpDialog(onDismiss = { campusMapHelpOpen = false })
@@ -1248,4 +1375,36 @@ internal fun categorizedInstalledApps(context: Context, userCategories: Map<Stri
     }
 }
 
-@Composable internal fun SettingSwitch(title: String, detail: String, checked: Boolean, onChange: (Boolean) -> Unit) { Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) { Column(Modifier.weight(1f)) { Text(title, fontWeight = FontWeight.SemiBold); Text(detail) }; Switch(checked = checked, onCheckedChange = onChange) } }
+@Composable
+internal fun SettingSwitch(title: String, detail: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(title, fontWeight = FontWeight.SemiBold)
+            Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Switch(checked = checked, onCheckedChange = onChange)
+    }
+}
+
+@Composable
+internal fun CollapsibleSettingsDetails(
+    summary: String,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    OutlinedCard(Modifier.fillMaxWidth()) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(summary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "收起" else "展开") }
+            }
+            AnimatedVisibility(visible = expanded) {
+                Column(Modifier.padding(top = 4.dp), verticalArrangement = Arrangement.spacedBy(8.dp), content = content)
+            }
+        }
+    }
+}

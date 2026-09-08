@@ -11,6 +11,8 @@ data class ThemePreset(val name: String, val colors: FocusFlowThemeColors)
 
 private val taskHistoryLock = Any()
 
+internal data class StoredTaskMutation(val before: Item, val after: Item)
+
 /** Deliberately small offline persistence for the first test build. */
 class PrototypeStore(context: Context) {
     private val appContext = context.applicationContext
@@ -134,14 +136,19 @@ class PrototypeStore(context: Context) {
 
     fun loadEnergyLevel(): String = (preferences.getString("energy_level", "正常") ?: "正常").takeIf { it in setOf("偏低", "正常", "充足") } ?: "正常"
 
-    fun saveEnergyLevel(level: String) {
-        preferences.edit().putString("energy_level", level).apply()
+    fun loadEnergyRecordedAt(): Long = preferences.getLong("energy_recorded_at", 0L)
+
+    fun saveEnergyLevel(level: String, recordedAt: Long = System.currentTimeMillis()) {
+        preferences.edit().putString("energy_level", level).putLong("energy_recorded_at", recordedAt).apply()
     }
 
     fun loadStatusCheckInSettings(): StatusCheckInSettings = StatusCheckInSettings(
-        enabled = preferences.getBoolean("status_checkin_enabled", false),
+        enabled = preferences.getBoolean("status_checkin_enabled", ReminderFeatureDefaults.STATUS_CHECK_IN_ENABLED),
         promptHour = preferences.getInt("status_checkin_hour", 14).coerceIn(8, 22),
+        secondPromptEnabled = preferences.getBoolean("status_checkin_second_enabled", false),
+        secondPromptHour = preferences.getInt("status_checkin_second_hour", 19).coerceIn(12, 23),
         snoozeMinutes = preferences.getInt("status_checkin_snooze_minutes", 60).coerceIn(30, 180),
+        adaptiveSamplingEnabled = preferences.getBoolean("status_checkin_adaptive_sampling", true),
         promptHourAutoAdjusted = preferences.getBoolean("status_checkin_hour_auto", false)
     )
 
@@ -149,7 +156,10 @@ class PrototypeStore(context: Context) {
         preferences.edit()
             .putBoolean("status_checkin_enabled", settings.enabled)
             .putInt("status_checkin_hour", settings.promptHour)
+            .putBoolean("status_checkin_second_enabled", settings.secondPromptEnabled)
+            .putInt("status_checkin_second_hour", settings.secondPromptHour)
             .putInt("status_checkin_snooze_minutes", settings.snoozeMinutes)
+            .putBoolean("status_checkin_adaptive_sampling", settings.adaptiveSamplingEnabled)
             .putBoolean("status_checkin_hour_auto", settings.promptHourAutoAdjusted)
             .apply()
     }
@@ -163,10 +173,48 @@ class PrototypeStore(context: Context) {
         preferences.edit()
             .putString("status_checkins", StatusCheckInCodec.encode(all))
             .putString("energy_level", checkIn.energy)
+            .putLong("energy_recorded_at", checkIn.recordedAt)
             .apply()
     }
 
     fun loadLatestStatusCheckIn(): StatusCheckIn? = loadStatusCheckIns(1).lastOrNull()
+
+    fun loadNextStatusPromptAt(): Long = preferences.getLong("status_prompt_next_at", 0L)
+
+    fun saveNextStatusPromptAt(at: Long) {
+        preferences.edit().putLong("status_prompt_next_at", at.coerceAtLeast(0L)).apply()
+    }
+
+    fun loadStatusPromptTrace(): StatusPromptTrace {
+        val raw = preferences.getString("status_prompt_last_outcome", null)
+        val outcome = StatusPromptOutcome.entries.firstOrNull { it.name == raw } ?: StatusPromptOutcome.NONE
+        return StatusPromptTrace(
+            outcome = outcome,
+            recordedAt = preferences.getLong("status_prompt_last_at", 0L),
+            expectedAt = preferences.getLong("status_prompt_last_expected_at", 0L)
+        )
+    }
+
+    fun saveStatusPromptTrace(trace: StatusPromptTrace) {
+        preferences.edit()
+            .putString("status_prompt_last_outcome", trace.outcome.name)
+            .putLong("status_prompt_last_at", trace.recordedAt)
+            .putLong("status_prompt_last_expected_at", trace.expectedAt)
+            .apply()
+    }
+
+    fun loadEnergySamplingStartedAt(): Long = preferences.getLong("energy_sampling_started_at", 0L)
+
+    fun ensureEnergySamplingStartedAt(now: Long = System.currentTimeMillis()): Long {
+        val existing = loadEnergySamplingStartedAt()
+        if (existing > 0L) return existing
+        preferences.edit().putLong("energy_sampling_started_at", now).apply()
+        return now
+    }
+
+    fun restartEnergySampling(now: Long = System.currentTimeMillis()) {
+        preferences.edit().putLong("energy_sampling_started_at", now).apply()
+    }
 
     fun loadItems(): List<Item> {
         val raw = preferences.getString("items", null) ?: return emptyList()
@@ -175,12 +223,108 @@ class PrototypeStore(context: Context) {
             StorageProtection.backup(corruptDir, "items", raw)
             return emptyList()
         }
-        if (result.idsNormalized) saveItems(result.items)
-        return result.items
+        val canonicalItems = result.items.map(TaskScheduleText::canonicalize)
+        if (result.idsNormalized || canonicalItems != result.items) saveItems(canonicalItems)
+        return canonicalItems
     }
 
-    fun saveItems(items: List<Item>) {
+    private fun saveItems(items: List<Item>) = synchronized(taskHistoryLock) {
         preferences.edit().putString("items", ItemsCodec.encode(items)).apply()
+    }
+
+    /** UI writes derived from an in-memory snapshot must not replace a newer receiver write. */
+    fun saveItemsIfUnchanged(items: List<Item>, expectedItems: List<Item>): Boolean = synchronized(taskHistoryLock) {
+        if (StorageProtection.readOnly || !TaskSnapshotPolicy.canSave(expectedItems, loadItems())) {
+            return@synchronized false
+        }
+        preferences.edit().putString("items", ItemsCodec.encode(items)).commit()
+    }
+
+    /** 7.5 整理动作：任务快照与对应历史一次提交，避免中途退出只保存一半。 */
+    fun saveItemsAndTaskEvents(items: List<Item>, events: List<TaskEvent>, expectedItems: List<Item>? = null): Boolean = synchronized(taskHistoryLock) {
+        if (StorageProtection.readOnly) return@synchronized false
+        if (expectedItems != null && !TaskSnapshotPolicy.canSave(expectedItems, loadItems())) return@synchronized false
+        val updatedEvents = events.fold(loadTaskEvents()) { history, event -> TaskHistory.append(history, event) }
+        preferences.edit()
+            .putString("items", ItemsCodec.encode(items))
+            .putString("task_events", TaskEventCodec.encode(updatedEvents))
+            .commit()
+    }
+
+    fun saveItemsAndTaskEvent(items: List<Item>, event: TaskEvent, expectedItems: List<Item>? = null): Boolean =
+        saveItemsAndTaskEvents(items, listOf(event), expectedItems)
+
+    fun saveItemsTaskEventsAndGoals(
+        items: List<Item>,
+        events: List<TaskEvent>,
+        goals: List<Goal>,
+        expectedItems: List<Item>,
+        expectedGoals: List<Goal>
+    ): Boolean = synchronized(taskHistoryLock) {
+        if (StorageProtection.readOnly || !TaskSnapshotPolicy.canSave(expectedItems, loadItems()) || expectedGoals != loadGoals()) {
+            return@synchronized false
+        }
+        val updatedEvents = events.fold(loadTaskEvents()) { history, event -> TaskHistory.append(history, event) }
+        preferences.edit()
+            .putString("items", ItemsCodec.encode(items))
+            .putString("task_events", TaskEventCodec.encode(updatedEvents))
+            .putString("goals", StoredGoalsCodec.encodeGoals(goals))
+            .commit()
+    }
+
+    /** 收集箱转成目标时，目标、原任务移除与历史必须同时落盘。 */
+    fun saveGoalConversion(
+        goals: List<Goal>,
+        items: List<Item>,
+        event: TaskEvent,
+        expectedGoals: List<Goal>? = null,
+        expectedItems: List<Item>? = null
+    ): Boolean = if (expectedGoals != null && expectedItems != null) {
+        saveItemsTaskEventsAndGoals(items, listOf(event), goals, expectedItems, expectedGoals)
+    } else synchronized(taskHistoryLock) {
+        if (StorageProtection.readOnly) return@synchronized false
+        val updatedEvents = TaskHistory.append(loadTaskEvents(), event)
+        preferences.edit()
+            .putString("goals", StoredGoalsCodec.encodeGoals(goals))
+            .putString("items", ItemsCodec.encode(items))
+            .putString("task_events", TaskEventCodec.encode(updatedEvents))
+            .commit()
+    }
+
+    /** Notification task action: freshness check, item/event update and goal count share one commit. */
+    internal fun mutateScheduledTask(
+        id: Long,
+        expectedScheduledAt: Long,
+        completionMinimum: Boolean? = null,
+        transform: (Item) -> Item,
+        event: (Item, Item) -> TaskEvent
+    ): StoredTaskMutation? = synchronized(taskHistoryLock) {
+        if (StorageProtection.readOnly) return@synchronized null
+        val currentItems = loadItems()
+        val before = currentItems.firstOrNull { it.id == id } ?: return@synchronized null
+        if (!TaskReminderActionFreshness.matches(before, expectedScheduledAt)) return@synchronized null
+        val after = transform(before)
+        val updatedItems = currentItems.map { if (it.id == id) after else it }
+        val updatedEvents = TaskHistory.append(loadTaskEvents(), event(before, after))
+        val editor = preferences.edit()
+            .putString("items", ItemsCodec.encode(updatedItems))
+            .putString("task_events", TaskEventCodec.encode(updatedEvents))
+        if (completionMinimum != null && before.goalId != null) {
+            val key = GoalPlanner.currentWeekKey()
+            val updatedGoals = loadGoals().map { goal ->
+                if (goal.id != before.goalId) goal
+                else if (goal.completionWeekKey == key) {
+                    if (completionMinimum) goal.copy(minimumCompletionsThisWeek = goal.minimumCompletionsThisWeek + 1)
+                    else goal.copy(completedThisWeek = goal.completedThisWeek + 1)
+                } else if (completionMinimum) {
+                    goal.copy(minimumCompletionsThisWeek = 1, completionWeekKey = key)
+                } else {
+                    goal.copy(completedThisWeek = 1, minimumCompletionsThisWeek = 0, completionWeekKey = key)
+                }
+            }
+            editor.putString("goals", StoredGoalsCodec.encodeGoals(updatedGoals))
+        }
+        if (editor.commit()) StoredTaskMutation(before, after) else null
     }
 
     fun saveSession(session: ActivitySession) {
@@ -215,6 +359,7 @@ class PrototypeStore(context: Context) {
 
     fun extendSession(id: Long, minutes: Int, reason: String = ""): ActivitySession? {
         val current = loadSessions().firstOrNull { it.id == id } ?: return null
+        if (!current.isOpen()) return null
         if (current.extensionCount >= loadActivityReminderSettings().maxExtensions) return null
         val extended = current.copy(
             endsAt = System.currentTimeMillis() + minutes.coerceIn(1, 180) * 60_000L,
@@ -262,34 +407,41 @@ class PrototypeStore(context: Context) {
             .apply()
     }
 
-    fun addReplanItem(activityName: String) {
-        val item = Item(title = "重新安排：$activityName", detail = "刚才跳过了本次活动；可以改期、缩短或暂停", kind = "收集箱")
-        saveItems(listOf(item) + loadItems())
-        appendTaskEvent(TaskRecorder.event(TaskEventType.TASK_CREATED, item.id, item.title))
-    }
-
-    fun updateItem(id: Long, transform: (Item) -> Item) {
-        saveItems(loadItems().map { if (it.id == id) transform(it) else it })
+    fun addReplanItem(activityName: String): Boolean = synchronized(taskHistoryLock) {
+        val item = Item(title = "重新安排：$activityName", detail = "由未完成的活动转回；可以改期、缩短或暂停", kind = "收集箱")
+        val current = loadItems()
+        saveItemsAndTaskEvent(
+            listOf(item) + current,
+            TaskRecorder.event(TaskEventType.TASK_CREATED, item.id, item.title),
+            expectedItems = current
+        )
     }
 
     fun findItem(id: Long): Item? = loadItems().firstOrNull { it.id == id }
 
-    fun recoverMissedGoalTasks(): List<Item> {
+    fun recoverMissedGoalTasks(): List<Item> = synchronized(taskHistoryLock) {
         val cutoff = System.currentTimeMillis() - 2 * 60 * 60_000L
         val all = loadItems()
+        val events = mutableListOf<TaskEvent>()
         val recovered = all.map { item ->
             if (item.goalId != null && item.kind == "任务" && !item.done && (item.scheduledAt ?: Long.MAX_VALUE) < cutoff) {
-                appendTaskEvent(TaskRecorder.event(TaskEventType.TASK_TO_INBOX, item.id, item.title, extra = "错过自动放回"))
+                events += TaskRecorder.event(TaskEventType.TASK_TO_INBOX, item.id, item.title, extra = "错过自动放回")
                 item.copy(title = if (item.title.startsWith("重新安排：")) item.title else "重新安排：${item.title}", kind = "收集箱", detail = "上次目标安排未确认；可改期、缩短、暂停或放弃", scheduledAt = null)
             } else item
         }
-        if (recovered != all) saveItems(recovered)
-        return recovered
+        if (recovered != all && !saveItemsAndTaskEvents(recovered, events, expectedItems = all)) return@synchronized loadItems()
+        recovered
     }
 
     fun loadCommuteProfile(): CommuteProfile = CommuteProfile(
-        enabled = preferences.getBoolean("commute_enabled", false),
-        oneWayMinutes = preferences.getInt("commute_one_way_minutes", 30),
+        // 仅影响从未保存过通勤设置的新安装；已有键继续保留用户选择。
+        enabled = preferences.getBoolean("commute_enabled", true),
+        oneWayMinutes = preferences.getInt("commute_one_way_minutes", 10),
+        useDefaultForUnknown = preferences.getBoolean("commute_default_unknown", true),
+        nearMinutes = preferences.getInt("commute_tier_near", 5),
+        fairlyNearMinutes = preferences.getInt("commute_tier_fairly_near", 10),
+        fairlyFarMinutes = preferences.getInt("commute_tier_fairly_far", 15),
+        farMinutes = preferences.getInt("commute_tier_far", 25),
         campusMode = preferences.getString("campus_mode", "步行") ?: "步行",
         buildingBufferMinutes = preferences.getInt("building_buffer_minutes", 3),
         eBikeBattery = preferences.getString("ebike_battery", "未知") ?: "未知",
@@ -304,6 +456,11 @@ class PrototypeStore(context: Context) {
         preferences.edit()
             .putBoolean("commute_enabled", profile.enabled)
             .putInt("commute_one_way_minutes", profile.oneWayMinutes)
+            .putBoolean("commute_default_unknown", profile.useDefaultForUnknown)
+            .putInt("commute_tier_near", profile.nearMinutes)
+            .putInt("commute_tier_fairly_near", profile.fairlyNearMinutes)
+            .putInt("commute_tier_fairly_far", profile.fairlyFarMinutes)
+            .putInt("commute_tier_far", profile.farMinutes)
             .putString("campus_mode", profile.campusMode)
             .putInt("building_buffer_minutes", profile.buildingBufferMinutes)
             .putString("ebike_battery", profile.eBikeBattery)
@@ -481,6 +638,47 @@ class PrototypeStore(context: Context) {
 
     fun hasCourseSetup(): Boolean = preferences.getBoolean("course_setup_done", false)
 
+    fun hasCoursePeriodTable(): Boolean = preferences.contains("course_period_table")
+
+    fun loadCoursePeriodTable(): CoursePeriodTable = decodeGuarded(
+        "course_period_table",
+        CoursePeriodTable.reference(),
+        { json ->
+            val values = JSONArray(json)
+            CoursePeriodTable(List(values.length()) { index ->
+                values.getJSONObject(index).let { value ->
+                    CoursePeriodTime(value.getInt("startMinute"), value.getInt("endMinute"))
+                }
+            }).takeIf(CoursePeriodTable::isValid) ?: CoursePeriodTable.reference()
+        },
+        { !it.isValid() }
+    )
+
+    fun saveCoursePeriodTable(table: CoursePeriodTable) {
+        require(table.isValid()) { "课程节次表无效" }
+        val values = JSONArray()
+        table.periods.forEach { period ->
+            values.put(JSONObject().apply {
+                put("startMinute", period.startMinute)
+                put("endMinute", period.endMinute)
+            })
+        }
+        preferences.edit().putString("course_period_table", values.toString()).apply()
+    }
+
+    fun loadCourseTimetableCompact(): Boolean = preferences.getBoolean("course_timetable_compact", true)
+
+    fun saveCourseTimetableCompact(compact: Boolean) {
+        preferences.edit().putBoolean("course_timetable_compact", compact).apply()
+    }
+
+    fun loadCourseTimetableTrailingDaysExpanded(): Boolean =
+        preferences.getBoolean("course_timetable_trailing_days_expanded", false)
+
+    fun saveCourseTimetableTrailingDaysExpanded(expanded: Boolean) {
+        preferences.edit().putBoolean("course_timetable_trailing_days_expanded", expanded).apply()
+    }
+
     fun loadCourses(): List<Course> =
         decodeGuarded("courses", emptyList(), { json ->
             val values = JSONArray(json)
@@ -488,7 +686,11 @@ class PrototypeStore(context: Context) {
                 val course = values.getJSONObject(index)
                 Course(
                     title = course.getString("title"), weekday = course.getInt("weekday"), startPeriod = course.getInt("startPeriod"), endPeriod = course.getInt("endPeriod"),
-                    building = course.getString("building"), zone = CampusZone.valueOf(course.getString("zone")), needsConfirmation = course.optBoolean("needsConfirmation", false)
+                    building = course.getString("building"), zone = CampusZone.valueOf(course.getString("zone")), needsConfirmation = course.optBoolean("needsConfirmation", false),
+                    enabled = course.optBoolean("enabled", true),
+                    effectiveFromEpochDay = course.optLong("effectiveFromEpochDay", Long.MIN_VALUE).takeUnless { it == Long.MIN_VALUE },
+                    effectiveUntilEpochDay = course.optLong("effectiveUntilEpochDay", Long.MIN_VALUE).takeUnless { it == Long.MIN_VALUE },
+                    id = course.optLong("id", 0L).takeIf { it > 0L } ?: newItemId()
                 )
             }
         }, { it.isEmpty() })
@@ -498,6 +700,10 @@ class PrototypeStore(context: Context) {
         courses.forEach { course -> values.put(JSONObject().apply {
             put("title", course.title); put("weekday", course.weekday); put("startPeriod", course.startPeriod); put("endPeriod", course.endPeriod)
             put("building", course.building); put("zone", course.zone.name); put("needsConfirmation", course.needsConfirmation)
+            put("enabled", course.enabled)
+            course.effectiveFromEpochDay?.let { put("effectiveFromEpochDay", it) }
+            course.effectiveUntilEpochDay?.let { put("effectiveUntilEpochDay", it) }
+            put("id", course.id)
         }) }
         preferences.edit().putBoolean("course_setup_done", true).putString("courses", values.toString()).apply()
     }
@@ -509,11 +715,9 @@ class PrototypeStore(context: Context) {
         preferences.edit().putString("goals", StoredGoalsCodec.encodeGoals(goals)).apply()
     }
 
-    fun markGoalCompleted(goalId: Long, minimum: Boolean = false) {
-        val key = GoalPlanner.currentWeekKey()
-        saveGoals(loadGoals().map { goal -> if (goal.id != goalId) goal else if (goal.completionWeekKey == key) {
-            if (minimum) goal.copy(minimumCompletionsThisWeek = goal.minimumCompletionsThisWeek + 1) else goal.copy(completedThisWeek = goal.completedThisWeek + 1)
-        } else if (minimum) goal.copy(minimumCompletionsThisWeek = 1, completionWeekKey = key) else goal.copy(completedThisWeek = 1, minimumCompletionsThisWeek = 0, completionWeekKey = key) })
+    fun saveGoalsIfUnchanged(goals: List<Goal>, expectedGoals: List<Goal>): Boolean = synchronized(taskHistoryLock) {
+        if (StorageProtection.readOnly || expectedGoals != loadGoals()) return@synchronized false
+        preferences.edit().putString("goals", StoredGoalsCodec.encodeGoals(goals)).commit()
     }
 
     fun loadResources(): List<LearningResource> =
@@ -556,6 +760,20 @@ class PrototypeStore(context: Context) {
 
     fun saveFeatureIntroShown(shown: Boolean) {
         preferences.edit().putBoolean("feature_intro_shown", shown).apply()
+    }
+
+    /** New-install choice shown before quick start; absent on upgrades must not prompt existing users. */
+    fun loadCampusLifeChoiceShown(): Boolean = preferences.getBoolean("campus_life_choice_shown", false)
+
+    fun saveCampusLifeChoiceShown(shown: Boolean) {
+        preferences.edit().putBoolean("campus_life_choice_shown", shown).apply()
+    }
+
+    /** 最后一次已向用户展示更新说明的应用版本；同一版本只提示一次。 */
+    fun loadLastSeenAppVersion(): String? = preferences.getString("last_seen_app_version", null)
+
+    fun saveLastSeenAppVersion(version: String) {
+        preferences.edit().putString("last_seen_app_version", version).apply()
     }
 
     /** 首次完成习惯基线后的“后续在哪找”提示是否已显示过。 */
@@ -618,6 +836,19 @@ class PrototypeStore(context: Context) {
         decodeGuarded("task_events", emptyList(), { TaskEventCodec.decode(it) }, { it.isEmpty() })
             .takeLast(limit.coerceAtLeast(1))
 
+    /**
+     * 用户管理历史时替换完整事件集。即使清空，也保留迁移完成标记，避免下次启动
+     * 又从现有任务推断并补回用户已经删除的记录。
+     */
+    fun replaceTaskEvents(events: List<TaskEvent>): Boolean = synchronized(taskHistoryLock) {
+        if (StorageProtection.readOnly) return@synchronized false
+        preferences.edit().apply {
+            if (events.isEmpty()) remove("task_events")
+            else putString("task_events", TaskEventCodec.encode(events))
+            putBoolean("task_history_migrated_v65_0", true)
+        }.commit()
+    }
+
     /** 6.5 一次性迁移：已执行过则直接返回 false；否则按存量 items 补齐可推断事件并置位标记。 */
     fun migrateTaskHistory(): Boolean {
         if (preferences.getBoolean("task_history_migrated_v65_0", false)) return false
@@ -664,10 +895,16 @@ class PrototypeStore(context: Context) {
         preferences.edit().putString("meal_records", MealRecordsCodec.encode(remaining)).apply()
     }
 
-    fun loadMealReminderEnabled(): Boolean = preferences.getBoolean("meal_reminder_enabled", true)
+    fun loadMealReminderEnabled(): Boolean = preferences.getBoolean("meal_reminder_enabled", ReminderFeatureDefaults.MEAL_REMINDER_ENABLED)
 
     fun saveMealReminderEnabled(enabled: Boolean) {
         preferences.edit().putBoolean("meal_reminder_enabled", enabled).apply()
+    }
+
+    fun loadMealDurationTrackingEnabled(): Boolean = preferences.getBoolean("meal_duration_tracking_enabled", ReminderFeatureDefaults.MEAL_DURATION_TRACKING_ENABLED)
+
+    fun saveMealDurationTrackingEnabled(enabled: Boolean) {
+        preferences.edit().putBoolean("meal_duration_tracking_enabled", enabled).apply()
     }
 
     fun loadQuickCaptureEnabled(): Boolean = preferences.getBoolean("quick_capture_enabled", false)
@@ -676,10 +913,32 @@ class PrototypeStore(context: Context) {
         preferences.edit().putBoolean("quick_capture_enabled", enabled).apply()
     }
 
-    fun loadGameDetectionEnabled(): Boolean = preferences.getBoolean("game_detection_enabled", false)
+    fun loadGameDetectionEnabled(): Boolean = preferences.getBoolean("game_detection_enabled", ReminderFeatureDefaults.FOREGROUND_DETECTION_ENABLED)
 
     fun saveGameDetectionEnabled(enabled: Boolean) {
         preferences.edit().putBoolean("game_detection_enabled", enabled).apply()
+    }
+
+    fun loadForegroundDetectionTrace(): ForegroundDetectionTrace {
+        val outcome = runCatching {
+            ForegroundDetectionOutcome.valueOf(
+                preferences.getString("foreground_detection_outcome", ForegroundDetectionOutcome.DISABLED.name)
+                    ?: ForegroundDetectionOutcome.DISABLED.name
+            )
+        }.getOrDefault(ForegroundDetectionOutcome.UNKNOWN)
+        return ForegroundDetectionTrace(
+            outcome = outcome,
+            packageName = preferences.getString("foreground_detection_package", "").orEmpty(),
+            recordedAt = preferences.getLong("foreground_detection_at", 0L)
+        )
+    }
+
+    fun saveForegroundDetectionTrace(trace: ForegroundDetectionTrace) {
+        preferences.edit()
+            .putString("foreground_detection_outcome", trace.outcome.name)
+            .putString("foreground_detection_package", trace.packageName)
+            .putLong("foreground_detection_at", trace.recordedAt)
+            .apply()
     }
 
     fun loadVideoAnalysisModel(): String = preferences.getString("video_analysis_model", DEFAULT_VIDEO_ANALYSIS_MODEL) ?: DEFAULT_VIDEO_ANALYSIS_MODEL
@@ -711,7 +970,7 @@ class PrototypeStore(context: Context) {
         preferences.edit().putString("game_sessions", GameSessionsCodec.encode(sessions.takeLast(200))).apply()
     }
 
-    /** 更新一条游戏会话（前台检测/通知动作记录实际结束等）。 */
+    /** 更新一条游戏会话（用户在界面或通知按钮确认结束等）。前台检测本身不写结束时间。 */
     fun updateGameSession(id: Long, transform: (GameSessionRecord) -> GameSessionRecord) {
         val sessions = loadGameSessions()
         saveGameSessions(sessions.map { if (it.id == id) transform(it) else it })

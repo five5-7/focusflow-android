@@ -25,7 +25,13 @@ internal fun ScheduleScreen(
     modifier: Modifier,
     items: List<Item>,
     courses: List<Course>,
+    coursePeriodTable: CoursePeriodTable,
+    coursePeriodTableConfigured: Boolean,
+    courseTimetableCompact: Boolean,
+    courseTimetableTrailingDaysExpanded: Boolean,
     profile: CommuteProfile,
+    campusLifeEnabled: Boolean,
+    onCampusLifeRequired: () -> Unit,
     energyLevel: String,
     onPlanFlexible: (Item) -> Unit,
     onAdjustFlexible: (Item) -> Unit,
@@ -33,7 +39,11 @@ internal fun ScheduleScreen(
     onRescheduleTask: (Item) -> Unit,
     onReturnToInbox: (Item) -> Unit,
     onTaskDone: (Item) -> Unit,
-    onDeleteItem: (Item) -> Unit
+    onDeleteItem: (Item) -> Unit,
+    onSaveCoursePeriodTable: (CoursePeriodTable) -> Unit,
+    onCourseTimetableCompactChange: (Boolean) -> Unit,
+    onCourseTimetableTrailingDaysExpandedChange: (Boolean) -> Unit,
+    onEditCourse: (Course) -> Unit
 ) {
     var helpOpen by remember { mutableStateOf(false) }
     val weekday = todayWeekday()
@@ -50,6 +60,8 @@ internal fun ScheduleScreen(
         !it.done && it.kind != "暂停" && it.kind != "收集箱" && it.scheduledAt == null
     }
     var scheduleMode by remember { mutableStateOf("日") }
+    var periodTableOpen by remember { mutableStateOf(false) }
+    var firstPeriodSetup by remember { mutableStateOf(false) }
 
     ScrollableWithBar(modifier = modifier, scrollState = rememberScrollState()) {
         Row(
@@ -66,7 +78,11 @@ internal fun ScheduleScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                if (scheduleMode == "日") "今天" else "未来 7 天",
+                when (scheduleMode) {
+                    "日" -> "今天"
+                    "周" -> "未来 7 天"
+                    else -> "固定课表"
+                },
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold
             )
@@ -81,6 +97,18 @@ internal fun ScheduleScreen(
                     onClick = { scheduleMode = "周" },
                     label = { Text("周") }
                 )
+                FilterChip(
+                    selected = scheduleMode == "课表",
+                    onClick = {
+                        if (!campusLifeEnabled) onCampusLifeRequired()
+                        else if (coursePeriodTableConfigured) scheduleMode = "课表"
+                        else {
+                            firstPeriodSetup = true
+                            periodTableOpen = true
+                        }
+                    },
+                    label = { Text("课表") }
+                )
             }
         }
         if (scheduleMode == "日") {
@@ -94,7 +122,7 @@ internal fun ScheduleScreen(
                         Modifier.padding(12.dp),
                         verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        Text("今日待办（尚未指定时段）", fontWeight = FontWeight.SemiBold)
+                        Text("今日待办 · 未定时间", fontWeight = FontWeight.SemiBold)
                         todayUnslotted.forEach {
                             Text("• ${it.title}", style = MaterialTheme.typography.bodySmall)
                         }
@@ -102,7 +130,7 @@ internal fun ScheduleScreen(
                 }
             }
             DailyScheduleTimeline(todayCourses, todaySchedule, profile, onStartTask, onRescheduleTask, onReturnToInbox, onTaskDone, onDeleteItem)
-        } else {
+        } else if (scheduleMode == "周") {
             WeeklyScheduleTimeline(
                 courses.filter { !it.needsConfirmation },
                 items,
@@ -113,8 +141,22 @@ internal fun ScheduleScreen(
                 onTaskDone,
                 onDeleteItem
             )
+        } else {
+            CourseTimetable(
+                courses = courses,
+                table = coursePeriodTable,
+                compactView = courseTimetableCompact,
+                onCompactViewChange = onCourseTimetableCompactChange,
+                trailingDaysExpanded = courseTimetableTrailingDaysExpanded,
+                onTrailingDaysExpandedChange = onCourseTimetableTrailingDaysExpandedChange,
+                onEditPeriods = {
+                    firstPeriodSetup = false
+                    periodTableOpen = true
+                },
+                onEditCourse = onEditCourse
+            )
         }
-        if (flexibleItems.isNotEmpty()) {
+        if (scheduleMode != "课表" && flexibleItems.isNotEmpty()) {
             Text("弹性安排", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             flexibleItems.take(4).forEach { item ->
                 FlexibleScheduleRow(
@@ -132,6 +174,19 @@ internal fun ScheduleScreen(
                 onDismiss = { helpOpen = false }
             )
         }
+    }
+    if (periodTableOpen) {
+        CoursePeriodTableDialog(
+            initial = coursePeriodTable,
+            firstSetup = firstPeriodSetup,
+            minimumPeriods = courses.maxOfOrNull { it.endPeriod } ?: 1,
+            onDismiss = { periodTableOpen = false },
+            onSave = { table ->
+                onSaveCoursePeriodTable(table)
+                periodTableOpen = false
+                scheduleMode = "课表"
+            }
+        )
     }
 }
 

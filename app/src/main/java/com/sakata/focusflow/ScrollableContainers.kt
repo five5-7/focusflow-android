@@ -8,12 +8,18 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.remember
 import androidx.compose.foundation.rememberScrollState
@@ -22,7 +28,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
@@ -75,6 +84,23 @@ internal fun ScrollableDialogBox(
 
 @Composable
 private fun ScrollThumb(scrollState: ScrollState, modifier: Modifier = Modifier) {
+    val visible = scrollState.maxValue > 0
+    val active = visible && scrollState.isScrollInProgress
+    val alpha by animateFloatAsState(
+        targetValue = when {
+            !visible -> 0f
+            active -> 0.72f
+            else -> 0.22f
+        },
+        animationSpec = tween(180),
+        label = "scroll-thumb-alpha"
+    )
+    val width by animateDpAsState(
+        targetValue = if (active) 3.dp else 2.dp,
+        animationSpec = tween(180),
+        label = "scroll-thumb-width"
+    )
+    val color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = alpha)
     Canvas(modifier.fillMaxHeight().width(6.dp).padding(vertical = 8.dp)) {
         val max = scrollState.maxValue
         if (max > 0) {
@@ -82,11 +108,35 @@ private fun ScrollThumb(scrollState: ScrollState, modifier: Modifier = Modifier)
             val thumb = (track * track / (max + track)).coerceIn(24f, track)
             val top = scrollState.value.toFloat() / max * (track - thumb)
             drawRoundRect(
-                color = Color(0x60727A80),
-                topLeft = Offset(size.width - 3.dp.toPx(), top),
-                size = Size(3.dp.toPx(), thumb),
-                cornerRadius = CornerRadius(1.5.dp.toPx())
+                color = color,
+                topLeft = Offset(size.width - width.toPx(), top),
+                size = Size(width.toPx(), thumb),
+                cornerRadius = CornerRadius(width.toPx() / 2f)
             )
         }
+    }
+}
+
+/** 统一的线性加载／进度条：null 为无法估算进度的加载态，否则为 0..1 的确定进度。 */
+@Composable
+internal fun FocusFlowProgressBar(
+    progress: Float? = null,
+    modifier: Modifier = Modifier,
+    thickness: Dp = 4.dp
+) {
+    val barModifier = modifier.fillMaxWidth().height(thickness).clip(RoundedCornerShape(thickness / 2f))
+    if (progress == null) {
+        LinearProgressIndicator(
+            modifier = barModifier,
+            color = MaterialTheme.colorScheme.primary,
+            trackColor = MaterialTheme.colorScheme.surfaceVariant
+        )
+    } else {
+        LinearProgressIndicator(
+            progress = { progress.coerceIn(0f, 1f) },
+            modifier = barModifier,
+            color = MaterialTheme.colorScheme.primary,
+            trackColor = MaterialTheme.colorScheme.surfaceVariant
+        )
     }
 }

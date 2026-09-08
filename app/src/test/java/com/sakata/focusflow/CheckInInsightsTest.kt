@@ -19,4 +19,5 @@ class CheckInInsightsTest {
         assertEquals("偏低", CheckInInsights.slotEnergyFor(9 * 60, list))  // 上午：偏低 2 vs 充足 1
         assertNull(CheckInInsights.slotEnergyFor(20 * 60, list))          // 晚上只有 1 次样本
     }
+
 }

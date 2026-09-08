@@ -61,6 +61,16 @@ class TaskEventCodecTest {
     }
 
     @Test
+    fun `capture routing event types round trip`() {
+        val events = listOf(
+            TaskEvent(itemId = 7, type = TaskEventType.CAPTURE_ROUTED, recordedAt = 1000, extra = "逐步推进"),
+            TaskEvent(itemId = 8, type = TaskEventType.NEXT_ACTION_CREATED, recordedAt = 1001, extra = "方向")
+        )
+        val decoded = TaskEventCodec.decode(TaskEventCodec.encode(events))
+        assertEquals(listOf(TaskEventType.CAPTURE_ROUTED, TaskEventType.NEXT_ACTION_CREATED), decoded.map { it.type })
+    }
+
+    @Test
     fun `invalid recordedAt entry is dropped`() {
         val json = """[{"type":"task_completed","recordedAt":0}]"""
         assertTrue(TaskEventCodec.decode(json).isEmpty())

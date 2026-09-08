@@ -22,9 +22,11 @@ data class OccupiedBlock(
 object ScheduleOccupation {
     /** 全应用唯一的缓冲常量：与固定安排建议保留的分钟数。 */
     const val BUFFER_MINUTES = 15
+    /** 只在短课间显示通勤；更长间隔由用户自由安排，不默认占用。 */
+    const val MAX_COMMUTE_GAP_MINUTES = 90
 
     fun courseBlocks(courses: List<Course>, weekday: Int): List<OccupiedBlock> =
-        courses.filter { !it.needsConfirmation && it.weekday == weekday }.map {
+        courses.filter { !it.needsConfirmation && it.enabled && it.weekday == weekday }.map {
             OccupiedBlock(
                 CourseGapPlanner.periodStart(it.startPeriod),
                 CourseGapPlanner.periodEnd(it.endPeriod),
@@ -33,8 +35,8 @@ object ScheduleOccupation {
         }
 
     /**
-     * 同一天相邻已确认课程之间的通勤占用：从下课时刻起算，截断到下一课程开始
-     * （赶不上的情况不产生与课程视觉重叠的块）。profile.enabled 时才算。
+     * 同一天相邻已确认课程之间的通勤占用：只处理 90 分钟内的短课间，
+     * 从下课时刻起算并截断到下一课程开始；更长间隔不默认占用。profile.enabled 时才算。
      */
     fun commuteBlocks(courses: List<Course>, profile: CommuteProfile?): List<OccupiedBlock> {
         if (profile?.enabled != true) return emptyList()
@@ -42,23 +44,34 @@ object ScheduleOccupation {
             .groupBy { it.weekday }
             .values
             .flatMap { daily ->
-                daily.sortedBy { it.startPeriod }.zipWithNext().mapNotNull { (from, to) ->
+                val ordered = daily.filter { it.enabled }.sortedBy { it.startPeriod }
+                if (ordered.size < 2) return@flatMap emptyList()
+                var boundary = ordered.first()
+                ordered.drop(1).mapNotNull { to ->
+                    val from = boundary
                     val classEnds = CourseGapPlanner.periodEnd(from.endPeriod)
                     val nextStarts = CourseGapPlanner.periodStart(to.startPeriod)
-                    val travel = ZijingangTravel.estimateMinutes(from.zone, to.zone, profile)
-                    val end = minOf(classEnds + travel, nextStarts)
-                    if (end > classEnds) OccupiedBlock(classEnds, end, "commute", "通勤", from.weekday) else null
+                    val gap = nextStarts - classEnds
+                    val block = if (gap <= 0 || gap > MAX_COMMUTE_GAP_MINUTES) null else {
+                        val travel = ZijingangTravel.estimateMinutes(from.zone, to.zone, profile)
+                        val end = minOf(classEnds + travel, nextStarts)
+                        if (end > classEnds) OccupiedBlock(classEnds, end, "commute", "", from.weekday) else null
+                    }
+                    if (CourseGapPlanner.periodEnd(to.endPeriod) > classEnds) boundary = to
+                    block
                 }
             }
     }
 
     /** 当天已经安排的未完成任务占用（排除 excludeId，空 scheduledAt/已完成不占）。 */
-    fun taskBlocks(items: List<Item>, weekday: Int, excludeId: Long = 0L): List<OccupiedBlock> =
-        items.filter { other ->
-            other.id != excludeId && !other.done && other.scheduledAt != null && weekdayOf(other.scheduledAt) == weekday
-        }.map {
-            val start = minuteOfDay(requireNotNull(it.scheduledAt))
-            OccupiedBlock(start, start + it.durationMinutes.coerceIn(5, 360), "task", it.title, weekday)
+    fun taskBlocks(items: List<Item>, weekday: Int, excludeId: Long = 0L, targetDay: Long? = null): List<OccupiedBlock> =
+        items.filter { item ->
+            item.id != excludeId && !item.done && !item.dayOnly &&
+                item.kind !in setOf("收集箱", "暂停") && item.scheduledAt != null
+        }.flatMap { item ->
+            segments(requireNotNull(item.scheduledAt), item.durationMinutes)
+                .filter { (day, _) -> if (targetDay != null) sameDate(day, targetDay) else weekdayOf(day) == weekday }
+                .map { (day, range) -> OccupiedBlock(range.first, range.last + 1, "task", item.title, weekdayOf(day)) }
         }
 
     /** 共享占用的原始块（未加缓冲），用于「与什么重叠」的说明。 */
@@ -67,10 +80,16 @@ object ScheduleOccupation {
         courses: List<Course>,
         items: List<Item>,
         profile: CommuteProfile?,
-        excludeId: Long = 0L
-    ): List<OccupiedBlock> =
-        courseBlocks(courses, weekday) + commuteBlocks(courses, profile) +
-            taskBlocks(items, weekday, excludeId)
+        excludeId: Long = 0L,
+        targetDay: Long? = null
+    ): List<OccupiedBlock> {
+        val active = if (targetDay == null) courses else courses.filter {
+            CourseActivationPolicy.isActiveOn(it, java.time.Instant.ofEpochMilli(targetDay)
+                .atZone(java.time.ZoneId.systemDefault()).toLocalDate().toEpochDay())
+        }
+        return courseBlocks(active, weekday) + commuteBlocks(active, profile).filter { it.weekday == weekday } +
+            taskBlocks(items, weekday, excludeId, targetDay)
+    }
 
     /** 占用判定区间：原始块两边各膨胀 BUFFER 后归并（返回的 IntRange 视为 [first, last+1) 半开）。 */
     fun dayOccupied(
@@ -78,9 +97,10 @@ object ScheduleOccupation {
         courses: List<Course>,
         items: List<Item>,
         profile: CommuteProfile?,
-        excludeId: Long = 0L
+        excludeId: Long = 0L,
+        targetDay: Long? = null
     ): List<IntRange> {
-        val ranges = dayOccupiedBlocks(weekday, courses, items, profile, excludeId)
+        val ranges = dayOccupiedBlocks(weekday, courses, items, profile, excludeId, targetDay)
             .map { (it.startMinute - BUFFER_MINUTES) until (it.endMinute + BUFFER_MINUTES) }
             .filter { it.last >= it.first }
             .sortedBy { it.first }
@@ -111,9 +131,10 @@ object ScheduleOccupation {
         courses: List<Course>,
         items: List<Item>,
         profile: CommuteProfile?,
-        excludeId: Long = 0L
+        excludeId: Long = 0L,
+        targetDay: Long? = null
     ): Int? {
-        val occupied = dayOccupied(weekday, courses, items, profile, excludeId)
+        val occupied = dayOccupied(weekday, courses, items, profile, excludeId, targetDay)
         var start = maxOf(TIMELINE_START_MINUTE, fromMinute)
         while (start + duration <= TIMELINE_END_MINUTE) {
             val blocker = occupied.firstOrNull { start < it.last + 1 && start + duration > it.first }
@@ -121,6 +142,30 @@ object ScheduleOccupation {
             start = maxOf(start + 5, blocker.last + 1)
         }
         return null
+    }
+
+    fun sameDate(a: Long, b: Long): Boolean {
+        val zone = java.time.ZoneId.systemDefault()
+        return java.time.Instant.ofEpochMilli(a).atZone(zone).toLocalDate() ==
+            java.time.Instant.ofEpochMilli(b).atZone(zone).toLocalDate()
+    }
+
+    /** Split an absolute interval at local midnight; never equate dates by weekday. */
+    fun segments(at: Long, durationMinutes: Int): List<Pair<Long, IntRange>> {
+        val end = at + durationMinutes.coerceIn(5, 360) * 60_000L
+        val zone = java.time.ZoneId.systemDefault()
+        var cursor = at
+        return buildList {
+            while (cursor < end) {
+                val date = java.time.Instant.ofEpochMilli(cursor).atZone(zone).toLocalDate()
+                val midnight = date.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
+                val stop = minOf(end, midnight)
+                val startMinute = minuteOfDay(cursor)
+                val endMinute = if (stop == midnight) 1440 else minuteOfDay(stop)
+                if (endMinute > startMinute) add(cursor to (startMinute until endMinute))
+                cursor = stop
+            }
+        }
     }
 
     /** 某时刻落在哪个星期几（周一=1 … 周日=7），与 FlexiblePlanner 的 weekday 约定一致。 */
@@ -134,18 +179,21 @@ object ScheduleOccupation {
 
 /** 本周日程里已有安排（有固定时间的任务/事项）按星期几的占用分钟段；dayOnly 与仅时间范围的任务不算固定占用。 */
 internal fun occupiedByWeekday(items: List<Item>, weekKey: Long = GoalPlanner.currentWeekKey()): Map<Int, List<IntRange>> {
-    val weekEnd = weekKey + 7 * 24 * 60 * 60 * 1000L
-    val calendar = java.util.Calendar.getInstance()
-    return items.mapNotNull { item ->
-        val at = item.scheduledAt ?: return@mapNotNull null
-        if (item.dayOnly || at < weekKey || at >= weekEnd) return@mapNotNull null
-        calendar.timeInMillis = at
-        val weekday = ScheduleOccupation.weekdayOf(at)
-        val startMinute = calendar.get(java.util.Calendar.HOUR_OF_DAY) * 60 + calendar.get(java.util.Calendar.MINUTE)
-        val duration = item.durationMinutes.coerceAtLeast(15)
-        weekday to (startMinute until startMinute + duration)
+    val weekEnd = Calendar.getInstance().apply { timeInMillis = weekKey; add(Calendar.DAY_OF_YEAR, 7) }.timeInMillis
+    return items.filter { !it.done && !it.dayOnly && it.kind !in setOf("收集箱", "暂停") }.flatMap { item ->
+        item.scheduledAt?.let { ScheduleOccupation.segments(it, item.durationMinutes) }.orEmpty()
+    }.filter { (day, _) -> day >= weekKey && day < weekEnd }
+        .map { (day, range) -> ScheduleOccupation.weekdayOf(day) to range
     }.groupBy({ it.first }, { it.second })
 }
+
+/** Exact-date task occupation without course or buffer; used to build date-correct gap suggestions. */
+internal fun occupiedOnDate(items: List<Item>, targetDay: Long): List<IntRange> =
+    ScheduleOccupation.taskBlocks(items, ScheduleOccupation.weekdayOf(targetDay), targetDay = targetDay)
+        .map {
+            (it.startMinute - ScheduleOccupation.BUFFER_MINUTES).coerceAtLeast(0) until
+                (it.endMinute + ScheduleOccupation.BUFFER_MINUTES).coerceAtMost(24 * 60)
+        }
 
 internal fun coursesOverlap(a: Course, b: Course): Boolean =
     a.weekday == b.weekday && a.startPeriod <= b.endPeriod && b.startPeriod <= a.endPeriod
@@ -158,11 +206,8 @@ internal fun slotFree(
     items: List<Item>,
     profile: CommuteProfile? = null
 ): Boolean {
-    val weekday = ScheduleOccupation.weekdayOf(target)
-    val minute = ScheduleOccupation.minuteOfDay(target)
-    val end = minute + durationMinutes.coerceIn(5, 360)
-    return !ScheduleOccupation.overlaps(
-        minute, end,
-        ScheduleOccupation.dayOccupied(weekday, courses, items, profile)
-    )
+    return ScheduleOccupation.segments(target, durationMinutes).all { (day, range) ->
+        !ScheduleOccupation.overlaps(range.first, range.last + 1,
+            ScheduleOccupation.dayOccupied(ScheduleOccupation.weekdayOf(day), courses, items, profile, targetDay = day))
+    }
 }

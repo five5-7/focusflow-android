@@ -5,6 +5,24 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CourseScheduleTest {
+    @org.junit.Before fun resetPeriodTable() {
+        CourseGapPlanner.configure(CoursePeriodTable.reference())
+    }
+
+    @Test fun freeWindowsStartsAfterLatestEndNotLatestStart() {
+        val long = course.copy(endPeriod = 5)
+        val nested = course.copy(startPeriod = 2, endPeriod = 2)
+        for (input in listOf(listOf(long, nested), listOf(nested, long))) {
+            val monday = CourseGapPlanner.freeWindows(input).filter { it.weekday == 1 }
+            assertEquals(1, monday.size)
+            assertEquals(CourseGapPlanner.periodEnd(5), monday.single().startMinute)
+        }
+    }
+
+    @Test fun invalidDayBoundsReturnNoWindows() {
+        assertTrue(CourseGapPlanner.freeWindows(listOf(course), 1000, 500).isEmpty())
+        assertTrue(CourseGapPlanner.freeWindows(emptyList(), 500, 500).isEmpty())
+    }
     private val course = Course("高数", 1, 1, 1, "西1教学楼", CampusZone.WEST_TEACHING, needsConfirmation = false)
 
     @Test fun periodStartAndEnd() {
@@ -12,14 +30,27 @@ class CourseScheduleTest {
         assertEquals(525, CourseGapPlanner.periodEnd(1))
     }
 
-    @Test fun freeWindows_afterLastClass() {
+    @Test fun freeWindows_beforeFirstAndAfterLastClass() {
         val windows = CourseGapPlanner.freeWindows(listOf(course))
         val monday = windows.filter { it.weekday == 1 }
-        assertEquals(1, monday.size)
-        assertEquals(525, monday[0].startMinute)
-        assertEquals(1320, monday[0].endMinute)
-        assertEquals(795, monday[0].minutes)
-        assertEquals("课后空闲", monday[0].kind)
+        assertEquals(1, monday.size) // 第一节课 08:00 开始，没有达到 60 分钟的课前区间。
+        assertEquals(525, monday.single().startMinute)
+        assertEquals(1320, monday.single().endMinute)
+        assertEquals(795, monday.single().minutes)
+        assertEquals("课后空闲", monday.single().kind)
+    }
+
+    @Test fun freeWindows_singleSundayEveningClassKeepsDaytimeFree() {
+        val evening = course.copy(weekday = 7, startPeriod = 12, endPeriod = 12)
+        val sunday = CourseGapPlanner.freeWindows(listOf(evening)).filter { it.weekday == 7 }
+
+        assertEquals(2, sunday.size)
+        assertEquals(480, sunday[0].startMinute)
+        assertEquals(CourseGapPlanner.periodStart(12), sunday[0].endMinute)
+        assertEquals("课前空闲", sunday[0].kind)
+        assertEquals(CourseGapPlanner.periodEnd(12), sunday[1].startMinute)
+        assertEquals(1320, sunday[1].endMinute)
+        assertEquals("课后空闲", sunday[1].kind)
     }
 
     @Test fun freeWindows_occupiedSplitsWindow() {
@@ -44,6 +75,12 @@ class CourseScheduleTest {
         val windows = CourseGapPlanner.freeWindows(listOf(unconfirmed))
         assertEquals(7, windows.size)
         assertTrue(windows.all { it.kind == "整天空闲" })
+    }
+
+    @Test fun disabledCoursesDoNotOccupyGapsOrFreeWindows() {
+        val disabled = course.copy(enabled = false)
+        assertTrue(CourseGapPlanner.gaps(listOf(disabled, course.copy(startPeriod = 3, endPeriod = 3)), CommuteProfile()).isEmpty())
+        assertTrue(CourseGapPlanner.freeWindows(listOf(disabled)).all { it.kind == "整天空闲" })
     }
 
     @Test fun mergeRecognized_dedupsExisting() {

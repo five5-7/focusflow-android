@@ -18,10 +18,57 @@ data class RoadmapEntry(val version: String, val title: String, val summary: Str
 data class RoadmapVersion(val version: String, val entries: List<RoadmapEntry>)
 
 object RoadmapData {
-    /** 已实现版本演进（1.0 → 7.1.1 候选），每版本浓缩 1–3 条，与 CHANGELOG.md 对应。 */
+    /** 已实现版本演进（1.0 → 当前版本），每版本浓缩 1–3 条，与 CHANGELOG.md 对应。 */
     val evolution: List<RoadmapVersion> = listOf(
+        RoadmapVersion("8.0.0", listOf(
+            RoadmapEntry("8.0.0", "稳定版整合", "整合 7.9–7.12，并收束计划页崩溃、逾期提示、通知并发写入、跨日期占用、重叠课程与暂停任务边界；rc.3 已通过 Run 303 与真机验收。", RoadmapStatus.DONE)
+        )),
+        RoadmapVersion("7.12.0", listOf(
+            RoadmapEntry("7.12.0-rc.3", "数据管理与课程／空挡界面修整", "已并入 8.0：课程批量管理、建议零结果说明、七天纵向空挡图与历史删除统计重算。", RoadmapStatus.DONE)
+        )),
+        RoadmapVersion("7.11.0", listOf(
+            RoadmapEntry("7.11.0-rc.1", "课程、空挡与通勤完善", "已并入 8.0：课程生效期、启停、删除、空挡分类与通勤档位。", RoadmapStatus.DONE)
+        )),
+        RoadmapVersion("7.10.0", listOf(
+            RoadmapEntry("7.10.0-rc.1", "校园生活功能边界与首次引导", "已并入 8.0：校园生活开关、首次选择、地点空状态与电动车电量。", RoadmapStatus.DONE)
+        )),
+        RoadmapVersion("7.9.0", listOf(
+            RoadmapEntry("7.9.0-rc.4", "今日状态顶部聚合", "已并入 8.0：生活阶段、精力、校园生活和出行方式统一为顶部状态入口。", RoadmapStatus.DONE),
+            RoadmapEntry("7.9.0-rc.3", "通勤块符号修正", "已并入 8.0：修正通勤块低高度视觉符号。", RoadmapStatus.DONE),
+            RoadmapEntry("7.9.0-rc.2", "统一设计语言第二轮与收集箱分类入口", "已并入 8.0：收集箱筛选、通勤视觉和组件层级统一。", RoadmapStatus.DONE),
+            RoadmapEntry("7.9.0-rc.1", "统一设计语言第一轮：文本减负", "已并入 8.0：完成文本减负与基础视觉规范。", RoadmapStatus.DONE)
+        )),
+        RoadmapVersion("7.8.0", listOf(
+            RoadmapEntry("7.8.0-rc.3", "课表信息密度与视图记忆", "缩小视图在可用宽度内显示完整一周；周五至周日合计不超过两门课时收纳为保留星期、节次和课程名的摘要栏，三门起自动展开，也可手动切换并记住状态。标准视图充分利用色块显示课程名称与地点。", RoadmapStatus.CANDIDATE),
+            RoadmapEntry("7.8.0-rc.2", "课表缩小视图与设置说明视觉修正", "固定周课表可在标准与缩小视图间即时切换，缩小后增加同屏可见日期并保留课程详情入口；设置顶部默认说明改为默认收起的折叠卡片，并使用统一主题卡片表面色消除色差。", RoadmapStatus.CANDIDATE),
+            RoadmapEntry("7.8.0-rc.1", "独立固定课表与学校节次表", "日程页增加独立“课表”视图，按周一至周日固定顺序和学校节次排列，只显示已确认课程，不混入任务、活动或通勤；首次进入先确认预填的参考时间点，可逐节修改、增减节次。自定义节次时间同步用于课程日程、空挡和通勤计算，已有课程的星期与节次不被改写。", RoadmapStatus.CANDIDATE)
+        )),
+        RoadmapVersion("7.7.0", listOf(
+            RoadmapEntry("7.7.0-rc.2", "手动使用说明书与快速入门速查", "设置新增“使用说明书”独立页面，完整说明核心流程、页面与功能、提醒与后台、默认设置、课程地点通勤目标、数据隐私和常见问题；它不会自动展示。快速入门保留首次使用路径，并增加功能速查与说明书入口。", RoadmapStatus.CANDIDATE),
+            RoadmapEntry("7.7.0-rc.1", "默认设置说明、快速入门与更新提示", "设置首页增加默认行为总说明；快速入门按“记录→收集箱→安排／推进／参考→日程→完成／恢复”的首次使用路径重写，并说明课程、地点、通勤、提醒、数据和隐私边界。覆盖安装后，同一版本仅显示一次真实版本号与核心变化，可直接跳转版本路线图。", RoadmapStatus.CANDIDATE)
+        )),
+        RoadmapVersion("7.6.0", listOf(
+            RoadmapEntry("7.6.0-rc.3", "日程通勤块与文字可读性修复", "通勤档位改为自动换行，避免 20 分钟按钮在窄屏被挤压；通勤块仅出现在相邻已确认课程且间隔不超过 90 分钟时，并隐藏块内文字；日程色块按高度决定是否显示文字，空间不足时留空，空间足够时显示多行标题、时间及必要详情。新增近／远课间回归测试。", RoadmapStatus.CANDIDATE),
+            RoadmapEntry("7.6.0-rc.2", "常用通勤档位与地点表单简化", "通勤时长使用 5／10／15／20／30／45／60 分钟常用档位；自定义地点只填写名称与用途，新增“其他”，分区自动推断且不再显示经纬度字段。版本路线图和更新记录同步实际 RC 变更。已通过 CI 构建，仍待真机验收。", RoadmapStatus.CANDIDATE),
+            RoadmapEntry("7.6.0-rc.1", "课程新增、地点与出行参数易懂化", "手动新增课程支持周一至周日，并改为“第几节开始＋连续几节”；一节默认按 45 分钟计算。“教学楼”统一为“地点”，可直接跳转设置管理地点与出行参数。新安装不预置地点包，默认开启通勤预留且单程 10 分钟（旧设置保留）。课程帮助、快速入门与通勤设置同步解释默认值和调整方式。", RoadmapStatus.CANDIDATE)
+        )),
+        RoadmapVersion("7.5.0", listOf(
+            RoadmapEntry("7.5.0-rc.2", "从想法到下一步", "收集箱可整理为逐步推进或参考；父想法与原说明保留，下一步作为关联任务单独进入收集箱，未完成时不重复创建。", RoadmapStatus.CANDIDATE)
+        )),
+        RoadmapVersion("7.4.0", listOf(
+            RoadmapEntry("7.4.0", "低成本精力基线采样", "默认每天一次并轮换上午／下午／晚上；稳定时段自动停止日常追问，三时段完成后每周抽查；加速模式需主动开启且每天最多两次。待 CI、真机验收与正式发布。", RoadmapStatus.CANDIDATE)
+        )),
+        RoadmapVersion("7.3.0", listOf(
+            RoadmapEntry("7.3.0-rc.4", "个人精力情境模型", "按上午、下午、晚上建立个人基线；可选第二次询问按样本自动暂停；已根据真机验证移除无法取得厂商数据的外部睡眠接入。", RoadmapStatus.CANDIDATE)
+        )),
+        RoadmapVersion("7.2.0", listOf(
+            RoadmapEntry("7.2.0", "可解释且保守的可选提醒", "精力询问显示下一次与最近结果；饭点和用餐结束询问分别默认关闭；前台检测只增强文案、不自动结束；快速入门、帮助、今日页、通知诊断与后台行为统一语义。发布构建候选，建立 Release 前不称为正式版。", RoadmapStatus.CANDIDATE)
+        )),
+        RoadmapVersion("7.1.4", listOf(
+            RoadmapEntry("7.1.4", "活动提醒一致性修复", "六类活动按真实类别提醒且不自动写娱乐状态；旧广播时间核对；改期、移出日程与删除统一同步会话和闹钟。待 CI 与真机提醒验收。", RoadmapStatus.CANDIDATE)
+        )),
         RoadmapVersion("7.1.3", listOf(
-            RoadmapEntry("7.1.3", "图标、顶部滚动与导航反馈", "自适应/单色图标；初始顶部避让与滚动范围分离；主入口淡入淡出，子页底栏圆点/回弹反馈。待真机验收。", RoadmapStatus.CANDIDATE)
+            RoadmapEntry("7.1.3", "图标、顶部滚动与导航反馈", "自适应/单色图标；初始顶部避让与滚动范围分离；主入口淡入淡出，子页底栏圆点/回弹反馈。第二个正式版里程碑。", RoadmapStatus.DONE)
         )),
         RoadmapVersion("7.1.2", listOf(
             RoadmapEntry("7.1.2", "真正悬浮底栏与六色主题", "移除固定底座，列表末尾避让；图标小方块选中动画；独立导航栏第六色、五色兼容及颜色读写修复。待真机视觉验收。", RoadmapStatus.CANDIDATE)
@@ -125,7 +172,7 @@ object RoadmapData {
             RoadmapEntry("5.5", "一站式视频分析＋多轮打磨", "假期自动关校园生活；教程资料折叠；视频分析一站式整理（粘贴字幕→AI 要点→保存教程，模型入口同前）；游戏安排自定义时间与开始提醒可选；作息方案切换同步作息分组；应用清单显示应用名并支持添加本机应用；周回顾 AI 周总结", RoadmapStatus.DONE)
         )),
         RoadmapVersion("5.4", listOf(
-            RoadmapEntry("5.4", "前台应用检测与游戏自律", "加号→「想玩游戏」：按空闲安排游戏时间，到点提醒开始并自动记录状态；到点检测前台应用（应用分类：内置清单＋应用名自动识别＋手动归类），仍在玩则提醒收尾并记录实际结束/超时；周回顾新增游戏自律统计与建议", RoadmapStatus.DONE)
+            RoadmapEntry("5.4", "前台应用检测与游戏自律", "建立空闲活动、应用分类和收尾提醒基础；旧版曾由检测推断结束，7.2 起改为只增强提醒、必须由用户确认结束，历史统计按已确认记录计算。", RoadmapStatus.DONE)
         )),
         RoadmapVersion("5.3", listOf(
             RoadmapEntry("5.3", "新建目标 AI 教程查找", "「搜学习教程」替换生成学习路径按钮：手动三平台搜索＋AI 生成“去哪个平台搜什么”建议，保存即设为标准并回到目标对话框（预填目标名＋预期结果）", RoadmapStatus.DONE)
@@ -151,7 +198,7 @@ object RoadmapData {
             RoadmapEntry("4.2", "识别表格＋本地判断自动排计划", "“按空挡自动排本周目标”：把本周未完成的目标次数排进课程空挡（本地判断避开课程与已有安排、优先更长空档），一键生成带提醒的任务并进入日程，可随时改期", RoadmapStatus.DONE)
         )),
         RoadmapVersion("4.1", listOf(
-            RoadmapEntry("4.1", "生活模式多方案", "同一生活阶段下可另存多套作息方案（命名、最多 8 套），一键切换/删除；饭点与睡前减速按当前方案的阶段自动跟随", RoadmapStatus.DONE),
+            RoadmapEntry("4.1", "生活模式多方案", "同一生活阶段下可另存多套作息方案（命名、最多 8 套），一键切换/删除；已开启的饭点与睡前减速按当前方案计算时间，但切换阶段不会自动开启提醒", RoadmapStatus.DONE),
             RoadmapEntry("4.1", "提醒打扰控制＋常驻快速记录", "免打扰时段（可跨天）静音状态询问/饭点/睡前减速，活动到点与任务提醒保持时间敏感；一次性静音 1 小时/3 小时/到明早；通知栏常驻一条静音通知，一键快速记录到收集箱", RoadmapStatus.DONE),
             RoadmapEntry("4.1", "自动决策与习惯识别", "询问时刻按签到数据自动采纳（设置页标注“已自动调整”，手动调整后不再自动）；今日首页校园生活一键开关；电动车电量偏低时在空挡页给出充电空档建议；睡前减速结合深夜活跃/娱乐时段记录给出更贴合的建议", RoadmapStatus.DONE)
         )),
@@ -347,6 +394,7 @@ object RoadmapData {
 
     /** 后续候选（“想玩游戏拓展”“自律类目标”“空挡建议进阶”已随 5.6/5.7/5.8.2 落地；正式理财已评估移除）。 */
     val future: List<RoadmapEntry> = listOf(
+        RoadmapEntry("后续", "统一设计语言", "建立颜色、字号、间距、圆角、阴影、图标、组件状态与转场令牌；统一主页面、子页面、卡片、弹窗和悬浮导航，覆盖全面屏、普通屏、深色模式、大字体及减少动画设置", RoadmapStatus.CANDIDATE),
         RoadmapEntry("后续", "任意表格识别自动配置计划", "识别课表之外的各类表格（如锻炼计划、阅读计划）自动生成计划（用户澄清 4.4 学习机制提案后重定向，之后讨论）", RoadmapStatus.CANDIDATE),
         RoadmapEntry("后续", "高德地图 SDK 集成", "可视化地图、POI 点选、以设备定位为中心的搜索；代价：包体积增加、SDK key 绑定包名与签名、需要定位权限", RoadmapStatus.CANDIDATE),
         RoadmapEntry("后续", "云同步与多设备备份", "所有数据目前只在本机，无任何云端能力", RoadmapStatus.CANDIDATE),
@@ -365,7 +413,7 @@ fun RoadmapSubpageContent() {
                 Text("每次功能更新递增 0.1；更新记录见版本演进。", style = MaterialTheme.typography.bodySmall)
             }
         }
-        Text("版本演进（1.0 → 7.1.1 候选）", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Text("版本演进（1.0 → 当前版本）", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         RoadmapData.evolution.forEach { version ->
             Text(version.version, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
             version.entries.forEach { entry ->
@@ -387,7 +435,7 @@ private fun RoadmapEntryRow(entry: RoadmapEntry) {
             modifier = Modifier.padding(top = 2.dp)
         )
         Column(Modifier.weight(1f)) {
-            Text(entry.title, fontWeight = FontWeight.SemiBold)
+            Text("${entry.version} · ${entry.title}", fontWeight = FontWeight.SemiBold)
             if (entry.summary.isNotBlank()) Text(entry.summary, style = MaterialTheme.typography.bodySmall)
         }
     }

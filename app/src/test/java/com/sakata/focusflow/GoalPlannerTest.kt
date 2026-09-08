@@ -30,7 +30,7 @@ class GoalPlannerTest {
             clear(); set(2026, Calendar.AUGUST, 30, 20, 45)
         }.timeInMillis
         val goal = Goal(title = "备考", weeklyTarget = 3, durationMinutes = 60)
-        val suggestions = GoalPlanner.suggestions(goal, emptyList(), CommuteProfile(), emptyMap(), nowMillis = sundayEvening)
+        val suggestions = GoalPlanner.suggestions(goal, emptyList(), CommuteProfile(), emptyList(), nowMillis = sundayEvening)
         assertTrue("周日晚上不应暂时找不到空档", suggestions.isNotEmpty())
         assertTrue("应包含次日的周一建议", suggestions.any { it.weekday == 1 })
         assertTrue(
@@ -48,9 +48,48 @@ class GoalPlannerTest {
             clear(); set(2026, Calendar.SEPTEMBER, 1, 16, 45)
         }.timeInMillis
         val goal = Goal(title = "备考", weeklyTarget = 3, durationMinutes = 60)
-        val suggestions = GoalPlanner.suggestions(goal, emptyList(), CommuteProfile(), emptyMap(), nowMillis = tuesday)
+        val suggestions = GoalPlanner.suggestions(goal, emptyList(), CommuteProfile(), emptyList(), nowMillis = tuesday)
         assertEquals(2, suggestions.first().weekday)
         assertEquals(1080, suggestions.first().startMinute)
+    }
+
+    @Test fun previousWeeksSameWeekdayDoesNotBlockFutureSuggestion() {
+        val sundayEvening = Calendar.getInstance().apply {
+            clear(); set(2026, Calendar.SEPTEMBER, 6, 20, 45)
+        }.timeInMillis
+        val previousMonday = Item(
+            id = 10,
+            title = "上周安排",
+            detail = "",
+            kind = "任务",
+            scheduledAt = Calendar.getInstance().apply { clear(); set(2026, Calendar.AUGUST, 31, 8, 0) }.timeInMillis,
+            durationMinutes = 120
+        )
+        val goal = Goal(title = "备考", weeklyTarget = 1, durationMinutes = 60)
+
+        val suggestions = GoalPlanner.suggestions(goal, emptyList(), CommuteProfile(), listOf(previousMonday), sundayEvening)
+
+        assertTrue(suggestions.any { it.weekday == 1 && it.startMinute == 8 * 60 })
+    }
+
+    @Test fun exactFutureTaskSplitsSuggestionAfterBuffer() {
+        val mondayMorning = Calendar.getInstance().apply {
+            clear(); set(2026, Calendar.SEPTEMBER, 7, 7, 0)
+        }.timeInMillis
+        val occupied = Item(
+            id = 11,
+            title = "已有安排",
+            detail = "",
+            kind = "任务",
+            scheduledAt = Calendar.getInstance().apply { clear(); set(2026, Calendar.SEPTEMBER, 7, 8, 0) }.timeInMillis,
+            durationMinutes = 60
+        )
+        val goal = Goal(title = "备考", weeklyTarget = 1, durationMinutes = 60)
+
+        val suggestions = GoalPlanner.suggestions(goal, emptyList(), CommuteProfile(), listOf(occupied), mondayMorning)
+
+        assertTrue(suggestions.none { it.weekday == 1 && it.startMinute < 9 * 60 + 15 })
+        assertTrue(suggestions.any { it.weekday == 1 && it.startMinute == 9 * 60 + 15 })
     }
 
     @Test fun autoPlan_filledWeekAcknowledgesNothingToDo() {

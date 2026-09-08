@@ -7,8 +7,48 @@ data class Course(
     val endPeriod: Int,
     val building: String,
     val zone: CampusZone,
-    val needsConfirmation: Boolean = true
+    val needsConfirmation: Boolean = true,
+    val enabled: Boolean = true,
+    val effectiveFromEpochDay: Long? = null,
+    val effectiveUntilEpochDay: Long? = null,
+    val id: Long = newItemId()
 )
+
+object CourseActivationPolicy {
+    fun isActiveOn(course: Course, epochDay: Long): Boolean =
+        course.enabled &&
+            (course.effectiveFromEpochDay == null || epochDay >= course.effectiveFromEpochDay) &&
+            (course.effectiveUntilEpochDay == null || epochDay <= course.effectiveUntilEpochDay)
+
+    fun nextOccurrenceEpochDay(course: Course, todayEpochDay: Long): Long {
+        val currentWeekday = java.time.LocalDate.ofEpochDay(todayEpochDay).dayOfWeek.value
+        val offset = (course.weekday - currentWeekday + 7) % 7
+        return todayEpochDay + offset
+    }
+
+    fun activeInUpcomingWeek(courses: List<Course>, todayEpochDay: Long = java.time.LocalDate.now().toEpochDay()): List<Course> =
+        courses.filter { course -> isActiveOn(course, nextOccurrenceEpochDay(course, todayEpochDay)) }
+}
+
+/** 删除只以持久化 ID 为边界，不依赖对话框中可能已过期的整个课程快照。 */
+internal fun removeCoursesById(courses: List<Course>, targets: Collection<Course>): List<Course> {
+    val targetIds = targets.mapTo(mutableSetOf()) { it.id }
+    return courses.filterNot { it.id in targetIds }
+}
+
+data class CoursePeriodTime(val startMinute: Int, val endMinute: Int)
+
+data class CoursePeriodTable(val periods: List<CoursePeriodTime>) {
+    companion object {
+        private val referenceStarts = listOf(480, 530, 600, 650, 700, 805, 855, 905, 975, 1025, 1130, 1180, 1230)
+        fun reference(): CoursePeriodTable = CoursePeriodTable(referenceStarts.map { CoursePeriodTime(it, it + 45) })
+    }
+
+    fun isValid(): Boolean = periods.isNotEmpty() && periods.size <= 20 && periods.withIndex().all { (index, period) ->
+        period.startMinute in 0 until period.endMinute && period.endMinute <= 24 * 60 &&
+            (index == 0 || periods[index - 1].endMinute <= period.startMinute)
+    }
+}
 
 data class CourseGap(val from: Course, val to: Course, val minutesFree: Int, val travelMinutes: Int, val suggestedStartMinute: Int)
 
@@ -24,7 +64,7 @@ data class RecognizeMerge(
 fun mergeRecognizedCourses(courses: List<Course>, recognized: List<Course>): RecognizeMerge {
     val existing = courses.map { listOf(it.weekday, it.startPeriod, it.endPeriod, it.title.trim()) }.toSet()
     val added = recognized.filterNot { listOf(it.weekday, it.startPeriod, it.endPeriod, it.title.trim()) in existing }
-    val confirmed = courses.filter { !it.needsConfirmation }
+    val confirmed = courses.filter { !it.needsConfirmation && it.enabled }
     val conflicts = added.filter { new -> confirmed.any { coursesOverlap(new, it) } }
     val innerConflicts = added.count { new -> added.any { other -> other != new && coursesOverlap(new, other) } }
     val message = when {
@@ -44,49 +84,68 @@ fun mergeRecognizedCourses(courses: List<Course>, recognized: List<Course>): Rec
     return RecognizeMerge(added, conflicts, innerConflicts, message)
 }
 
-/** 自由时段：课间空挡之外的可用时间——课后到晚上的整块空闲、没有课的整天。 */
+/** 自由时段：课间空挡之外的可用时间——第一节课前、最后一节课后、没有课的整天。 */
 data class FreeWindow(
     val weekday: Int,
     val startMinute: Int,
     val endMinute: Int,
     val minutes: Int,
-    /** "课后空闲" 或 "整天空闲" */
+    /** "课前空闲"、"课后空闲" 或 "整天空闲" */
     val kind: String
 )
 
 /** 课程从课表截图或手动录入，发布版不再内置任何示例课程。 */
 
 object CourseGapPlanner {
-    // Each teaching period is modeled as 45 minutes; longer breaks are retained in the timetable start times.
-    private val periodStarts = listOf(480, 530, 600, 650, 700, 805, 855, 905, 975, 1025, 1130, 1180, 1230)
+    // The reference table preserves the historical 45-minute behavior until the user confirms a school timetable.
+    @Volatile private var activeTable: CoursePeriodTable = CoursePeriodTable.reference()
 
-    fun periodStart(period: Int): Int = periodStarts[period.coerceIn(1, periodStarts.size) - 1]
-    fun periodEnd(period: Int): Int = periodStart(period) + 45
+    fun configure(table: CoursePeriodTable) {
+        activeTable = table.takeIf(CoursePeriodTable::isValid) ?: CoursePeriodTable.reference()
+    }
+
+    fun periodStart(period: Int): Int = activeTable.periods[period.coerceIn(1, activeTable.periods.size) - 1].startMinute
+    fun periodEnd(period: Int): Int = activeTable.periods[period.coerceIn(1, activeTable.periods.size) - 1].endMinute
 
     /** occupied：日程里已有安排（任务/事项）按星期几的占用分钟段；计算空挡时会扣除这些占用。 */
     fun gaps(courses: List<Course>, profile: CommuteProfile, occupied: Map<Int, List<IntRange>> = emptyMap()): List<CourseGap> = courses
+        .filter { !it.needsConfirmation && it.enabled }
         .groupBy { it.weekday }
         .values
         .flatMap { daily ->
-            daily.sortedBy { it.startPeriod }.zipWithNext().map { (from, to) ->
-                val classEnds = periodStarts[from.endPeriod - 1] + 45
-                val nextStarts = periodStarts[to.startPeriod - 1]
+            val ordered = daily.sortedBy { it.startPeriod }
+            // A short course nested in a longer one must not move the occupied
+            // boundary backwards. Retain the latest-ending preceding course.
+            var boundary = ordered.first()
+            ordered.drop(1).map { to ->
+                val from = boundary
+                val classEnds = periodEnd(from.endPeriod)
+                val nextStarts = periodStart(to.startPeriod)
                 val travel = ZijingangTravel.estimateMinutes(from.zone, to.zone, profile)
                 val (start, minutes) = longestFreeRun(classEnds + travel, nextStarts, occupied[from.weekday].orEmpty())
+                if (periodEnd(to.endPeriod) > classEnds) boundary = to
                 CourseGap(from, to, minutes, travel, start)
             }
         }
 
-    /** 课间空挡之外的自由时段：最后一节课后到晚上、以及没有课的整天；扣除已有安排后切成剩余子段。课间空挡仍由 gaps() 提供。 */
+    /** 课间空挡之外的自由时段：第一节课前、最后一节课后、以及没有课的整天；扣除已有安排后切成剩余子段。课间空挡仍由 gaps() 提供。 */
     fun freeWindows(courses: List<Course>, dayStartMinute: Int = 8 * 60, dayEndMinute: Int = 22 * 60, occupied: Map<Int, List<IntRange>> = emptyMap()): List<FreeWindow> {
-        val confirmed = courses.filter { !it.needsConfirmation }
+        if (dayEndMinute <= dayStartMinute) return emptyList()
+        val confirmed = courses.filter { !it.needsConfirmation && it.enabled }
         return (1..7).flatMap { weekday ->
             val daily = confirmed.filter { it.weekday == weekday }.sortedBy { it.startPeriod }
             val base = if (daily.isEmpty()) {
                 listOf(FreeWindow(weekday, dayStartMinute, dayEndMinute, dayEndMinute - dayStartMinute, "整天空闲"))
             } else {
-                val lastEnd = periodStarts[daily.last().endPeriod - 1] + 45
-                listOf(FreeWindow(weekday, lastEnd, dayEndMinute, dayEndMinute - lastEnd, "课后空闲"))
+                val firstStart = periodStart(daily.first().startPeriod).coerceIn(dayStartMinute, dayEndMinute)
+                val lastEnd = daily.maxOf { periodEnd(it.endPeriod) }
+                    .coerceIn(dayStartMinute, dayEndMinute)
+                listOfNotNull(
+                    FreeWindow(weekday, dayStartMinute, firstStart, firstStart - dayStartMinute, "课前空闲")
+                        .takeIf { it.minutes > 0 },
+                    FreeWindow(weekday, lastEnd, dayEndMinute, dayEndMinute - lastEnd, "课后空闲")
+                        .takeIf { it.minutes > 0 }
+                )
             }
             base.flatMap { subtractOccupied(it, occupied[weekday].orEmpty()) }.filter { it.minutes >= 60 }
         }
@@ -94,6 +153,9 @@ object CourseGapPlanner {
 
     /** 在 [start, end) 区间内扣除占用段，返回最长连续空闲段的起点与长度（全被占用时长度 0）。 */
     private fun longestFreeRun(start: Int, end: Int, occupied: List<IntRange>): Pair<Int, Int> {
+        // 重叠课程，或“下课＋通勤”已晚于下节课开始时，不存在可用区间。
+        // 先在边界层返回 0，避免后续 coerceIn(start, end) 因 start > end 崩溃。
+        if (end <= start) return end to 0
         val ranges = occupied
             .map { it.first.coerceIn(start, end) to (it.last + 1).coerceIn(start, end) }
             .filter { it.first < it.second }

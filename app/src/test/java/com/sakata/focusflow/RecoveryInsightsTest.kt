@@ -3,6 +3,7 @@ package com.sakata.focusflow
 import java.util.Calendar
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class RecoveryInsightsTest {
@@ -26,6 +27,19 @@ class RecoveryInsightsTest {
             Item(title = "暂停", detail = "", kind = "暂停", rescheduleCount = 3)
         )
         assertEquals(emptyList<RecoveryCandidate>(), RecoveryInsights.candidates(items, now))
+    }
+
+    @Test fun `overdue label makes multi-day stale task explicit`() {
+        val stale = Item(
+            title = "忘记处理",
+            detail = "",
+            kind = "任务",
+            scheduledAt = now - 3 * 24 * 60 * 60_000L,
+            durationMinutes = 30
+        )
+
+        assertTrue(RecoveryInsights.overdueLabel(stale, now)?.startsWith("已逾期 2 天") == true)
+        assertNull(RecoveryInsights.overdueLabel(stale.copy(done = true), now))
     }
 
     @Test fun `weekly summary reports completion reschedules misses and repeated period`() {

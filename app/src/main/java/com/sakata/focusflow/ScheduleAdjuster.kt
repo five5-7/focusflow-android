@@ -64,7 +64,7 @@ object ScheduleAdjuster {
         val weekday = ScheduleOccupation.weekdayOf(now)
         val fromMinute = ScheduleOccupation.minuteOfDay(now)
         val todaySlot = ScheduleOccupation.nextFreeSlot(
-            weekday, fromMinute, duration, courses, items, profile, excludeId = item.id
+            weekday, fromMinute, duration, courses, items, profile, excludeId = item.id, targetDay = now
         )
         if (todaySlot != null) {
             return DayAdjustment(
@@ -83,7 +83,7 @@ object ScheduleAdjuster {
             ItemPriority.MID, ItemPriority.HIGH -> {
                 val shortSlot = ScheduleOccupation.nextFreeSlot(
                     weekday, fromMinute, ScheduleOccupation.BUFFER_MINUTES,
-                    courses, items, profile, excludeId = item.id
+                    courses, items, profile, excludeId = item.id, targetDay = now
                 )
                 if (shortSlot != null) {
                     DayAdjustment(
@@ -109,7 +109,7 @@ object ScheduleAdjuster {
         val tomorrowWeekday = if (weekday == 7) 1 else weekday + 1
         // 明早 8:00 起找；找不到就给 9:00 兜底（此后时间轴标红提醒）。
         val slot = ScheduleOccupation.nextFreeSlot(
-            tomorrowWeekday, 8 * 60, duration, courses, items, profile, excludeId = candidate.item.id
+            tomorrowWeekday, 8 * 60, duration, courses, items, profile, excludeId = candidate.item.id, targetDay = atMinute(now, 0, 1)
         ) ?: 9 * 60
         return DayAdjustment(
             candidate, AdjustAction.TOMORROW,

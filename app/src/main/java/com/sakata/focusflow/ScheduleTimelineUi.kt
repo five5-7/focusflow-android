@@ -326,19 +326,24 @@ internal fun TimelineDayLane(
             val laneWidth = maxWidth / layout.laneCount.toFloat()
             val blockWidth = if (compactBlocks) laneWidth * 0.9f else laneWidth
             val blockOffset = (laneWidth - blockWidth) / 2f
+            val isCommute = event.type == ScheduleType.COMMUTE
             Surface(
                 modifier = Modifier
                     .offset(x = laneWidth * layout.lane.toFloat() + blockOffset, y = top)
                     .width(blockWidth)
                     .height(height)
                     .clickable { onSelect(event) },
-                color = if (conflict) CONFLICT_RED_BG else eventColor.copy(alpha = 0.88f),
+                color = when {
+                    conflict -> CONFLICT_RED_BG
+                    isCommute -> eventColor.copy(alpha = 0.14f)
+                    else -> eventColor.copy(alpha = 0.88f)
+                },
                 contentColor = Color.White,
-                shape = RoundedCornerShape(7.dp),
-                tonalElevation = if (conflict) 0.dp else 1.dp
+                shape = RoundedCornerShape(if (isCommute) 12.dp else 7.dp),
+                tonalElevation = if (conflict || isCommute) 0.dp else 1.dp
             ) {
                 Box(Modifier.fillMaxSize()) {
-                    if (conflict) {
+                    if (conflict && !isCommute) {
                         Canvas(Modifier.matchParentSize()) {
                             val step = 24.dp.toPx()
                             var x = -size.height
@@ -360,20 +365,35 @@ internal fun TimelineDayLane(
                                 .background(CONFLICT_TEXT_COLOR, RoundedCornerShape(topStart = 7.dp, bottomStart = 7.dp))
                         )
                     }
-                    if (showLabels) {
+                    val minimumLabelHeight = if (compactBlocks) 44.dp else 22.dp
+                    if (showLabels && !isCommute && height >= minimumLabelHeight) {
                         Column(Modifier.padding(horizontal = 5.dp, vertical = 3.dp)) {
+                            val titleLines = when {
+                                compactBlocks && height >= 76.dp -> 3
+                                compactBlocks -> 2
+                                height >= 56.dp -> 2
+                                else -> 1
+                            }
                             Text(
                                 event.title,
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.Bold,
-                                maxLines = if (labelMode == TimelineLabelMode.TITLE_ONLY) 1 else 2,
+                                maxLines = titleLines,
                                 overflow = TextOverflow.Ellipsis
                             )
-                            if (labelMode == TimelineLabelMode.FULL && height >= 34.dp) {
+                            if (labelMode == TimelineLabelMode.FULL && height >= 40.dp) {
                                 Text(
                                     "${formatMinute(event.startMinute)}–${formatMinute(event.endMinute)}",
                                     style = MaterialTheme.typography.labelSmall,
                                     maxLines = 1
+                                )
+                            }
+                            if (labelMode == TimelineLabelMode.FULL && height >= 82.dp && event.detail.isNotBlank()) {
+                                Text(
+                                    event.detail,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
                         }
@@ -508,48 +528,4 @@ private fun TimelineEventDialog(
             }
         }
     )
-}
-
-private fun gapMarkersFor(courses: List<Course>, day: Int, profile: CommuteProfile): List<GapMarker> {
-    val daily = courses.filter { it.weekday == day }.sortedBy { it.startPeriod }
-    if (daily.size < 2) return emptyList()
-    return daily.zipWithNext().mapNotNull { (from, to) ->
-        val start = CourseGapPlanner.periodEnd(from.endPeriod)
-        val end = CourseGapPlanner.periodStart(to.startPeriod)
-        val net = end - start - ZijingangTravel.estimateMinutes(from.zone, to.zone, profile)
-        if (net >= 10) GapMarker(start, end, net) else null
-    }
-}
-/** 空挡课表视图：与日程一致的周时间轴课表，课程色块同课表，间隙标注净可用分钟数（≥60 分钟高亮）。 */
-@Composable
-internal fun GapTimelineContent(courses: List<Course>, profile: CommuteProfile) {
-    val confirmed = courses.filter { !it.needsConfirmation }
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 2.dp, vertical = 10.dp)) {
-            Row(Modifier.fillMaxWidth()) {
-                Spacer(Modifier.width(40.dp))
-                (1..7).forEach { day ->
-                    Surface(
-                        modifier = Modifier.weight(1f).padding(horizontal = 0.5.dp),
-                        color = if (day == todayWeekday()) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
-                        shape = RoundedCornerShape(10.dp)
-                    ) { Text(weekdayName(day), Modifier.padding(vertical = 8.dp), textAlign = androidx.compose.ui.text.style.TextAlign.Center, fontWeight = FontWeight.SemiBold) }
-                }
-            }
-            Row(Modifier.fillMaxWidth()) {
-                TimelineTimeAxis(40.dp)
-                (1..7).forEach { day ->
-                    TimelineDayLane(
-                        events = confirmed.filter { it.weekday == day }.mapIndexed { index, course -> course.asTimelineEvent(index) },
-                        gapMarkers = gapMarkersFor(confirmed, day, profile),
-                        modifier = Modifier.weight(1f),
-                        showLabels = false,
-                        compactBlocks = true,
-                        onSelect = {}
-                    )
-                }
-            }
-        }
-    }
-    Text("课程色块同课表；间隙显示扣除路程后的净可用分钟数（≥60 分钟深色高亮，适合安排目标或充电）。", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 }

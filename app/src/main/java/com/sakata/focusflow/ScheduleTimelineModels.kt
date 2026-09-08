@@ -107,14 +107,13 @@ internal fun conflictAdvice(
     profile: CommuteProfile?,
     excludeId: Long = 0L
 ): String? {
-    val start = ScheduleOccupation.minuteOfDay(target)
-    val end = (start + durationMinutes.coerceIn(5, 360)).coerceAtMost(24 * 60)
-    val blocker = ScheduleOccupation.conflictingBlock(
-        ScheduleOccupation.dayOccupiedBlocks(
-            ScheduleOccupation.weekdayOf(target), courses, allItems, profile, excludeId
-        ),
-        start, end
-    ) ?: return null
+    val blocker = ScheduleOccupation.segments(target, durationMinutes).firstNotNullOfOrNull { (day, range) ->
+        ScheduleOccupation.conflictingBlock(
+            ScheduleOccupation.dayOccupiedBlocks(
+                ScheduleOccupation.weekdayOf(day), courses, allItems, profile, excludeId, targetDay = day
+            ), range.first, range.last + 1
+        )
+    } ?: return null
     val kindLabel = when (blocker.kind) {
         "course" -> "课程"
         "commute" -> "通勤"

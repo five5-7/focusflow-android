@@ -17,7 +17,8 @@ data class Goal(
     val completionWeekKey: Long = GoalPlanner.currentWeekKey(),
     val desiredOutcome: String = "",
     /** The concrete first action for this goal; optional for 6.1 compatibility. */
-    val firstAction: String = ""
+    val firstAction: String = "",
+    val sourceNotes: String = ""
 )
 
 data class LearningResource(
@@ -67,10 +68,13 @@ object GoalPlanner {
         goal: Goal,
         courses: List<Course>,
         profile: CommuteProfile,
-        occupied: Map<Int, List<IntRange>> = emptyMap(),
+        items: List<Item> = emptyList(),
         nowMillis: Long = System.currentTimeMillis()
     ): List<GoalSuggestion> {
-        val confirmed = courses.filter { !it.needsConfirmation }
+        val confirmed = courses.filter { !it.needsConfirmation && it.enabled }
+        val occupied = (1..7).associateWith { weekday ->
+            occupiedOnDate(items, occurrenceDay(weekday, nowMillis))
+        }
         val gapSuggestions = CourseGapPlanner.gaps(confirmed, profile, occupied)
             .filter { it.minutesFree >= goal.durationMinutes }
             .map { GoalSuggestion(it.from.weekday, it.suggestedStartMinute, it.minutesFree) }
@@ -94,17 +98,33 @@ object GoalPlanner {
                 val occurrence = nextOccurrence(suggestion.weekday, suggestion.startMinute, nowMillis)
                 occurrence > nowMillis + 15 * 60_000L && occurrence <= nowMillis + 7 * 24 * 60 * 60_000L
             }
-            .filterNot { overlapsOccupied(it, goal.durationMinutes, occupied) }
+            .filter { suggestion ->
+                slotFree(
+                    nextOccurrence(suggestion.weekday, suggestion.startMinute, nowMillis),
+                    goal.durationMinutes,
+                    confirmed,
+                    items,
+                    profile
+                )
+            }
             .sortedWith(
                 compareBy<GoalSuggestion> { nextOccurrence(it.weekday, it.startMinute, nowMillis) }
                     .thenBy { it.weekday }.thenBy { it.startMinute }
             )
     }
 
-    /** 建议时段 [start, start+duration) 是否与已有安排重叠。 */
-    private fun overlapsOccupied(suggestion: GoalSuggestion, durationMinutes: Int, occupied: Map<Int, List<IntRange>>): Boolean {
-        val end = suggestion.startMinute + durationMinutes
-        return occupied[suggestion.weekday].orEmpty().any { it.first < end && suggestion.startMinute < it.last + 1 }
+    private fun occurrenceDay(weekday: Int, nowMillis: Long): Long {
+        val calendar = Calendar.getInstance().apply { timeInMillis = nowMillis }
+        val currentDay = when (calendar.get(Calendar.DAY_OF_WEEK)) {
+            Calendar.SUNDAY -> 7
+            else -> calendar.get(Calendar.DAY_OF_WEEK) - 1
+        }
+        calendar.set(Calendar.HOUR_OF_DAY, 0)
+        calendar.set(Calendar.MINUTE, 0)
+        calendar.set(Calendar.SECOND, 0)
+        calendar.set(Calendar.MILLISECOND, 0)
+        calendar.add(Calendar.DAY_OF_YEAR, (weekday - currentDay + 7) % 7)
+        return calendar.timeInMillis
     }
 
     fun nextOccurrence(weekday: Int, minuteOfDay: Int, nowMillis: Long = System.currentTimeMillis()): Long {
@@ -155,14 +175,14 @@ object GoalPlanner {
         remainingByGoal.forEach { (goal, remaining) ->
             var scheduled = 0
             // 完成率学习：优先历史完成率高的时段（未知时段排最后）。
-            val suggestions = GoalPlanner.suggestions(goal, courses, profile, occupiedByWeekday(items), nowMillis)
+            val suggestions = GoalPlanner.suggestions(goal, courses, profile, items, nowMillis)
                 .sortedWith(compareByDescending<GoalSuggestion> { completionRate(it.weekday, it.startMinute / 60) ?: -1f }.thenBy { it.startMinute })
             for (suggestion in suggestions) {
                 if (scheduled >= remaining) break
                 val target = GoalPlanner.nextOccurrence(suggestion.weekday, suggestion.startMinute, nowMillis)
                 // 与之前已排的目标任务也避让，防止同一次自动排内重复占用同一时段。
                 if (slotFree(target, goal.durationMinutes, courses, items + newItems, profile)) {
-                    newItems += Item(title = goal.title, detail = goalTaskDetail(goal, suggestion.weekday, suggestion.startMinute), kind = "任务", scheduledAt = target, goalId = goal.id, durationMinutes = goal.durationMinutes)
+                    newItems += Item(title = goal.title, detail = goalTaskDetail(goal, target), kind = "任务", scheduledAt = target, goalId = goal.id, durationMinutes = goal.durationMinutes)
                     learnedSlots += suggestion.weekday to suggestion.startMinute / 60
                     scheduled++
                 }
