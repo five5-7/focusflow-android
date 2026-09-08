@@ -153,7 +153,7 @@ private data class ImprovementDraft(val text: String)
             }
         } },
         confirmButton = { Button(enabled = title.isNotBlank() && desiredOutcome.isNotBlank() && metricTarget.isNotBlank() && weeklyNumber != null && durationNumber != null && weeklyNumber in 1..7 && durationNumber in 5..240, onClick = { vault.clear(draftKey); onSave(Goal(id = initialGoal?.id ?: System.currentTimeMillis(), title = title, weeklyTarget = weeklyNumber ?: 1, durationMinutes = durationNumber ?: 5, metricType = metricType, metricTarget = metricTarget, minimumVersion = suggestedMinimum, resourceTitle = resourceTitle, resourceUnit = resourceUnit, completedThisWeek = initialGoal?.completedThisWeek ?: 0, minimumCompletionsThisWeek = initialGoal?.minimumCompletionsThisWeek ?: 0, completionWeekKey = initialGoal?.completionWeekKey ?: GoalPlanner.currentWeekKey(), desiredOutcome = desiredOutcome, firstAction = firstAction, sourceNotes = initialGoal?.sourceNotes.orEmpty())) }) { Text(if (initialGoal == null) "创建" else "保存") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }
+        dismissButton = { if (initialGoal == null) Row { TextButton(onClick = { vault.clear(draftKey); title = initialTitle; weekly = "3"; duration = initialDurationMinutes?.coerceIn(5, 240)?.toString() ?: "30"; metricType = "时长"; metricTarget = "30 分钟"; desiredOutcome = initialOutcome; resourceTitle = ""; resourceUnit = ""; firstAction = suggestedFirstAction.ifBlank { initialGoal?.firstAction.orEmpty() } }) { Text("清空") }; TextButton(onClick = onDismiss) { Text("取消") } } else TextButton(onClick = onDismiss) { Text("取消") } }
     )
 }
 
@@ -170,7 +170,7 @@ private data class ImprovementDraft(val text: String)
         OutlinedTextField(value = title, onValueChange = { title = it; persist() }, label = { Text("教程名称") }, singleLine = true)
         OutlinedTextField(value = url, onValueChange = { url = it; persist() }, label = { Text("链接（可选）") }, singleLine = true)
         OutlinedTextField(value = note, onValueChange = { note = it; persist() }, label = { Text("材料说明或笔记（链接为空时必填）") }, minLines = 2)
-    } }, confirmButton = { Button(enabled = LearningResourcePolicy.canSave(title, url, note), onClick = { vault.clear(draftKey); onSave(LearningResource(title = title.trim(), url = url.trim(), summary = note.trim())) }) { Text("确认保存") } }, dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } })
+    } }, confirmButton = { Button(enabled = LearningResourcePolicy.canSave(title, url, note), onClick = { vault.clear(draftKey); onSave(LearningResource(title = title.trim(), url = url.trim(), summary = note.trim())) }) { Text("确认保存") } }, dismissButton = { Row { TextButton(onClick = { vault.clear(draftKey); title = ""; url = ""; note = "" }) { Text("清空") }; TextButton(onClick = onDismiss) { Text("取消") } } })
 }
 
 @Composable internal fun CompletionDialog(item: Item, goal: Goal?, onDismiss: () -> Unit, onComplete: (String) -> Unit) {
@@ -207,5 +207,5 @@ private data class ImprovementDraft(val text: String)
     AlertDialog(onDismissRequest = onDismiss, title = { Text("记录改进想法") }, text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("例如：希望睡前模式在连续延期后自动提前减速提醒。")
         OutlinedTextField(value = text, onValueChange = { text = it; persist() }, placeholder = { Text("想深化、修复或新增什么？") }, minLines = 3)
-    } }, confirmButton = { Button(enabled = text.isNotBlank(), onClick = { vault.clear(draftKey); onSave(text.trim()) }) { Text("保存") } }, dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } })
+    } }, confirmButton = { Button(enabled = text.isNotBlank(), onClick = { vault.clear(draftKey); onSave(text.trim()) }) { Text("保存") } }, dismissButton = { Row { TextButton(onClick = { vault.clear(draftKey); text = "" }) { Text("清空") }; TextButton(onClick = onDismiss) { Text("取消") } } })
 }

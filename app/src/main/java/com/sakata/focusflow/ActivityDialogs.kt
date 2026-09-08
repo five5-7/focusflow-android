@@ -223,7 +223,7 @@ internal fun activityTitleLabel(category: String): String = when (category) {
                 plannedAt?.let { saveAt(it) }
             }) { Text("安排") }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }
+        dismissButton = { Row { TextButton(onClick = { vault.clear(draftKey); category = "游戏"; title = ""; duration = "60"; selected = null; remindStart = false; customTime = null }) { Text("清空") }; TextButton(onClick = onDismiss) { Text("取消") } } }
     )
 }
 

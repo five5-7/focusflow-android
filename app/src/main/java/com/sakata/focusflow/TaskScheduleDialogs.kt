@@ -729,7 +729,22 @@ internal fun timeOnSameDayAs(target: Long, minute: Int): Long =
                 )
             )
         }) { Text("保存") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }
+        dismissButton = {
+            if (existing == null) TextButton(onClick = {
+                vault.clear(draftKey)
+                title = ""
+                weekday = 1
+                startPeriod = "1"
+                lessonCount = "1"
+                place = null
+                customSelected = false
+                customName = ""
+                enabled = true
+                effectiveFrom = null
+                effectiveUntil = null
+            }) { Text("清空") }
+            TextButton(onClick = onDismiss) { Text("取消") }
+        }
     )
 }
 
@@ -859,6 +874,17 @@ internal fun quickCaptureDetail(draft: QuickCaptureDraft): String {
                 Button(enabled = text.isNotBlank() && durationValid, onClick = { vault.clear(draftKey); onDirectSchedule(draft(), effectiveExact) }) { Text("直接安排") }
             } else Button(enabled = text.isNotBlank(), onClick = { vault.clear(draftKey); onSave(draft(), tomorrow) }) { Text("保存") }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }
+        dismissButton = {
+            TextButton(onClick = {
+                vault.clear(draftKey)
+                text = ""
+                tomorrow = false
+                durationOverride = null
+                durationValid = true
+                windowOverride = null
+                exactOverride = null
+            }) { Text("清空") }
+            TextButton(onClick = onDismiss) { Text("取消") }
+        }
     )
 }

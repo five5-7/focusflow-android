@@ -781,6 +781,6 @@ fun VideoAnalysisDialog(
             }
         },
         confirmButton = { Button(enabled = LearningResourcePolicy.canSave(title, url, text), onClick = { vault.clear(draftKey); onSave(title.trim(), url.trim(), result ?: text.trim()) }) { Text("确认资料并保存") } },
-        dismissButton = { TextButton(onClick = onDismiss, enabled = !analyzing) { Text("取消") } }
+        dismissButton = { Row { TextButton(onClick = { vault.clear(draftKey); title = ""; url = ""; text = "" }, enabled = !analyzing) { Text("清空") }; TextButton(onClick = onDismiss, enabled = !analyzing) { Text("取消") } } }
     )
 }

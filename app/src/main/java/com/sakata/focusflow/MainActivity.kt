@@ -89,6 +89,9 @@ import kotlinx.coroutines.withContext
 /** 8.1.0 退出确认时间窗：与 Snackbar Short 显示时长一致，提示消失前再次按系统返回才真正退出。 */
 private const val EXIT_PROMPT_WINDOW_MS = 4000L
 
+/** 挂起的课程编辑器：original 为 null 表示「新增课程」，非空表示「编辑该课程」。 */
+private data class SuspendedCourseEditor(val original: Course?)
+
 class MainActivity : ComponentActivity() {
     private var statusCheckInRequested by mutableStateOf(false)
     private var quickCaptureRequested by mutableStateOf(false)
@@ -380,6 +383,8 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     var planPage by remember { mutableStateOf<PlanPage?>(null) }
     var settingsSubPage by remember { mutableStateOf<SettingsSubPage?>(null) }
     var settingsBackStack by remember { mutableStateOf<List<SettingsSubPage>>(emptyList()) }
+    // 8.1.0 课程编辑器挂起：从课程编辑器跳转「管理地点与出行参数」时暂存，回到课程页自动重开（草稿箱恢复内容）。
+    var suspendedCourseEditor by remember { mutableStateOf<SuspendedCourseEditor?>(null) }
     // 8.1.0 导航历史与草稿保险箱（会话内）：页面目的地变化统一记录，回退/折返键恢复快照。
     val navHistory = remember { NavHistory() }
     val draftVault = remember { DraftVault() }
@@ -409,6 +414,16 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
 
     fun goForwardHistory() {
         navHistory.forward()?.let { applySnapshot(it) }
+    }
+
+    // 回到课程页时恢复被挂起的课程编辑器（新增或编辑，草稿内容由草稿箱恢复）。
+    LaunchedEffect(tab, planPage, suspendedCourseEditor) {
+        val suspended = suspendedCourseEditor ?: return@LaunchedEffect
+        if (tab == 2 && planPage == PlanPage.COURSES) {
+            suspendedCourseEditor = null
+            val original = suspended.original
+            if (original == null) addCourseOpen = true else courseEditor = original
+        }
     }
 
     LaunchedEffect(
@@ -1236,25 +1251,33 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                 floatingBarHeight = with(density) { it.height.toDp() }
             }
         )
-        // 8.1.0 回退/折返浮动键：仅在有历史时显示，悬浮于底栏两端，与底栏视觉一致。
-        if (navHistory.canGoBack()) {
+        // 8.1.0 回退/折返浮动键：仅在有历史时淡入显示，悬浮于底栏两端圆角上方（8dp 间隙），不遮挡底栏。
+        AnimatedVisibility(
+            visible = navHistory.canGoBack(),
+            enter = fadeIn(tween(160)),
+            exit = fadeOut(tween(120)),
+            modifier = Modifier.align(Alignment.BottomStart)
+        ) {
             HistoryFloatingKey(
                 onClick = { goBackHistory() },
                 icon = Icons.AutoMirrored.Filled.ArrowBack,
                 description = "回退到上一个页面",
                 background = themeSpec.navigationBarColor,
-                modifier = Modifier.align(Alignment.BottomStart)
-                    .padding(start = 10.dp, bottom = floatingBarHeight / 2 - 20.dp)
+                modifier = Modifier.padding(start = 10.dp, bottom = floatingBarHeight + 8.dp)
             )
         }
-        if (navHistory.canGoForward()) {
+        AnimatedVisibility(
+            visible = navHistory.canGoForward(),
+            enter = fadeIn(tween(160)),
+            exit = fadeOut(tween(120)),
+            modifier = Modifier.align(Alignment.BottomEnd)
+        ) {
             HistoryFloatingKey(
                 onClick = { goForwardHistory() },
                 icon = Icons.AutoMirrored.Filled.ArrowForward,
                 description = "折返到后一个页面",
                 background = themeSpec.navigationBarColor,
-                modifier = Modifier.align(Alignment.BottomEnd)
-                    .padding(end = 10.dp, bottom = floatingBarHeight / 2 - 20.dp)
+                modifier = Modifier.padding(end = 10.dp, bottom = floatingBarHeight + 8.dp)
             )
         }
         if (!hasTopNotice) StatusBarScrim(topSafety, Modifier.align(Alignment.TopCenter))
@@ -1506,7 +1529,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             store.saveCustomPlaces(updated)
         }
         if (addCourseOpen) CourseEditorDialog(null, campusPlaces, maxPeriod = coursePeriodTable.periods.size, onDismiss = { addCourseOpen = false }, onOpenCommutePlaces = {
-            addCourseOpen = false; goTo(PageSnapshot(3, todayInboxOpen, planPage, SettingsSubPage.COMMUTE_PLACES, emptyList()))
+            addCourseOpen = false; suspendedCourseEditor = SuspendedCourseEditor(null); goTo(PageSnapshot(3, todayInboxOpen, planPage, SettingsSubPage.COMMUTE_PLACES, emptyList()))
         }) { course ->
             courses = courses + course.copy(needsConfirmation = false)
             store.saveCourses(courses)
@@ -1514,7 +1537,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             addCourseOpen = false
         }
         courseEditor?.let { original -> CourseEditorDialog(original, campusPlaces, maxPeriod = coursePeriodTable.periods.size, onDismiss = { courseEditor = null }, onOpenCommutePlaces = {
-            courseEditor = null; goTo(PageSnapshot(3, todayInboxOpen, planPage, SettingsSubPage.COMMUTE_PLACES, emptyList()))
+            courseEditor = null; suspendedCourseEditor = SuspendedCourseEditor(original); goTo(PageSnapshot(3, todayInboxOpen, planPage, SettingsSubPage.COMMUTE_PLACES, emptyList()))
         }) { edited ->
             courses = courses.map { if (it == original) edited.copy(needsConfirmation = false) else it }
             store.saveCourses(courses)
