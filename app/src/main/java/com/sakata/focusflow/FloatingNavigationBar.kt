@@ -47,8 +47,16 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.Outline
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 
 /** Nav text remains readable independently of the user-selected body text color. */
@@ -57,6 +65,41 @@ internal fun navigationContentColor(background: Color): Color =
 
 internal fun navigationIndicatorColor(background: Color, primary: Color): Color =
     if (contrastRatio(background, primary) >= 1.5) primary.copy(alpha = 1f) else navigationContentColor(background)
+
+/**
+ * 8.1.0 底栏形状：胶囊本体不变（上下界不变），顶部两角按进度生长出圆形小耳（回退/折返）。
+ * 耳半径随 progress 从 0 动画生长，描边与阴影都跟随整体轮廓。
+ */
+private class CornerEarCapsuleShape(
+    private val progressL: Float,
+    private val progressR: Float,
+    private val earRadiusDp: Float,
+    private val earCenterXDp: Float,
+    private val earCenterYDp: Float
+) : Shape {
+    override fun createOutline(size: Size, layoutDirection: LayoutDirection, density: Density): Outline {
+        val w = size.width
+        val h = size.height
+        val path = Path().apply {
+            // 胶囊本体
+            addOval(Rect(0f, 0f, w, h))
+            // 左耳：生长中的圆，圆心贴近左上角（向左上突出）
+            if (progressL > 0.01f) {
+                val er = with(density) { earRadiusDp.dp.toPx() } * progressL
+                val cx = with(density) { earCenterXDp.dp.toPx() }
+                val cy = with(density) { earCenterYDp.dp.toPx() }
+                addOval(Rect(cx - er, cy - er, cx + er, cy + er))
+            }
+            if (progressR > 0.01f) {
+                val er = with(density) { earRadiusDp.dp.toPx() } * progressR
+                val cx = w - with(density) { earCenterXDp.dp.toPx() }
+                val cy = with(density) { earCenterYDp.dp.toPx() }
+                addOval(Rect(cx - er, cy - er, cx + er, cy + er))
+            }
+        }
+        return Outline.Generic(path)
+    }
+}
 
 /** Overlay surface. Only the rounded bar receives input; exterior margins pass through. */
 @Composable
@@ -77,6 +120,24 @@ internal fun FloatingNavigationBar(
 ) {
     val background by animateColorAsState(containerColor, tween(motionMillis(220)), label = "navigationTheme")
     val indicator = navigationIndicatorColor(background, MaterialTheme.colorScheme.primary)
+    // 8.1.0 顶角双耳：有历史时从胶囊上两角生长出来（形状本身变形），耳内为 < / > 符号。
+    val backEar by animateFloatAsState(
+        targetValue = if (canGoBack) 1f else 0f,
+        animationSpec = if (canGoBack) spring(dampingRatio = 0.72f, stiffness = 420f) else tween(motionMillis(140)),
+        label = "backEar"
+    )
+    val forwardEar by animateFloatAsState(
+        targetValue = if (canGoForward) 1f else 0f,
+        animationSpec = if (canGoForward) spring(dampingRatio = 0.72f, stiffness = 420f) else tween(motionMillis(140)),
+        label = "forwardEar"
+    )
+    val barShape = CornerEarCapsuleShape(
+        progressL = backEar,
+        progressR = forwardEar,
+        earRadiusDp = 18f,
+        earCenterXDp = 10f,
+        earCenterYDp = 10f
+    )
     BoxWithConstraints(
         modifier.fillMaxWidth().windowInsetsPadding(
             safeInsets.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal)
@@ -86,7 +147,7 @@ internal fun FloatingNavigationBar(
         Surface(
             modifier = Modifier.padding(horizontal = margin, vertical = 8.dp)
                 .widthIn(max = FloatingNavigationLayout.MAX_BAR_WIDTH_DP.dp).fillMaxWidth(),
-            shape = RoundedCornerShape(percent = 50),
+            shape = barShape,
             color = background, tonalElevation = 0.dp, shadowElevation = 6.dp,
             border = BorderStroke(1.dp, navigationContentColor(background).copy(alpha = 0.12f))
         ) {
@@ -126,26 +187,24 @@ internal fun FloatingNavigationBar(
                             }
                         }
                     }
-                    // 8.1.0 底栏形变：两端圆瓣在页签上层弹性缩入；小尺寸圆钮，向外偏移避开页签图标。
-                    HistoryLobe(
-                        visible = canGoBack,
+                    // 8.1.0 耳内符号：随耳生长淡入；左耳 < 长按弹历史，右耳 >。
+                    EarSymbol(
+                        progress = backEar,
                         onClick = onBackHistory,
                         onLongPress = onLongPressBack,
                         icon = Icons.AutoMirrored.Outlined.ArrowBack,
                         description = "回退到上一个页面；长按查看历史",
-                        fill = MaterialTheme.colorScheme.surface,
-                        tint = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.align(Alignment.CenterStart).offset(x = (-4).dp)
+                        tint = navigationContentColor(background),
+                        modifier = Modifier.offset(x = (-11).dp, y = (-11).dp)
                     )
-                    HistoryLobe(
-                        visible = canGoForward,
+                    EarSymbol(
+                        progress = forwardEar,
                         onClick = onForwardHistory,
                         onLongPress = null,
                         icon = Icons.AutoMirrored.Outlined.ArrowForward,
                         description = "折返到后一个页面",
-                        fill = MaterialTheme.colorScheme.surface,
-                        tint = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.align(Alignment.CenterEnd).offset(x = 4.dp)
+                        tint = navigationContentColor(background),
+                        modifier = Modifier.align(Alignment.TopEnd).offset(x = 11.dp, y = (-11).dp)
                     )
                 }
             }
@@ -153,24 +212,18 @@ internal fun FloatingNavigationBar(
     }
 }
 
-/** 8.1.0 底栏两端圆瓣：实心小圆钮（浅色底+描边+轻阴影），弹性缩入、快速缩出；向外偏移避开页签图标。 */
+/** 8.1.0 耳内符号：随耳生长进度淡入；点击回退/折返，长按（左耳）弹历史。 */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun HistoryLobe(
-    visible: Boolean,
+private fun EarSymbol(
+    progress: Float,
     onClick: () -> Unit,
     onLongPress: (() -> Unit)?,
     icon: ImageVector,
     description: String,
-    fill: Color,
     tint: Color,
     modifier: Modifier = Modifier
 ) {
-    val progress by animateFloatAsState(
-        targetValue = if (visible) 1f else 0f,
-        animationSpec = if (visible) spring(dampingRatio = 0.72f, stiffness = 420f) else tween(motionMillis(140)),
-        label = "historyLobe"
-    )
     if (progress <= 0.01f) return
     val clickModifier = if (onLongPress != null) {
         Modifier.combinedClickable(onClick = onClick, onLongClick = onLongPress)
@@ -179,22 +232,13 @@ private fun HistoryLobe(
     }
     Box(
         modifier = modifier
-            .size(32.dp)
-            .graphicsLayer {
-                scaleX = progress
-                scaleY = progress
-                alpha = progress
-            }
-            .drawBehind {
-                drawCircle(Color.Black.copy(alpha = 0.12f), radius = size.minDimension / 2, center = Offset(size.width / 2, size.height / 2 + 0.5.dp.toPx()))
-                drawCircle(fill)
-                drawCircle(tint.copy(alpha = 0.25f), style = Stroke(width = 1.dp.toPx()))
-            }
+            .size(26.dp)
+            .graphicsLayer { alpha = progress.coerceIn(0f, 1f) }
             .then(clickModifier)
             .semantics { stateDescription = description },
         contentAlignment = Alignment.Center
     ) {
-        Icon(icon, contentDescription = description, tint = tint, modifier = Modifier.size(18.dp))
+        Icon(icon, contentDescription = description, tint = tint, modifier = Modifier.size(15.dp))
     }
 }
 
@@ -269,14 +313,12 @@ private fun FloatingNavigationItem(
     ) {
         Box(
             Modifier.size(40.dp).drawBehind {
-                // 8.1.0 选中态：圆形底色（与胶囊底栏、圆瓣、加号统一为圆形语言）。
+                // 8.1.0 选中态：主页=实心圆；子页=空心圆环（标签同步替换为子页名）。
                 val radius = size.minDimension / 2 * (0.86f + 0.14f * progress) * destinationPulse.value
-                drawCircle(fill, radius = radius, center = center)
-                if (subpageProgress > 0f) {
-                    // 8.1.0 副页指示：右上角徽标圆点（外环+实心，比旧圆点更大更醒目）。
-                    val badgeCenter = Offset(size.width - 6.dp.toPx(), 6.dp.toPx())
-                    drawCircle(background, 5.5.dp.toPx() * subpageProgress, badgeCenter)
-                    drawCircle(fill, 4.dp.toPx() * subpageProgress, badgeCenter)
+                if (hasSubpage && selected) {
+                    drawCircle(fill, radius = radius, center = center, style = Stroke(width = 3.dp.toPx()))
+                } else {
+                    drawCircle(fill, radius = radius, center = center)
                 }
             }, contentAlignment = Alignment.Center
         ) {
@@ -286,8 +328,15 @@ private fun FloatingNavigationItem(
                     scaleY = scaleX
                 })
         }
-        Text(label, color = navigationContentColor(background),
+        Text(
+            // 8.1.0 副页表示：选中且处于子页时，标签替换为子页名（如「设置」→「外观」）。
+            if (selected && hasSubpage) destinationKey else label,
+            color = navigationContentColor(background),
             fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-            style = MaterialTheme.typography.labelMedium, textAlign = TextAlign.Center)
+            style = MaterialTheme.typography.labelMedium,
+            textAlign = TextAlign.Center,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
