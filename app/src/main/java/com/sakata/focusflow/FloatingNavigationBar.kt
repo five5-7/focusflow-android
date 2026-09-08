@@ -66,23 +66,26 @@ internal fun navigationIndicatorColor(background: Color, primary: Color): Color 
     if (contrastRatio(background, primary) >= 1.5) primary.copy(alpha = 1f) else navigationContentColor(background)
 
 /**
- * 8.1.0 底栏形状：一体连贯的非对称圆角轮廓——上面两角用小圆角（圆角矩形感，角部相对胶囊自然外凸），
- * 下面两角用大圆角（胶囊感）；左右边竖直、上下边平直，整体高度不变。
+ * 8.1.0 底栏形变形状：平时为完整胶囊（四角半径=高度一半）；
+ * 有导航历史时，上两角按 cornerProgress 动画收缩为小圆角（16dp），形成"上圆角矩形突出、下胶囊"轮廓。
+ * 下两角始终为大圆角；左右竖直、上下平直。
  */
 private class AsymmetricCapsuleShape(
-    private val topRadiusDp: Float
+    private val cornerProgress: Float,
+    private val smallRadiusDp: Float
 ) : Shape {
     override fun createOutline(size: Size, layoutDirection: LayoutDirection, density: Density): Outline {
         val w = size.width
         val h = size.height
-        val r1 = with(density) { topRadiusDp.dp.toPx() }
         val r2 = h / 2f
+        val smallPx = with(density) { smallRadiusDp.dp.toPx() }
+        val r1 = r2 + (smallPx - r2) * cornerProgress.coerceIn(0f, 1f)
         val path = Path().apply {
-            // 从左下大圆角开始，顺时针一圈
+            // 从左下大圆角开始，顺时针一圈（sweep 负值=屏幕上逆时针转过该角）
             moveTo(0f, h / 2f)
-            arcTo(Rect(0f, h - 2 * r2, 2 * r2, h), 180f, 90f, false)
+            arcTo(Rect(0f, h - 2 * r2, 2 * r2, h), 180f, -90f, false)
             lineTo(w - r2, h)
-            arcTo(Rect(w - 2 * r2, h - 2 * r2, w, h), 270f, 90f, false)
+            arcTo(Rect(w - 2 * r2, h - 2 * r2, w, h), 90f, -90f, false)
             lineTo(w, r1)
             arcTo(Rect(w - 2 * r1, 0f, w, 2 * r1), 0f, -90f, false)
             lineTo(r1, 0f)
@@ -113,80 +116,91 @@ internal fun FloatingNavigationBar(
 ) {
     val background by animateColorAsState(containerColor, tween(motionMillis(220)), label = "navigationTheme")
     val indicator = navigationIndicatorColor(background, MaterialTheme.colorScheme.primary)
-    // 8.1.0 顶角 < > 符号：仅在有历史时淡入；底栏形状本身保持恒定（肩部胶囊轮廓）。
+    // 8.1.0 形变：有历史时上两角从小圆角"伸出"（平时为完整胶囊）；< > 符号随之淡入。
+    val historyActive = canGoBack || canGoForward
+    val cornerProgress by animateFloatAsState(
+        if (historyActive) 1f else 0f,
+        tween(motionMillis(240)),
+        label = "cornerMorph"
+    )
     val backSymbol by animateFloatAsState(if (canGoBack) 1f else 0f, tween(motionMillis(180)), label = "backSymbol")
     val forwardSymbol by animateFloatAsState(if (canGoForward) 1f else 0f, tween(motionMillis(180)), label = "forwardSymbol")
-    val barShape = AsymmetricCapsuleShape(topRadiusDp = 12f)
+    val barShape = AsymmetricCapsuleShape(cornerProgress = cornerProgress, smallRadiusDp = 16f)
     BoxWithConstraints(
         modifier.fillMaxWidth().windowInsetsPadding(
             safeInsets.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal)
         ), contentAlignment = Alignment.Center
     ) {
         val margin = FloatingNavigationLayout.horizontalMarginDp(maxWidth.value, LocalDensity.current.fontScale).dp
-        Surface(
-            modifier = Modifier.padding(horizontal = margin, vertical = 8.dp)
-                .widthIn(max = FloatingNavigationLayout.MAX_BAR_WIDTH_DP.dp).fillMaxWidth(),
-            shape = barShape,
-            color = background, tonalElevation = 0.dp, shadowElevation = 6.dp,
-            border = BorderStroke(1.dp, navigationContentColor(background).copy(alpha = 0.12f))
+        Box(
+            Modifier.padding(horizontal = margin, vertical = 8.dp)
+                .widthIn(max = FloatingNavigationLayout.MAX_BAR_WIDTH_DP.dp)
+                .fillMaxWidth()
         ) {
-            // Internal padding contains BOTH selected background and ripple within the outer corners.
-            BoxWithConstraints(Modifier.padding(FloatingNavigationLayout.INNER_PADDING_DP.dp)) {
-                val contentWidth = maxWidth.coerceAtLeast(FloatingNavigationLayout.MIN_CONTENT_WIDTH_DP.dp)
-                Box {
-                    Box(Modifier.horizontalScroll(rememberScrollState())) {
-                        Row(
-                            Modifier.width(contentWidth).selectableGroup(),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            val labels = listOf("今日", "日程", "计划", "设置")
-                            val icons = listOf(Icons.Outlined.Home, Icons.Outlined.DateRange, Icons.Outlined.List, Icons.Outlined.Settings)
-                            labels.forEachIndexed { index, label ->
-                                if (index == 2) Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                                    Surface(
-                                        onClick = onAdd, modifier = Modifier.size(48.dp),
-                                        shape = CircleShape,
-                                        color = indicator, contentColor = navigationContentColor(indicator)
-                                    ) {
-                                        Box(contentAlignment = Alignment.Center) {
-                                            Icon(Icons.Filled.Add, contentDescription = "添加")
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = barShape,
+                color = background, tonalElevation = 0.dp, shadowElevation = 6.dp,
+                border = BorderStroke(1.dp, navigationContentColor(background).copy(alpha = 0.12f))
+            ) {
+                // Internal padding contains BOTH selected background and ripple within the outer corners.
+                BoxWithConstraints(Modifier.padding(FloatingNavigationLayout.INNER_PADDING_DP.dp)) {
+                    val contentWidth = maxWidth.coerceAtLeast(FloatingNavigationLayout.MIN_CONTENT_WIDTH_DP.dp)
+                    Box {
+                        Box(Modifier.horizontalScroll(rememberScrollState())) {
+                            Row(
+                                Modifier.width(contentWidth).selectableGroup(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                val labels = listOf("今日", "日程", "计划", "设置")
+                                val icons = listOf(Icons.Outlined.Home, Icons.Outlined.DateRange, Icons.Outlined.List, Icons.Outlined.Settings)
+                                labels.forEachIndexed { index, label ->
+                                    if (index == 2) Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                                        Surface(
+                                            onClick = onAdd, modifier = Modifier.size(48.dp),
+                                            shape = CircleShape,
+                                            color = indicator, contentColor = navigationContentColor(indicator)
+                                        ) {
+                                            Box(contentAlignment = Alignment.Center) {
+                                                Icon(Icons.Filled.Add, contentDescription = "添加")
+                                            }
                                         }
                                     }
+                                    FloatingNavigationItem(
+                                        label, icons[index], selectedTab == index, background, indicator,
+                                        Modifier.weight(1f).semantics {
+                                            if (selectedTab == index) stateDescription = selectedPageDescription +
+                                                if (hasSubpage) "；再次点击返回${label}主页" else ""
+                                        },
+                                        hasSubpage = selectedTab == index && hasSubpage,
+                                        destinationKey = if (selectedTab == index) selectedPageDescription else label,
+                                        onClick = { onSelectTab(index) }
+                                    )
                                 }
-                                FloatingNavigationItem(
-                                    label, icons[index], selectedTab == index, background, indicator,
-                                    Modifier.weight(1f).semantics {
-                                        if (selectedTab == index) stateDescription = selectedPageDescription +
-                                            if (hasSubpage) "；再次点击返回${label}主页" else ""
-                                    },
-                                    hasSubpage = selectedTab == index && hasSubpage,
-                                    destinationKey = if (selectedTab == index) selectedPageDescription else label,
-                                    onClick = { onSelectTab(index) }
-                                )
                             }
                         }
                     }
-                    // 8.1.0 顶角符号：左角 < 长按弹历史，右角 >；随历史有无淡入。
-                    EarSymbol(
-                        progress = backSymbol,
-                        onClick = onBackHistory,
-                        onLongPress = onLongPressBack,
-                        icon = Icons.AutoMirrored.Outlined.ArrowBack,
-                        description = "回退到上一个页面；长按查看历史",
-                        tint = navigationContentColor(background),
-                        modifier = Modifier.offset(x = (-7).dp, y = (-7).dp)
-                    )
-                    EarSymbol(
-                        progress = forwardSymbol,
-                        onClick = onForwardHistory,
-                        onLongPress = null,
-                        icon = Icons.AutoMirrored.Outlined.ArrowForward,
-                        description = "折返到后一个页面",
-                        tint = navigationContentColor(background),
-                        modifier = Modifier.align(Alignment.TopEnd).offset(x = 7.dp, y = (-7).dp)
-                    )
                 }
             }
+            // 8.1.0 顶角符号：位于 Surface 之外（不被形状裁剪），贴在两顶角向外探出；左角 < 长按弹历史，右角 >。
+            EarSymbol(
+                progress = backSymbol,
+                onClick = onBackHistory,
+                onLongPress = onLongPressBack,
+                icon = Icons.AutoMirrored.Outlined.ArrowBack,
+                description = "回退到上一个页面；长按查看历史",
+                tint = navigationContentColor(background),
+                modifier = Modifier.align(Alignment.TopStart).offset(x = (-8).dp, y = (-8).dp)
+            )
+            EarSymbol(
+                progress = forwardSymbol,
+                onClick = onForwardHistory,
+                onLongPress = null,
+                icon = Icons.AutoMirrored.Outlined.ArrowForward,
+                description = "折返到后一个页面",
+                tint = navigationContentColor(background),
+                modifier = Modifier.align(Alignment.TopEnd).offset(x = 8.dp, y = (-8).dp)
+            )
         }
     }
 }
@@ -204,6 +218,7 @@ private fun EarSymbol(
     modifier: Modifier = Modifier
 ) {
     if (progress <= 0.01f) return
+    val badgeColor = MaterialTheme.colorScheme.surface
     val clickModifier = if (onLongPress != null) {
         Modifier.combinedClickable(onClick = onClick, onLongClick = onLongPress)
     } else {
@@ -213,11 +228,17 @@ private fun EarSymbol(
         modifier = modifier
             .size(20.dp)
             .graphicsLayer { alpha = progress.coerceIn(0f, 1f) }
+            .drawBehind {
+                // 小圆形徽章底：浅色实底 + 细描边 + 轻阴影，保证在任何背景上可读。
+                drawCircle(Color.Black.copy(alpha = 0.10f), radius = 9.dp.toPx(), center = Offset(size.width / 2, size.height / 2 + 0.5.dp.toPx()))
+                drawCircle(badgeColor, radius = 9.dp.toPx())
+                drawCircle(tint.copy(alpha = 0.30f), radius = 9.dp.toPx(), style = Stroke(width = 1.dp.toPx()))
+            }
             .then(clickModifier)
             .semantics { stateDescription = description },
         contentAlignment = Alignment.Center
     ) {
-        Icon(icon, contentDescription = description, tint = tint, modifier = Modifier.size(13.dp))
+        Icon(icon, contentDescription = description, tint = tint, modifier = Modifier.size(12.dp))
     }
 }
 
