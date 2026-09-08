@@ -18,6 +18,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -39,6 +41,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.core.view.WindowCompat
 import androidx.core.content.FileProvider
 import androidx.compose.ui.draw.drawBehind
@@ -71,7 +74,9 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import kotlin.math.pow
 import java.io.File
 import java.net.URL
@@ -842,8 +847,25 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             // 假期或校园生活关闭时，课程不参与今日、日程、空挡与目标建议；原数据仍保留。
             val scheduleCourses = activeCourses
             Box(pageModifier) {
-            // Equal depth means a sibling cross-fade, never a hierarchical slide.
-            SubpageMotion(tab, depth = { 0 }) { visibleTab ->
+            // 8.1.0 性能：四个页签常驻组合（避免每次切换重新组合整页导致卡顿），切换仅淡入淡出。
+            listOf(0, 1, 2, 3).forEach { visibleTab ->
+            val tabAlpha by animateFloatAsState(
+                if (visibleTab == tab) 1f else 0f,
+                tween(motionMillis(160)),
+                label = "tabAlpha$visibleTab"
+            )
+            Box(
+                Modifier.fillMaxSize()
+                    .graphicsLayer { alpha = tabAlpha }
+                    .then(
+                        if (visibleTab == tab) Modifier
+                        else Modifier.clearAndSetSemantics {}.pointerInput(Unit) {
+                            awaitPointerEventScope {
+                                while (true) awaitPointerEvent(PointerEventPass.Initial).changes.forEach { it.consume() }
+                            }
+                        }
+                    )
+            ) {
             val pageModifier = Modifier.fillMaxSize()
             when (visibleTab) {
                 0 -> TodayScreen(
@@ -1357,7 +1379,8 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                     })
             }
         }
-            } // primary destination motion
+            } // tab fade layer
+            } // primary destinations keep-alive
             } // inset-aware viewport
         } // content padding provider / Scaffold
         FloatingNavigationBar(

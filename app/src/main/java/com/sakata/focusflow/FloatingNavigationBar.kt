@@ -141,7 +141,7 @@ internal fun FloatingNavigationBar(
                     Box {
                         Box(Modifier.horizontalScroll(rememberScrollState())) {
                             Row(
-                                Modifier.width(contentWidth).selectableGroup(),
+                                Modifier.width(contentWidth).selectableGroup().padding(horizontal = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 val labels = listOf("今日", "日程", "计划", "设置")
@@ -183,7 +183,7 @@ internal fun FloatingNavigationBar(
                 onLongPress = onLongPressBack,
                 description = "回退到上一个页面；长按查看历史",
                 tint = navigationContentColor(background),
-                modifier = Modifier.align(Alignment.TopStart).offset(x = 8.dp, y = 1.dp)
+                modifier = Modifier.align(Alignment.TopStart).offset(x = 5.dp, y = 1.dp)
             )
             CornerSymbol(
                 visible = canGoForward,
@@ -193,7 +193,7 @@ internal fun FloatingNavigationBar(
                 onLongPress = null,
                 description = "折返到后一个页面",
                 tint = navigationContentColor(background),
-                modifier = Modifier.align(Alignment.TopEnd).offset(x = (-8).dp, y = 1.dp)
+                modifier = Modifier.align(Alignment.TopEnd).offset(x = (-5).dp, y = 1.dp)
             )
         }
     }
