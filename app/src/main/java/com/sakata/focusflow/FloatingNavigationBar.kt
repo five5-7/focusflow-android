@@ -149,7 +149,7 @@ internal fun FloatingNavigationBar(
                                 labels.forEachIndexed { index, label ->
                                     if (index == 2) Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
                                         Surface(
-                                            onClick = onAdd, modifier = Modifier.size(52.dp),
+                                            onClick = onAdd, modifier = Modifier.size(56.dp),
                                             shape = CircleShape,
                                             color = indicator, contentColor = navigationContentColor(indicator)
                                         ) {
@@ -220,14 +220,15 @@ private fun CornerSymbol(
     }
     Box(
         modifier = modifier
-            .size(22.dp)
+            .size(26.dp)
             .graphicsLayer { alpha = progress.coerceIn(0f, 1f) }
             .clip(CircleShape)
             .then(clickModifier)
+            .minimumInteractiveComponentSize()
             .semantics { stateDescription = description },
         contentAlignment = Alignment.Center
     ) {
-        Icon(icon, contentDescription = description, tint = tint, modifier = Modifier.size(15.dp))
+        Icon(icon, contentDescription = description, tint = tint, modifier = Modifier.size(18.dp))
     }
 }
 
@@ -302,7 +303,7 @@ private fun FloatingNavigationItem(
         verticalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterVertically)
     ) {
         Box(
-            Modifier.size(44.dp).drawBehind {
+            Modifier.size(48.dp).drawBehind {
                 // 8.1.0 选中态：主页=实心圆；子页=空心圆环（标签同步替换为子页名）。
                 val radius = size.minDimension / 2 * (0.86f + 0.14f * progress) * destinationPulse.value
                 if (hasSubpage && selected) {
