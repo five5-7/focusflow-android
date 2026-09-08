@@ -16,6 +16,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.DateRange
 import androidx.compose.material.icons.outlined.Home
@@ -53,7 +55,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.delay
 
 /** Nav text remains readable independently of the user-selected body text color. */
 internal fun navigationContentColor(background: Color): Color =
@@ -113,8 +115,15 @@ internal fun FloatingNavigationBar(
 ) {
     val background by animateColorAsState(containerColor, tween(motionMillis(220)), label = "navigationTheme")
     val indicator = navigationIndicatorColor(background, MaterialTheme.colorScheme.primary)
-    // 8.1.0 形变：有历史时上两角从小圆角"伸出"（平时为完整胶囊）；< > 符号与形状同步伸缩（同一进度）。
-    val historyActive = canGoBack || canGoForward
+    // 8.1.0 形变：有历史时上两角从小圆角"伸出"；3 秒未使用自动缩回，新的导航再伸出。
+    val historyActiveNow = canGoBack || canGoForward
+    var earsHidden by remember { mutableStateOf(false) }
+    LaunchedEffect(canGoBack, canGoForward) {
+        earsHidden = false
+        delay(3000)
+        earsHidden = true
+    }
+    val historyActive = historyActiveNow && !earsHidden
     val cornerProgress by animateFloatAsState(
         if (historyActive) 1f else 0f,
         tween(motionMillis(240)),
@@ -136,7 +145,7 @@ internal fun FloatingNavigationBar(
                 modifier = Modifier.fillMaxWidth(),
                 shape = barShape,
                 color = background, tonalElevation = 0.dp, shadowElevation = 6.dp,
-                border = BorderStroke(1.dp, navigationContentColor(background).copy(alpha = 0.12f))
+                border = BorderStroke(1.dp, navigationContentColor(background).copy(alpha = 0.28f))
             ) {
                 // Internal padding contains BOTH selected background and ripple within the outer corners.
                 BoxWithConstraints(Modifier.padding(FloatingNavigationLayout.INNER_PADDING_DP.dp)) {
@@ -177,38 +186,38 @@ internal fun FloatingNavigationBar(
                     }
                 }
             }
-            // 8.1.0 顶角符号：裸 < / > 字符（不带圈），贴两顶角、与形状同步淡入；左角长按弹历史，右角 >。
+            // 8.1.0 顶角符号：实心箭头图标，位于两顶角内侧（不贴边），与形状同步伸缩。
             CornerSymbol(
                 visible = canGoBack,
                 progress = cornerProgress,
-                symbol = "<",
+                icon = Icons.AutoMirrored.Filled.ArrowBack,
                 onClick = onBackHistory,
                 onLongPress = onLongPressBack,
                 description = "回退到上一个页面；长按查看历史",
                 tint = navigationContentColor(background),
-                modifier = Modifier.align(Alignment.TopStart).offset(x = (-7).dp, y = (-6).dp)
+                modifier = Modifier.align(Alignment.TopStart).offset(x = 3.dp, y = 1.dp)
             )
             CornerSymbol(
                 visible = canGoForward,
                 progress = cornerProgress,
-                symbol = ">",
+                icon = Icons.AutoMirrored.Filled.ArrowForward,
                 onClick = onForwardHistory,
                 onLongPress = null,
                 description = "折返到后一个页面",
                 tint = navigationContentColor(background),
-                modifier = Modifier.align(Alignment.TopEnd).offset(x = 7.dp, y = (-6).dp)
+                modifier = Modifier.align(Alignment.TopEnd).offset(x = (-3).dp, y = 1.dp)
             )
         }
     }
 }
 
-/** 8.1.0 顶角符号：裸 < / > 字符（不带圈），与形状同一进度淡入；圆形波纹裁剪避免方形阴影。 */
+/** 8.1.0 顶角符号：实心箭头图标（无圆圈底），与形状同一进度淡入；圆形波纹裁剪避免方形阴影。 */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun CornerSymbol(
     visible: Boolean,
     progress: Float,
-    symbol: String,
+    icon: ImageVector,
     onClick: () -> Unit,
     onLongPress: (() -> Unit)?,
     description: String,
@@ -230,12 +239,7 @@ private fun CornerSymbol(
             .semantics { stateDescription = description },
         contentAlignment = Alignment.Center
     ) {
-        Text(
-            symbol,
-            color = tint,
-            fontWeight = FontWeight.Bold,
-            fontSize = 15.sp
-        )
+        Icon(icon, contentDescription = description, tint = tint, modifier = Modifier.size(15.dp))
     }
 }
 
