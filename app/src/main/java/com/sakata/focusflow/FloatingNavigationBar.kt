@@ -66,33 +66,28 @@ internal fun navigationIndicatorColor(background: Color, primary: Color): Color 
     if (contrastRatio(background, primary) >= 1.5) primary.copy(alpha = 1f) else navigationContentColor(background)
 
 /**
- * 8.1.0 底栏形状：一整块连贯轮廓——上半为两端角向外突出的小圆角矩形（上边平直、角部外凸），
- * 下半为大圆角胶囊；整体高度不变（上界 y=0、下界 y=H），肩部水平外延 e、上角半径 r1。
+ * 8.1.0 底栏形状：一体连贯的非对称圆角轮廓——上面两角用小圆角（圆角矩形感，角部相对胶囊自然外凸），
+ * 下面两角用大圆角（胶囊感）；左右边竖直、上下边平直，整体高度不变。
  */
-private class ShoulderCapsuleShape(
-    private val shoulderDp: Float,
+private class AsymmetricCapsuleShape(
     private val topRadiusDp: Float
 ) : Shape {
     override fun createOutline(size: Size, layoutDirection: LayoutDirection, density: Density): Outline {
         val w = size.width
         val h = size.height
-        val e = with(density) { shoulderDp.dp.toPx() }
         val r1 = with(density) { topRadiusDp.dp.toPx() }
         val r2 = h / 2f
         val path = Path().apply {
-            // 从左下胶囊弧（180°→270°）开始，顺时针一圈
-            moveTo(e, h / 2f)
-            arcTo(Rect(e, 0f, e + 2 * r2, h), 180f, 90f, false)
-            lineTo(w - e - r2, h)
-            arcTo(Rect(w - e - 2 * r2, 0f, w - e, h), 270f, 90f, false)
-            // 右肩：斜向上到上角外凸点
+            // 从左下大圆角开始，顺时针一圈
+            moveTo(0f, h / 2f)
+            arcTo(Rect(0f, h - 2 * r2, 2 * r2, h), 180f, 90f, false)
+            lineTo(w - r2, h)
+            arcTo(Rect(w - 2 * r2, h - 2 * r2, w, h), 270f, 90f, false)
             lineTo(w, r1)
             arcTo(Rect(w - 2 * r1, 0f, w, 2 * r1), 0f, -90f, false)
-            // 上边（平直）
             lineTo(r1, 0f)
             arcTo(Rect(0f, 0f, 2 * r1, 2 * r1), 270f, -90f, false)
-            // 左肩：斜向下到胶囊左缘
-            lineTo(e, h / 2f)
+            lineTo(0f, h / 2f)
             close()
         }
         return Outline.Generic(path)
@@ -121,7 +116,7 @@ internal fun FloatingNavigationBar(
     // 8.1.0 顶角 < > 符号：仅在有历史时淡入；底栏形状本身保持恒定（肩部胶囊轮廓）。
     val backSymbol by animateFloatAsState(if (canGoBack) 1f else 0f, tween(motionMillis(180)), label = "backSymbol")
     val forwardSymbol by animateFloatAsState(if (canGoForward) 1f else 0f, tween(motionMillis(180)), label = "forwardSymbol")
-    val barShape = ShoulderCapsuleShape(shoulderDp = 14f, topRadiusDp = 12f)
+    val barShape = AsymmetricCapsuleShape(topRadiusDp = 12f)
     BoxWithConstraints(
         modifier.fillMaxWidth().windowInsetsPadding(
             safeInsets.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal)
@@ -179,7 +174,7 @@ internal fun FloatingNavigationBar(
                         icon = Icons.AutoMirrored.Outlined.ArrowBack,
                         description = "回退到上一个页面；长按查看历史",
                         tint = navigationContentColor(background),
-                        modifier = Modifier.offset(x = (-8).dp, y = (-8).dp)
+                        modifier = Modifier.offset(x = (-7).dp, y = (-7).dp)
                     )
                     EarSymbol(
                         progress = forwardSymbol,
@@ -188,7 +183,7 @@ internal fun FloatingNavigationBar(
                         icon = Icons.AutoMirrored.Outlined.ArrowForward,
                         description = "折返到后一个页面",
                         tint = navigationContentColor(background),
-                        modifier = Modifier.align(Alignment.TopEnd).offset(x = 8.dp, y = (-8).dp)
+                        modifier = Modifier.align(Alignment.TopEnd).offset(x = 7.dp, y = (-7).dp)
                     )
                 }
             }
