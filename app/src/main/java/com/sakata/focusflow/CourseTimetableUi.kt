@@ -19,6 +19,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
+/** 节次表编辑草稿：弹窗被误关后重开恢复正在编辑的节次时间（8.1.0 草稿保险箱）。 */
+private data class PeriodTableDraft(val periods: List<CoursePeriodTime>)
+
 @Composable
 internal fun CoursePeriodTableDialog(
     initial: CoursePeriodTable,
@@ -27,7 +30,11 @@ internal fun CoursePeriodTableDialog(
     onDismiss: () -> Unit,
     onSave: (CoursePeriodTable) -> Unit
 ) {
-    var periods by remember(initial) { mutableStateOf(initial.periods) }
+    val vault = LocalDraftVault.current
+    val draftKey = "periodTable"
+    val saved = vault.load<PeriodTableDraft>(draftKey)
+    var periods by remember(initial) { mutableStateOf(saved?.periods ?: initial.periods) }
+    fun persist() = vault.save(draftKey, PeriodTableDraft(periods))
     val valid = CoursePeriodTable(periods).isValid()
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -43,7 +50,7 @@ internal fun CoursePeriodTableDialog(
                     PeriodTimeRow(
                         index = index,
                         period = period,
-                        onChange = { updated -> periods = periods.toMutableList().also { it[index] = updated } }
+                        onChange = { updated -> periods = periods.toMutableList().also { it[index] = updated }; persist() }
                     )
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -53,15 +60,16 @@ internal fun CoursePeriodTableDialog(
                             val previousEnd = periods.lastOrNull()?.endMinute ?: 8 * 60
                             val start = (previousEnd + 10).coerceAtMost(23 * 60)
                             periods = periods + CoursePeriodTime(start, (start + 45).coerceAtMost(24 * 60))
+                            persist()
                         }
                     ) { Text("＋ 增加一节") }
-                    OutlinedButton(enabled = periods.size > minimumPeriods.coerceAtLeast(1), onClick = { periods = periods.dropLast(1) }) { Text("删除末节") }
+                    OutlinedButton(enabled = periods.size > minimumPeriods.coerceAtLeast(1), onClick = { periods = periods.dropLast(1); persist() }) { Text("删除末节") }
                 }
                 if (!valid) Text("节次必须按时间顺序排列，且不能互相重叠。", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
             }
         },
         confirmButton = {
-            Button(enabled = valid, onClick = { onSave(CoursePeriodTable(periods)) }) {
+            Button(enabled = valid, onClick = { vault.clear(draftKey); onSave(CoursePeriodTable(periods)) }) {
                 Text(if (firstSetup) "保存并进入课表" else "保存")
             }
         },

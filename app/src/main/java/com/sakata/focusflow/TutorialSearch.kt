@@ -519,13 +519,20 @@ object AiSummarizer {
     }
 }
 
+/** 教程资料 AI 总结草稿：关闭后重开恢复正在粘贴的正文（8.1.0 草稿保险箱）。 */
+private data class ResourceSummaryDraft(val text: String)
+
 /** 教程资料 AI 总结对话框：粘贴正文 → 生成要点 → 保存到教程。 */
 @Composable
 fun ResourceSummaryDialog(settings: TutorialSearchSettings, resource: LearningResource, onDismiss: () -> Unit, onSave: (String) -> Unit, onLoadingChange: (Boolean) -> Unit = {}) {
-    var text by remember { mutableStateOf("") }
+    val vault = LocalDraftVault.current
+    val draftKey = "resourceSummary:${resource.id}"
+    val saved = vault.load<ResourceSummaryDraft>(draftKey)
+    var text by remember { mutableStateOf(saved?.text ?: "") }
     var result by remember { mutableStateOf<String?>(null) }
     var generating by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    fun persist() = vault.save(draftKey, ResourceSummaryDraft(text))
     val isError = result?.startsWith("【错误】") == true
     AlertDialog(
         onDismissRequest = { if (!generating) onDismiss() },
@@ -533,7 +540,7 @@ fun ResourceSummaryDialog(settings: TutorialSearchSettings, resource: LearningRe
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("把教程/文章正文粘贴进来，生成 3–5 条中文要点与适用目标。内容只发给硅基流动，不保存原文。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                OutlinedTextField(value = text, onValueChange = { text = it }, label = { Text("粘贴正文（建议 ≥50 字）") }, minLines = 4, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = text, onValueChange = { text = it; persist() }, label = { Text("粘贴正文（建议 ≥50 字）") }, minLines = 4, modifier = Modifier.fillMaxWidth())
                 if (settings.apiKey.isBlank()) Text("请先在 设置 → 高级工具 → 学习路径建议 填写硅基流动 key。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                 result?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = if (isError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant) }
             }
@@ -551,12 +558,15 @@ fun ResourceSummaryDialog(settings: TutorialSearchSettings, resource: LearningRe
                     }
                 }) { Text(if (generating) "总结中…" else "生成总结") }
             } else {
-                Button(enabled = !isError, onClick = { onSave(result!!) }) { Text("保存到教程") }
+                Button(enabled = !isError, onClick = { vault.clear(draftKey); onSave(result!!) }) { Text("保存到教程") }
             }
         },
         dismissButton = { TextButton(onClick = onDismiss, enabled = !generating) { Text("关闭") } }
     )
 }
+
+/** 学习路径建议草稿：关闭后重开恢复正在填写的目标与补充说明（8.1.0 草稿保险箱）。 */
+private data class TutorialSearchDraft(val title: String, val description: String)
 
 /** 学习路径建议对话框：输入目标 → 生成 3–5 步（学什么/资源类型/搜索关键词/为什么），每步可一键去 B站搜，不编造链接。 */
 @Composable
@@ -566,20 +576,24 @@ fun TutorialSearchDialog(
     initialTitle: String = "",
     onLoadingChange: (Boolean) -> Unit = {}
 ) {
+    val vault = LocalDraftVault.current
+    val draftKey = "tutorialSearch"
+    val saved = vault.load<TutorialSearchDraft>(draftKey)
     val context = LocalContext.current
-    var title by remember { mutableStateOf(initialTitle) }
-    var description by remember { mutableStateOf("") }
+    var title by remember { mutableStateOf(saved?.title ?: initialTitle) }
+    var description by remember { mutableStateOf(saved?.description ?: "") }
     var state by remember { mutableStateOf<SiliconFlowClient.SearchResult?>(null) }
     var searching by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    fun persist() = vault.save(draftKey, TutorialSearchDraft(title, description))
 
     AlertDialog(
         onDismissRequest = { if (!searching) onDismiss() },
         title = { Text("学习路径建议") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(value = title, onValueChange = { title = it }, label = { Text("学习目标，如“概率论”") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(value = description, onValueChange = { description = it }, label = { Text("补充说明（可选）") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = title, onValueChange = { title = it; persist() }, label = { Text("学习目标，如“概率论”") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = description, onValueChange = { description = it; persist() }, label = { Text("补充说明（可选）") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 when (val result = state) {
                     null -> Text("按目标生成 3–5 步学习路径：每步给出学什么、用什么资源（视频/文章/练习）和去 B站/知乎/慕课 搜什么关键词。不编造链接，搜到的有用内容可手动收藏到教程资料。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     is SiliconFlowClient.SearchResult.Error -> Text(result.message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
@@ -626,6 +640,9 @@ fun TutorialSearchDialog(
     )
 }
 
+/** 搜学习教程草稿：关闭后重开恢复正在填写的目标/关键词（8.1.0 草稿保险箱）。 */
+private data class TutorialFinderDraft(val searchText: String)
+
 /** AI only proposes a search action. It never creates a resource until the user confirms real material. */
 @Composable
 fun TutorialFinderDialog(
@@ -635,17 +652,22 @@ fun TutorialFinderDialog(
     onUseSuggestion: (action: String) -> Unit,
     onLoadingChange: (Boolean) -> Unit = {}
 ) {
+    val vault = LocalDraftVault.current
+    val draftKey = "tutorialFinder"
+    val saved = vault.load<TutorialFinderDraft>(draftKey)
     val context = LocalContext.current
-    var searchText by remember { mutableStateOf(initialContext) }
+    // 预填非空 = 新意图（目标编辑弹窗带入），以预填为初值；预填为空时才恢复草稿。
+    var searchText by remember { mutableStateOf(if (initialContext.isNotBlank()) initialContext else saved?.searchText ?: initialContext) }
     var state by remember { mutableStateOf<SiliconFlowClient.SearchResult?>(null) }
     var searching by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    fun persist() = vault.save(draftKey, TutorialFinderDraft(searchText))
     AlertDialog(
         onDismissRequest = { if (!searching) onDismiss() },
         title = { Text("搜学习教程") },
         text = {
             Column(Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedTextField(value = searchText, onValueChange = { searchText = it }, label = { Text("目标/关键词（预填目标名＋预期结果）") }, minLines = 2, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = searchText, onValueChange = { searchText = it; persist() }, label = { Text("目标/关键词（预填目标名＋预期结果）") }, minLines = 2, modifier = Modifier.fillMaxWidth())
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                     listOf("B站", "知乎", "慕课").forEach { platform ->
                         OutlinedButton(onClick = {
@@ -703,6 +725,9 @@ fun TutorialFinderDialog(
     )
 }
 
+/** 视频分析草稿：关闭后重开恢复正在填写的标题/链接/字幕（8.1.0 草稿保险箱）。 */
+private data class VideoAnalysisDraft(val title: String, val url: String, val text: String)
+
 /** 视频分析（一站式整理）：粘贴视频标题/链接/字幕 → AI 要点＋适用目标 → 保存为新教程。模型模式同前（免费/推荐/自定义）。 */
 @Composable
 fun VideoAnalysisDialog(
@@ -712,22 +737,26 @@ fun VideoAnalysisDialog(
     onSave: (title: String, url: String, summary: String) -> Unit,
     onLoadingChange: (Boolean) -> Unit = {}
 ) {
-    var title by remember { mutableStateOf("") }
-    var url by remember { mutableStateOf("") }
-    var text by remember { mutableStateOf("") }
+    val vault = LocalDraftVault.current
+    val draftKey = "videoAnalysis"
+    val saved = vault.load<VideoAnalysisDraft>(draftKey)
+    var title by remember { mutableStateOf(saved?.title ?: "") }
+    var url by remember { mutableStateOf(saved?.url ?: "") }
+    var text by remember { mutableStateOf(saved?.text ?: "") }
     var analyzing by remember { mutableStateOf(false) }
     var result by remember { mutableStateOf<String?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
+    fun persist() = vault.save(draftKey, VideoAnalysisDraft(title, url, text))
     AlertDialog(
         onDismissRequest = { if (!analyzing) onDismiss() },
         title = { Text("视频分析（一站式整理）") },
         text = {
             Column(Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("粘贴已经确认的视频链接、简介或字幕，生成候选要点；保存前仍由你确认标题和真实材料。", style = MaterialTheme.typography.bodySmall)
-                OutlinedTextField(value = title, onValueChange = { title = it }, label = { Text("教程标题（如：概率论入门）") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(value = url, onValueChange = { url = it }, label = { Text("视频链接（可选）") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(value = text, onValueChange = { text = it }, label = { Text("粘贴字幕／简介／笔记正文（要 AI 总结才需要）") }, minLines = 4, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = title, onValueChange = { title = it; persist() }, label = { Text("教程标题（如：概率论入门）") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = url, onValueChange = { url = it; persist() }, label = { Text("视频链接（可选）") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = text, onValueChange = { text = it; persist() }, label = { Text("粘贴字幕／简介／笔记正文（要 AI 总结才需要）") }, minLines = 4, modifier = Modifier.fillMaxWidth())
                 error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
                 result?.let {
                     Text("分析完成，可直接保存：", style = MaterialTheme.typography.bodySmall)
@@ -751,7 +780,7 @@ fun VideoAnalysisDialog(
                 }
             }
         },
-        confirmButton = { Button(enabled = LearningResourcePolicy.canSave(title, url, text), onClick = { onSave(title.trim(), url.trim(), result ?: text.trim()) }) { Text("确认资料并保存") } },
+        confirmButton = { Button(enabled = LearningResourcePolicy.canSave(title, url, text), onClick = { vault.clear(draftKey); onSave(title.trim(), url.trim(), result ?: text.trim()) }) { Text("确认资料并保存") } },
         dismissButton = { TextButton(onClick = onDismiss, enabled = !analyzing) { Text("取消") } }
     )
 }

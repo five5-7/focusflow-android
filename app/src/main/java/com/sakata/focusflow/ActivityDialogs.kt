@@ -73,6 +73,15 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
+/** 安排空闲活动草稿：关闭后重开恢复正在填写的内容（8.1.0 草稿保险箱）。 */
+private data class GamePlanDraft(val category: String, val title: String, val duration: String, val selected: GoalSuggestion?, val remindStart: Boolean, val customTime: Long?)
+
+/** 记录活动草稿：关闭后重开恢复正在填写的内容（8.1.0 草稿保险箱）。 */
+private data class ActivityDialogDraft(val category: String, val customName: String, val timeMode: String, val minutes: String, val untilAt: Long, val nextStep: String)
+
+/** 活动转场草稿：关闭后重开恢复正在填写的内容（8.1.0 草稿保险箱）。 */
+private data class ActivityTransitionDraft(val extensionMinutes: Int, val reason: String, val endTimeChoice: String)
+
 /** 加号菜单：快速记录 / 安排空闲活动（触发方式，与原有入口不冲突）。 */
 @Composable internal fun AddMenuDialog(onDismiss: () -> Unit, onQuickCapture: () -> Unit, onGamePlan: () -> Unit) {
     AlertDialog(
@@ -108,13 +117,17 @@ internal fun activityTitleLabel(category: String): String = when (category) {
 
 /** 安排空闲活动：类别 + 名称（可选，默认类别）+ 时长 + 建议/自定义时间；到点提醒开始（可选）与收尾。 */
 @Composable internal fun GamePlanDialog(courses: List<Course>, profile: CommuteProfile, items: List<Item>, onDismiss: () -> Unit, onSave: (Item, GameSessionRecord) -> Unit) {
+    val vault = LocalDraftVault.current
+    val draftKey = "gamePlan"
+    val saved = vault.load<GamePlanDraft>(draftKey)
     val context = LocalContext.current
-    var category by remember { mutableStateOf("游戏") }
-    var title by remember { mutableStateOf("") }
-    var duration by remember { mutableStateOf("60") }
-    var selected by remember { mutableStateOf<GoalSuggestion?>(null) }
-    var remindStart by remember { mutableStateOf(false) }
-    var customTime by remember { mutableStateOf<Long?>(null) }
+    var category by remember { mutableStateOf(saved?.category ?: "游戏") }
+    var title by remember { mutableStateOf(saved?.title ?: "") }
+    var duration by remember { mutableStateOf(saved?.duration ?: "60") }
+    var selected by remember { mutableStateOf<GoalSuggestion?>(saved?.selected) }
+    var remindStart by remember { mutableStateOf(saved?.remindStart ?: false) }
+    var customTime by remember { mutableStateOf<Long?>(saved?.customTime) }
+    fun persist() = vault.save(draftKey, GamePlanDraft(category, title, duration, selected, remindStart, customTime))
     val durationNumber = duration.toIntOrNull()
     val suggestions = remember(durationNumber, courses, profile, items) {
         GoalPlanner.suggestions(Goal(title = "活动", weeklyTarget = 1, durationMinutes = durationNumber ?: 60), courses, profile, items).take(5)
@@ -134,26 +147,27 @@ internal fun activityTitleLabel(category: String): String = when (category) {
             Text(ReminderRuleCopy.SCHEDULED_ACTIVITY, style = MaterialTheme.typography.bodySmall)
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
                 ScheduledActivityKind.selectableValues.forEach { c ->
-                    FilterChip(selected = category == c, onClick = { category = c }, label = { Text(c) })
+                    FilterChip(selected = category == c, onClick = { category = c; persist() }, label = { Text(c) })
                 }
             }
-            OutlinedTextField(value = title, onValueChange = { title = it }, label = { Text(activityTitleLabel(category)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(value = title, onValueChange = { title = it; persist() }, label = { Text(activityTitleLabel(category)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 listOf("30", "60", "90").forEach { value ->
-                    FilterChip(selected = duration == value, onClick = { duration = value }, label = { Text("$value 分钟") })
+                    FilterChip(selected = duration == value, onClick = { duration = value; persist() }, label = { Text("$value 分钟") })
                 }
             }
-            OutlinedTextField(value = duration, onValueChange = { duration = it.filter(Char::isDigit).take(3) }, label = { Text("时长（分钟，5–300）") }, singleLine = true)
-            FilterChip(selected = remindStart, onClick = { remindStart = !remindStart }, label = { Text(if (remindStart) "到点提醒开始 ✓" else "到点提醒开始（可选）") })
+            OutlinedTextField(value = duration, onValueChange = { duration = it.filter(Char::isDigit).take(3); persist() }, label = { Text("时长（分钟，5–300）") }, singleLine = true)
+            FilterChip(selected = remindStart, onClick = { remindStart = !remindStart; persist() }, label = { Text(if (remindStart) "到点提醒开始 ✓" else "到点提醒开始（可选）") })
             HorizontalDivider()
             Text("建议时间（本周空闲时段，也可自定义）", fontWeight = FontWeight.SemiBold)
             if (suggestions.isEmpty() && customTime == null) {
                 Text("本周暂无足够空闲时段；可点“自定义时间”自己选，或稍后到日程里改期。", style = MaterialTheme.typography.bodySmall)
             } else suggestions.forEach { suggestion ->
-                FilterChip(selected = customTime == null && chosen?.weekday == suggestion.weekday && chosen?.startMinute == suggestion.startMinute, onClick = { customTime = null; selected = suggestion }, label = { Text("${weekdayName(suggestion.weekday)} ${GoalPlanner.displayTime(suggestion.startMinute)}（可用 ${suggestion.freeMinutes} 分钟）") }, modifier = Modifier.fillMaxWidth())
+                FilterChip(selected = customTime == null && chosen?.weekday == suggestion.weekday && chosen?.startMinute == suggestion.startMinute, onClick = { customTime = null; selected = suggestion; persist() }, label = { Text("${weekdayName(suggestion.weekday)} ${GoalPlanner.displayTime(suggestion.startMinute)}（可用 ${suggestion.freeMinutes} 分钟）") }, modifier = Modifier.fillMaxWidth())
             }
             FilterChip(selected = customTime != null, onClick = {
                 selected = null
+                persist()
                 val cal = java.util.Calendar.getInstance()
                 TimePickerDialog(context, { _, hour, minute ->
                     val chosenAt = java.util.Calendar.getInstance().apply {
@@ -164,6 +178,7 @@ internal fun activityTitleLabel(category: String): String = when (category) {
                         if (timeInMillis <= System.currentTimeMillis()) add(java.util.Calendar.DAY_OF_YEAR, 1)
                     }
                     customTime = chosenAt.timeInMillis
+                    persist()
                 }, cal.get(java.util.Calendar.HOUR_OF_DAY), cal.get(java.util.Calendar.MINUTE), true).show()
             }, label = { Text(customTime?.let { at ->
                 val cal2 = java.util.Calendar.getInstance().apply { timeInMillis = at }
@@ -194,12 +209,17 @@ internal fun activityTitleLabel(category: String): String = when (category) {
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     freeSlot?.let { slot ->
                         OutlinedButton(enabled = durationOk, onClick = {
+                            vault.clear(draftKey)
                             saveAt(timeOnSameDayAs(plannedAt, slot))
                         }) { Text("调整到 ${formatTime(timeOnSameDayAs(plannedAt, slot))} 并保存") }
                     }
-                    Button(enabled = durationOk, onClick = { saveAt(plannedAt) }) { Text("仍要保存") }
+                    Button(enabled = durationOk, onClick = {
+                        vault.clear(draftKey)
+                        saveAt(plannedAt)
+                    }) { Text("仍要保存") }
                 }
             } else Button(enabled = durationOk && s != null, onClick = {
+                vault.clear(draftKey)
                 plannedAt?.let { saveAt(it) }
             }) { Text("安排") }
         },
@@ -216,13 +236,17 @@ internal fun activityTitleLabel(category: String): String = when (category) {
     onDismiss: () -> Unit,
     onStart: (category: String, name: String, endsAt: Long, nextStep: String) -> Unit
 ) {
+    val vault = LocalDraftVault.current
+    val draftKey = "activityDialog"
+    val saved = if (preset == null) vault.load<ActivityDialogDraft>(draftKey) else null
     val context = LocalContext.current
-    var category by remember(preset) { mutableStateOf(preset?.category ?: "游戏／娱乐") }
-    var customName by remember(preset) { mutableStateOf(preset?.name.orEmpty()) }
-    var timeMode by remember { mutableStateOf("时长") }
-    var minutes by remember(preset) { mutableStateOf((preset?.minutes ?: 60).toString()) }
-    var untilAt by remember { mutableLongStateOf(System.currentTimeMillis() + 60 * 60_000L) }
-    var nextStep by remember(preset, suggestedNextStep) { mutableStateOf(preset?.nextStep ?: suggestedNextStep) }
+    var category by remember(preset) { mutableStateOf(saved?.category ?: preset?.category ?: "游戏／娱乐") }
+    var customName by remember(preset) { mutableStateOf(saved?.customName ?: preset?.name.orEmpty()) }
+    var timeMode by remember { mutableStateOf(saved?.timeMode ?: "时长") }
+    var minutes by remember(preset) { mutableStateOf(saved?.minutes ?: (preset?.minutes ?: 60).toString()) }
+    var untilAt by remember { mutableLongStateOf(saved?.untilAt ?: System.currentTimeMillis() + 60 * 60_000L) }
+    var nextStep by remember(preset, suggestedNextStep) { mutableStateOf(saved?.nextStep ?: preset?.nextStep ?: suggestedNextStep) }
+    fun persist() = vault.save(draftKey, ActivityDialogDraft(category, customName, timeMode, minutes, untilAt, nextStep))
     val activityName = when {
         preset != null -> customName.trim()
         category == "自定义" -> customName.trim()
@@ -247,27 +271,27 @@ internal fun activityTitleLabel(category: String): String = when (category) {
                     Text(if (it.minimumVersion) "已预填推荐任务的最低版本；结束活动后仍由你确认任务是否完成。" else "已预填推荐任务；结束活动后仍由你确认任务是否完成。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                 }
                 listOf("游戏／娱乐", "学习", "休息", "自定义").forEach { label ->
-                    FilterChip(selected = category == label, onClick = { category = label }, label = { Text(label) })
+                    FilterChip(selected = category == label, onClick = { category = label; persist() }, label = { Text(label) })
                 }
-                if (category == "自定义" || preset != null) OutlinedTextField(value = customName, onValueChange = { customName = it }, label = { Text("活动名称") }, singleLine = true)
+                if (category == "自定义" || preset != null) OutlinedTextField(value = customName, onValueChange = { customName = it; persist() }, label = { Text("活动名称") }, singleLine = true)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(selected = timeMode == "时长", onClick = { timeMode = "时长" }, label = { Text("预计时长") })
-                    FilterChip(selected = timeMode == "截至", onClick = { timeMode = "截至" }, label = { Text("直到时间") })
+                    FilterChip(selected = timeMode == "时长", onClick = { timeMode = "时长"; persist() }, label = { Text("预计时长") })
+                    FilterChip(selected = timeMode == "截至", onClick = { timeMode = "截至"; persist() }, label = { Text("直到时间") })
                 }
                 if (timeMode == "时长") {
                     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f))) {
                         Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                             Text("建议 ${timeSuggestion.minutes} 分钟 · 约 ${formatTime(System.currentTimeMillis() + timeSuggestion.minutes * 60_000L)} 结束", fontWeight = FontWeight.SemiBold)
                             Text(timeSuggestion.reason, style = MaterialTheme.typography.bodySmall)
-                            TextButton(onClick = { minutes = timeSuggestion.minutes.toString() }) { Text(if (minutes == timeSuggestion.minutes.toString()) "已采用建议" else "采用建议时间") }
+                            TextButton(onClick = { minutes = timeSuggestion.minutes.toString(); persist() }) { Text(if (minutes == timeSuggestion.minutes.toString()) "已采用建议" else "采用建议时间") }
                         }
                     }
-                    OutlinedTextField(value = minutes, onValueChange = { minutes = it.filter(Char::isDigit).take(3) }, label = { Text("分钟") }, singleLine = true)
+                    OutlinedTextField(value = minutes, onValueChange = { minutes = it.filter(Char::isDigit).take(3); persist() }, label = { Text("分钟") }, singleLine = true)
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        listOf(15, 30, 60).forEach { value -> FilterChip(selected = minutes == value.toString(), onClick = { minutes = value.toString() }, label = { Text("$value 分") }) }
+                        listOf(15, 30, 60).forEach { value -> FilterChip(selected = minutes == value.toString(), onClick = { minutes = value.toString(); persist() }, label = { Text("$value 分") }) }
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        listOf(90, 120).forEach { value -> FilterChip(selected = minutes == value.toString(), onClick = { minutes = value.toString() }, label = { Text("$value 分") }) }
+                        listOf(90, 120).forEach { value -> FilterChip(selected = minutes == value.toString(), onClick = { minutes = value.toString(); persist() }, label = { Text("$value 分") }) }
                     }
                 } else {
                     OutlinedButton(onClick = {
@@ -281,15 +305,16 @@ internal fun activityTitleLabel(category: String): String = when (category) {
                                 if (timeInMillis <= System.currentTimeMillis()) add(java.util.Calendar.DAY_OF_YEAR, 1)
                             }
                             untilAt = chosen.timeInMillis
+                            persist()
                         }, calendar.get(java.util.Calendar.HOUR_OF_DAY), calendar.get(java.util.Calendar.MINUTE), true).show()
                     }) { Text("选择结束时间：${formatDateTime(untilAt)}") }
                 }
-                OutlinedTextField(value = nextStep, onValueChange = { nextStep = it }, label = { Text("结束后的下一步（可选）") }, placeholder = { Text("例如：洗漱，或开始复习") })
+                OutlinedTextField(value = nextStep, onValueChange = { nextStep = it; persist() }, label = { Text("结束后的下一步（可选）") }, placeholder = { Text("例如：洗漱，或开始复习") })
                 if (suggestedNextStep.isNotBlank() && nextStep == suggestedNextStep) Text("已根据最近的固定安排或待办预填，可直接修改。", style = MaterialTheme.typography.labelSmall)
                 Text("预计 ${formatDateTime(calculatedEnd)} 结束；到点不会自动判定失败，而是进入转场确认。", style = MaterialTheme.typography.bodySmall)
             }
         },
-        confirmButton = { Button(enabled = activityName.isNotBlank() && calculatedEnd > System.currentTimeMillis(), onClick = { onStart(category, activityName, calculatedEnd, nextStep.trim()) }) { Text("开始活动") } },
+        confirmButton = { Button(enabled = activityName.isNotBlank() && calculatedEnd > System.currentTimeMillis(), onClick = { vault.clear(draftKey); onStart(category, activityName, calculatedEnd, nextStep.trim()) }) { Text("开始活动") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }
     )
 }
@@ -304,9 +329,13 @@ internal fun activityTitleLabel(category: String): String = when (category) {
     onExtend: (minutes: Int, reason: String) -> Unit,
     onReplan: () -> Unit
 ) {
-    var extensionMinutes by remember { mutableIntStateOf(10) }
-    var reason by remember { mutableStateOf("") }
-    var endTimeChoice by remember { mutableStateOf("现在") }
+    val vault = LocalDraftVault.current
+    val draftKey = "activityTransition:${session.id}"
+    val saved = vault.load<ActivityTransitionDraft>(draftKey)
+    var extensionMinutes by remember { mutableIntStateOf(saved?.extensionMinutes ?: 10) }
+    var reason by remember { mutableStateOf(saved?.reason ?: "") }
+    var endTimeChoice by remember { mutableStateOf(saved?.endTimeChoice ?: "现在") }
+    fun persist() = vault.save(draftKey, ActivityTransitionDraft(extensionMinutes, reason, endTimeChoice))
     val canExtend = session.extensionCount < maxExtensions
     val extensionEnd = System.currentTimeMillis() + extensionMinutes * 60_000L
     val conflict = upcomingCommitment?.takeIf { it.startsAt < extensionEnd }
@@ -319,29 +348,29 @@ internal fun activityTitleLabel(category: String): String = when (category) {
                 if (System.currentTimeMillis() > session.endsAt + 60_000L) {
                     Text("实际什么时候结束？")
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        FilterChip(selected = endTimeChoice == "现在", onClick = { endTimeChoice = "现在" }, label = { Text("刚刚") })
-                        FilterChip(selected = endTimeChoice == "预计", onClick = { endTimeChoice = "预计" }, label = { Text("按预计时间") })
+                        FilterChip(selected = endTimeChoice == "现在", onClick = { endTimeChoice = "现在"; persist() }, label = { Text("刚刚") })
+                        FilterChip(selected = endTimeChoice == "预计", onClick = { endTimeChoice = "预计"; persist() }, label = { Text("按预计时间") })
                     }
                 }
                 if (session.nextStep.isNotBlank()) {
                     Text("下一步：${session.nextStep}")
-                    Button(onClick = onStartNext, modifier = Modifier.fillMaxWidth()) { Text("结束并开始下一步") }
+                    Button(onClick = { vault.clear(draftKey); onStartNext() }, modifier = Modifier.fillMaxWidth()) { Text("结束并开始下一步") }
                 }
                 HorizontalDivider()
                 Text("需要更多时间")
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    listOf(10, 20, 30).forEach { value -> FilterChip(selected = extensionMinutes == value, onClick = { extensionMinutes = value }, label = { Text("$value 分钟") }) }
+                    listOf(10, 20, 30).forEach { value -> FilterChip(selected = extensionMinutes == value, onClick = { extensionMinutes = value; persist() }, label = { Text("$value 分钟") }) }
                 }
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    listOf("还没结束", "不想停", "临时被打断").forEach { label -> FilterChip(selected = reason == label, onClick = { reason = label }, label = { Text(label) }) }
+                    listOf("还没结束", "不想停", "临时被打断").forEach { label -> FilterChip(selected = reason == label, onClick = { reason = label; persist() }, label = { Text(label) }) }
                 }
                 conflict?.let { Text("延长到 ${formatTime(extensionEnd)} 会碰到 ${formatTime(it.startsAt)} 的 ${it.title}；FocusFlow 不会自动改动它。", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
-                if (canExtend) OutlinedButton(onClick = { onExtend(extensionMinutes, reason) }, modifier = Modifier.fillMaxWidth()) { Text("确认延长") }
+                if (canExtend) OutlinedButton(onClick = { vault.clear(draftKey); onExtend(extensionMinutes, reason) }, modifier = Modifier.fillMaxWidth()) { Text("确认延长") }
                 else Text("已达到设置中的连续延长提示上限。你仍可结束后重新开始，并重新作出约定。", style = MaterialTheme.typography.bodySmall)
-                TextButton(onClick = onReplan, modifier = Modifier.fillMaxWidth()) { Text("现在结束，但把下一步放回收集箱") }
+                TextButton(onClick = { vault.clear(draftKey); onReplan() }, modifier = Modifier.fillMaxWidth()) { Text("现在结束，但把下一步放回收集箱") }
             }
         },
-        confirmButton = { Button(onClick = { onFinish(if (endTimeChoice == "预计") session.endsAt else System.currentTimeMillis()) }) { Text("确认结束") } },
+        confirmButton = { Button(onClick = { vault.clear(draftKey); onFinish(if (endTimeChoice == "预计") session.endsAt else System.currentTimeMillis()) }) { Text("确认结束") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("继续当前活动") } }
     )
 }

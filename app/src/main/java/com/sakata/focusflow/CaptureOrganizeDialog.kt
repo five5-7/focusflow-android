@@ -18,6 +18,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 
+/** 收集箱整理弹窗草稿：关闭后重开恢复正在填写的“可执行的下一步”（8.1.0 草稿保险箱）。 */
+private data class CaptureOrganizeDraft(val nextAction: String)
+
 @Composable
 internal fun CaptureOrganizeDialog(
     item: Item,
@@ -27,7 +30,11 @@ internal fun CaptureOrganizeDialog(
     onConvertToGoal: () -> Unit,
     onAttachToPlan: () -> Unit
 ) {
-    var nextAction by remember(item.id, item.nextAction) { mutableStateOf(item.nextAction) }
+    val vault = LocalDraftVault.current
+    val draftKey = "organize:${item.id}"
+    val saved = vault.load<CaptureOrganizeDraft>(draftKey)
+    var nextAction by remember(item.id, item.nextAction) { mutableStateOf(saved?.nextAction ?: item.nextAction) }
+    fun persist() = vault.save(draftKey, CaptureOrganizeDraft(nextAction))
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("整理《${item.title}》") },
@@ -40,7 +47,7 @@ internal fun CaptureOrganizeDialog(
                 )
                 OutlinedTextField(
                     value = nextAction,
-                    onValueChange = { nextAction = it },
+                    onValueChange = { nextAction = it; persist() },
                     modifier = Modifier.fillMaxWidth(),
                     label = { Text("可执行的下一步") },
                     placeholder = { Text("例如：找回课程，确认上次停在哪里") },
@@ -48,7 +55,7 @@ internal fun CaptureOrganizeDialog(
                 )
                 if (item.parentCaptureId != null) Text("这是已有方向的一步，不能再嵌套方向；留作参考后会解除关联。", style = MaterialTheme.typography.bodySmall)
                 Button(
-                    onClick = { onProgress(nextAction.trim()) },
+                    onClick = { vault.clear(draftKey); onProgress(nextAction.trim()) },
                     enabled = nextAction.isNotBlank() && item.parentCaptureId == null,
                     modifier = Modifier.fillMaxWidth()
                 ) { Text("保存为逐步推进") }

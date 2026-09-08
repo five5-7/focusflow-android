@@ -11,6 +11,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -42,6 +43,30 @@ import androidx.compose.ui.unit.dp
 /** Nav text remains readable independently of the user-selected body text color. */
 internal fun navigationContentColor(background: Color): Color =
     if (contrastRatio(Color.Black, background) >= contrastRatio(Color.White, background)) Color.Black else Color.White
+
+/** 8.1.0 回退/折返浮动键：仅在有历史时由宿主显示，视觉语言与悬浮导航栏一致（圆角、描边、阴影）。 */
+@Composable
+internal fun HistoryFloatingKey(
+    onClick: () -> Unit,
+    icon: ImageVector,
+    description: String,
+    background: Color,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        onClick = onClick,
+        modifier = modifier.size(40.dp).semantics { stateDescription = description },
+        shape = CircleShape,
+        color = background,
+        tonalElevation = 0.dp,
+        shadowElevation = 6.dp,
+        border = BorderStroke(1.dp, navigationContentColor(background).copy(alpha = 0.12f))
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(icon, contentDescription = description, tint = navigationContentColor(background), modifier = Modifier.size(22.dp))
+        }
+    }
+}
 
 internal fun navigationIndicatorColor(background: Color, primary: Color): Color =
     if (contrastRatio(background, primary) >= 1.5) primary.copy(alpha = 1f) else navigationContentColor(background)

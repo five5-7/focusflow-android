@@ -73,24 +73,68 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
+/** 收集箱编辑草稿：关闭后重开恢复正在填写的内容（8.1.0 草稿保险箱）。 */
+private data class InboxEditDraft(val title: String, val detail: String, val duration: Int, val durationValid: Boolean, val priority: String)
+
+/** 弹性规划弹窗草稿（8.1.0 草稿保险箱）。 */
+private data class FlexiblePlanDraft(val duration: Int, val durationValid: Boolean)
+
+/** 安排/调整收集箱弹窗草稿（8.1.0 草稿保险箱）。 */
+private data class InboxScheduleDraft(val mode: String, val duration: Int, val durationValid: Boolean, val priority: String, val selectedWindow: ScheduleWindowOption?, val exactTime: Long?)
+
+/** 改期弹窗草稿（8.1.0 草稿保险箱）。 */
+private data class RescheduleDraft(val selected: Int, val customTime: Long?, val duration: Int, val durationValid: Boolean, val priority: String)
+
+/** 目标安排弹窗草稿（8.1.0 草稿保险箱）。 */
+private data class GoalScheduleDraft(val selected: Int, val customTime: Long?)
+
+/** 课程编辑弹窗草稿（8.1.0 草稿保险箱）。 */
+private data class CourseEditorDraft(
+    val title: String,
+    val weekday: Int,
+    val startPeriod: String,
+    val lessonCount: String,
+    val place: CampusPlace?,
+    val customSelected: Boolean,
+    val customName: String,
+    val enabled: Boolean,
+    val effectiveFrom: Long?,
+    val effectiveUntil: Long?
+)
+
+/** 快速记录弹窗草稿（8.1.0 草稿保险箱；与保存用的 QuickCaptureDraft 区分）。 */
+private data class QuickCaptureEditorDraft(
+    val text: String,
+    val tomorrow: Boolean,
+    val durationOverride: Int?,
+    val durationValid: Boolean,
+    val windowOverride: ScheduleWindowOption?,
+    val exactOverride: Long?
+)
+
 @Composable internal fun InboxEditDialog(item: Item, onDismiss: () -> Unit, onSave: (String, String, Int, String) -> Unit) {
-    var title by remember(item.id) { mutableStateOf(item.title) }
-    var detail by remember(item.id) { mutableStateOf(item.editableNote()) }
-    var duration by remember(item.id) { mutableIntStateOf(item.durationMinutes.coerceIn(5, 360)) }
-    var durationValid by remember(item.id) { mutableStateOf(true) }
-    var priority by remember(item.id) { mutableStateOf(item.priority) }
+    val vault = LocalDraftVault.current
+    val draftKey = "inboxEdit:${item.id}"
+    val saved = vault.load<InboxEditDraft>(draftKey)
+    var title by remember(item.id) { mutableStateOf(saved?.title ?: item.title) }
+    var detail by remember(item.id) { mutableStateOf(saved?.detail ?: item.editableNote()) }
+    var duration by remember(item.id) { mutableIntStateOf(saved?.duration ?: item.durationMinutes.coerceIn(5, 360)) }
+    var durationValid by remember(item.id) { mutableStateOf(saved?.durationValid ?: true) }
+    var priority by remember(item.id) { mutableStateOf(saved?.priority ?: item.priority) }
+    fun persist() = vault.save(draftKey, InboxEditDraft(title, detail, duration, durationValid, priority))
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("编辑收集箱项目") },
         text = { Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            OutlinedTextField(value = title, onValueChange = { title = it }, label = { Text("事情") }, singleLine = true)
-            OutlinedTextField(value = detail, onValueChange = { detail = it }, label = { Text("备注（可选）") }, minLines = 2)
+            OutlinedTextField(value = title, onValueChange = { title = it; persist() }, label = { Text("事情") }, singleLine = true)
+            OutlinedTextField(value = detail, onValueChange = { detail = it; persist() }, label = { Text("备注（可选）") }, minLines = 2)
             Text("预计用时", fontWeight = FontWeight.SemiBold)
             key(item.id) {
                 DurationPicker(
-                    initialMinutes = item.durationMinutes.coerceIn(5, 360),
+                    initialMinutes = saved?.duration ?: item.durationMinutes.coerceIn(5, 360),
                     onChange = { parsed ->
                         if (parsed != null) { duration = parsed; durationValid = true } else durationValid = false
+                        persist()
                     }
                 )
             }
@@ -99,13 +143,16 @@ import kotlinx.coroutines.withContext
                 ItemPriority.entries.forEach { entry ->
                     FilterChip(
                         selected = priority == entry.storageKey,
-                        onClick = { priority = entry.storageKey },
+                        onClick = { priority = entry.storageKey; persist() },
                         label = { Text(entry.label) }
                     )
                 }
             }
         } },
-        confirmButton = { Button(enabled = title.isNotBlank() && durationValid, onClick = { onSave(title.trim(), detail.trim().ifBlank { "稍后决定安排" }, duration, priority) }) { Text("保存") } },
+        confirmButton = { Button(enabled = title.isNotBlank() && durationValid, onClick = {
+            vault.clear(draftKey)
+            onSave(title.trim(), detail.trim().ifBlank { "稍后决定安排" }, duration, priority)
+        }) { Text("保存") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }
     )
 }
@@ -159,8 +206,12 @@ internal fun scheduleWindowOptions(now: Long = System.currentTimeMillis()): List
     onDismiss: () -> Unit,
     onSelect: (FlexibleTimeSuggestion) -> Unit
 ) {
-    var duration by remember(item.id) { mutableIntStateOf(item.durationMinutes.coerceIn(5, 360)) }
-    var durationValid by remember(item.id) { mutableStateOf(true) }
+    val vault = LocalDraftVault.current
+    val draftKey = "flexiblePlan:${item.id}"
+    val saved = vault.load<FlexiblePlanDraft>(draftKey)
+    var duration by remember(item.id) { mutableIntStateOf(saved?.duration ?: item.durationMinutes.coerceIn(5, 360)) }
+    var durationValid by remember(item.id) { mutableStateOf(saved?.durationValid ?: true) }
+    fun persist() = vault.save(draftKey, FlexiblePlanDraft(duration, durationValid))
     val suggestions = remember(item.id, duration) { FlexiblePlanner.suggestions(item.copy(durationMinutes = duration), items, courses, energyLevel, profile = profile) }
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -171,9 +222,10 @@ internal fun scheduleWindowOptions(now: Long = System.currentTimeMillis()): List
                 Text("预计用时", fontWeight = FontWeight.SemiBold)
                 key(item.id) {
                     DurationPicker(
-                        initialMinutes = item.durationMinutes.coerceIn(5, 360),
+                        initialMinutes = saved?.duration ?: item.durationMinutes.coerceIn(5, 360),
                         onChange = { parsed ->
                             if (parsed != null) { duration = parsed; durationValid = true } else durationValid = false
+                            persist()
                         }
                     )
                 }
@@ -181,7 +233,7 @@ internal fun scheduleWindowOptions(now: Long = System.currentTimeMillis()): List
                 if (suggestions.isEmpty()) {
                     Text("未来七天暂时没有足够连续的空档。任务会继续保留为弹性安排。")
                 } else suggestions.forEach { suggestion ->
-                    ElevatedCard(Modifier.fillMaxWidth().clickable { onSelect(suggestion) }) {
+                    ElevatedCard(Modifier.fillMaxWidth().clickable { vault.clear(draftKey); onSelect(suggestion) }) {
                         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                             Text(formatDateTime(suggestion.startsAt), fontWeight = FontWeight.Bold)
                             Text(suggestion.reason, style = MaterialTheme.typography.bodySmall)
@@ -243,14 +295,19 @@ internal fun DurationPicker(initialMinutes: Int, onChange: (Int?) -> Unit) {
     onKeepWindow: (Long, Long, Int, String, String) -> Unit,
     initialExactTime: Long? = null
 ) {
+    val vault = LocalDraftVault.current
+    val draftKey = "inboxSchedule:${item.id}"
+    // 预填了精确时间（快速记录「直接安排」）时视为新意图：不恢复旧草稿，以预填为初值
+    val saved = if (initialExactTime == null) vault.load<InboxScheduleDraft>(draftKey) else null
     val context = LocalContext.current
     val existingWindow = if (item.windowStartAt != null && item.windowEndAt != null) ScheduleWindowOption("当前范围", item.windowStartAt, item.windowEndAt) else null
-    var mode by remember(item.id, initialExactTime) { mutableStateOf(if (initialExactTime != null) "精确时间" else if (existingWindow == null) "推荐空档" else "大致时间") }
-    var duration by remember(item.id) { mutableIntStateOf(item.durationMinutes.coerceIn(5, 360)) }
-    var durationValid by remember(item.id) { mutableStateOf(true) }
-    var priority by remember(item.id) { mutableStateOf(item.priority) }
-    var selectedWindow by remember(item.id) { mutableStateOf(existingWindow) }
-    var exactTime by remember(item.id, initialExactTime) { mutableStateOf(initialExactTime) }
+    var mode by remember(item.id, initialExactTime) { mutableStateOf(saved?.mode ?: if (initialExactTime != null) "精确时间" else if (existingWindow == null) "推荐空档" else "大致时间") }
+    var duration by remember(item.id) { mutableIntStateOf(saved?.duration ?: item.durationMinutes.coerceIn(5, 360)) }
+    var durationValid by remember(item.id) { mutableStateOf(saved?.durationValid ?: true) }
+    var priority by remember(item.id) { mutableStateOf(saved?.priority ?: item.priority) }
+    var selectedWindow by remember(item.id) { mutableStateOf(saved?.selectedWindow ?: existingWindow) }
+    var exactTime by remember(item.id, initialExactTime) { mutableStateOf(saved?.exactTime ?: initialExactTime) }
+    fun persist() = vault.save(draftKey, InboxScheduleDraft(mode, duration, durationValid, priority, selectedWindow, exactTime))
     val windowOptions = scheduleWindowOptions().let { options -> if (existingWindow == null) options else listOf(existingWindow) + options }
     val planningItem = item.copy(
         durationMinutes = duration,
@@ -276,7 +333,7 @@ internal fun DurationPicker(initialMinutes: Int, onChange: (Int?) -> Unit) {
                         FilterChip(
                             modifier = Modifier.weight(1f),
                             selected = mode == option,
-                            onClick = { mode = option },
+                            onClick = { mode = option; persist() },
                             label = { Text(option, maxLines = 1) }
                         )
                     }
@@ -284,9 +341,10 @@ internal fun DurationPicker(initialMinutes: Int, onChange: (Int?) -> Unit) {
                 Text("预计用时", fontWeight = FontWeight.SemiBold)
                 key(item.id) {
                     DurationPicker(
-                        initialMinutes = item.durationMinutes.coerceIn(5, 360),
+                        initialMinutes = saved?.duration ?: item.durationMinutes.coerceIn(5, 360),
                         onChange = { parsed ->
                             if (parsed != null) { duration = parsed; durationValid = true } else durationValid = false
+                            persist()
                         }
                     )
                 }
@@ -295,7 +353,7 @@ internal fun DurationPicker(initialMinutes: Int, onChange: (Int?) -> Unit) {
                     ItemPriority.entries.forEach { entry ->
                         FilterChip(
                             selected = priority == entry.storageKey,
-                            onClick = { priority = entry.storageKey },
+                            onClick = { priority = entry.storageKey; persist() },
                             label = { Text(entry.label) }
                         )
                     }
@@ -305,7 +363,7 @@ internal fun DurationPicker(initialMinutes: Int, onChange: (Int?) -> Unit) {
                         Text("参考已确认课程、未完成的定时任务和当前精力，并保留 15 分钟缓冲。", style = MaterialTheme.typography.bodySmall)
                         if (suggestions.isEmpty()) Text("未来七天没有足够连续的空档；可以改用大致时间继续保持弹性。")
                         suggestions.forEach { suggestion ->
-                            ElevatedCard(Modifier.fillMaxWidth().clickable { onSchedule(suggestion.startsAt, duration, formatDateTime(suggestion.startsAt), priority) }) {
+                            ElevatedCard(Modifier.fillMaxWidth().clickable { vault.clear(draftKey); onSchedule(suggestion.startsAt, duration, formatDateTime(suggestion.startsAt), priority) }) {
                                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                                     Text(formatDateTime(suggestion.startsAt), fontWeight = FontWeight.Bold)
                                     Text(suggestion.reason, style = MaterialTheme.typography.bodySmall)
@@ -318,7 +376,7 @@ internal fun DurationPicker(initialMinutes: Int, onChange: (Int?) -> Unit) {
                         windowOptions.forEach { option ->
                             FilterChip(
                                 selected = selectedWindow == option,
-                                onClick = { selectedWindow = option },
+                                onClick = { selectedWindow = option; persist() },
                                 label = { Text("${option.label} · ${formatDateTime(option.startsAt)}–${formatTime(option.endsAt)}") }
                             )
                         }
@@ -331,7 +389,7 @@ internal fun DurationPicker(initialMinutes: Int, onChange: (Int?) -> Unit) {
                         Text("选择一个明确时间后，任务会写入日程并创建提醒。", style = MaterialTheme.typography.bodySmall)
                         Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                             listOf("明早 9:00" to dateAt(1, 9), "明晚 18:00" to dateAt(1, 18)).forEach { option ->
-                                FilterChip(selected = exactTime == option.second, onClick = { exactTime = option.second }, label = { Text(option.first) })
+                                FilterChip(selected = exactTime == option.second, onClick = { exactTime = option.second; persist() }, label = { Text(option.first) })
                             }
                         }
                         OutlinedButton(onClick = {
@@ -342,6 +400,7 @@ internal fun DurationPicker(initialMinutes: Int, onChange: (Int?) -> Unit) {
                                         set(year, month, day, hour, minute, 0)
                                         set(java.util.Calendar.MILLISECOND, 0)
                                     }.timeInMillis
+                                    persist()
                                 }, calendar.get(java.util.Calendar.HOUR_OF_DAY), calendar.get(java.util.Calendar.MINUTE), true).show()
                             }, calendar.get(java.util.Calendar.YEAR), calendar.get(java.util.Calendar.MONTH), calendar.get(java.util.Calendar.DAY_OF_MONTH)).show()
                         }) { Text(exactTime?.let { "已选：${formatDateTime(it)}" } ?: "自选日期与时间") }
@@ -356,7 +415,7 @@ internal fun DurationPicker(initialMinutes: Int, onChange: (Int?) -> Unit) {
         },
         confirmButton = {
             when (mode) {
-                "大致时间" -> Button(enabled = selectedWindow != null && durationValid, onClick = { selectedWindow?.let { onKeepWindow(it.startsAt, it.endsAt, duration, it.label, priority) } }) { Text("保存范围") }
+                "大致时间" -> Button(enabled = selectedWindow != null && durationValid, onClick = { vault.clear(draftKey); selectedWindow?.let { onKeepWindow(it.startsAt, it.endsAt, duration, it.label, priority) } }) { Text("保存范围") }
                 "精确时间" -> {
                     val chosen = exactTime
                     val advice = chosen?.let { conflictAdvice(it, duration, courses, items, profile, excludeId = item.id) }
@@ -369,13 +428,14 @@ internal fun DurationPicker(initialMinutes: Int, onChange: (Int?) -> Unit) {
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             freeSlot?.let { slot ->
                                 OutlinedButton(enabled = durationValid, onClick = {
+                                    vault.clear(draftKey)
                                     val at = timeOnSameDayAs(chosen, slot)
                                     onSchedule(at, duration, formatDateTime(at), priority)
                                 }) { Text("调整到 ${formatTime(timeOnSameDayAs(chosen, slot))} 并保存") }
                             }
-                            Button(enabled = chosen > System.currentTimeMillis() && durationValid, onClick = { onSchedule(chosen, duration, formatDateTime(chosen), priority) }) { Text("仍要保存") }
+                            Button(enabled = chosen > System.currentTimeMillis() && durationValid, onClick = { vault.clear(draftKey); onSchedule(chosen, duration, formatDateTime(chosen), priority) }) { Text("仍要保存") }
                         }
-                    } else Button(enabled = chosen?.let { it > System.currentTimeMillis() } == true && durationValid, onClick = { chosen?.let { onSchedule(it, duration, formatDateTime(it), priority) } }) { Text("确认安排") }
+                    } else Button(enabled = chosen?.let { it > System.currentTimeMillis() } == true && durationValid, onClick = { vault.clear(draftKey); chosen?.let { onSchedule(it, duration, formatDateTime(it), priority) } }) { Text("确认安排") }
                 }
                 else -> {}
             }
@@ -392,12 +452,16 @@ internal fun DurationPicker(initialMinutes: Int, onChange: (Int?) -> Unit) {
     onDismiss: () -> Unit,
     onSave: (Long, Int, String, String) -> Unit
 ) {
+    val vault = LocalDraftVault.current
+    val draftKey = "reschedule:${item.id}"
+    val saved = vault.load<RescheduleDraft>(draftKey)
     val context = LocalContext.current
-    var selected by remember { mutableStateOf(1) }
-    var customTime by remember { mutableStateOf<Long?>(null) }
-    var duration by remember { mutableIntStateOf(item.durationMinutes.coerceIn(5, 360)) }
-    var durationValid by remember { mutableStateOf(true) }
-    var priority by remember(item.id) { mutableStateOf(item.priority) }
+    var selected by remember { mutableIntStateOf(saved?.selected ?: 1) }
+    var customTime by remember { mutableStateOf<Long?>(saved?.customTime) }
+    var duration by remember { mutableIntStateOf(saved?.duration ?: item.durationMinutes.coerceIn(5, 360)) }
+    var durationValid by remember { mutableStateOf(saved?.durationValid ?: true) }
+    var priority by remember(item.id) { mutableStateOf(saved?.priority ?: item.priority) }
+    fun persist() = vault.save(draftKey, RescheduleDraft(selected, customTime, duration, durationValid, priority))
     val options = listOf(
         Triple("明早 9:00", dateAt(1, 9), "明早 9:00"),
         Triple("明晚 18:00", dateAt(1, 18), "明晚 18:00"),
@@ -421,7 +485,7 @@ internal fun DurationPicker(initialMinutes: Int, onChange: (Int?) -> Unit) {
         title = { Text("什么时候再提醒？") },
         text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(item.title.removePrefix("重新安排："))
-            options.forEachIndexed { index, option -> FilterChip(selected = selected == index && customTime == null, onClick = { selected = index; customTime = null }, label = { Text(option.first) }) }
+            options.forEachIndexed { index, option -> FilterChip(selected = selected == index && customTime == null, onClick = { selected = index; customTime = null; persist() }, label = { Text(option.first) }) }
             TextButton(onClick = {
                 val calendar = java.util.Calendar.getInstance()
                 DatePickerDialog(context, { _, year, month, day ->
@@ -430,15 +494,17 @@ internal fun DurationPicker(initialMinutes: Int, onChange: (Int?) -> Unit) {
                         chosen.set(year, month, day, hour, minute, 0)
                         chosen.set(java.util.Calendar.MILLISECOND, 0)
                         customTime = chosen.timeInMillis
+                        persist()
                     }, calendar.get(java.util.Calendar.HOUR_OF_DAY), calendar.get(java.util.Calendar.MINUTE), true).show()
                 }, calendar.get(java.util.Calendar.YEAR), calendar.get(java.util.Calendar.MONTH), calendar.get(java.util.Calendar.DAY_OF_MONTH)).show()
             }) { Text(customTime?.let { "已选：${formatDateTime(it)}" } ?: "自选日期与时间") }
             Text("预计用时", fontWeight = FontWeight.SemiBold)
             key(item.id) {
                 DurationPicker(
-                    initialMinutes = item.durationMinutes.coerceIn(5, 360),
+                    initialMinutes = saved?.duration ?: item.durationMinutes.coerceIn(5, 360),
                     onChange = { parsed ->
                         if (parsed != null) { duration = parsed; durationValid = true } else durationValid = false
+                        persist()
                     }
                 )
             }
@@ -447,7 +513,7 @@ internal fun DurationPicker(initialMinutes: Int, onChange: (Int?) -> Unit) {
                 ItemPriority.entries.forEach { entry ->
                     FilterChip(
                         selected = priority == entry.storageKey,
-                        onClick = { priority = entry.storageKey },
+                        onClick = { priority = entry.storageKey; persist() },
                         label = { Text(entry.label) }
                     )
                 }
@@ -458,6 +524,7 @@ internal fun DurationPicker(initialMinutes: Int, onChange: (Int?) -> Unit) {
         } },
         confirmButton = {
             val original = {
+                vault.clear(draftKey)
                 customTime?.let { onSave(it, duration, "${formatDateTime(it)} · ${duration}分钟", priority) }
                     ?: onSave(options[selected].second, duration, "${options[selected].third} · ${duration}分钟", priority)
             }
@@ -465,6 +532,7 @@ internal fun DurationPicker(initialMinutes: Int, onChange: (Int?) -> Unit) {
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     freeSlot?.let { slot ->
                         OutlinedButton(enabled = durationValid, onClick = {
+                            vault.clear(draftKey)
                             val at = timeOnSameDayAs(chosenTime, slot)
                             onSave(at, duration, "${formatDateTime(at)} · ${duration}分钟", priority)
                         }) { Text("调整到 ${formatTime(timeOnSameDayAs(chosenTime, slot))} 并保存") }
@@ -487,9 +555,13 @@ internal fun GoalScheduleDialog(
     onDismiss: () -> Unit,
     onScheduleAt: (Long) -> Unit
 ) {
+    val vault = LocalDraftVault.current
+    val draftKey = "goalSchedule:${goal.id}"
+    val saved = vault.load<GoalScheduleDraft>(draftKey)
     val context = LocalContext.current
-    var selected by remember { mutableStateOf(1) }
-    var customTime by remember { mutableStateOf<Long?>(null) }
+    var selected by remember { mutableIntStateOf(saved?.selected ?: 1) }
+    var customTime by remember { mutableStateOf<Long?>(saved?.customTime) }
+    fun persist() = vault.save(draftKey, GoalScheduleDraft(selected, customTime))
     val options = listOf(
         Triple("明早 9:00", dateAt(1, 9), "明早 9:00"),
         Triple("明晚 18:00", dateAt(1, 18), "明晚 18:00"),
@@ -517,7 +589,7 @@ internal fun GoalScheduleDialog(
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("每次 ${goal.durationMinutes} 分钟 · 定时后会写入日程并创建提醒。")
                 options.forEachIndexed { index, option ->
-                    FilterChip(selected = selected == index && customTime == null, onClick = { selected = index; customTime = null }, label = { Text(option.first) })
+                    FilterChip(selected = selected == index && customTime == null, onClick = { selected = index; customTime = null; persist() }, label = { Text(option.first) })
                 }
                 TextButton(onClick = {
                     val calendar = java.util.Calendar.getInstance()
@@ -527,6 +599,7 @@ internal fun GoalScheduleDialog(
                             chosen.set(year, month, day, hour, minute, 0)
                             chosen.set(java.util.Calendar.MILLISECOND, 0)
                             customTime = chosen.timeInMillis
+                            persist()
                         }, calendar.get(java.util.Calendar.HOUR_OF_DAY), calendar.get(java.util.Calendar.MINUTE), true).show()
                     }, calendar.get(java.util.Calendar.YEAR), calendar.get(java.util.Calendar.MONTH), calendar.get(java.util.Calendar.DAY_OF_MONTH))
                     // 禁止选过去日期：开始日期设为今天 00:00
@@ -542,6 +615,7 @@ internal fun GoalScheduleDialog(
         },
         confirmButton = {
             val original = {
+                vault.clear(draftKey)
                 customTime?.let { onScheduleAt(it) } ?: onScheduleAt(options[selected].second)
             }
             if (pastTime) {
@@ -551,6 +625,7 @@ internal fun GoalScheduleDialog(
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     freeSlot?.let { slot ->
                         OutlinedButton(onClick = {
+                            vault.clear(draftKey)
                             onScheduleAt(timeOnSameDayAs(chosenTime, slot))
                         }) { Text("调整到 ${formatTime(timeOnSameDayAs(chosenTime, slot))} 并保存") }
                     }
@@ -576,19 +651,23 @@ internal fun timeOnSameDayAs(target: Long, minute: Int): Long =
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable internal fun CourseEditorDialog(existing: Course?, places: List<CampusPlace>, maxPeriod: Int = 13, onDismiss: () -> Unit, onOpenCommutePlaces: () -> Unit, onSave: (Course) -> Unit) {
+    val vault = LocalDraftVault.current
+    val draftKey = if (existing != null) "courseEdit:${existing.id}" else "addCourse"
+    val saved = vault.load<CourseEditorDraft>(draftKey)
     val context = LocalContext.current
-    var title by remember { mutableStateOf(existing?.title ?: "") }
-    var weekday by remember { mutableIntStateOf(existing?.weekday ?: 1) }
-    var startPeriod by remember { mutableStateOf(existing?.startPeriod?.toString() ?: "1") }
-    var lessonCount by remember { mutableStateOf(((existing?.endPeriod ?: 1) - (existing?.startPeriod ?: 1) + 1).toString()) }
+    var title by remember { mutableStateOf(saved?.title ?: (existing?.title ?: "")) }
+    var weekday by remember { mutableIntStateOf(saved?.weekday ?: (existing?.weekday ?: 1)) }
+    var startPeriod by remember { mutableStateOf(saved?.startPeriod ?: (existing?.startPeriod?.toString() ?: "1")) }
+    var lessonCount by remember { mutableStateOf(saved?.lessonCount ?: (((existing?.endPeriod ?: 1) - (existing?.startPeriod ?: 1) + 1).toString())) }
     val availablePlaces = places
     val existingPlace = availablePlaces.firstOrNull { it.name == existing?.building }
-    var place by remember(availablePlaces, existing?.building) { mutableStateOf(existingPlace) }
-    var customSelected by remember(existing?.building) { mutableStateOf(existing?.building != null && existingPlace == null) }
-    var customName by remember(existing?.building) { mutableStateOf(if (existingPlace == null) (existing?.building ?: "") else "") }
-    var enabled by remember(existing) { mutableStateOf(existing?.enabled ?: true) }
-    var effectiveFrom by remember(existing) { mutableStateOf(existing?.effectiveFromEpochDay) }
-    var effectiveUntil by remember(existing) { mutableStateOf(existing?.effectiveUntilEpochDay) }
+    var place by remember(availablePlaces, existing?.building) { mutableStateOf(saved?.place ?: existingPlace) }
+    var customSelected by remember(existing?.building) { mutableStateOf(saved?.customSelected ?: (existing?.building != null && existingPlace == null)) }
+    var customName by remember(existing?.building) { mutableStateOf(saved?.customName ?: (if (existingPlace == null) (existing?.building ?: "") else "")) }
+    var enabled by remember(existing) { mutableStateOf(saved?.enabled ?: (existing?.enabled ?: true)) }
+    var effectiveFrom by remember(existing) { mutableStateOf(saved?.effectiveFrom ?: existing?.effectiveFromEpochDay) }
+    var effectiveUntil by remember(existing) { mutableStateOf(saved?.effectiveUntil ?: existing?.effectiveUntilEpochDay) }
+    fun persist() = vault.save(draftKey, CourseEditorDraft(title, weekday, startPeriod, lessonCount, place, customSelected, customName, enabled, effectiveFrom, effectiveUntil))
     val parsedStart = startPeriod.toIntOrNull()
     val parsedCount = lessonCount.toIntOrNull()
     val parsedEnd = parsedStart?.let { start -> parsedCount?.let { start + it - 1 } }
@@ -597,41 +676,42 @@ internal fun timeOnSameDayAs(target: Long, minute: Int): Long =
         onDismissRequest = onDismiss,
         title = { Text(if (existing == null) "新增课程" else "编辑课程") },
         text = { Column(Modifier.heightIn(max = 520.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedTextField(value = title, onValueChange = { title = it }, label = { Text("课程名称") }, singleLine = true)
+            OutlinedTextField(value = title, onValueChange = { title = it; persist() }, label = { Text("课程名称") }, singleLine = true)
             Text("课程会按星期、开始节和连续节数排入课表与日程；当前节次表共 $maxPeriod 节。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) { (1..7).forEach { day -> FilterChip(selected = weekday == day, onClick = { weekday = day }, label = { Text(weekdayName(day)) }) } }
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) { (1..7).forEach { day -> FilterChip(selected = weekday == day, onClick = { weekday = day; persist() }, label = { Text(weekdayName(day)) }) } }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(modifier = Modifier.weight(1f), value = startPeriod, onValueChange = { startPeriod = it.filter(Char::isDigit) }, label = { Text("第几节开始") }, singleLine = true)
-                OutlinedTextField(modifier = Modifier.weight(1f), value = lessonCount, onValueChange = { lessonCount = it.filter(Char::isDigit) }, label = { Text("连续几节") }, singleLine = true)
+                OutlinedTextField(modifier = Modifier.weight(1f), value = startPeriod, onValueChange = { startPeriod = it.filter(Char::isDigit); persist() }, label = { Text("第几节开始") }, singleLine = true)
+                OutlinedTextField(modifier = Modifier.weight(1f), value = lessonCount, onValueChange = { lessonCount = it.filter(Char::isDigit); persist() }, label = { Text("连续几节") }, singleLine = true)
             }
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                 Column(Modifier.weight(1f)) {
                     Text("课程生效", fontWeight = FontWeight.SemiBold)
                     Text("关闭后保留课程资料，但不参与课表、日程和空挡计算。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                Switch(checked = enabled, onCheckedChange = { enabled = it })
+                Switch(checked = enabled, onCheckedChange = { enabled = it; persist() })
             }
             Text("生效期（可选）", fontWeight = FontWeight.SemiBold)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                OutlinedButton(onClick = { showCourseDatePicker(context, effectiveFrom) { effectiveFrom = it } }) {
+                OutlinedButton(onClick = { showCourseDatePicker(context, effectiveFrom) { effectiveFrom = it; persist() } }) {
                     Text(effectiveFrom?.let { "开始 ${formatCourseDate(it)}" } ?: "设置开始日期")
                 }
-                OutlinedButton(onClick = { showCourseDatePicker(context, effectiveUntil) { effectiveUntil = it } }) {
+                OutlinedButton(onClick = { showCourseDatePicker(context, effectiveUntil) { effectiveUntil = it; persist() } }) {
                     Text(effectiveUntil?.let { "结束 ${formatCourseDate(it)}" } ?: "设置结束日期")
                 }
-                if (effectiveFrom != null || effectiveUntil != null) TextButton(onClick = { effectiveFrom = null; effectiveUntil = null }) { Text("清除生效期") }
+                if (effectiveFrom != null || effectiveUntil != null) TextButton(onClick = { effectiveFrom = null; effectiveUntil = null; persist() }) { Text("清除生效期") }
             }
             if (effectiveFrom != null && effectiveUntil != null && effectiveFrom!! > effectiveUntil!!) {
                 Text("结束日期不能早于开始日期", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
             }
             Text("地点", fontWeight = FontWeight.SemiBold)
             Text("地点用于课程显示和已开启的出行时间估算；没有地点包时可直接自填。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            availablePlaces.chunked(3).forEach { row -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { row.forEach { candidate -> FilterChip(selected = !customSelected && place == candidate, onClick = { place = candidate; customSelected = false }, label = { Text(candidate.name.removeSuffix("教学楼")) }) } } }
-            FilterChip(selected = customSelected, onClick = { customSelected = true }, label = { Text("其他") })
-            if (customSelected) OutlinedTextField(value = customName, onValueChange = { customName = it }, label = { Text("地点名称（自填，按东/西/北自动猜分区）") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            availablePlaces.chunked(3).forEach { row -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { row.forEach { candidate -> FilterChip(selected = !customSelected && place == candidate, onClick = { place = candidate; customSelected = false; persist() }, label = { Text(candidate.name.removeSuffix("教学楼")) }) } } }
+            FilterChip(selected = customSelected, onClick = { customSelected = true; persist() }, label = { Text("其他") })
+            if (customSelected) OutlinedTextField(value = customName, onValueChange = { customName = it; persist() }, label = { Text("地点名称（自填，按东/西/北自动猜分区）") }, singleLine = true, modifier = Modifier.fillMaxWidth())
             TextButton(onClick = onOpenCommutePlaces) { Text("管理地点与出行参数") }
         } },
         confirmButton = { Button(enabled = title.isNotBlank() && parsedStart != null && parsedCount != null && parsedEnd != null && parsedStart in 1..maxPeriod && parsedCount in 1..maxPeriod && parsedEnd in parsedStart..maxPeriod && buildingName.isNotBlank() && (effectiveFrom == null || effectiveUntil == null || effectiveFrom!! <= effectiveUntil!!), onClick = {
+            vault.clear(draftKey)
             val zone = if (customSelected) CourseScreenshotParser.zoneByPrefix(buildingName) else (place?.zone ?: CampusZone.WEST_TEACHING)
             onSave(
                 Course(
@@ -690,16 +770,20 @@ internal fun quickCaptureDetail(draft: QuickCaptureDraft): String {
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable internal fun QuickCaptureDialog(onDismiss: () -> Unit, onSave: (QuickCaptureDraft, Boolean) -> Unit, onDirectSchedule: (QuickCaptureDraft, Long) -> Unit) {
+    val vault = LocalDraftVault.current
+    val draftKey = "quickCapture"
+    val saved = vault.load<QuickCaptureEditorDraft>(draftKey)
     val context = LocalContext.current
-    var text by remember { mutableStateOf("") }
-    var tomorrow by remember { mutableStateOf(false) }
+    var text by remember { mutableStateOf(saved?.text ?: "") }
+    var tomorrow by remember { mutableStateOf(saved?.tomorrow ?: false) }
     val now = System.currentTimeMillis()
     val parsed = QuickInputParser.parse(text, now)
-    // 用户 chips 覆盖解析值；输入变化时重置，避免旧调整串台
-    var durationOverride by remember(text) { mutableStateOf<Int?>(null) }
-    var durationValid by remember(text) { mutableStateOf(true) }
-    var windowOverride by remember(text) { mutableStateOf<ScheduleWindowOption?>(null) }
-    var exactOverride by remember(text) { mutableStateOf<Long?>(null) }
+    // 用户 chips 覆盖解析值；输入变化时重置，避免旧调整串台；草稿恢复只对草稿原文生效
+    var durationOverride by remember(text) { mutableStateOf(if (text == saved?.text) saved?.durationOverride else null) }
+    var durationValid by remember(text) { mutableStateOf(if (text == saved?.text) (saved?.durationValid ?: true) else true) }
+    var windowOverride by remember(text) { mutableStateOf(if (text == saved?.text) saved?.windowOverride else null) }
+    var exactOverride by remember(text) { mutableStateOf(if (text == saved?.text) saved?.exactOverride else null) }
+    fun persist() = vault.save(draftKey, QuickCaptureEditorDraft(text, tomorrow, durationOverride, durationValid, windowOverride, exactOverride))
     val effectiveDuration = durationOverride ?: parsed.durationMinutes
     val effectiveWindow = windowOverride ?: parsed.windowStartAt?.let { start -> parsed.windowEndAt?.let { end -> ScheduleWindowOption(parsed.periodLabel ?: "时段", start, end) } }
     val effectiveExact = exactOverride ?: parsed.exactAt
@@ -715,8 +799,12 @@ internal fun quickCaptureDetail(draft: QuickCaptureDraft): String {
         title = { Text("快速记录") },
         text = { Column(Modifier.heightIn(max = 500.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("先保存想法，安排可以以后再说；像“晚上看半小时高数”这样写，还能顺带提取时段和时长。")
-            OutlinedTextField(value = text, onValueChange = { text = it }, placeholder = { Text("例如：晚上看半小时高数") }, singleLine = false)
-            FilterChip(selected = tomorrow, onClick = { tomorrow = !tomorrow }, label = { Text("明天要做（不定时间）") })
+            OutlinedTextField(value = text, onValueChange = {
+                text = it
+                durationOverride = null; durationValid = true; windowOverride = null; exactOverride = null
+                persist()
+            }, placeholder = { Text("例如：晚上看半小时高数") }, singleLine = false)
+            FilterChip(selected = tomorrow, onClick = { tomorrow = !tomorrow; persist() }, label = { Text("明天要做（不定时间）") })
             if (tomorrow) {
                 Text("明天上午会温和提醒；你再决定具体什么时候做。", style = MaterialTheme.typography.bodySmall)
             } else if (effectiveWindow != null || effectiveDuration != null || effectiveExact != null) {
@@ -726,6 +814,7 @@ internal fun quickCaptureDetail(draft: QuickCaptureDraft): String {
                     DurationPicker(initialMinutes = effectiveDuration ?: 60, onChange = { parsedDuration ->
                         durationOverride = parsedDuration
                         durationValid = parsedDuration != null
+                        persist()
                     })
                 }
                 Text("时段", fontWeight = FontWeight.SemiBold)
@@ -738,7 +827,7 @@ internal fun quickCaptureDetail(draft: QuickCaptureDraft): String {
                     windowOptions.forEach { option ->
                         FilterChip(
                             selected = effectiveWindow?.startsAt == option.startsAt && effectiveWindow?.endsAt == option.endsAt,
-                            onClick = { windowOverride = if (effectiveWindow?.startsAt == option.startsAt && effectiveWindow?.endsAt == option.endsAt) null else option },
+                            onClick = { windowOverride = if (effectiveWindow?.startsAt == option.startsAt && effectiveWindow?.endsAt == option.endsAt) null else option; persist() },
                             label = { Text(option.label, maxLines = 1) }
                         )
                     }
@@ -746,7 +835,7 @@ internal fun quickCaptureDetail(draft: QuickCaptureDraft): String {
                 Text("精确时间", fontWeight = FontWeight.SemiBold)
                 Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                     listOf("明早 9:00" to dateAt(1, 9), "明晚 18:00" to dateAt(1, 18)).forEach { option ->
-                        FilterChip(selected = effectiveExact == option.second, onClick = { exactOverride = if (effectiveExact == option.second) null else option.second }, label = { Text(option.first) })
+                        FilterChip(selected = effectiveExact == option.second, onClick = { exactOverride = if (effectiveExact == option.second) null else option.second; persist() }, label = { Text(option.first) })
                     }
                 }
                 OutlinedButton(onClick = {
@@ -758,6 +847,7 @@ internal fun quickCaptureDetail(draft: QuickCaptureDraft): String {
                                 set(java.util.Calendar.MILLISECOND, 0)
                             }.timeInMillis
                             exactOverride = if (picked > now) picked else exactOverride
+                            persist()
                         }, calendar.get(java.util.Calendar.HOUR_OF_DAY), calendar.get(java.util.Calendar.MINUTE), true).show()
                     }, calendar.get(java.util.Calendar.YEAR), calendar.get(java.util.Calendar.MONTH), calendar.get(java.util.Calendar.DAY_OF_MONTH)).show()
                 }) { Text(effectiveExact?.let { "已选：${formatDateTime(it)}" } ?: "自选日期与时间") }
@@ -765,9 +855,9 @@ internal fun quickCaptureDetail(draft: QuickCaptureDraft): String {
         } },
         confirmButton = {
             if (!tomorrow && effectiveExact != null) Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                OutlinedButton(enabled = text.isNotBlank(), onClick = { onSave(draft(), false) }) { Text("稍后决定") }
-                Button(enabled = text.isNotBlank() && durationValid, onClick = { onDirectSchedule(draft(), effectiveExact) }) { Text("直接安排") }
-            } else Button(enabled = text.isNotBlank(), onClick = { onSave(draft(), tomorrow) }) { Text("保存") }
+                OutlinedButton(enabled = text.isNotBlank(), onClick = { vault.clear(draftKey); onSave(draft(), false) }) { Text("稍后决定") }
+                Button(enabled = text.isNotBlank() && durationValid, onClick = { vault.clear(draftKey); onDirectSchedule(draft(), effectiveExact) }) { Text("直接安排") }
+            } else Button(enabled = text.isNotBlank(), onClick = { vault.clear(draftKey); onSave(draft(), tomorrow) }) { Text("保存") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }
     )

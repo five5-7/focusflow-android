@@ -56,6 +56,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
@@ -83,6 +85,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+
+/** 8.1.0 退出确认时间窗：与 Snackbar Short 显示时长一致，提示消失前再次按系统返回才真正退出。 */
+private const val EXIT_PROMPT_WINDOW_MS = 4000L
 
 class MainActivity : ComponentActivity() {
     private var statusCheckInRequested by mutableStateOf(false)
@@ -375,6 +380,37 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     var planPage by remember { mutableStateOf<PlanPage?>(null) }
     var settingsSubPage by remember { mutableStateOf<SettingsSubPage?>(null) }
     var settingsBackStack by remember { mutableStateOf<List<SettingsSubPage>>(emptyList()) }
+    // 8.1.0 导航历史与草稿保险箱（会话内）：页面目的地变化统一记录，回退/折返键恢复快照。
+    val navHistory = remember { NavHistory() }
+    val draftVault = remember { DraftVault() }
+
+    /** 把页面状态写回（统一导航与回退/折返恢复共用；不记录历史）。 */
+    fun applySnapshot(snapshot: PageSnapshot) {
+        tab = snapshot.tab
+        todayInboxOpen = snapshot.todayInboxOpen
+        planPage = snapshot.planPage
+        settingsSubPage = snapshot.settingsSubPage
+        settingsBackStack = snapshot.settingsBackStack
+    }
+
+    /** 当前页面快照（用于局部修改后 goTo）。 */
+    fun pageSnapshot() = PageSnapshot(tab, todayInboxOpen, planPage, settingsSubPage, settingsBackStack)
+
+    /** 所有页面级导航统一入口：记录历史并应用新目的地；目的地未变化则忽略。 */
+    fun goTo(next: PageSnapshot) {
+        if (navHistory.goTo(next) == null) return
+        applySnapshot(next)
+    }
+
+    /** 回退/折返：只走历史栈，不再记录新历史。 */
+    fun goBackHistory() {
+        navHistory.back()?.let { applySnapshot(it) }
+    }
+
+    fun goForwardHistory() {
+        navHistory.forward()?.let { applySnapshot(it) }
+    }
+
     LaunchedEffect(
         notificationForegroundCheck,
         permissionOnboardingPending,
@@ -387,11 +423,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
         val message = NotificationHealthPolicy.startupMessage(NotificationChannelSettings.health(context), mealReminderEnabled) ?: return@LaunchedEffect
         val result = snackbarHostState.showSnackbar(message = message, actionLabel = "查看说明", withDismissAction = true)
         if (result == SnackbarResult.ActionPerformed) {
-            tab = 3
-            todayInboxOpen = false
-            planPage = null
-            settingsBackStack = emptyList()
-            settingsSubPage = SettingsSubPage.ACTIVITY_REMINDERS
+            goTo(PageSnapshot(3, false, null, SettingsSubPage.ACTIVITY_REMINDERS, emptyList()))
         }
     }
     // 提升到 app 层：设置页主列表在子页面往返/切 tab 时保持滚动位置。
@@ -560,25 +592,38 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     }
     fun selectTab(index: Int) {
         // Reset only the destination. The outgoing page must survive its exit animation.
-        if (index == 0) todayInboxOpen = false
-        if (index == 2) planPage = null
-        if (index == 3) {
-            settingsSubPage = null
-            settingsBackStack = emptyList()
-        }
-        tab = index
+        goTo(PageSnapshot(
+            tab = index,
+            todayInboxOpen = if (index == 0) false else todayInboxOpen,
+            planPage = if (index == 2) null else planPage,
+            settingsSubPage = if (index == 3) null else settingsSubPage,
+            settingsBackStack = if (index == 3) emptyList() else settingsBackStack
+        ))
     }
-    BackHandler(enabled = tab == 0 && todayInboxOpen) { todayInboxOpen = false }
-    BackHandler(enabled = tab == 2 && planPage != null) { planPage = null }
+    // 8.1.0 退出确认：仅页签主页（无子页）时，第一次返回弹提示，提示期内再次返回才真正退出。
+    // 子页返回处理器在本处理器之后组合，子页打开时优先；弹窗是独立窗口，返回不会到达这里。
+    var lastExitPromptAt by remember { mutableLongStateOf(0L) }
+    BackHandler(enabled = !todayInboxOpen && planPage == null && settingsSubPage == null) {
+        val now = System.currentTimeMillis()
+        if (now - lastExitPromptAt <= EXIT_PROMPT_WINDOW_MS) {
+            (context as? android.app.Activity)?.finish()
+        } else {
+            lastExitPromptAt = now
+            scope.launch { snackbarHostState.showSnackbar("再按一次返回键退出应用") }
+        }
+    }
+    BackHandler(enabled = tab == 0 && todayInboxOpen) { goTo(pageSnapshot().copy(todayInboxOpen = false)) }
+    BackHandler(enabled = tab == 2 && planPage != null) { goTo(pageSnapshot().copy(planPage = null)) }
     BackHandler(enabled = tab == 3 && settingsSubPage != null) {
-        settingsSubPage = settingsBackStack.lastOrNull()
-        settingsBackStack = settingsBackStack.dropLast(1)
+        goTo(pageSnapshot().copy(
+            settingsSubPage = settingsBackStack.lastOrNull(),
+            settingsBackStack = settingsBackStack.dropLast(1)
+        ))
     }
 
     LaunchedEffect(statusCheckInRequested) {
         if (statusCheckInRequested) {
-            tab = 0
-            todayInboxOpen = false
+            goTo(PageSnapshot(0, false, planPage, settingsSubPage, settingsBackStack))
             statusCheckInOpen = true
             onRequestHandled()
         }
@@ -586,16 +631,14 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
 
     LaunchedEffect(quickCaptureRequested) {
         if (quickCaptureRequested) {
-            tab = 0
-            todayInboxOpen = true
+            goTo(PageSnapshot(0, true, planPage, settingsSubPage, settingsBackStack))
             onRequestHandled()
         }
     }
 
     LaunchedEffect(mealPromptRequested, mealFinishRequested) {
         if (mealPromptRequested != null || mealFinishRequested != null) {
-            tab = 0
-            todayInboxOpen = false
+            goTo(PageSnapshot(0, false, planPage, settingsSubPage, settingsBackStack))
             mealPromptRequested?.let { mealPromptOpen = it }
             mealFinishRequested?.let { mealFinishOpen = it }
             onRequestHandled()
@@ -626,6 +669,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     val themeSpec = focusFlowThemeSpec(themeOption, customThemeColors, darkMode)
     CompositionLocalProvider(LocalFocusFlowSchedulePalette provides themeSpec.schedulePalette) {
     MaterialTheme(colorScheme = themeSpec.colorScheme) {
+        ProvideDraftVault(draftVault) {
         val window = (context as? android.app.Activity)?.window
         SideEffect {
             window?.let {
@@ -681,7 +725,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                 0 -> TodayScreen(
                     pageModifier, items,
                     inboxOpen = todayInboxOpen,
-                    onInboxOpenChange = { todayInboxOpen = it },
+                    onInboxOpenChange = { goTo(pageSnapshot().copy(todayInboxOpen = it)) },
                     energyLevel = energyLevel,
                     energyRecordedAt = energyRecordedAt,
                     onEnergyLevelChange = { updated ->
@@ -707,7 +751,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                         }
                     },
                     onOpenSchedule = { selectTab(1) },
-                    onOpenGoals = { selectTab(2); planPage = PlanPage.GOALS },
+                    onOpenGoals = { goTo(PageSnapshot(2, todayInboxOpen, PlanPage.GOALS, settingsSubPage, settingsBackStack)) },
                     onStartGoalTask = { task ->
                         activityPreset = ActivityLaunchPreset(name = task.title, category = "学习", minutes = task.durationMinutes.coerceIn(5, 360), nextStep = upcomingCommitment?.title.orEmpty(), minimumVersion = false)
                         activityOpen = true
@@ -856,7 +900,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                     campusLifeEnabled = campusLifeEnabled,
                     onCampusLifeRequired = { scope.launch { snackbarHostState.showSnackbar(CampusLifePolicy.disabledMessage()) } },
                     page = planPage,
-                                    onPageChange = { planPage = it; if (it == PlanPage.REVIEW) gameSessions = store.loadGameSessions(); if (it == PlanPage.HISTORY) taskEvents = store.loadTaskEvents() },
+                                    onPageChange = { goTo(pageSnapshot().copy(planPage = it)); if (it == PlanPage.REVIEW) gameSessions = store.loadGameSessions(); if (it == PlanPage.HISTORY) taskEvents = store.loadTaskEvents() },
                     onResume = { item ->
                         val result = TaskActions.resume(items, item)
                         saveItemsWithEvent(result.items, result.event)
@@ -994,11 +1038,12 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                     foregroundDetectionTrace = foregroundDetectionTrace,
                     subPage = settingsSubPage, onSubPageChange = { target ->
                     if (target == null) {
-                        settingsSubPage = null
-                        settingsBackStack = emptyList()
+                        goTo(pageSnapshot().copy(settingsSubPage = null, settingsBackStack = emptyList()))
                     } else {
-                        settingsBackStack = NavigationMotion.historyAfterOpen(settingsBackStack, settingsSubPage, target)
-                        settingsSubPage = target
+                        goTo(pageSnapshot().copy(
+                            settingsSubPage = target,
+                            settingsBackStack = NavigationMotion.historyAfterOpen(settingsBackStack, settingsSubPage, target)
+                        ))
                     }
                 }, onThemeChange = { updated ->
                     if (updated != FocusFlowThemeOption.CUSTOM) lastBuiltInTheme = updated
@@ -1191,6 +1236,27 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                 floatingBarHeight = with(density) { it.height.toDp() }
             }
         )
+        // 8.1.0 回退/折返浮动键：仅在有历史时显示，悬浮于底栏两端，与底栏视觉一致。
+        if (navHistory.canGoBack()) {
+            HistoryFloatingKey(
+                onClick = { goBackHistory() },
+                icon = Icons.AutoMirrored.Filled.ArrowBack,
+                description = "回退到上一个页面",
+                background = themeSpec.navigationBarColor,
+                modifier = Modifier.align(Alignment.BottomStart)
+                    .padding(start = 10.dp, bottom = floatingBarHeight / 2 - 20.dp)
+            )
+        }
+        if (navHistory.canGoForward()) {
+            HistoryFloatingKey(
+                onClick = { goForwardHistory() },
+                icon = Icons.AutoMirrored.Filled.ArrowForward,
+                description = "折返到后一个页面",
+                background = themeSpec.navigationBarColor,
+                modifier = Modifier.align(Alignment.BottomEnd)
+                    .padding(end = 10.dp, bottom = floatingBarHeight / 2 - 20.dp)
+            )
+        }
         if (!hasTopNotice) StatusBarScrim(topSafety, Modifier.align(Alignment.TopCenter))
         } // page with overlaid navigation; no full-width bottom surface
         if (addMenuOpen) AddMenuDialog(
@@ -1440,7 +1506,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             store.saveCustomPlaces(updated)
         }
         if (addCourseOpen) CourseEditorDialog(null, campusPlaces, maxPeriod = coursePeriodTable.periods.size, onDismiss = { addCourseOpen = false }, onOpenCommutePlaces = {
-            addCourseOpen = false; tab = 3; settingsSubPage = SettingsSubPage.COMMUTE_PLACES; settingsBackStack = emptyList()
+            addCourseOpen = false; goTo(PageSnapshot(3, todayInboxOpen, planPage, SettingsSubPage.COMMUTE_PLACES, emptyList()))
         }) { course ->
             courses = courses + course.copy(needsConfirmation = false)
             store.saveCourses(courses)
@@ -1448,7 +1514,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             addCourseOpen = false
         }
         courseEditor?.let { original -> CourseEditorDialog(original, campusPlaces, maxPeriod = coursePeriodTable.periods.size, onDismiss = { courseEditor = null }, onOpenCommutePlaces = {
-            courseEditor = null; tab = 3; settingsSubPage = SettingsSubPage.COMMUTE_PLACES; settingsBackStack = emptyList()
+            courseEditor = null; goTo(PageSnapshot(3, todayInboxOpen, planPage, SettingsSubPage.COMMUTE_PLACES, emptyList()))
         }) { edited ->
             courses = courses.map { if (it == original) edited.copy(needsConfirmation = false) else it }
             store.saveCourses(courses)
@@ -1680,11 +1746,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             onDismiss = { updateNoticeOpen = false },
             onOpenRoadmap = {
                 updateNoticeOpen = false
-                tab = 3
-                todayInboxOpen = false
-                planPage = null
-                settingsBackStack = emptyList()
-                settingsSubPage = SettingsSubPage.ROADMAP
+                goTo(PageSnapshot(3, false, null, SettingsSubPage.ROADMAP, emptyList()))
             }
         )
         if (baselineEventsOpen) BaselineEventsDialog(
@@ -1797,6 +1859,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             }
         )
     }
+        }
     }
 }
 

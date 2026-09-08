@@ -74,6 +74,12 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
+/** 调色弹窗草稿：关闭后重开恢复 HSV 与十六进制文本输入（8.1.0 草稿保险箱）。 */
+private data class PaletteDraft(val hue: Float, val saturation: Float, val value: Float, val hexText: String)
+
+/** 保存配色预设的命名草稿：关闭后重开恢复预设名称输入（8.1.0 草稿保险箱）。 */
+private data class PresetNameDraft(val name: String)
+
 /**
  * 六色预览，末位为导航栏背景。
  */
@@ -249,14 +255,18 @@ internal fun CustomThemeEditorContent(
         }
     }
     if (namingPresetOpen) {
-        var presetName by remember { mutableStateOf("预设 ${presets.size + 1}") }
+        val vault = LocalDraftVault.current
+        val draftKey = "themePresetName"
+        val saved = vault.load<PresetNameDraft>(draftKey)
+        var presetName by remember { mutableStateOf(saved?.name ?: "预设 ${presets.size + 1}") }
+        fun persist() = vault.save(draftKey, PresetNameDraft(presetName))
         AlertDialog(
             onDismissRequest = { namingPresetOpen = false },
             title = { Text("保存当前配色为预设") },
             text = {
                 OutlinedTextField(
                     value = presetName,
-                    onValueChange = { presetName = it },
+                    onValueChange = { presetName = it; persist() },
                     label = { Text("预设名称") },
                     singleLine = true
                 )
@@ -265,6 +275,7 @@ internal fun CustomThemeEditorContent(
                 TextButton(
                     enabled = presetName.isNotBlank(),
                     onClick = {
+                        vault.clear(draftKey)
                         onPresetsChange(presets + ThemePreset(presetName.trim(), colors))
                         editingPreset = null
                         namingPresetOpen = false
@@ -299,12 +310,16 @@ internal fun ColorPaletteDialog(
     onDismiss: () -> Unit,
     contrastOf: ((Color) -> Double)? = null
 ) {
+    val vault = LocalDraftVault.current
+    val draftKey = "palette:${current.toArgb()}"
+    val saved = vault.load<PaletteDraft>(draftKey)
     val initialHsv = remember(current) { hsvTriple(current) }
-    var hue by remember(current) { mutableStateOf(initialHsv.first) }
-    var saturation by remember(current) { mutableStateOf(initialHsv.second) }
-    var value by remember(current) { mutableStateOf(initialHsv.third) }
-    var hexText by remember(current) { mutableStateOf(formatHex(current).removePrefix("#")) }
+    var hue by remember(current) { mutableStateOf(saved?.hue ?: initialHsv.first) }
+    var saturation by remember(current) { mutableStateOf(saved?.saturation ?: initialHsv.second) }
+    var value by remember(current) { mutableStateOf(saved?.value ?: initialHsv.third) }
+    var hexText by remember(current) { mutableStateOf(saved?.hexText ?: formatHex(current).removePrefix("#")) }
     val tempColor = Color.hsv(hue, saturation, value)
+    fun persist() = vault.save(draftKey, PaletteDraft(hue, saturation, value, hexText))
     LaunchedEffect(tempColor) { hexText = formatHex(tempColor).removePrefix("#") }
     val contrast = contrastOf?.invoke(tempColor)
     val usable = contrast == null || contrast >= MIN_TEXT_CONTRAST
@@ -331,7 +346,7 @@ internal fun ColorPaletteDialog(
                             val selected = color == current
                             Box(
                                 Modifier.size(36.dp).clip(CircleShape).background(color)
-                                    .then(if (swatchUsable) Modifier.clickable { onPick(color) } else Modifier)
+                                    .then(if (swatchUsable) Modifier.clickable { vault.clear(draftKey); onPick(color) } else Modifier)
                                     .border(if (selected) 3.dp else 1.dp, if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.4f), CircleShape)
                                     .drawBehind {
                                         if (!swatchUsable) {
@@ -345,10 +360,11 @@ internal fun ColorPaletteDialog(
                     }
                 }
                 Text("自定义", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                HueBar(hue = hue, onChange = { hue = it })
+                HueBar(hue = hue, onChange = { hue = it; persist() })
                 SvPicker(hue = hue, saturation = saturation, value = value, onChange = { s, v ->
                     saturation = s
                     value = v
+                    persist()
                 })
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Box(Modifier.size(24.dp).clip(RoundedCornerShape(6.dp)).background(tempColor).border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(6.dp)))
@@ -375,6 +391,7 @@ internal fun ColorPaletteDialog(
                             saturation = h.second
                             value = h.third
                         }
+                        persist()
                     },
                     label = { Text("#RRGGBB") },
                     singleLine = true,
@@ -383,7 +400,7 @@ internal fun ColorPaletteDialog(
                 )
             }
         },
-        confirmButton = { TextButton(onClick = { onPick(tempColor); onDismiss() }, enabled = usable) { Text("应用") } },
+        confirmButton = { TextButton(onClick = { vault.clear(draftKey); onPick(tempColor); onDismiss() }, enabled = usable) { Text("应用") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }
     )
 }

@@ -20,6 +20,9 @@ data class RoadmapVersion(val version: String, val entries: List<RoadmapEntry>)
 object RoadmapData {
     /** 已实现版本演进（1.0 → 当前版本），每版本浓缩 1–3 条，与 CHANGELOG.md 对应。 */
     val evolution: List<RoadmapVersion> = listOf(
+        RoadmapVersion("8.1.0", listOf(
+            RoadmapEntry("8.1.0-rc.1", "退出确认与页面历史", "根页面返回先提示、提示期内再次返回才退出；会话内导航历史支持跨页签回退／折返并恢复页面状态；弹窗草稿关闭后重开自动恢复。", RoadmapStatus.CANDIDATE)
+        )),
         RoadmapVersion("8.0.0", listOf(
             RoadmapEntry("8.0.0", "第三个正式版", "集中整理今日状态、收集箱、课表与课程、通勤、空挡、目标和历史，并修复计划页闪退、任务状态被旧页面覆盖及过去日程占用未来空挡的问题。", RoadmapStatus.DONE),
             RoadmapEntry("8.0.0-rc.4", "过去的安排不再占用未来", "空挡按今天起的七天计算：昨天的任务不会继续挡住下周同一天，今天已经过去的时间也不会再次推荐；跨过午夜仍在进行的安排照常保留。", RoadmapStatus.DONE)
@@ -396,6 +399,7 @@ object RoadmapData {
     /** 后续候选（“想玩游戏拓展”“自律类目标”“空挡建议进阶”已随 5.6/5.7/5.8.2 落地；正式理财已评估移除）。 */
     val future: List<RoadmapEntry> = listOf(
         RoadmapEntry("后续", "统一设计语言", "建立颜色、字号、间距、圆角、阴影、图标、组件状态与转场令牌；统一主页面、子页面、卡片、弹窗和悬浮导航，覆盖全面屏、普通屏、深色模式、大字体及减少动画设置", RoadmapStatus.CANDIDATE),
+        RoadmapEntry("后续", "导航组件化与 Predictive Back", "把页面导航迁入 Navigation Compose（NavHost）以获得系统级返回动画与跨进程状态恢复；8.1.0 采用会话内历史栈实现回退／折返，迁移时需重建折返语义，仅作为长期方向记录", RoadmapStatus.CANDIDATE),
         RoadmapEntry("后续", "任意表格识别自动配置计划", "识别课表之外的各类表格（如锻炼计划、阅读计划）自动生成计划（用户澄清 4.4 学习机制提案后重定向，之后讨论）", RoadmapStatus.CANDIDATE),
         RoadmapEntry("后续", "高德地图 SDK 集成", "可视化地图、POI 点选、以设备定位为中心的搜索；代价：包体积增加、SDK key 绑定包名与签名、需要定位权限", RoadmapStatus.CANDIDATE),
         RoadmapEntry("后续", "云同步与多设备备份", "所有数据目前只在本机，无任何云端能力", RoadmapStatus.CANDIDATE),

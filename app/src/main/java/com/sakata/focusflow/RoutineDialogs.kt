@@ -75,6 +75,21 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
+/** 作息分组向导草稿：关闭后重开恢复正在填写的内容（8.1.0 草稿保险箱）。 */
+private data class DayGroupWizardDraft(val groups: List<DayGroup>, val draftDays: Set<Int>, val draftWake: Int, val draftSleep: Int, val draftMeals: List<MealTimeline>)
+
+/** 精力签到草稿：关闭后重开恢复正在填写的内容（8.1.0 草稿保险箱）。 */
+private data class StatusCheckInDraft(val energy: String, val activity: String)
+
+/** 活动状态草稿：关闭后重开恢复正在填写的内容（8.1.0 草稿保险箱）。 */
+private data class ActivityStatusDraft(val activity: String, val remind: Int?)
+
+/** 习惯基线引导草稿：关闭后重开恢复正在填写的内容（8.1.0 草稿保险箱）。 */
+private data class BaselineOnboardingDraft(val step: Int, val lifeStage: LifeStage?, val wakeMinute: Int, val sleepMinute: Int, val meals: List<MealTimeline>, val entertainment: String)
+
+/** 用餐记录草稿：关闭后重开恢复正在填写的内容（8.1.0 草稿保险箱）。 */
+private data class MealFinishDraft(val amountText: String, val rating: Int, val note: String, val location: String, val category: String, val merchant: String, val payMethod: String)
+
 /** 按星期自动命名：连续段合并为“周一至周四”，其余逐列（如“周五”“周六、周日”）。 */
 internal fun autoGroupName(days: Set<Int>): String {
     val sorted = days.sorted()
@@ -93,11 +108,15 @@ internal fun autoGroupName(days: Set<Int>): String {
 /** 作息分组向导：设定作息 → 选中要应用的星期 → 未分配的星期继续建下一组 → 全部覆盖后按星期命名保存。 */
 @Composable
 internal fun DayGroupWizardDialog(existingGroups: List<DayGroup>, defaultWake: Int, defaultSleep: Int, defaultMeals: List<MealTimeline>, onDismiss: () -> Unit, onSave: (List<DayGroup>) -> Unit) {
-    var groups by remember { mutableStateOf(existingGroups) }
-    var draftDays by remember { mutableStateOf<Set<Int>>(emptySet()) }
-    var draftWake by remember { mutableIntStateOf(defaultWake.coerceIn(300, 720)) }
-    var draftSleep by remember { mutableIntStateOf(defaultSleep.coerceIn(1200, 1500)) }
-    var draftMeals by remember { mutableStateOf(defaultMeals) }
+    val vault = LocalDraftVault.current
+    val draftKey = "dayGroupWizard"
+    val saved = vault.load<DayGroupWizardDraft>(draftKey)
+    var groups by remember { mutableStateOf(saved?.groups ?: existingGroups) }
+    var draftDays by remember { mutableStateOf(saved?.draftDays ?: emptySet<Int>()) }
+    var draftWake by remember { mutableIntStateOf(saved?.draftWake ?: defaultWake.coerceIn(300, 720)) }
+    var draftSleep by remember { mutableIntStateOf(saved?.draftSleep ?: defaultSleep.coerceIn(1200, 1500)) }
+    var draftMeals by remember { mutableStateOf(saved?.draftMeals ?: defaultMeals) }
+    fun persist() = vault.save(draftKey, DayGroupWizardDraft(groups, draftDays, draftWake, draftSleep, draftMeals))
     val assignedDays = groups.flatMap { it.days }.toSet()
     val unassigned = (1..7).filter { it !in assignedDays }
     AlertDialog(
@@ -118,20 +137,20 @@ internal fun DayGroupWizardDialog(existingGroups: List<DayGroup>, defaultWake: I
             } else {
                 Text("本组应用到的星期（剩余：${unassigned.joinToString("、") { weekdayName(it) }}）", fontWeight = FontWeight.SemiBold)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
-                    unassigned.forEach { day -> FilterChip(selected = day in draftDays, onClick = { draftDays = if (day in draftDays) draftDays - day else draftDays + day }, label = { Text(weekdayName(day)) }) }
+                    unassigned.forEach { day -> FilterChip(selected = day in draftDays, onClick = { draftDays = if (day in draftDays) draftDays - day else draftDays + day; persist() }, label = { Text(weekdayName(day)) }) }
                 }
                 Text("本组作息：起床 ${formatMinute(draftWake)} · 睡觉 ${formatMinute(draftSleep)}", fontWeight = FontWeight.SemiBold)
                 Text("起床 ${formatMinute(draftWake)}")
-                Slider(value = draftWake.toFloat(), onValueChange = { draftWake = it.toInt() }, valueRange = 300f..720f, steps = 27)
+                Slider(value = draftWake.toFloat(), onValueChange = { draftWake = it.toInt(); persist() }, valueRange = 300f..720f, steps = 27)
                 Text("睡觉 ${formatMinute(draftSleep)}")
-                Slider(value = draftSleep.toFloat(), onValueChange = { draftSleep = it.toInt() }, valueRange = 1200f..1500f, steps = 29)
+                Slider(value = draftSleep.toFloat(), onValueChange = { draftSleep = it.toInt(); persist() }, valueRange = 1200f..1500f, steps = 29)
                 MealType.entries.forEach { type ->
                     val meal = draftMeals.firstOrNull { it.type == type }
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(type.label, Modifier.width(48.dp))
                         Slider(
                             value = (meal?.typicalStartMinute ?: 480).toFloat(),
-                            onValueChange = { minute -> draftMeals = (draftMeals.filterNot { it.type == type } + MealTimeline(type, minute.toInt(), meal?.typicalMinutes ?: 20)).sortedBy { it.type.ordinal } },
+                            onValueChange = { minute -> draftMeals = (draftMeals.filterNot { it.type == type } + MealTimeline(type, minute.toInt(), meal?.typicalMinutes ?: 20)).sortedBy { it.type.ordinal }; persist() },
                             valueRange = 360f..1320f,
                             steps = 31,
                             modifier = Modifier.weight(1f)
@@ -143,6 +162,7 @@ internal fun DayGroupWizardDialog(existingGroups: List<DayGroup>, defaultWake: I
                     groups = groups + DayGroup(autoGroupName(draftDays), draftDays, draftWake, draftSleep, draftMeals.filter { it.type in MealType.entries })
                     // 每组需显式选择星期：清空选中，避免下一组默认占用所有剩余天数。
                     draftDays = emptySet()
+                    persist()
                 }, modifier = Modifier.fillMaxWidth()) { Text("确定这一组（${autoGroupName(draftDays)}）") }
             }
             if (groups.isNotEmpty()) {
@@ -153,12 +173,12 @@ internal fun DayGroupWizardDialog(existingGroups: List<DayGroup>, defaultWake: I
                             Text(group.label, fontWeight = FontWeight.SemiBold)
                             Text("${group.days.sorted().joinToString("、") { weekdayName(it) }} · 起床 ${formatMinute(group.wakeMinute)} · 睡觉 ${formatMinute(group.sleepMinute)}", style = MaterialTheme.typography.bodySmall)
                         }
-                        TextButton(onClick = { groups = groups.filterNot { it.label == group.label } }) { Text("删除") }
+                        TextButton(onClick = { groups = groups.filterNot { it.label == group.label }; persist() }) { Text("删除") }
                     }
                 }
             }
         } },
-        confirmButton = { Button(onClick = { onSave(groups) }) { Text("保存") } },
+        confirmButton = { Button(onClick = { vault.clear(draftKey); onSave(groups) }) { Text("保存") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }
     )
 }
@@ -169,8 +189,12 @@ internal fun DayGroupWizardDialog(existingGroups: List<DayGroup>, defaultWake: I
     onDismiss: () -> Unit,
     onSave: (String, String) -> Unit
 ) {
-    var energy by remember { mutableStateOf(initialEnergy.takeIf { it in StatusCheckInCatalog.energies } ?: "正常") }
-    var activity by remember { mutableStateOf(initialActivity.takeIf { it in StatusCheckInCatalog.activities } ?: "空闲") }
+    val vault = LocalDraftVault.current
+    val draftKey = "statusCheckIn"
+    val saved = vault.load<StatusCheckInDraft>(draftKey)
+    var energy by remember { mutableStateOf(saved?.energy ?: (initialEnergy.takeIf { it in StatusCheckInCatalog.energies } ?: "正常")) }
+    var activity by remember { mutableStateOf(saved?.activity ?: (initialActivity.takeIf { it in StatusCheckInCatalog.activities } ?: "空闲")) }
+    fun persist() = vault.save(draftKey, StatusCheckInDraft(energy, activity))
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("记录现在状态") },
@@ -179,21 +203,21 @@ internal fun DayGroupWizardDialog(existingGroups: List<DayGroup>, defaultWake: I
                 Text("精力", fontWeight = FontWeight.Bold)
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     StatusCheckInCatalog.energies.forEach { value ->
-                        FilterChip(selected = energy == value, onClick = { energy = value }, label = { Text(value) })
+                        FilterChip(selected = energy == value, onClick = { energy = value; persist() }, label = { Text(value) })
                     }
                 }
                 Text("正在做什么", fontWeight = FontWeight.Bold)
                 StatusCheckInCatalog.activities.chunked(3).forEach { row ->
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         row.forEach { value ->
-                            FilterChip(selected = activity == value, onClick = { activity = value }, label = { Text(value) })
+                            FilterChip(selected = activity == value, onClick = { activity = value; persist() }, label = { Text(value) })
                         }
                     }
                 }
                 Text("这次记录只用于当前推荐和以后可选的本机学习，不会自动移动固定日程。", style = MaterialTheme.typography.bodySmall)
             }
         },
-        confirmButton = { Button(onClick = { onSave(energy, activity) }) { Text("保存状态") } },
+        confirmButton = { Button(onClick = { vault.clear(draftKey); onSave(energy, activity) }) { Text("保存状态") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("暂不记录") } }
     )
 }
@@ -204,8 +228,12 @@ internal fun DayGroupWizardDialog(existingGroups: List<DayGroup>, defaultWake: I
     onDismiss: () -> Unit,
     onSave: (activity: String, remindMinutes: Int?) -> Unit
 ) {
-    var activity by remember { mutableStateOf(initialActivity.takeIf { it in StatusCheckInCatalog.activities } ?: "空闲") }
-    var remind by remember { mutableStateOf<Int?>(null) }
+    val vault = LocalDraftVault.current
+    val draftKey = "activityStatus"
+    val saved = vault.load<ActivityStatusDraft>(draftKey)
+    var activity by remember { mutableStateOf(saved?.activity ?: (initialActivity.takeIf { it in StatusCheckInCatalog.activities } ?: "空闲")) }
+    var remind by remember { mutableStateOf<Int?>(saved?.remind) }
+    fun persist() = vault.save(draftKey, ActivityStatusDraft(activity, remind))
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("记录现在状态") },
@@ -215,7 +243,7 @@ internal fun DayGroupWizardDialog(existingGroups: List<DayGroup>, defaultWake: I
                 StatusCheckInCatalog.activities.chunked(3).forEach { row ->
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         row.forEach { value ->
-                            FilterChip(selected = activity == value, onClick = { activity = value }, label = { Text(value) })
+                            FilterChip(selected = activity == value, onClick = { activity = value; persist() }, label = { Text(value) })
                         }
                     }
                 }
@@ -224,16 +252,16 @@ internal fun DayGroupWizardDialog(existingGroups: List<DayGroup>, defaultWake: I
                     Text("娱乐类活动要不要提醒收尾？", fontWeight = FontWeight.SemiBold)
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         listOf(30, 60, 90).forEach { minutes ->
-                            FilterChip(selected = remind == minutes, onClick = { remind = minutes }, label = { Text("$minutes 分钟") })
+                            FilterChip(selected = remind == minutes, onClick = { remind = minutes; persist() }, label = { Text("$minutes 分钟") })
                         }
-                        FilterChip(selected = remind == null, onClick = { remind = null }, label = { Text("不设提醒") })
+                        FilterChip(selected = remind == null, onClick = { remind = null; persist() }, label = { Text("不设提醒") })
                     }
                     Text("选了时间后，到点会提醒你结束（可处理到点或延长）。", style = MaterialTheme.typography.bodySmall)
                 }
                 Text("这次记录只用于当前推荐和以后可选的本机学习，不会自动移动固定日程。", style = MaterialTheme.typography.bodySmall)
             }
         },
-        confirmButton = { Button(onClick = { onSave(activity, if (activity == "娱乐") remind else null) }) { Text("保存") } },
+        confirmButton = { Button(onClick = { vault.clear(draftKey); onSave(activity, if (activity == "娱乐") remind else null) }) { Text("保存") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("暂不记录") } }
     )
 }
@@ -248,12 +276,15 @@ internal fun DayGroupWizardDialog(existingGroups: List<DayGroup>, defaultWake: I
 }
 
 @Composable internal fun BaselineOnboardingDialog(initial: BaselineProfile, onDismiss: () -> Unit, onSave: (BaselineProfile) -> Unit) {
-    var step by remember { mutableIntStateOf(0) }
-    var lifeStage by remember(initial) { mutableStateOf(initial.lifeStage) }
-    var wakeMinute by remember(initial) { mutableIntStateOf(initial.wakeMinute.takeIf { it >= 0 } ?: 7 * 60) }
-    var sleepMinute by remember(initial) { mutableIntStateOf(initial.sleepMinute.takeIf { it >= 0 } ?: 23 * 60) }
+    val vault = LocalDraftVault.current
+    val draftKey = "baselineOnboarding"
+    val saved = vault.load<BaselineOnboardingDraft>(draftKey)
+    var step by remember { mutableIntStateOf(saved?.step ?: 0) }
+    var lifeStage by remember(initial) { mutableStateOf(saved?.lifeStage ?: initial.lifeStage) }
+    var wakeMinute by remember(initial) { mutableIntStateOf(saved?.wakeMinute ?: (initial.wakeMinute.takeIf { it >= 0 } ?: 7 * 60)) }
+    var sleepMinute by remember(initial) { mutableIntStateOf(saved?.sleepMinute ?: (initial.sleepMinute.takeIf { it >= 0 } ?: 23 * 60)) }
     var meals by remember(initial) {
-        mutableStateOf(initial.meals.ifEmpty {
+        mutableStateOf(saved?.meals ?: initial.meals.ifEmpty {
             listOf(
                 MealTimeline(MealType.BREAKFAST, 8 * 60 + 30),
                 MealTimeline(MealType.LUNCH, 12 * 60),
@@ -261,7 +292,8 @@ internal fun DayGroupWizardDialog(existingGroups: List<DayGroup>, defaultWake: I
             )
         })
     }
-    var entertainment by remember(initial) { mutableStateOf(initial.entertainmentWindow) }
+    var entertainment by remember(initial) { mutableStateOf(saved?.entertainment ?: initial.entertainmentWindow) }
+    fun persist() = vault.save(draftKey, BaselineOnboardingDraft(step, lifeStage, wakeMinute, sleepMinute, meals, entertainment))
     val steps = listOf("生活阶段", "作息", "餐点", "娱乐")
     AlertDialog(
         onDismissRequest = {},
@@ -275,15 +307,15 @@ internal fun DayGroupWizardDialog(existingGroups: List<DayGroup>, defaultWake: I
                         Text("当前生活阶段", fontWeight = FontWeight.Bold)
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             LifeStage.entries.forEach { stage ->
-                                FilterChip(selected = lifeStage == stage, onClick = { lifeStage = stage }, label = { Text(stage.label) })
+                                FilterChip(selected = lifeStage == stage, onClick = { lifeStage = stage; persist() }, label = { Text(stage.label) })
                             }
                         }
                         Text("假期和开学后的作息会分开学习，避免互相干扰。", style = MaterialTheme.typography.bodySmall)
                     }
                     1 -> {
                         Text("大致起床与睡觉时间；不用精确到分钟。", style = MaterialTheme.typography.bodySmall)
-                        BaselineTimePickButton("起床", wakeMinute) { wakeMinute = it }
-                        BaselineTimePickButton("睡觉", sleepMinute) { sleepMinute = it }
+                        BaselineTimePickButton("起床", wakeMinute) { wakeMinute = it; persist() }
+                        BaselineTimePickButton("睡觉", sleepMinute) { sleepMinute = it; persist() }
                     }
                     2 -> {
                         Text("每餐大约什么时候开始、通常吃多久？只记大致时间，之后会按你的实际确认自动调整。", style = MaterialTheme.typography.bodySmall)
@@ -293,11 +325,12 @@ internal fun DayGroupWizardDialog(existingGroups: List<DayGroup>, defaultWake: I
                                     Text(meal.type.label, fontWeight = FontWeight.SemiBold)
                                     BaselineTimePickButton("开始", meal.typicalStartMinute) { minute ->
                                         meals = meals.map { if (it.type == meal.type) it.copy(typicalStartMinute = minute) else it }
+                                        persist()
                                     }
                                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                         Text("时长", style = MaterialTheme.typography.bodySmall)
                                         listOf(15, 20, 30, 45).forEach { minutes ->
-                                            FilterChip(selected = meal.typicalMinutes == minutes, onClick = { meals = meals.map { if (it.type == meal.type) it.copy(typicalMinutes = minutes) else it } }, label = { Text("$minutes 分钟") })
+                                            FilterChip(selected = meal.typicalMinutes == minutes, onClick = { meals = meals.map { if (it.type == meal.type) it.copy(typicalMinutes = minutes) else it }; persist() }, label = { Text("$minutes 分钟") })
                                         }
                                     }
                                 }
@@ -306,21 +339,22 @@ internal fun DayGroupWizardDialog(existingGroups: List<DayGroup>, defaultWake: I
                     }
                     else -> {
                         Text("常见的娱乐或放松时段（可选），例如“19:00-21:30”。")
-                        OutlinedTextField(value = entertainment, onValueChange = { entertainment = it }, label = { Text("娱乐时段（可选）") }, placeholder = { Text("例如：19:00-21:30") }, singleLine = true)
+                        OutlinedTextField(value = entertainment, onValueChange = { entertainment = it; persist() }, label = { Text("娱乐时段（可选）") }, placeholder = { Text("例如：19:00-21:30") }, singleLine = true)
                         Text("不需要今天就填得很准；之后任何时间都可以回来修正。", style = MaterialTheme.typography.bodySmall)
                     }
                 }
             }
         },
         confirmButton = {
-            if (step < steps.size - 1) Button(enabled = step != 0 || lifeStage != null, onClick = { step += 1 }) { Text("下一步") }
+            if (step < steps.size - 1) Button(enabled = step != 0 || lifeStage != null, onClick = { step += 1; persist() }) { Text("下一步") }
             else Button(enabled = lifeStage != null, onClick = {
+                vault.clear(draftKey)
                 onSave(BaselineProfile(lifeStage = lifeStage, wakeMinute = wakeMinute, sleepMinute = sleepMinute, meals = meals, entertainmentWindow = entertainment.trim()))
             }) { Text("完成") }
         },
         dismissButton = {
             Row {
-                if (step > 0) TextButton(onClick = { step -= 1 }) { Text("上一步") }
+                if (step > 0) TextButton(onClick = { step -= 1; persist() }) { Text("上一步") }
                 TextButton(onClick = onDismiss) { Text(if (initial.isComplete) "取消" else "跳过") }
             }
         }
@@ -377,13 +411,17 @@ internal fun DayGroupWizardDialog(existingGroups: List<DayGroup>, defaultWake: I
 }
 
 @Composable internal fun MealFinishDialog(record: MealRecord, type: MealType, onDismiss: () -> Unit, onFinished: (MealDraft) -> Unit, onStillEating: () -> Unit, onNoRecord: () -> Unit) {
-    var amountText by remember(record.id) { mutableStateOf("") }
-    var rating by remember(record.id) { mutableIntStateOf(0) }
-    var note by remember(record.id) { mutableStateOf("") }
-    var location by remember(record.id) { mutableStateOf("") }
-    var category by remember(record.id) { mutableStateOf("") }
-    var merchant by remember(record.id) { mutableStateOf("") }
-    var payMethod by remember(record.id) { mutableStateOf("") }
+    val vault = LocalDraftVault.current
+    val draftKey = "mealFinish:${record.id}"
+    val saved = vault.load<MealFinishDraft>(draftKey)
+    var amountText by remember(record.id) { mutableStateOf(saved?.amountText ?: "") }
+    var rating by remember(record.id) { mutableIntStateOf(saved?.rating ?: 0) }
+    var note by remember(record.id) { mutableStateOf(saved?.note ?: "") }
+    var location by remember(record.id) { mutableStateOf(saved?.location ?: "") }
+    var category by remember(record.id) { mutableStateOf(saved?.category ?: "") }
+    var merchant by remember(record.id) { mutableStateOf(saved?.merchant ?: "") }
+    var payMethod by remember(record.id) { mutableStateOf(saved?.payMethod ?: "") }
+    fun persist() = vault.save(draftKey, MealFinishDraft(amountText, rating, note, location, category, merchant, payMethod))
     val amount = amountText.toIntOrNull()?.coerceIn(0, 9999) ?: -1
     val categories = listOf("食堂", "外卖", "自己做饭", "便利店", "其他")
     val payMethods = listOf("微信", "支付宝", "校园卡", "现金", "其他")
@@ -393,38 +431,39 @@ internal fun DayGroupWizardDialog(existingGroups: List<DayGroup>, defaultWake: I
         text = {
             ScrollableDialogBox(maxHeight = 460.dp, spacing = 8.dp) {
                 Text(if (EXPENSE_HIDDEN) "结束并记录用餐时间；地点、分类、商家、支付方式、评价和备注都是可选的，只保存在本机，不会自动生成账目。" else "结束并记录用餐时间；地点、分类、商家、支付方式、金额、评价和备注都是可选的消费草稿，只保存在本机，不会自动生成账目。", style = MaterialTheme.typography.bodySmall)
-                if (!EXPENSE_HIDDEN) OutlinedTextField(value = amountText, onValueChange = { amountText = it.filter(Char::isDigit).take(4) }, label = { Text("金额（元，可选）") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
-                OutlinedTextField(value = location, onValueChange = { location = it.take(20) }, label = { Text("地点（可选）") }, placeholder = { Text("例如：大食堂、临水、外卖") }, singleLine = true)
+                if (!EXPENSE_HIDDEN) OutlinedTextField(value = amountText, onValueChange = { amountText = it.filter(Char::isDigit).take(4); persist() }, label = { Text("金额（元，可选）") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                OutlinedTextField(value = location, onValueChange = { location = it.take(20); persist() }, label = { Text("地点（可选）") }, placeholder = { Text("例如：大食堂、临水、外卖") }, singleLine = true)
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     listOf("宿舍", "食堂", "外卖", "便利店").forEach { quick ->
-                        FilterChip(selected = location == quick, onClick = { location = if (location == quick) "" else quick }, label = { Text(quick) })
+                        FilterChip(selected = location == quick, onClick = { location = if (location == quick) "" else quick; persist() }, label = { Text(quick) })
                     }
                 }
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("分类", style = MaterialTheme.typography.bodySmall)
                     categories.forEach { item ->
-                        FilterChip(selected = category == item, onClick = { category = if (category == item) "" else item }, label = { Text(item) })
+                        FilterChip(selected = category == item, onClick = { category = if (category == item) "" else item; persist() }, label = { Text(item) })
                     }
                 }
-                OutlinedTextField(value = merchant, onValueChange = { merchant = it.take(30) }, label = { Text("商家／食物名（可选）") }, placeholder = { Text("例如：临水餐厅、麦香鸡套餐") }, singleLine = true)
+                OutlinedTextField(value = merchant, onValueChange = { merchant = it.take(30); persist() }, label = { Text("商家／食物名（可选）") }, placeholder = { Text("例如：临水餐厅、麦香鸡套餐") }, singleLine = true)
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("支付方式", style = MaterialTheme.typography.bodySmall)
                     payMethods.forEach { method ->
-                        FilterChip(selected = payMethod == method, onClick = { payMethod = if (payMethod == method) "" else method }, label = { Text(method) })
+                        FilterChip(selected = payMethod == method, onClick = { payMethod = if (payMethod == method) "" else method; persist() }, label = { Text(method) })
                     }
                 }
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("评价", style = MaterialTheme.typography.bodySmall)
                     listOf(1, 2, 3, 4, 5).forEach { star ->
-                        FilterChip(selected = rating == star, onClick = { rating = if (rating == star) 0 else star }, label = { Text("$star") })
+                        FilterChip(selected = rating == star, onClick = { rating = if (rating == star) 0 else star; persist() }, label = { Text("$star") })
                     }
                     if (rating == 0) Text("不评价", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                OutlinedTextField(value = note, onValueChange = { note = it.take(80) }, label = { Text("备注（可选）") }, singleLine = true)
+                OutlinedTextField(value = note, onValueChange = { note = it.take(80); persist() }, label = { Text("备注（可选）") }, singleLine = true)
             }
         },
         confirmButton = {
             Button(onClick = {
+                vault.clear(draftKey)
                 onFinished(MealDraft(amount = amount, rating = rating, note = note.trim(), location = location.trim(), category = category, merchant = merchant.trim(), payMethod = payMethod))
             }) { Text("吃完了") }
         },

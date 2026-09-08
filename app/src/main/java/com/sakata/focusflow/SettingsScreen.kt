@@ -103,9 +103,16 @@ import kotlinx.coroutines.withContext
     )
 }
 
+/** 通勤校准草稿：关闭后重开恢复正在填写的分钟数（8.1.0 草稿保险箱）。 */
+private data class RouteCalibrationDraft(val minutesText: String)
+
 @Composable internal fun RouteCalibrationDialog(from: CampusPlace, to: CampusPlace, mode: String, currentMinutes: Int, history: List<Int>, onDismiss: () -> Unit, onSave: (Int) -> Unit) {
-    var minutes by remember(from, to, mode) { mutableStateOf(currentMinutes.toString()) }
+    val vault = LocalDraftVault.current
+    val draftKey = "routeCalibration:${from.name}:${to.name}:${mode}"
+    val saved = vault.load<RouteCalibrationDraft>(draftKey)
+    var minutes by remember(from, to, mode) { mutableStateOf(saved?.minutesText ?: currentMinutes.toString()) }
     val parsed = minutes.toIntOrNull()
+    fun persist() = vault.save(draftKey, RouteCalibrationDraft(minutes))
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("确认本次通勤耗时") },
@@ -114,11 +121,11 @@ import kotlinx.coroutines.withContext
                 Text("${from.name} → ${to.name} · $mode")
                 Text("填写从出发到到达的实际总分钟数，包含进出楼和找教室时间。不读取定位。")
                 if (history.isNotEmpty()) Text("已有 ${history.size} 次确认记录；学习值使用最近记录的中位数，单次异常不会直接覆盖结果。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
-                OutlinedTextField(value = minutes, onValueChange = { minutes = it.filter(Char::isDigit).take(3) }, label = { Text("实际分钟数") }, singleLine = true)
+                OutlinedTextField(value = minutes, onValueChange = { minutes = it.filter(Char::isDigit).take(3); persist() }, label = { Text("实际分钟数") }, singleLine = true)
                 Text("保存后，同一出行方式和分区组合会新增一条确认记录；课程空挡、目标候选时间与路线预览会使用学习后的中位数。", style = MaterialTheme.typography.bodySmall)
             }
         },
-        confirmButton = { Button(enabled = parsed != null && parsed in 1..180, onClick = { parsed?.let(onSave) }) { Text("保存本次记录") } },
+        confirmButton = { Button(enabled = parsed != null && parsed in 1..180, onClick = { vault.clear(draftKey); parsed?.let(onSave) }) { Text("保存本次记录") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }
     )
 }
@@ -149,7 +156,13 @@ import kotlinx.coroutines.withContext
     )
 }
 
+/** 添加本机应用草稿：关闭后重开恢复搜索文本与已选应用（8.1.0 草稿保险箱）。 */
+private data class AddInstalledAppDraft(val query: String, val selectedPkg: String?)
+
 @Composable internal fun AddInstalledAppDialog(onDismiss: () -> Unit, onSave: (String, String) -> Unit) {
+    val vault = LocalDraftVault.current
+    val draftKey = "addInstalledApp"
+    val saved = vault.load<AddInstalledAppDraft>(draftKey)
     val context = LocalContext.current
     val installed = remember {
         runCatching {
@@ -163,20 +176,21 @@ import kotlinx.coroutines.withContext
                 .sortedBy { it.second }
         }.getOrDefault(emptyList())
     }
-    var query by remember { mutableStateOf("") }
-    var selectedPkg by remember { mutableStateOf<String?>(null) }
+    var query by remember { mutableStateOf(saved?.query ?: "") }
+    var selectedPkg by remember { mutableStateOf(saved?.selectedPkg) }
     val filtered = if (query.isBlank()) installed else installed.filter { it.first.contains(query, true) || it.second.contains(query, true) }
+    fun persist() = vault.save(draftKey, AddInstalledAppDraft(query, selectedPkg))
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("添加本机应用") },
         text = {
             Column(Modifier.heightIn(max = 440.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(value = query, onValueChange = { query = it }, label = { Text("搜索应用名或包名") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = query, onValueChange = { query = it; persist() }, label = { Text("搜索应用名或包名") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 val selected = selectedPkg
                 if (selected == null) {
                     Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         filtered.take(80).forEach { (pkg, label) ->
-                            Card(modifier = Modifier.fillMaxWidth().clickable { selectedPkg = pkg }) {
+                            Card(modifier = Modifier.fillMaxWidth().clickable { selectedPkg = pkg; persist() }) {
                                 Column(Modifier.fillMaxWidth().padding(10.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                     Text(label, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodySmall)
                                     Text(pkg, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -190,10 +204,10 @@ import kotlinx.coroutines.withContext
                     if (auto != null) Text("按应用名识别为：${auto.label}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
                         listOf(AppCategory.GAME, AppCategory.VIDEO, AppCategory.SOCIAL, AppCategory.STUDY, AppCategory.OTHER, AppCategory.UNKNOWN).forEach { c ->
-                            FilterChip(selected = false, onClick = { onSave(selected, c.name); onDismiss() }, label = { Text(c.label) })
+                            FilterChip(selected = false, onClick = { vault.clear(draftKey); onSave(selected, c.name); onDismiss() }, label = { Text(c.label) })
                         }
                     }
-                    TextButton(onClick = { selectedPkg = null }) { Text("返回列表") }
+                    TextButton(onClick = { selectedPkg = null; persist() }) { Text("返回列表") }
                 }
             }
         },
@@ -219,6 +233,9 @@ internal fun categorizedInstalledApps(context: Context, userCategories: Map<Stri
         .map { pkg -> Triple(pkg, AppLibrary.appLabel(context, pkg), AppLibrary.categoryOf(context, pkg, userCategories)) }
         .sortedBy { it.second }
 }.getOrDefault(emptyList())
+
+/** 另存基线方案草稿：取消后重开恢复正在填写的方案名（8.1.0 草稿保险箱）。 */
+private data class BaselineVariantDraft(val name: String)
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable internal fun SettingsScreen(modifier: Modifier, settingsScrollState: ScrollState, themeOption: FocusFlowThemeOption, commuteProfile: CommuteProfile, campusLifeEnabled: Boolean, campusMapPackage: CampusMapPackage?, currentCampusPlace: String?, improvementNotes: List<ImprovementNote>, activitySettings: ActivityReminderSettings, statusCheckInSettings: StatusCheckInSettings, statusPromptTrace: StatusPromptTrace, nextStatusPromptAt: Long, onStatusPromptTest: () -> Unit, windDownEnabled: Boolean, checkIns: List<StatusCheckIn>, baselineProfile: BaselineProfile, mealRecords: List<MealRecord>, mealReminderEnabled: Boolean, mealDurationTrackingEnabled: Boolean, onMealDurationTrackingEnabledChange: (Boolean) -> Unit, foregroundDetectionTrace: ForegroundDetectionTrace, subPage: SettingsSubPage?, onSubPageChange: (SettingsSubPage?) -> Unit, onThemeChange: (FocusFlowThemeOption) -> Unit, customThemeColors: FocusFlowThemeColors, onCustomThemeColorsChange: (FocusFlowThemeColors) -> Unit, themePresets: List<ThemePreset>, onThemePresetsChange: (List<ThemePreset>) -> Unit, onRestoreDefaultTheme: () -> Unit, onCommuteChange: (CommuteProfile) -> Unit, onCampusLifeEnabledChange: (Boolean) -> Unit, onCampusLifeRequired: () -> Unit, onCampusMapPackageChange: (CampusMapPackage?) -> Unit, onCurrentCampusPlaceChange: (String?) -> Unit, allPlaces: List<CampusPlace>, customPlaces: List<CampusPlace>, onCustomPlacesChange: (List<CampusPlace>) -> Unit, hiddenPlaces: Set<String>, onToggleHiddenPlace: (String) -> Unit, amapKey: String, onAmapKeyChange: (String) -> Unit, campusCenter: CampusCenter, onCampusCenterChange: (CampusCenter) -> Unit, tutorialSearch: TutorialSearchSettings, onTutorialSearchSettingsChange: (TutorialSearchSettings) -> Unit, aiWeeklySummary: AiWeeklySummarySettings, onAiWeeklySummarySettingsChange: (AiWeeklySummarySettings) -> Unit, courseVision: CourseVisionSettings, onCourseVisionSettingsChange: (CourseVisionSettings) -> Unit, courseVisionGuideOpen: Boolean, onCourseVisionGuideOpenChange: (Boolean) -> Unit, pendingPlaces: List<String>, onAddPendingPlace: (String) -> Unit, onRemovePendingPlace: (String) -> Unit, onActivitySettingsChange: (ActivityReminderSettings) -> Unit, quietHours: QuietHoursSettings, onQuietHoursChange: (QuietHoursSettings) -> Unit, quickCaptureEnabled: Boolean, onQuickCaptureEnabledChange: (Boolean) -> Unit, onStatusCheckInSettingsChange: (StatusCheckInSettings) -> Unit, onWindDownEnabledChange: (Boolean) -> Unit, onAddImprovement: () -> Unit, onOpenBaselineEditor: () -> Unit, onOpenBaselineEvents: () -> Unit, onResetBaseline: () -> Unit, onOpenFeatureIntro: () -> Unit, baselineVariants: List<BaselineProfile>, onSaveBaselineVariant: (String) -> Unit, onSwitchBaselineVariant: (BaselineProfile) -> Unit, onDeleteBaselineVariant: (BaselineProfile) -> Unit, onDayGroupsChange: (List<DayGroup>) -> Unit, baselineVariantNameOpen: Boolean, onBaselineVariantNameOpenChange: (Boolean) -> Unit, onMealReminderEnabledChange: (Boolean) -> Unit, onOpenMealRecords: () -> Unit, recordBaselineEvent: (BaselineEventType, String) -> Unit, gameDetectionEnabled: Boolean, onGameDetectionEnabledChange: (Boolean) -> Unit, appCategories: Map<String, String>, onAppCategoriesChange: (Map<String, String>) -> Unit, hiddenApps: Set<String>, onToggleHiddenApp: (String) -> Unit, videoAnalysisModel: String, onVideoAnalysisModelChange: (String) -> Unit, darkMode: Boolean, onDarkModeChange: (Boolean) -> Unit, onGlobalLoadingChange: (Boolean) -> Unit) {
@@ -1317,13 +1334,17 @@ internal fun categorizedInstalledApps(context: Context, userCategories: Map<Stri
     }
     if (courseVisionGuideOpen) CourseVisionKeyGuideDialog(onDismiss = { onCourseVisionGuideOpenChange(false) })
     if (baselineVariantNameOpen) {
-        var variantName by remember { mutableStateOf("") }
+        val vault = LocalDraftVault.current
+        val draftKey = "baselineVariantName"
+        val saved = vault.load<BaselineVariantDraft>(draftKey)
+        var variantName by remember { mutableStateOf(saved?.name ?: "") }
+        fun persist() = vault.save(draftKey, BaselineVariantDraft(variantName))
         AlertDialog(
             onDismissRequest = { onBaselineVariantNameOpenChange(false) },
             title = { Text("另存当前方案") },
-            text = { OutlinedTextField(value = variantName, onValueChange = { variantName = it }, label = { Text("方案名称，如“假期·早睡版”") }, singleLine = true) },
+            text = { OutlinedTextField(value = variantName, onValueChange = { variantName = it; persist() }, label = { Text("方案名称，如“假期·早睡版”") }, singleLine = true) },
             confirmButton = {
-                Button(enabled = variantName.isNotBlank(), onClick = { onSaveBaselineVariant(variantName.trim()); onBaselineVariantNameOpenChange(false) }) { Text("保存") }
+                Button(enabled = variantName.isNotBlank(), onClick = { vault.clear(draftKey); onSaveBaselineVariant(variantName.trim()); onBaselineVariantNameOpenChange(false) }) { Text("保存") }
             },
             dismissButton = { TextButton(onClick = { onBaselineVariantNameOpenChange(false) }) { Text("取消") } }
         )

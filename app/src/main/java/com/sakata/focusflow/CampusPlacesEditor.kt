@@ -10,6 +10,12 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 
+/** 自定义地点新增/编辑草稿：关闭后重开恢复正在填写的内容（8.1.0 草稿保险箱）。 */
+private data class CustomPlaceDraft(val name: String, val kind: String)
+
+/** POI 加入地点草稿：关闭后重开恢复分区/用途选择（8.1.0 草稿保险箱）。 */
+private data class AddPoiDraft(val zone: CampusZone, val kind: String)
+
 /** 自填教学楼自动进入地点库的计算：返回需要新增/更新的自定义地点列表；null 表示无需变动（名空白、「地点待确认」或已存在）。 */
 fun ensurePlaceForCourse(course: Course, campusPlaces: List<CampusPlace>, customPlaces: List<CampusPlace>): List<CampusPlace>? {
     val name = course.building.trim()
@@ -300,23 +306,27 @@ private fun CustomPlaceEditorDialog(
     onDismiss: () -> Unit,
     onSave: (CampusPlace) -> Unit
 ) {
-    var name by remember { mutableStateOf(existing?.name ?: "") }
-    var kind by remember { mutableStateOf(existing?.kind?.takeUnless { it == "地点" } ?: "其他") }
+    val vault = LocalDraftVault.current
+    val draftKey = "customPlace:${existing?.name ?: "new"}"
+    val saved = vault.load<CustomPlaceDraft>(draftKey)
+    var name by remember { mutableStateOf(saved?.name ?: existing?.name ?: "") }
+    var kind by remember { mutableStateOf(saved?.kind ?: existing?.kind?.takeUnless { it == "地点" } ?: "其他") }
     var message by remember { mutableStateOf<String?>(null) }
     val kindOptions = listOf("教学楼", "实验", "学习", "运动", "其他")
+    fun persist() = vault.save(draftKey, CustomPlaceDraft(name, kind))
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(if (existing == null) "新增自定义地点" else "编辑地点") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(value = name, onValueChange = { name = it; message = null }, label = { Text("地点名称") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = name, onValueChange = { name = it; message = null; persist() }, label = { Text("地点名称") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 Text("用途", style = MaterialTheme.typography.labelMedium)
                 FlowRow {
                     kindOptions.forEach { option ->
                         FilterChip(
                             selected = kind == option,
-                            onClick = { kind = option },
+                            onClick = { kind = option; persist() },
                             label = { Text(option) },
                             modifier = Modifier.padding(end = 4.dp)
                         )
@@ -327,6 +337,7 @@ private fun CustomPlaceEditorDialog(
         },
         confirmButton = {
             Button(onClick = {
+                vault.clear(draftKey)
                 val trimmed = name.trim()
                 if (trimmed.isBlank()) { message = "请填写地点名称"; return@Button }
                 if (trimmed.lowercase() in allNames) { message = "已有同名地点"; return@Button }
@@ -341,9 +352,13 @@ private fun CustomPlaceEditorDialog(
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun AddPoiDialog(poi: AmapPoi, onDismiss: () -> Unit, onAdd: (CampusPlace) -> Unit) {
-    var zone by remember { mutableStateOf(CampusZone.WEST_TEACHING) }
-    var kind by remember { mutableStateOf(AmapWebApi.suggestKind(poi.type)) }
+    val vault = LocalDraftVault.current
+    val draftKey = "addPoi:${poi.name}:${poi.lat}:${poi.lng}"
+    val saved = vault.load<AddPoiDraft>(draftKey)
+    var zone by remember { mutableStateOf(saved?.zone ?: CampusZone.WEST_TEACHING) }
+    var kind by remember { mutableStateOf(saved?.kind ?: AmapWebApi.suggestKind(poi.type)) }
     val kindOptions = listOf("教学楼", "实验", "学习", "运动", "其他")
+    fun persist() = vault.save(draftKey, AddPoiDraft(zone, kind))
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("加入地点") },
@@ -354,18 +369,18 @@ private fun AddPoiDialog(poi: AmapPoi, onDismiss: () -> Unit, onAdd: (CampusPlac
                 Text("分区", style = MaterialTheme.typography.labelMedium)
                 FlowRow {
                     CampusZone.entries.forEach { option ->
-                        FilterChip(selected = zone == option, onClick = { zone = option }, label = { Text(option.label) }, modifier = Modifier.padding(end = 4.dp))
+                        FilterChip(selected = zone == option, onClick = { zone = option; persist() }, label = { Text(option.label) }, modifier = Modifier.padding(end = 4.dp))
                     }
                 }
                 Text("用途（已按 POI 类型推断）", style = MaterialTheme.typography.labelMedium)
                 FlowRow {
                     kindOptions.forEach { option ->
-                        FilterChip(selected = kind == option, onClick = { kind = option }, label = { Text(option) }, modifier = Modifier.padding(end = 4.dp))
+                        FilterChip(selected = kind == option, onClick = { kind = option; persist() }, label = { Text(option) }, modifier = Modifier.padding(end = 4.dp))
                     }
                 }
             }
         },
-        confirmButton = { Button(onClick = { onAdd(CampusPlace(poi.name, zone, kind, poi.lat, poi.lng)) }) { Text("加入") } },
+        confirmButton = { Button(onClick = { vault.clear(draftKey); onAdd(CampusPlace(poi.name, zone, kind, poi.lat, poi.lng)) }) { Text("加入") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }
     )
 }
