@@ -3,6 +3,7 @@ package com.sakata.focusflow
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -13,6 +14,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -35,9 +37,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.lerp
@@ -105,7 +105,7 @@ internal fun FloatingNavigationBar(
                                 if (index == 2) Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
                                     Surface(
                                         onClick = onAdd, modifier = Modifier.size(48.dp),
-                                        shape = RoundedCornerShape(16.dp),
+                                        shape = CircleShape,
                                         color = indicator, contentColor = navigationContentColor(indicator)
                                     ) {
                                         Box(contentAlignment = Alignment.Center) {
@@ -126,7 +126,7 @@ internal fun FloatingNavigationBar(
                             }
                         }
                     }
-                    // 8.1.0 底栏形变：两端圆瓣在页签上层缩放淡入；实心圆钮，出现/消失不挤压任何页签。
+                    // 8.1.0 底栏形变：两端圆瓣在页签上层弹性缩入；小尺寸圆钮，向外偏移避开页签图标。
                     HistoryLobe(
                         visible = canGoBack,
                         onClick = onBackHistory,
@@ -134,8 +134,8 @@ internal fun FloatingNavigationBar(
                         icon = Icons.AutoMirrored.Outlined.ArrowBack,
                         description = "回退到上一个页面；长按查看历史",
                         fill = MaterialTheme.colorScheme.surface,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.align(Alignment.CenterStart)
+                        tint = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.align(Alignment.CenterStart).offset(x = (-4).dp)
                     )
                     HistoryLobe(
                         visible = canGoForward,
@@ -144,8 +144,8 @@ internal fun FloatingNavigationBar(
                         icon = Icons.AutoMirrored.Outlined.ArrowForward,
                         description = "折返到后一个页面",
                         fill = MaterialTheme.colorScheme.surface,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.align(Alignment.CenterEnd)
+                        tint = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.align(Alignment.CenterEnd).offset(x = 4.dp)
                     )
                 }
             }
@@ -153,7 +153,7 @@ internal fun FloatingNavigationBar(
     }
 }
 
-/** 8.1.0 底栏两端圆瓣：实心圆钮（浅色底+描边+软阴影），缩放淡入；先组合页签、后组合圆瓣（绘制在上层）。 */
+/** 8.1.0 底栏两端圆瓣：实心小圆钮（浅色底+描边+轻阴影），弹性缩入、快速缩出；向外偏移避开页签图标。 */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun HistoryLobe(
@@ -166,7 +166,11 @@ private fun HistoryLobe(
     tint: Color,
     modifier: Modifier = Modifier
 ) {
-    val progress by animateFloatAsState(if (visible) 1f else 0f, tween(motionMillis(220)), label = "historyLobe")
+    val progress by animateFloatAsState(
+        targetValue = if (visible) 1f else 0f,
+        animationSpec = if (visible) spring(dampingRatio = 0.72f, stiffness = 420f) else tween(motionMillis(140)),
+        label = "historyLobe"
+    )
     if (progress <= 0.01f) return
     val clickModifier = if (onLongPress != null) {
         Modifier.combinedClickable(onClick = onClick, onLongClick = onLongPress)
@@ -175,14 +179,14 @@ private fun HistoryLobe(
     }
     Box(
         modifier = modifier
-            .size(44.dp)
+            .size(32.dp)
             .graphicsLayer {
                 scaleX = progress
                 scaleY = progress
                 alpha = progress
             }
             .drawBehind {
-                drawCircle(Color.Black.copy(alpha = 0.18f), radius = size.minDimension / 2, center = Offset(size.width / 2, size.height / 2 + 1.dp.toPx()))
+                drawCircle(Color.Black.copy(alpha = 0.12f), radius = size.minDimension / 2, center = Offset(size.width / 2, size.height / 2 + 0.5.dp.toPx()))
                 drawCircle(fill)
                 drawCircle(tint.copy(alpha = 0.25f), style = Stroke(width = 1.dp.toPx()))
             }
@@ -190,7 +194,7 @@ private fun HistoryLobe(
             .semantics { stateDescription = description },
         contentAlignment = Alignment.Center
     ) {
-        Icon(icon, contentDescription = description, tint = tint, modifier = Modifier.size(20.dp))
+        Icon(icon, contentDescription = description, tint = tint, modifier = Modifier.size(18.dp))
     }
 }
 
@@ -257,7 +261,7 @@ private fun FloatingNavigationItem(
     }
     Column(
         modifier.heightIn(min = FloatingNavigationLayout.MIN_ITEM_HEIGHT_DP.dp)
-            .clip(RoundedCornerShape(FloatingNavigationLayout.ITEM_RADIUS_DP.dp))
+            .clip(RoundedCornerShape(percent = 50))
             .selectable(selected = selected, role = Role.Tab, onClick = onClick)
             .padding(horizontal = 4.dp, vertical = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -265,21 +269,14 @@ private fun FloatingNavigationItem(
     ) {
         Box(
             Modifier.size(40.dp).drawBehind {
-                val side = size.minDimension * (0.88f + 0.12f * progress) * destinationPulse.value
-                drawRoundRect(
-                    fill, Offset((size.width - side) / 2, (size.height - side) / 2),
-                    Size(side, side), CornerRadius(12.dp.toPx())
-                )
+                // 8.1.0 选中态：圆形底色（与胶囊底栏、圆瓣、加号统一为圆形语言）。
+                val radius = size.minDimension / 2 * (0.86f + 0.14f * progress) * destinationPulse.value
+                drawCircle(fill, radius = radius, center = center)
                 if (subpageProgress > 0f) {
-                    // 8.1.0 副页指示：图标上方的小横条（替代原右上角圆点）。
-                    val pillWidth = 16.dp.toPx() * subpageProgress
-                    val pillHeight = 3.dp.toPx() * subpageProgress
-                    drawRoundRect(
-                        fill,
-                        Offset((size.width - pillWidth) / 2, -2.dp.toPx()),
-                        Size(pillWidth, pillHeight),
-                        CornerRadius(1.5.dp.toPx())
-                    )
+                    // 8.1.0 副页指示：右上角徽标圆点（外环+实心，比旧圆点更大更醒目）。
+                    val badgeCenter = Offset(size.width - 6.dp.toPx(), 6.dp.toPx())
+                    drawCircle(background, 5.5.dp.toPx() * subpageProgress, badgeCenter)
+                    drawCircle(fill, 4.dp.toPx() * subpageProgress, badgeCenter)
                 }
             }, contentAlignment = Alignment.Center
         ) {
