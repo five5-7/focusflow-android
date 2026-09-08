@@ -16,8 +16,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.DateRange
 import androidx.compose.material.icons.outlined.Home
@@ -55,7 +53,6 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.delay
 
 /** Nav text remains readable independently of the user-selected body text color. */
 internal fun navigationContentColor(background: Color): Color =
@@ -66,11 +63,12 @@ internal fun navigationIndicatorColor(background: Color, primary: Color): Color 
 
 /**
  * 8.1.0 底栏形变形状：平时为完整胶囊（四角半径=高度一半）；
- * 有导航历史时，上两角按 cornerProgress 动画收缩为小圆角（16dp），形成"上圆角矩形突出、下胶囊"轮廓。
+ * 每个上角独立按 progress 动画收缩为小圆角（10dp），对应各自图标的出现/消失。
  * 下两角始终为大圆角；左右竖直、上下平直。
  */
 private class AsymmetricCapsuleShape(
-    private val cornerProgress: Float,
+    private val progressL: Float,
+    private val progressR: Float,
     private val smallRadiusDp: Float
 ) : Shape {
     override fun createOutline(size: Size, layoutDirection: LayoutDirection, density: Density): Outline {
@@ -78,17 +76,18 @@ private class AsymmetricCapsuleShape(
         val h = size.height
         val r2 = h / 2f
         val smallPx = with(density) { smallRadiusDp.dp.toPx() }
-        val r1 = r2 + (smallPx - r2) * cornerProgress.coerceIn(0f, 1f)
+        val r1L = r2 + (smallPx - r2) * progressL.coerceIn(0f, 1f)
+        val r1R = r2 + (smallPx - r2) * progressR.coerceIn(0f, 1f)
         val path = Path().apply {
             // 从左下大圆角开始，顺时针一圈（sweep 负值=屏幕上逆时针转过该角）
             moveTo(0f, h / 2f)
             arcTo(Rect(0f, h - 2 * r2, 2 * r2, h), 180f, -90f, false)
             lineTo(w - r2, h)
             arcTo(Rect(w - 2 * r2, h - 2 * r2, w, h), 90f, -90f, false)
-            lineTo(w, r1)
-            arcTo(Rect(w - 2 * r1, 0f, w, 2 * r1), 0f, -90f, false)
-            lineTo(r1, 0f)
-            arcTo(Rect(0f, 0f, 2 * r1, 2 * r1), 270f, -90f, false)
+            lineTo(w, r1R)
+            arcTo(Rect(w - 2 * r1R, 0f, w, 2 * r1R), 0f, -90f, false)
+            lineTo(r1L, 0f)
+            arcTo(Rect(0f, 0f, 2 * r1L, 2 * r1L), 270f, -90f, false)
             lineTo(0f, h / 2f)
             close()
         }
@@ -115,21 +114,10 @@ internal fun FloatingNavigationBar(
 ) {
     val background by animateColorAsState(containerColor, tween(motionMillis(220)), label = "navigationTheme")
     val indicator = navigationIndicatorColor(background, MaterialTheme.colorScheme.primary)
-    // 8.1.0 形变：有历史时上两角从小圆角"伸出"；3 秒未使用自动缩回，新的导航再伸出。
-    val historyActiveNow = canGoBack || canGoForward
-    var earsHidden by remember { mutableStateOf(false) }
-    LaunchedEffect(canGoBack, canGoForward) {
-        earsHidden = false
-        delay(3000)
-        earsHidden = true
-    }
-    val historyActive = historyActiveNow && !earsHidden
-    val cornerProgress by animateFloatAsState(
-        if (historyActive) 1f else 0f,
-        tween(motionMillis(240)),
-        label = "cornerMorph"
-    )
-    val barShape = AsymmetricCapsuleShape(cornerProgress = cornerProgress, smallRadiusDp = 10f)
+    // 8.1.0 形变：每个顶角各自跟随自己的图标——有回退才伸出左角、有折返才伸出右角；图标消失即收回。
+    val backProgress by animateFloatAsState(if (canGoBack) 1f else 0f, tween(motionMillis(240)), label = "backCorner")
+    val forwardProgress by animateFloatAsState(if (canGoForward) 1f else 0f, tween(motionMillis(240)), label = "forwardCorner")
+    val barShape = AsymmetricCapsuleShape(progressL = backProgress, progressR = forwardProgress, smallRadiusDp = 10f)
     BoxWithConstraints(
         modifier.fillMaxWidth().windowInsetsPadding(
             safeInsets.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal)
@@ -145,7 +133,7 @@ internal fun FloatingNavigationBar(
                 modifier = Modifier.fillMaxWidth(),
                 shape = barShape,
                 color = background, tonalElevation = 0.dp, shadowElevation = 6.dp,
-                border = BorderStroke(1.dp, navigationContentColor(background).copy(alpha = 0.28f))
+                border = BorderStroke(2.dp, navigationContentColor(background).copy(alpha = 0.40f))
             ) {
                 // Internal padding contains BOTH selected background and ripple within the outer corners.
                 BoxWithConstraints(Modifier.padding(FloatingNavigationLayout.INNER_PADDING_DP.dp)) {
@@ -186,11 +174,11 @@ internal fun FloatingNavigationBar(
                     }
                 }
             }
-            // 8.1.0 顶角符号：实心箭头图标，位于两顶角内侧（不贴边），与形状同步伸缩。
+            // 8.1.0 顶角符号：无柄箭头（chevron），位于两顶角内侧，各自随自己的角伸缩。
             CornerSymbol(
                 visible = canGoBack,
-                progress = cornerProgress,
-                icon = Icons.AutoMirrored.Filled.ArrowBack,
+                progress = backProgress,
+                icon = Icons.Filled.KeyboardArrowLeft,
                 onClick = onBackHistory,
                 onLongPress = onLongPressBack,
                 description = "回退到上一个页面；长按查看历史",
@@ -199,8 +187,8 @@ internal fun FloatingNavigationBar(
             )
             CornerSymbol(
                 visible = canGoForward,
-                progress = cornerProgress,
-                icon = Icons.AutoMirrored.Filled.ArrowForward,
+                progress = forwardProgress,
+                icon = Icons.Filled.KeyboardArrowRight,
                 onClick = onForwardHistory,
                 onLongPress = null,
                 description = "折返到后一个页面",
