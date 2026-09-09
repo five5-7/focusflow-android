@@ -14,6 +14,7 @@ import android.os.PowerManager
 import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.activity.addCallback
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -135,6 +136,10 @@ class MainActivity : ComponentActivity() {
             }
         }
         enableEdgeToEdge()
+        // 8.1.0 第三轮：冷启动到 Compose 的 BackHandler 挂上之间有一段窗口，
+        // 此时系统返回会直接结束 Activity（表现为"刚打开就返回，没有二次确认"）。
+        // 这里先挂一个兜底回调吞掉返回；Compose 的处理器随后注册，优先级更高，行为不变。
+        onBackPressedDispatcher.addCallback(this) { /* 启动窗口内吞掉返回，等 Compose 接管 */ }
         setContent {
             FocusFlowApp(statusCheckInRequested, mealPromptRequested, mealFinishRequested, quickCaptureRequested, permissionOnboardingPending) {
                 statusCheckInRequested = false
@@ -436,38 +441,39 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
         settingsBackStack = snapshot.settingsBackStack
     }
 
-    /** 当前页签是否正停在子页（只有它才代表"用户正在看子页"）。 */
-    fun currentTabHasSubpage(): Boolean =
-        (tab == 0 && todayInboxOpen) || (tab == 2 && planPage != null) || (tab == 3 && settingsSubPage != null)
-
-    /**
-     * 8.1.0 第三轮：记录"本次导航离开的那个正在看子页的页签"。
-     * 必须在应用新快照**之前**判定：回退/折返恢复出的快照会带着后台页签的子页状态，
-     * 若按新状态判断，就会把"回到主页"误当成"正在离开子页"，重播一次收起动画。
-     */
-    fun captureDepartingSubpage(nextTab: Int) {
-        leavingSubpageTab = if (nextTab != tab && currentTabHasSubpage()) tab else -1
-    }
-
     /** 当前页面快照（用于局部修改后 goTo）。 */
     fun pageSnapshot() = PageSnapshot(tab, todayInboxOpen, planPage, settingsSubPage, settingsBackStack)
+
+    /**
+     * 8.1.0 第三轮：所有导航统一先走这里（规则见 [TabMotionRules]，纯函数、有单测）。
+     * 1) 记录本次导航离开的、正在看子页的页签；
+     * 2) 若这次导航改掉了目标页签的子页状态，标记"该子页切换不补播动画"。
+     */
+    fun prepareNavigation(next: PageSnapshot) {
+        val current = pageSnapshot()
+        leavingSubpageTab = TabMotionRules.departingSubpageTab(current, next)
+        if (TabMotionRules.destinationSubpageChanged(current, next)) {
+            pageSnapTab = next.tab
+            pageSnapToken++
+        }
+    }
 
     /** 所有页面级导航统一入口：记录历史并应用新目的地；目的地未变化则忽略。 */
     fun goTo(next: PageSnapshot) {
         if (navHistory.goTo(next) == null) return
-        captureDepartingSubpage(next.tab)
+        prepareNavigation(next)
         applySnapshot(next)
     }
 
     /** 回退/折返：只走历史栈，不再记录新历史。 */
     fun goBackHistory() {
         lastNavKind = NavKind.BACK
-        navHistory.back()?.let { captureDepartingSubpage(it.tab); applySnapshot(it) }
+        navHistory.back()?.let { prepareNavigation(it); applySnapshot(it) }
     }
 
     fun goForwardHistory() {
         lastNavKind = NavKind.FORWARD
-        navHistory.forward()?.let { captureDepartingSubpage(it.tab); applySnapshot(it) }
+        navHistory.forward()?.let { prepareNavigation(it); applySnapshot(it) }
     }
 
     /** 跨页跳转（通知/深链/课程编辑器跳地点等）：缩放+位移动画。 */
@@ -754,16 +760,8 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     }
     fun selectTab(index: Int) {
         // Reset only the destination. The outgoing page must survive its exit animation.
+        // 目标页签的副页会被重置回主页；"顺带重置"不补播动画，由 prepareNavigation 统一判定。
         lastNavKind = NavKind.TAB
-        // 从别的页签进来时，目标页签的副页直接回主页（工作现场由回退/折返保留）；
-        // 这种"顺带重置"不再补播一次缩小动画。
-        val resetsTargetSubpage = (index == 0 && todayInboxOpen) ||
-            (index == 2 && planPage != null) ||
-            (index == 3 && settingsSubPage != null)
-        if (resetsTargetSubpage && index != tab) {
-            pageSnapTab = index
-            pageSnapToken++
-        }
         goTo(PageSnapshot(
             tab = index,
             todayInboxOpen = if (index == 0) false else todayInboxOpen,
@@ -924,37 +922,34 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                 TransformOrigin(0.664f, 0.878f),
                 TransformOrigin(0.829f, 0.878f)
             )
-            // 8.1.0 第三轮：启动只组合当前页签，其余页签首次进入时才组合（之后常驻）。
-            // 启动期少组合三个整页，是首帧卡顿的主要来源。
+            // 8.1.0 第三轮：启动只组合当前页签（首帧不被三个整页拖慢）；
+            // 首帧之后再逐帧补齐其余页签——否则第一次切到某页签时才组合整页，切换会明显掉帧。
             val visitedTabs = remember { mutableStateListOf(0) }
             LaunchedEffect(tab) { if (tab !in visitedTabs) visitedTabs.add(tab) }
+            LaunchedEffect(Unit) {
+                withFrameNanos { }
+                for (extra in listOf(1, 2, 3)) {
+                    if (extra !in visitedTabs) visitedTabs.add(extra)
+                    withFrameNanos { }
+                }
+            }
+            val currentSnapshot = PageSnapshot(tab, todayInboxOpen, planPage, settingsSubPage, settingsBackStack)
             listOf(0, 1, 2, 3).forEach { visibleTab ->
             if (visibleTab !in visitedTabs) return@forEach
             val isVisibleTab = visibleTab == tab
             // 8.1.0 第三轮：该页签此刻是否停在子页（决定它离开时收起、回来时从图标放大）。
-            val hasSubpageNow = when (visibleTab) {
-                0 -> todayInboxOpen
-                2 -> planPage != null
-                3 -> settingsSubPage != null
-                else -> false
-            }
-            // 8.1.0 第三轮：只有"本次导航离开的那个正在看子页的页签"才播收起动画（见 captureDepartingSubpage）；
+            val hasSubpageNow = TabMotionRules.subpageOpenOn(visibleTab, currentSnapshot)
+            // 8.1.0 第三轮：只有"本次导航离开的那个正在看子页的页签"才播收起动画（见 TabMotionRules）。
             // 主页与主页之间直接切换一律用左右平移，不缩放。
             val collapseLeaving = !isVisibleTab && visibleTab == leavingSubpageTab
             // 8.1.0 第三轮：页签平动幅度加大，切换方向更易读（原 48/64dp 太含蓄）。
             val slidePx = with(LocalDensity.current) { (if (lastNavKind == NavKind.JUMP) 96.dp else 80.dp).toPx() }
-            // 隐藏页签的静止缩放：仍开着子页的页签停在图标大小，回来时从图标放大（用户预期）；
-            // 已经回到主页的页签停在 1.0，回来时只平移、不缩放。
-            val hiddenScale = when {
-                collapseLeaving -> MotionSpec.COLLAPSE_SCALE
-                hasSubpageNow -> MotionSpec.COLLAPSE_SCALE
-                lastNavKind == NavKind.JUMP -> 0.85f
-                else -> 1f
-            }
+            // 隐藏页签的静止缩放：仍开着子页 → 停在图标大小，回来时从图标放大；否则 1.0，只平移。
+            val hiddenScale = TabMotionRules.restingScale(hasSubpageNow, lastNavKind == NavKind.JUMP)
             // 缩放规格：隐藏时瞬间归位（不可见，不该留动画）；到达时只有"仍开着子页"才放大。
             val scaleSpec: FiniteAnimationSpec<Float> = when {
                 collapseLeaving -> MotionSpec.collapseAcross()
-                isVisibleTab -> if (hasSubpageNow) MotionSpec.grow() else snap()
+                isVisibleTab -> if (TabMotionRules.growsOnArrival(hasSubpageNow)) MotionSpec.grow() else snap()
                 else -> snap()
             }
             // 透明度用 Animatable：首次组合（含首次进入某页签）也能淡入，而不是"啪"地出现；
