@@ -38,6 +38,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 
 /**
  * 8.1.0 第三轮：把弹窗从"独立窗口"改为**页内浮层**。
@@ -48,6 +49,9 @@ import androidx.compose.ui.unit.dp
  *
  * 统一性：外观复刻 Material3 AlertDialog（同圆角、同内边距、同按钮排布），
  * 所有弹窗共用同一套返回键、遮罩点击、键盘避让与进场动画。
+ * 嵌套：弹窗打开期间又打开另一个（例如长按底栏回退键弹历史列表）时**后开的接管**，
+ * 前一个的调用点保持组合，等宿主空闲后自动重新注册（见 [AppDialog]），
+ * 因此不会退回系统弹窗、底栏也始终可用。
  * 兜底：拿不到宿主时退化为系统 AlertDialog，任何弹窗都不会因此消失。
  */
 internal class AppDialogHostState {
@@ -56,6 +60,10 @@ internal class AppDialogHostState {
 
     /** 当前占用宿主的调用点身份；用于避免旧实例的 onDispose 误清新弹窗。 */
     internal var owner: Any? by mutableStateOf(null)
+
+    /** 最近一次注册的序号：后开的弹窗序号更大，因此可以接管宿主。 */
+    internal var seq: Int by mutableStateOf(0)
+    internal var nextSeq: Int = 0
 
     internal val isOpen: Boolean get() = content != null
 }
@@ -93,10 +101,11 @@ internal fun AppDialogHost(state: AppDialogHostState, bottomInset: Dp = 0.dp, mo
     // 弹窗打开期间，系统返回先关弹窗（本处理器最后注册，优先级最高）。
     BackHandler(enabled = open) { latestDismiss?.invoke() }
     val body = retained.value ?: return
-    Box(modifier.fillMaxSize()) {
+    // zIndex(1f)：盖住 StatusBarScrim（同 zIndex 0 的兄弟节点、组合在宿主之后），但仍在底栏（2f）之下。
+    Box(Modifier.fillMaxSize().zIndex(1f)) {
         Box(
             Modifier.fillMaxSize()
-                .graphicsLayer { alpha = 0.32f * progress.value }
+                .graphicsLayer { alpha = MotionSpec.SCRIM_ALPHA * progress.value }
                 .background(Color.Black)
                 // 遮罩点击关闭：不用 clickable，避免无障碍树里多出一个没有名字的可点节点。
                 .pointerInput(Unit) { detectTapGestures { latestDismiss?.invoke() } }
@@ -111,7 +120,7 @@ internal fun AppDialogHost(state: AppDialogHostState, bottomInset: Dp = 0.dp, mo
                         .padding(24.dp)
                         .graphicsLayer {
                             alpha = progress.value
-                            scaleX = 0.96f + 0.04f * progress.value
+                            scaleX = MotionSpec.DIALOG_ENTER_SCALE + (1f - MotionSpec.DIALOG_ENTER_SCALE) * progress.value
                             scaleY = scaleX
                         }
                         // 卡片自身吞掉点击，否则点卡片空白处会穿透到遮罩、把弹窗关掉。
@@ -122,7 +131,8 @@ internal fun AppDialogHost(state: AppDialogHostState, bottomInset: Dp = 0.dp, mo
                         color = MaterialTheme.colorScheme.surfaceContainerHigh,
                         tonalElevation = 6.dp,
                         shadowElevation = 6.dp,
-                        modifier = Modifier.widthIn(min = 280.dp, max = 560.dp)
+                        // 调用方传的 modifier 作用在卡片上（与 AlertDialog 语义一致）。
+                        modifier = modifier.widthIn(min = 280.dp, max = 560.dp)
                     ) { body() }
                 }
             }
@@ -171,18 +181,9 @@ internal fun AppDialog(
         return
     }
     val token = remember { Any() }
-    // 已被别的调用点占用时不再抢占，退化为系统弹窗（本应用不嵌套弹窗，这里只是保险）。
-    if (host.isOpen && host.owner !== token) {
-        AlertDialog(
-            onDismissRequest = onDismissRequest,
-            title = title,
-            text = text,
-            confirmButton = confirmButton,
-            dismissButton = dismissButton,
-            modifier = modifier
-        )
-        return
-    }
+    // 后开的弹窗接管宿主；被顶掉的调用点不会退化为系统弹窗，而是等宿主空闲后自动重新注册。
+    val mySeq = remember { ++host.nextSeq }
+    val active = !host.isOpen || host.owner === token || mySeq > host.seq
     val latestDismiss by rememberUpdatedState(onDismissRequest)
     // 弹窗内容常依赖调用方的最新状态：每次组合刷新，宿主才能拿到最新一份。
     // 结构同 Material3 AlertDialog：标题与按钮固定，只有正文区滚动（横屏/键盘时按钮不会被挤走）。
@@ -216,10 +217,14 @@ internal fun AppDialog(
             }
         }
     }
-    DisposableEffect(host) {
-        host.owner = token
-        host.onDismiss = { latestDismiss() }
-        host.content = { contentState.value() }
+    // active 变化时重新评估：被别人顶掉 → 注销自己；宿主空闲 → 重新注册（历史列表关掉后弹窗自己回来）。
+    DisposableEffect(host, active) {
+        if (active) {
+            host.owner = token
+            host.seq = mySeq
+            host.onDismiss = { latestDismiss() }
+            host.content = { contentState.value() }
+        }
         onDispose {
             if (host.owner === token) {
                 host.content = null

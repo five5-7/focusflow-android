@@ -14,8 +14,8 @@ import androidx.compose.animation.core.tween
  * - 进入用强调减速（起步快、落定慢），退出用强调加速（起步慢、离场快）；
  * - 速度设为 0（关闭动画）时一律退化为 [snap]，不做任何过渡；
  * - 副页转场：进入从底栏图标放大（不淡入，避免"淡影"）、退出缩回同一图标并同步淡出；
- *   两侧时长一致（[SUBPAGE_HOME_MS]），主页一侧在进入时退到 [HUB_REDECE_SCALE]，
- *   返回时主页直接出现在下层、不参与动画（见 SubpageMotion 与各页的 hubEnter/hubExit）。
+ *   进入时副页侧 240ms（[grow]）、主页退让侧 260ms（[move]）；返回时两侧都是 240ms
+ *   （[collapseHome]），主页直接出现在下层、不参与动画（见 SubpageMotion 与各页的 hubEnter/hubExit）。
  */
 internal object MotionSpec {
     /** 进入时长：略长，留出落定感。 */
@@ -62,6 +62,12 @@ internal object MotionSpec {
 
     /** 页签平动幅度（dp）：跳转时更大，方向更易读。 */
     const val JUMP_SLIDE_DP = 96
+
+    /** 弹窗卡片进场缩放：从 0.96 长到 1.0，与遮罩淡入同一节奏。 */
+    const val DIALOG_ENTER_SCALE = 0.96f
+
+    /** 弹窗遮罩不透明度（浅色/深色同值，对齐 Material 的 Scrim）。 */
+    const val SCRIM_ALPHA = 0.32f
 
     /** 强调减速：进入与落定。 */
     val enterEasing: Easing = CubicBezierEasing(0.05f, 0.7f, 0.1f, 1f)
