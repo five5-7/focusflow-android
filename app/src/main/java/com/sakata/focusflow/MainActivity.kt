@@ -405,7 +405,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     var historyListOpen by remember { mutableStateOf(false) }
     // 8.1.0 导航类型标记：驱动页签容器转场动画（TAB/BACK/FORWARD/JUMP）。
     var lastNavKind by remember { mutableStateOf(NavKind.TAB) }
-    // 8.1.0 第三轮：点击底栏入口回主页时，目标页签的副页重置不播动画（snapPageChange 显式抑制）。
+    // 8.1.0 第三轮：只有"把目标页签的子页收回主页"时才抑制（snapPageChange）；打开子页照常播放放大动画。
     var pageSnapTab by remember { mutableIntStateOf(-1) }
     var pageSnapToken by remember { mutableIntStateOf(0) }
     // 只在"到达那一帧"生效：等动画窗口过去后复位，避免影响该页签后续的正常转场。
@@ -450,12 +450,13 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     /**
      * 8.1.0 第三轮：所有导航统一先走这里（规则见 [TabMotionRules]，纯函数、有单测）。
      * 1) 记录本次导航离开的、正在看子页的页签；
-     * 2) 若这次导航改掉了目标页签的子页状态，标记"该子页切换不补播动画"。
+     * 2) 若这次导航把目标页签的子页**收回主页**，标记"该子页切换不补播动画"。
+     * 打开子页（深链/通知/跳转）不抑制——那是用户明确要去的地方，应当从图标放大展开。
      */
     fun prepareNavigation(next: PageSnapshot) {
         val current = pageSnapshot()
         leavingSubpageTab = TabMotionRules.departingSubpageTab(current, next)
-        if (TabMotionRules.destinationSubpageChanged(current, next)) {
+        if (TabMotionRules.destinationSubpageReset(current, next)) {
             pageSnapTab = next.tab
             pageSnapToken++
         }

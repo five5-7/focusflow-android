@@ -5,7 +5,8 @@ package com.sakata.focusflow
  *
  * 这套规则原先散在 Composable 里，只能靠真机逐例试，结果同一个判断反复出错：
  * - 收起动画只应在"本次导航离开的、正在看子页的页签"上播放，且必须在**应用新快照之前**判定；
- * - 页签直达、回退/折返恢复若改掉了目标页签的子页状态，这次子页切换不该补播动画；
+ * - 页签直达把目标页签的子页**收回主页**时不补播动画；反过来，本次导航**打开**目标页签的子页
+ *   （深链/通知/快速记录/更新说明跳转）是用户明确要去的地方，照常播放放大；
  * - 隐藏页签仍开着子页时停在图标大小，回到它时从图标放大；已回到主页的页签只平移。
  */
 internal object TabMotionRules {
@@ -25,15 +26,16 @@ internal object TabMotionRules {
         if (next.tab != current.tab && subpageOpenOn(current.tab, current)) current.tab else NO_TAB
 
     /**
-     * 本次导航是否改掉了**目标页签**的子页状态。
-     * 是则这次子页切换属于"顺带发生"，不该补播收起/放大动画。
+     * 本次导航是否把**目标页签**的子页收回主页（重置）。
+     * 只有"收回"属于顺带发生，才不补播动画；反过来，**打开**子页（深链、通知、
+     * 快速记录跳转、更新说明跳路线图等）是用户明确要去的地方，照常从底栏图标放大展开。
      */
-    fun destinationSubpageChanged(current: PageSnapshot, next: PageSnapshot): Boolean {
+    fun destinationSubpageReset(current: PageSnapshot, next: PageSnapshot): Boolean {
         if (next.tab == current.tab) return false
         return when (next.tab) {
-            PageSnapshot.TAB_TODAY -> next.todayInboxOpen != current.todayInboxOpen
-            PageSnapshot.TAB_PLANS -> next.planPage != current.planPage
-            PageSnapshot.TAB_SETTINGS -> next.settingsSubPage != current.settingsSubPage
+            PageSnapshot.TAB_TODAY -> current.todayInboxOpen && !next.todayInboxOpen
+            PageSnapshot.TAB_PLANS -> current.planPage != null && next.planPage == null
+            PageSnapshot.TAB_SETTINGS -> current.settingsSubPage != null && next.settingsSubPage == null
             else -> false
         }
     }

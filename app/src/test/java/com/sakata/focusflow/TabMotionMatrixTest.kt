@@ -27,7 +27,7 @@ class TabMotionMatrixTest {
         val from = plans(PlanPage.GOALS)
         val to = PageSnapshot(PageSnapshot.TAB_TODAY, false, PlanPage.GOALS, null, emptyList())
         assertEquals(PageSnapshot.TAB_PLANS, TabMotionRules.departingSubpageTab(from, to))
-        assertFalse(TabMotionRules.destinationSubpageChanged(from, to))
+        assertFalse(TabMotionRules.destinationSubpageReset(from, to))
         assertTrue(TabMotionRules.subpageOpenOn(PageSnapshot.TAB_PLANS, to))
     }
 
@@ -36,7 +36,7 @@ class TabMotionMatrixTest {
         val from = today(inbox = true)
         val to = plans(null)
         assertEquals(PageSnapshot.TAB_TODAY, TabMotionRules.departingSubpageTab(from, to))
-        assertFalse(TabMotionRules.destinationSubpageChanged(from, to))
+        assertFalse(TabMotionRules.destinationSubpageReset(from, to))
         assertEquals(1f, TabMotionRules.restingScale(TabMotionRules.subpageOpenOn(PageSnapshot.TAB_TODAY, to), jumped = false), 0.0001f)
     }
 
@@ -45,7 +45,7 @@ class TabMotionMatrixTest {
         val from = today(inbox = true)
         val to = today(inbox = false)
         assertEquals(TabMotionRules.NO_TAB, TabMotionRules.departingSubpageTab(from, to))
-        assertFalse(TabMotionRules.destinationSubpageChanged(from, to))
+        assertFalse(TabMotionRules.destinationSubpageReset(from, to))
         assertEquals(-1, NavigationMotion.direction(1, 0))
 
         // 规则 v3 去抖：主页 → 收集箱 → 主页 属于 A→B→A，收集箱不进历史（点错又点回不记）。
@@ -67,7 +67,7 @@ class TabMotionMatrixTest {
         assertEquals(appearance, history.back())
 
         assertEquals(TabMotionRules.NO_TAB, TabMotionRules.departingSubpageTab(todayLeftover, appearance))
-        assertFalse(TabMotionRules.destinationSubpageChanged(todayLeftover, appearance))
+        assertFalse(TabMotionRules.destinationSubpageReset(todayLeftover, appearance))
         assertTrue(TabMotionRules.subpageOpenOn(PageSnapshot.TAB_SETTINGS, appearance))
         assertTrue(TabMotionRules.growsOnArrival(true))
     }
@@ -85,7 +85,7 @@ class TabMotionMatrixTest {
         assertFalse(history.canGoForward())
 
         assertEquals(PageSnapshot.TAB_SETTINGS, TabMotionRules.departingSubpageTab(appearance, todayLeftover))
-        assertFalse(TabMotionRules.destinationSubpageChanged(appearance, todayLeftover))
+        assertFalse(TabMotionRules.destinationSubpageReset(appearance, todayLeftover))
         assertFalse(TabMotionRules.subpageOpenOn(PageSnapshot.TAB_TODAY, todayLeftover))
     }
 
@@ -94,7 +94,7 @@ class TabMotionMatrixTest {
         val from = schedule(SettingsSubPage.APPEARANCE)
         val to = today(settings = SettingsSubPage.APPEARANCE)
         assertEquals(TabMotionRules.NO_TAB, TabMotionRules.departingSubpageTab(from, to))
-        assertFalse(TabMotionRules.destinationSubpageChanged(from, to))
+        assertFalse(TabMotionRules.destinationSubpageReset(from, to))
         assertEquals(
             TabMotionRules.subpageOpenOn(PageSnapshot.TAB_SETTINGS, from),
             TabMotionRules.subpageOpenOn(PageSnapshot.TAB_SETTINGS, to)
@@ -107,7 +107,7 @@ class TabMotionMatrixTest {
         val to = settings(SettingsSubPage.ADVANCED)
         assertEquals(-1, NavigationMotion.direction(3, 1))
         assertEquals(TabMotionRules.NO_TAB, TabMotionRules.departingSubpageTab(from, to))
-        assertFalse(TabMotionRules.destinationSubpageChanged(from, to))
+        assertFalse(TabMotionRules.destinationSubpageReset(from, to))
         assertTrue(TabMotionRules.subpageOpenOn(PageSnapshot.TAB_SETTINGS, from))
         assertTrue(TabMotionRules.subpageOpenOn(PageSnapshot.TAB_SETTINGS, to))
     }
@@ -117,7 +117,7 @@ class TabMotionMatrixTest {
         assertEquals(0, NavigationMotion.direction(1, 1))
         assertTrue(TabMotionRules.subpageOpenOn(PageSnapshot.TAB_PLANS, plans(PlanPage.GOALS)))
         assertTrue(TabMotionRules.subpageOpenOn(PageSnapshot.TAB_PLANS, plans(PlanPage.COURSES)))
-        assertFalse(TabMotionRules.destinationSubpageChanged(plans(PlanPage.GOALS), plans(PlanPage.COURSES)))
+        assertFalse(TabMotionRules.destinationSubpageReset(plans(PlanPage.GOALS), plans(PlanPage.COURSES)))
     }
 
     /** 设置页的深度映射（与 SettingsScreen 的分组一致）驱动缩放方向。 */
@@ -131,16 +131,35 @@ class TabMotionMatrixTest {
         assertEquals(0, NavigationMotion.direction(1, 1))
     }
 
-    /** A14：快速记录跳到今日·收集箱：目标从图标放大，且不补播动画。 */
-    @Test fun quickCaptureJumpOpensTheInboxWithoutReplay() {
+    /** A14：快速记录跳到今日·收集箱：这是"打开"子页，不抑制——收集箱从底栏图标放大展开。 */
+    @Test fun quickCaptureJumpOpensTheInboxWithTheGrowAnimation() {
         val from = settings(SettingsSubPage.APPEARANCE)
         val to = PageSnapshot(PageSnapshot.TAB_TODAY, true, null, SettingsSubPage.APPEARANCE, emptyList())
         assertEquals(PageSnapshot.TAB_SETTINGS, TabMotionRules.departingSubpageTab(from, to))
-        assertTrue(TabMotionRules.destinationSubpageChanged(from, to))
+        assertFalse(TabMotionRules.destinationSubpageReset(from, to))
         assertTrue(TabMotionRules.subpageOpenOn(PageSnapshot.TAB_TODAY, to))
         assertTrue(TabMotionRules.growsOnArrival(true))
         assertEquals(MotionSpec.COLLAPSE_SCALE, TabMotionRules.restingScale(hasSubpage = true, jumped = true), 0.0001f)
         assertEquals(0.85f, TabMotionRules.restingScale(hasSubpage = false, jumped = true), 0.0001f)
+    }
+
+    /** Q2：深链/跳转直接打开设置子页属于"打开"而非"顺带重置"，照常从图标放大展开。 */
+    @Test fun deepLinkIntoASettingsSubpagePlaysTheGrowAnimation() {
+        val from = PageSnapshot(PageSnapshot.TAB_TODAY, false, null, null, emptyList())
+        val to = settings(SettingsSubPage.ROADMAP)
+        assertFalse(TabMotionRules.destinationSubpageReset(from, to))
+        assertEquals(TabMotionRules.NO_TAB, TabMotionRules.departingSubpageTab(from, to))
+        assertTrue(TabMotionRules.subpageOpenOn(PageSnapshot.TAB_SETTINGS, to))
+        assertTrue(TabMotionRules.growsOnArrival(true))
+        // 课程编辑器挂起后跳「管理地点与出行参数」同理
+        assertFalse(TabMotionRules.destinationSubpageReset(from, settings(SettingsSubPage.CAMPUS_PLACES, listOf(SettingsSubPage.ADVANCED))))
+        // 反向：从子页回到设置主页仍属于重置，不补播
+        assertTrue(
+            TabMotionRules.destinationSubpageReset(
+                PageSnapshot(PageSnapshot.TAB_TODAY, false, null, SettingsSubPage.ROADMAP, emptyList()),
+                settings(null)
+            )
+        )
     }
 
     /** A13：通知跳转离开计划子页：子页保留在后台，不误播收起。 */
@@ -148,7 +167,7 @@ class TabMotionMatrixTest {
         val from = plans(PlanPage.GOALS)
         val to = PageSnapshot(PageSnapshot.TAB_TODAY, false, PlanPage.GOALS, null, emptyList())
         assertEquals(PageSnapshot.TAB_PLANS, TabMotionRules.departingSubpageTab(from, to))
-        assertFalse(TabMotionRules.destinationSubpageChanged(from, to))
+        assertFalse(TabMotionRules.destinationSubpageReset(from, to))
         assertTrue(TabMotionRules.subpageOpenOn(PageSnapshot.TAB_PLANS, to))
         assertFalse(TabMotionRules.growsOnArrival(TabMotionRules.subpageOpenOn(PageSnapshot.TAB_TODAY, to)))
     }

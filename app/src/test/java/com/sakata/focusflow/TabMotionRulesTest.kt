@@ -33,14 +33,14 @@ class TabMotionRulesTest {
         val from = settings(SettingsSubPage.APPEARANCE)
         val to = today(settings = SettingsSubPage.APPEARANCE)
         assertEquals(3, TabMotionRules.departingSubpageTab(from, to))
-        assertFalse(TabMotionRules.destinationSubpageChanged(from, to))
+        assertFalse(TabMotionRules.destinationSubpageReset(from, to))
     }
 
     @Test fun directTabEntryResetsTheDestinationSubpageWithoutReplayingAnAnimation() {
         // 今日 → 设置（直达入口回主页）：目标子页被改掉 → 不补播收起
         val from = today(settings = SettingsSubPage.APPEARANCE)
         val to = settings()
-        assertTrue(TabMotionRules.destinationSubpageChanged(from, to))
+        assertTrue(TabMotionRules.destinationSubpageReset(from, to))
         assertEquals(TabMotionRules.NO_TAB, TabMotionRules.departingSubpageTab(from, to))
     }
 
@@ -53,12 +53,12 @@ class TabMotionRulesTest {
         // 外观 → 今日：唯一应当播收起的一次
         assertEquals(3, TabMotionRules.departingSubpageTab(appearance, todayWithBackgroundSubpage))
         // 今日 → 设置主页：目标子页被重置 → 不补播
-        assertTrue(TabMotionRules.destinationSubpageChanged(todayWithBackgroundSubpage, hub))
+        assertTrue(TabMotionRules.destinationSubpageReset(todayWithBackgroundSubpage, hub))
         // 上一步：回到今日，没有页签在离开子页
         assertEquals(TabMotionRules.NO_TAB, TabMotionRules.departingSubpageTab(hub, todayWithBackgroundSubpage))
         // 下一步：再次回到设置主页，仍只是"目标子页被改掉"，不该再播一次收起
         assertEquals(TabMotionRules.NO_TAB, TabMotionRules.departingSubpageTab(todayWithBackgroundSubpage, hub))
-        assertTrue(TabMotionRules.destinationSubpageChanged(todayWithBackgroundSubpage, hub))
+        assertTrue(TabMotionRules.destinationSubpageReset(todayWithBackgroundSubpage, hub))
     }
 
     @Test fun returningToATabThatStillShowsASubpageGrowsFromItsIcon() {
