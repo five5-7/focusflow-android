@@ -17,6 +17,13 @@ class PrototypeStore(context: Context) {
     private val appContext = context.applicationContext
     private val preferences = ProtectedPreferences(context.getSharedPreferences("focusflow", Context.MODE_PRIVATE))
 
+    /**
+     * 诊断键（重启恢复）专用：**不经过** [StorageProtection]。
+     * 损坏数据备份失败时保护层会进入只读、静默丢弃写入，若诊断键走保护层，
+     * `seen_boot_count` 永远不推进，正常重启也会被误报成"系统推迟了开机启动"。
+     */
+    private val diagnosticPreferences = context.getSharedPreferences("focusflow", Context.MODE_PRIVATE)
+
     /** 损坏数据备份目录：解析失败的 prefs 原始串先落盘，再返回空默认——后续保存覆盖也不丢原始数据。 */
     private val corruptDir: File by lazy { File(appContext.filesDir, CorruptionBackup.DIR_NAME) }
 
@@ -765,18 +772,20 @@ class PrototypeStore(context: Context) {
      * 8.1.0 重启恢复诊断：记录"应用上次收到开机广播时的 BOOT_COUNT"。
      * 若当前 BOOT_COUNT 比它新，说明本次开机系统没有把开机广播送给应用（ColorOS 会推迟），
      * 提醒是在用户打开应用时才补登记的——设置页据此如实提示，不再让用户以为重启后自动恢复。
+     * 走 [diagnosticPreferences]：诊断键必须写得进去，不能被存储保护降级影响。
      */
-    fun loadRestoredBootCount(): Int = preferences.getInt("restored_boot_count", -1)
+    fun loadRestoredBootCount(): Int = diagnosticPreferences.getInt("restored_boot_count", -1)
 
+    /** 由 [BootReceiver] 在开机广播里调用：进程随时可能被回收，因此用 commit 落盘。 */
     fun saveRestoredBootCount(count: Int) {
-        preferences.edit().putInt("restored_boot_count", count).apply()
+        diagnosticPreferences.edit().putInt("restored_boot_count", count).commit()
     }
 
     /** 应用上次启动时见到的 BOOT_COUNT（见 [BootRecovery]）。 */
-    fun loadSeenBootCount(): Int = preferences.getInt("seen_boot_count", -1)
+    fun loadSeenBootCount(): Int = diagnosticPreferences.getInt("seen_boot_count", -1)
 
     fun saveSeenBootCount(count: Int) {
-        preferences.edit().putInt("seen_boot_count", count).apply()
+        diagnosticPreferences.edit().putInt("seen_boot_count", count).apply()
     }
 
     /** New-install choice shown before quick start; absent on upgrades must not prompt existing users. */

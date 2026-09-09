@@ -361,7 +361,7 @@ object RoadmapData {
         RoadmapVersion("2.0", listOf(
             RoadmapEntry("2.0", "V2 活动模式", "开始前约定结束时间与下一步，支持倒计时、提前预告与明确的到点转场", RoadmapStatus.DONE),
             RoadmapEntry("2.0", "四套主题", "海盐蓝、薄荷绿、暖杏与暮紫，页面、导航、卡片、控件与日程色块整体换色", RoadmapStatus.DONE),
-            RoadmapEntry("2.0", "提醒恢复", "活动与提醒状态本地保存，应用启动或设备重启后自动恢复", RoadmapStatus.DONE)
+            RoadmapEntry("2.0", "提醒恢复", "活动与提醒状态本地保存，应用启动或设备重启后恢复（厂商推迟开机启动时以打开应用为准，见 8.1.0）", RoadmapStatus.DONE)
         )),
         RoadmapVersion("1.8", listOf(
             RoadmapEntry("1.8", "信息架构收敛", "移除时刻红线；计划页滑入淡出转场，副页面无返回箭头、系统返回返回目录", RoadmapStatus.DONE)

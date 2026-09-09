@@ -16,17 +16,24 @@ import android.provider.Settings
  * - `seen_boot_count`：应用每次启动时写入的 `BOOT_COUNT`。
  * 若"本次开机的 BOOT_COUNT" 比上次见到的更新，且没有对应的开机广播记录，
  * 就说明本次开机系统没叫醒我们，提醒是这次打开应用才补上的。
+ *
+ * 已知边界（如实记录，不假装精确）：
+ * - 安装后从未打开过应用就重启（`seen` 仍为 -1）不提示，避免把新装用户误报；
+ * - `BOOT_COUNT` 是设备级全局值，而两个记录按用户存储（多用户下以主用户为准）；
+ * - 同一进程内只判定一次；开机广播在进程存活期间才送达时，由 [noteBroadcastReceived] 撤销提示。
  */
 internal object BootRecovery {
+    private var notedThisProcess = false
+
     /** 本次启动是否属于"开机后系统没有把广播送给我们"的情况。 */
     var deferredThisBoot: Boolean = false
         private set
 
     /** 应用启动时调用一次（`MainActivity.onCreate`）。 */
     fun noteLaunch(context: Context) {
-        val current = runCatching {
-            Settings.Global.getInt(context.contentResolver, Settings.Global.BOOT_COUNT, -1)
-        }.getOrDefault(-1)
+        if (notedThisProcess) return
+        notedThisProcess = true
+        val current = bootCount(context)
         if (current < 0) {
             deferredThisBoot = false
             return
@@ -37,6 +44,17 @@ internal object BootRecovery {
         deferredThisBoot = bootRecoveryDeferred(current, seen, restored)
         if (seen != current) store.saveSeenBootCount(current)
     }
+
+    /** 开机广播真的送达时调用（[BootReceiver]）：记下这次开机，并撤销"被推迟"的提示。 */
+    fun noteBroadcastReceived(context: Context) {
+        val current = bootCount(context)
+        if (current >= 0) PrototypeStore(context).saveRestoredBootCount(current)
+        deferredThisBoot = false
+    }
+
+    private fun bootCount(context: Context): Int = runCatching {
+        Settings.Global.getInt(context.contentResolver, Settings.Global.BOOT_COUNT, -1)
+    }.getOrDefault(-1)
 }
 
 /**
@@ -47,4 +65,3 @@ internal object BootRecovery {
  */
 internal fun bootRecoveryDeferred(currentBootCount: Int, seenBootCount: Int, restoredBootCount: Int): Boolean =
     seenBootCount >= 0 && currentBootCount > seenBootCount && restoredBootCount != currentBootCount
-
