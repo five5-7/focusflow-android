@@ -21,6 +21,7 @@ object RoadmapData {
     /** 已实现版本演进（1.0 → 当前版本），每版本浓缩 1–3 条，与 CHANGELOG.md 对应。 */
     val evolution: List<RoadmapVersion> = listOf(
         RoadmapVersion("8.1.0", listOf(
+            RoadmapEntry("8.1.0-rc.6", "统一动效规范与深度缩放转场", "把散落的时长与缓动收拢为 MotionSpec（进入 240ms／退出 170ms／位移 260ms／底栏形变 260ms），全部经「设置 → 外观 → 动画速度」换算，关闭时瞬时完成；副页改为从底栏图标深度缩放进出，主页之间左右平移；底栏选中底色改为会平移的色块、进入子页时显示圆环；转场判定抽为 TabMotionRules 并补单测；修离开子页后点击被吞、退出提示时长与冷启动返回兜底。", RoadmapStatus.CANDIDATE),
             RoadmapEntry("8.1.0-rc.5", "退出确认与页面历史", "根页面返回先提示、提示期内再次返回才退出（非今日页先回今日主页）；回退／折返为底栏两端圆瓣形变，长按回退键弹会话历史列表；历史规则 v3（主页↔主页不记、工作过的主页可回）；弹窗草稿自动恢复、新建弹窗可清空；检查更新只接受 GitHub 正式版（可勾选稳定签名候选）。", RoadmapStatus.CANDIDATE)
         )),
         RoadmapVersion("8.0.0", listOf(
@@ -418,7 +419,7 @@ fun RoadmapSubpageContent() {
                 Text("每次功能更新递增 0.1；更新记录见版本演进。", style = MaterialTheme.typography.bodySmall)
             }
         }
-        Text("版本演进（1.0 → 8.0）", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Text("版本演进（1.0 → 8.1）", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         RoadmapData.evolution.forEach { version ->
             Text(version.version, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
             version.entries.forEach { entry ->
