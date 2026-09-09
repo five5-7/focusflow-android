@@ -725,7 +725,7 @@ private data class BaselineVariantDraft(val name: String)
                         )
                         HorizontalDivider()
                         Text("日程开始提醒", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                        SettingSwitch("日程开始提醒", "课程以外的定时任务、目标安排会在开始前预告并在到点时再次提醒；重启后自动恢复", activitySettings.scheduleRemindersEnabled) {
+                        SettingSwitch("日程开始提醒", "课程以外的定时任务、目标安排会在开始前预告并在到点时再次提醒；重启后会重新登记（系统若延迟启动应用，打开一次即可恢复）", activitySettings.scheduleRemindersEnabled) {
                             onActivitySettingsChange(activitySettings.copy(scheduleRemindersEnabled = it))
                         }
                         Text("日程开始前预告：${activitySettings.scheduleAdvanceMinutes} 分钟")
@@ -753,10 +753,18 @@ private data class BaselineVariantDraft(val name: String)
                                     color = if (batteryUnrestricted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
                                 )
                                 Text(
-                                    "厂商后台／自启动：Android 没有统一的可读取接口，不能直接判断开关；FocusFlow 以下方实测结果判断是否能准时唤醒。",
+                                    "后台与自启动：厂商开关读不到，FocusFlow 用实测送达判断；系统若推迟开机启动，打开一次应用即可补登记（详见本页问号）。",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
+                                // 本次开机的 BOOT_COUNT 比"收到开机广播时的 BOOT_COUNT"更新 → 系统推迟了开机广播。
+                                if (BootRecovery.deferredThisBoot) {
+                                    Text(
+                                        "本次开机时系统推迟了开机启动（ColorOS 常见）：提醒已在这次打开应用时补登记。",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.error
+                                    )
+                                }
                                 if (!activitySettings.scheduleRemindersEnabled) {
                                     Text("日程提醒已关闭。", style = MaterialTheme.typography.bodySmall)
                                 } else if (pendingTaskReminders.isEmpty()) {

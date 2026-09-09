@@ -98,6 +98,8 @@ class MainActivity : ComponentActivity() {
         // 这里先挂一个兜底回调吞掉返回；首帧组合完成后立刻禁用，此后完全交给 Compose，
         // 避免将来某个状态没有 Compose 处理器时返回被永久吞掉（审计 P3）。
         onBackPressedDispatcher.addCallback(this, startupBackFallback)
+        // 8.1.0：判断本次开机系统是否把开机广播送给了我们（ColorOS 会推迟），设置页据此如实提示。
+        BootRecovery.noteLaunch(this)
         setContent {
             LaunchedEffect(Unit) { startupBackFallback.isEnabled = false }
             FocusFlowApp(statusCheckInRequested, mealPromptRequested, mealFinishRequested, quickCaptureRequested, permissionOnboardingPending) {

@@ -761,6 +761,24 @@ class PrototypeStore(context: Context) {
         preferences.edit().putBoolean("feature_intro_shown", shown).apply()
     }
 
+    /**
+     * 8.1.0 重启恢复诊断：记录"应用上次收到开机广播时的 BOOT_COUNT"。
+     * 若当前 BOOT_COUNT 比它新，说明本次开机系统没有把开机广播送给应用（ColorOS 会推迟），
+     * 提醒是在用户打开应用时才补登记的——设置页据此如实提示，不再让用户以为重启后自动恢复。
+     */
+    fun loadRestoredBootCount(): Int = preferences.getInt("restored_boot_count", -1)
+
+    fun saveRestoredBootCount(count: Int) {
+        preferences.edit().putInt("restored_boot_count", count).apply()
+    }
+
+    /** 应用上次启动时见到的 BOOT_COUNT（见 [BootRecovery]）。 */
+    fun loadSeenBootCount(): Int = preferences.getInt("seen_boot_count", -1)
+
+    fun saveSeenBootCount(count: Int) {
+        preferences.edit().putInt("seen_boot_count", count).apply()
+    }
+
     /** New-install choice shown before quick start; absent on upgrades must not prompt existing users. */
     fun loadCampusLifeChoiceShown(): Boolean = preferences.getBoolean("campus_life_choice_shown", false)
 
