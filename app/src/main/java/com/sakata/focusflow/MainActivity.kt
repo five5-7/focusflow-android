@@ -1520,7 +1520,8 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             } // inset-aware viewport
         } // content padding provider / Scaffold
         // 弹窗浮层在底栏之前：因此弹窗打开时悬浮底栏（含回退／折返键）仍在最上层、可点。
-        AppDialogHost(dialogHost)
+        // 传底栏实测高度：卡片只在底栏之上的区域居中，横屏时底部按钮不会被底栏盖住。
+        AppDialogHost(dialogHost, bottomInset = floatingBarHeight)
         FloatingNavigationBar(
             safeInsets = safeContentInsets,
             containerColor = themeSpec.navigationBarColor,

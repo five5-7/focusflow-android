@@ -35,6 +35,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 /**
@@ -66,9 +68,12 @@ internal val LocalAppDialogHost = staticCompositionLocalOf<AppDialogHostState?> 
  * 进场/退场用同一条规范（[MotionSpec.enter] / [MotionSpec.exit]）：
  * 遮罩淡入淡出，卡片同步轻微放大/缩小。退场时调用方已经离开组合、内容会被清空，
  * 因此这里额外保留最后一次内容 [retained]，让 170ms 的退场动画有东西可画。
+ *
+ * [bottomInset] 传悬浮底栏的实测高度：卡片只在底栏**之上**的区域居中，
+ * 否则横屏（竖向空间只有 520dp 左右）时卡片底部按钮会被底栏盖住。
  */
 @Composable
-internal fun AppDialogHost(state: AppDialogHostState, modifier: Modifier = Modifier) {
+internal fun AppDialogHost(state: AppDialogHostState, bottomInset: Dp = 0.dp, modifier: Modifier = Modifier) {
     val content = state.content
     val dismiss = state.onDismiss
     val open = content != null && dismiss != null
@@ -96,25 +101,46 @@ internal fun AppDialogHost(state: AppDialogHostState, modifier: Modifier = Modif
                 // 遮罩点击关闭：不用 clickable，避免无障碍树里多出一个没有名字的可点节点。
                 .pointerInput(Unit) { detectTapGestures { latestDismiss?.invoke() } }
         )
-        Box(
-            Modifier.align(Alignment.Center)
-                .padding(horizontal = 24.dp, vertical = 24.dp)
-                .graphicsLayer {
-                    alpha = progress.value
-                    scaleX = 0.96f + 0.04f * progress.value
-                    scaleY = scaleX
+        // 卡片位置：优先在整屏居中（Material 观感）；空间不够时上移到"底栏之上"，
+        // 保证按钮永远不会被底栏盖住（横屏竖向只有 520dp 左右，必须让位）。
+        Layout(
+            modifier = Modifier.fillMaxSize(),
+            content = {
+                Box(
+                    Modifier
+                        .padding(24.dp)
+                        .graphicsLayer {
+                            alpha = progress.value
+                            scaleX = 0.96f + 0.04f * progress.value
+                            scaleY = scaleX
+                        }
+                        // 卡片自身吞掉点击，否则点卡片空白处会穿透到遮罩、把弹窗关掉。
+                        .pointerInput(Unit) { detectTapGestures { } }
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(28.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        tonalElevation = 6.dp,
+                        shadowElevation = 6.dp,
+                        modifier = Modifier.widthIn(min = 280.dp, max = 560.dp)
+                    ) { body() }
                 }
-                // 卡片自身吞掉点击，否则点卡片空白处会穿透到遮罩、把弹窗关掉。
-                .pointerInput(Unit) { detectTapGestures { } },
-            contentAlignment = Alignment.Center
-        ) {
-            Surface(
-                shape = RoundedCornerShape(28.dp),
-                color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                tonalElevation = 6.dp,
-                shadowElevation = 6.dp,
-                modifier = Modifier.widthIn(min = 280.dp, max = 560.dp)
-            ) { body() }
+            }
+        ) { measurables, constraints ->
+            val pad = 24.dp.roundToPx()
+            val inset = bottomInset.roundToPx()
+            val available = (constraints.maxHeight - inset - pad * 2).coerceAtLeast(pad * 2 + 1)
+            val placeable = measurables.first().measure(
+                constraints.copy(minWidth = 0, minHeight = 0, maxHeight = available)
+            )
+            layout(constraints.maxWidth, constraints.maxHeight) {
+                val centered = (constraints.maxHeight - placeable.height) / 2
+                val safe = constraints.maxHeight - inset - placeable.height
+                placeable.place(
+                    x = (constraints.maxWidth - placeable.width) / 2,
+                    y = minOf(centered, safe).coerceAtLeast(0)
+                )
+            }
         }
     }
 }
@@ -159,8 +185,9 @@ internal fun AppDialog(
     }
     val latestDismiss by rememberUpdatedState(onDismissRequest)
     // 弹窗内容常依赖调用方的最新状态：每次组合刷新，宿主才能拿到最新一份。
+    // 结构同 Material3 AlertDialog：标题与按钮固定，只有正文区滚动（横屏/键盘时按钮不会被挤走）。
     val contentState = rememberUpdatedState<@Composable () -> Unit> {
-        Column(Modifier.padding(24.dp).verticalScroll(rememberScrollState())) {
+        Column(Modifier.padding(24.dp)) {
             title?.let {
                 CompositionLocalProvider(
                     LocalContentColor provides MaterialTheme.colorScheme.onSurface,
@@ -171,7 +198,13 @@ internal fun AppDialog(
                 CompositionLocalProvider(
                     LocalContentColor provides MaterialTheme.colorScheme.onSurfaceVariant,
                     LocalTextStyle provides MaterialTheme.typography.bodyMedium
-                ) { Box(Modifier.padding(bottom = 24.dp)) { it() } }
+                ) {
+                    Box(
+                        Modifier.weight(1f, fill = false)
+                            .verticalScroll(rememberScrollState())
+                            .padding(bottom = 24.dp)
+                    ) { it() }
+                }
             }
             Row(
                 Modifier.align(Alignment.End),
