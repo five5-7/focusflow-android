@@ -15,8 +15,10 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
@@ -37,6 +39,13 @@ internal val LocalNavCollapseOrigin = staticCompositionLocalOf<TransformOrigin?>
  * 这种重置是"顺带发生"的，不该再播一次缩小——由 [SubpageMotion] 的 snapPageChange 显式抑制。
  */
 internal val LocalPageSnapToken = staticCompositionLocalOf { 0 }
+
+/**
+ * 8.1.0 审计修复：token 被读取后立刻通知宿主复位。
+ * 以前抑制靠 360ms 时间窗（`MainActivity` 里的 delay），窗口内用户主动打开子页也会被吞掉动画；
+ * 现在改成"谁读到、谁消费"：转场已经按抑制规格启动，token 随即失效。
+ */
+internal val LocalPageSnapConsumed = staticCompositionLocalOf<() -> Unit> { {} }
 
 /**
  * 8.1.0 第三轮：主页一侧的转场规格，**必须与 [SubpageMotion] 的进出分支互为逆动作**。
@@ -63,7 +72,6 @@ private fun enterSubpage(origin: TransformOrigin?): ContentTransform =
 @Composable
 internal fun <T : Any> SubpageMotion(
     page: T?,
-    snapPageChange: Boolean = false,
     depth: (T) -> Int = { 1 },
     containerColor: Color = MaterialTheme.colorScheme.background,
     content: @Composable (T) -> Unit
@@ -71,6 +79,16 @@ internal fun <T : Any> SubpageMotion(
     val states = rememberSaveableStateHolder()
     val transition = updateTransition(page, label = "subpage-state")
     val collapseOrigin = LocalNavCollapseOrigin.current
+    // 页签直达重置副页：这次切换不播任何动画；token 读到后立即消费，避免抑制窗口误伤后续主动打开。
+    val snapToken = LocalPageSnapToken.current
+    val onSnapConsumed = LocalPageSnapConsumed.current
+    val snapPageChange = snapToken != 0
+    if (snapPageChange) {
+        LaunchedEffect(snapToken) {
+            withFrameNanos { }
+            onSnapConsumed()
+        }
+    }
     // 8.1.0 第三轮：副页层永远在主页之上（主页直接出现在下层，副页缩小淡出时不能被主页的卡片压住）。
     Box(Modifier.fillMaxSize().zIndex(1f)) {
     transition.AnimatedContent(

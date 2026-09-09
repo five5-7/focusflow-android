@@ -6,7 +6,6 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -374,7 +373,7 @@ import kotlinx.coroutines.delay
         }
     }
         }
-        SubpageMotion(inboxOpen.takeIf { it }, snapPageChange = LocalPageSnapToken.current != 0) {
+        SubpageMotion(inboxOpen.takeIf { it }) {
             PlanSubpageFrame(Modifier.fillMaxSize(), "收集箱") {
                 Row(
                     Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),

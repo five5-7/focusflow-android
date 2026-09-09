@@ -38,11 +38,7 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.List
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
@@ -61,8 +57,6 @@ private const val EXIT_PROMPT_WINDOW_MS = 4000L
 
 /** 挂起的课程编辑器：original 为 null 表示「新增课程」，非空表示「编辑该课程」。 */
 private data class SuspendedCourseEditor(val original: Course?)
-
-/** 8.1.0 导航类型标记：驱动页签容器转场动画（TAB=页签切换、BACK/FORWARD=回退/折返、JUMP=跨页跳转）。 */
 
 class MainActivity : ComponentActivity() {
     private var statusCheckInRequested by mutableStateOf(false)
@@ -378,8 +372,9 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     // 8.1.0 第三轮：只有"把目标页签的子页收回主页"时才抑制（snapPageChange）；打开子页照常播放放大动画。
     var pageSnapTab by remember { mutableIntStateOf(-1) }
     var pageSnapToken by remember { mutableIntStateOf(0) }
-    // 只在"到达那一帧"生效：等动画窗口过去后复位，避免影响该页签后续的正常转场。
-    // 窗口随「外观 → 动画速度」缩放：0.5× 时动画更短，就不该再挡一倍时间。
+    // 抑制在"子页层读到 token 的那一次转场"后立即失效（见 SubpageMotion）；这里的定时器只是兜底，
+    // 防止目标页签当时没组合、token 一直挂着影响它后续的主动转场。窗口随「动画速度」缩放。
+    val consumePageSnap = remember { { pageSnapTab = TabMotionRules.NO_TAB } }
     LaunchedEffect(pageSnapToken) {
         if (pageSnapToken != 0) {
             delay(motionMillis(MotionSpec.SUBPAGE_HOME_MS + 120).toLong())
@@ -751,7 +746,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
         ))
     }
     // 8.1.0 两级退出：非今日页主页按返回先回今日主页；今日页主页按返回二次确认退出，可记忆不再提示。
-    // 子页返回处理器在本处理器之后组合，子页打开时优先；弹窗是独立窗口，返回不会到达这里。
+    // 子页返回处理器在本处理器之后组合，子页打开时优先；弹窗宿主也组合在本处理器之后，弹窗打开时返回先关弹窗。
     var lastExitPromptAt by remember { mutableLongStateOf(0L) }
     var exitConfirmDisabled by remember { mutableStateOf(store.loadExitConfirmDisabled()) }
     // 只按"当前页签"判断是否在子页：别的页签遗留的子页状态（切走后保留）不该让本处理器失效，
@@ -999,7 +994,9 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             ) {
             CompositionLocalProvider(
                 LocalNavCollapseOrigin provides collapseOrigins[visibleTab],
-                LocalPageSnapToken provides if (visibleTab == pageSnapTab) pageSnapToken else 0
+                LocalPageSnapToken provides if (visibleTab == pageSnapTab) pageSnapToken else 0,
+                // 子页层读到抑制 token 后立即复位：抑制只作用于"那一次转场"，不再留 360ms 窗口。
+                LocalPageSnapConsumed provides consumePageSnap
             ) {
             val pageModifier = Modifier.fillMaxSize()
             when (visibleTab) {

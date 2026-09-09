@@ -12,6 +12,10 @@ import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.rememberScrollState
@@ -27,7 +31,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -260,7 +263,11 @@ private data class BaselineVariantDraft(val name: String)
                     }
                     Text(if (defaultHelpExpanded) "收起" else "展开", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
                 }
-                AnimatedVisibility(visible = defaultHelpExpanded) {
+                AnimatedVisibility(
+                    visible = defaultHelpExpanded,
+                    enter = fadeIn(MotionSpec.enter()) + expandVertically(MotionSpec.quick()),
+                    exit = fadeOut(MotionSpec.exit()) + shrinkVertically(MotionSpec.quick())
+                ) {
                     Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
                         Text("先用“快速记录 → 收集箱 → 安排/推进/参考”即可；AI、地点、课程、提醒和前台应用检测都不是前提。")
                         Text("凡是会改变日程、完成状态或数据去向的操作，都需要你确认。各页的问号会说明默认值、作用、调整方式和影响。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -479,7 +486,7 @@ private data class BaselineVariantDraft(val name: String)
         Text("通知异常时请到“日程与活动提醒”查看检测结果和当前设备的手动路径；精确闹钟按设备支持情况自动处理。")
     }
     }
-    SubpageMotion(subPage, snapPageChange = LocalPageSnapToken.current != 0, depth = { destination ->
+    SubpageMotion(subPage, depth = { destination ->
         when (destination) {
             SettingsSubPage.ADVANCED, SettingsSubPage.USER_GUIDE, SettingsSubPage.ROADMAP, SettingsSubPage.APPEARANCE,
             SettingsSubPage.ACTIVITY_REMINDERS, SettingsSubPage.QUIET_HOURS -> 1
@@ -1426,7 +1433,11 @@ internal fun CollapsibleSettingsDetails(
                 Text(summary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
                 TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "收起" else "展开") }
             }
-            AnimatedVisibility(visible = expanded) {
+            AnimatedVisibility(
+                  visible = expanded,
+                  enter = fadeIn(MotionSpec.enter()) + expandVertically(MotionSpec.quick()),
+                  exit = fadeOut(MotionSpec.exit()) + shrinkVertically(MotionSpec.quick())
+              ) {
                 Column(Modifier.padding(top = 4.dp), verticalArrangement = Arrangement.spacedBy(8.dp), content = content)
             }
         }

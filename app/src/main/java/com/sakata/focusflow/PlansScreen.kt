@@ -1,14 +1,12 @@
 package com.sakata.focusflow
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
@@ -75,7 +73,7 @@ import kotlinx.coroutines.launch
             scrollState = hubScrollState
         )
         }
-        SubpageMotion(page, snapPageChange = LocalPageSnapToken.current != 0) { currentPage ->
+        SubpageMotion(page) { currentPage ->
             if (currentPage != null) {
                 PlanSubpageFrame(Modifier.fillMaxSize(), currentPage.title) {
                     when (currentPage) {
