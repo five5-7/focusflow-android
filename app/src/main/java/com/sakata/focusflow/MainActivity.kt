@@ -397,6 +397,9 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     var historyListOpen by remember { mutableStateOf(false) }
     // 8.1.0 导航类型标记：驱动页签容器转场动画（TAB/BACK/FORWARD/JUMP）。
     var lastNavKind by remember { mutableStateOf(NavKind.TAB) }
+    // 8.1.0 第三轮：点击底栏入口回主页时，目标页签的副页重置不播缩小动画（用 token 触发重建）。
+    var pageSnapTab by remember { mutableIntStateOf(-1) }
+    var pageSnapToken by remember { mutableIntStateOf(0) }
     // 8.1.0 检查更新（仅 GitHub 正式版；下载后调系统安装）。
     var updateCheckState by remember { mutableStateOf(UpdateCheckState()) }
     var autoCheckUpdates by remember { mutableStateOf(store.loadAutoCheckUpdates()) }
@@ -720,6 +723,15 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     fun selectTab(index: Int) {
         // Reset only the destination. The outgoing page must survive its exit animation.
         lastNavKind = NavKind.TAB
+        // 从别的页签进来时，目标页签的副页直接回主页（工作现场由回退/折返保留）；
+        // 这种"顺带重置"不再补播一次缩小动画。
+        val resetsTargetSubpage = (index == 0 && todayInboxOpen) ||
+            (index == 2 && planPage != null) ||
+            (index == 3 && settingsSubPage != null)
+        if (resetsTargetSubpage && index != tab) {
+            pageSnapTab = index
+            pageSnapToken++
+        }
         goTo(PageSnapshot(
             tab = index,
             todayInboxOpen = if (index == 0) false else todayInboxOpen,
@@ -868,12 +880,12 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             val scheduleCourses = activeCourses
             Box(pageModifier) {
             // 8.1.0 性能+转场：四个页签常驻组合（零重组），切换按导航类型做位移/缩放/淡入转场。
-            // 8.1.0 ④：子页收敛原点 = 该页签在底栏的槽位中心（x 分数按 5 槽均分估算）。
+            // 8.1.0 ④/第三轮：收敛原点 = 底栏槽位中心（由真机 UI dump 量得：图标中心 y≈0.878）。
             val collapseOrigins = listOf(
-                TransformOrigin(0.153f, 0.88f),
-                TransformOrigin(0.327f, 0.88f),
-                TransformOrigin(0.673f, 0.88f),
-                TransformOrigin(0.847f, 0.88f)
+                TransformOrigin(0.171f, 0.878f),
+                TransformOrigin(0.335f, 0.878f),
+                TransformOrigin(0.664f, 0.878f),
+                TransformOrigin(0.829f, 0.878f)
             )
             listOf(0, 1, 2, 3).forEach { visibleTab ->
             val isVisibleTab = visibleTab == tab
@@ -888,7 +900,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             // 8.1.0 第三轮：页签平动幅度加大，切换方向更易读（原 48/64dp 太含蓄）。
             val slidePx = with(LocalDensity.current) { (if (lastNavKind == NavKind.JUMP) 96.dp else 80.dp).toPx() }
             val hiddenScale = when {
-                leavingSubpage -> 0.40f
+                leavingSubpage -> MotionSpec.COLLAPSE_SCALE
                 lastNavKind == NavKind.JUMP -> 0.85f
                 else -> 1f
             }
@@ -932,7 +944,9 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                         translationX = tabX
                         scaleX = tabScale
                         scaleY = tabScale
-                        if (leavingSubpage) transformOrigin = collapseOrigins[visibleTab]
+                        // 8.1.0 第三轮：跨页签离开副页时，收敛点是**目标页签**的底栏槽位，
+                    // 页面看起来被吸进即将选中的那一格底色里。
+                        if (leavingSubpage) transformOrigin = collapseOrigins[tab.coerceIn(0, 3)]
                     }
                     // 8.1.0 第三轮：完全淡出的页签跳过绘制，只保留组合（切换仍是零重组），省掉不可见的合成开销。
                     .drawWithContent { if (tabAlpha > 0.004f) drawContent() }
@@ -945,7 +959,10 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                         }
                     )
             ) {
-            CompositionLocalProvider(LocalNavCollapseOrigin provides collapseOrigins[visibleTab]) {
+            CompositionLocalProvider(
+                LocalNavCollapseOrigin provides collapseOrigins[visibleTab],
+                LocalPageSnapToken provides if (visibleTab == pageSnapTab) pageSnapToken else 0
+            ) {
             val pageModifier = Modifier.fillMaxSize()
             when (visibleTab) {
                 0 -> TodayScreen(

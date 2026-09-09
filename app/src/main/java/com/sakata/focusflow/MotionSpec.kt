@@ -35,6 +35,12 @@ internal object MotionSpec {
     /** 副页收起/展开时长（缩小与放大共用，透明度跟随全程）：比平动快，避免拖沓。 */
     const val SHRINK_MS = 200
 
+    /**
+     * 副页收敛后的最终缩放：约等于底栏选中图标底色的大小，
+     * 让页面看起来是被"吸进"那一格的底色里，而不是缩成一块大方块。
+     */
+    const val COLLAPSE_SCALE = 0.12f
+
     /** 强调减速：进入与落定。 */
     val enterEasing: Easing = CubicBezierEasing(0.05f, 0.7f, 0.1f, 1f)
 

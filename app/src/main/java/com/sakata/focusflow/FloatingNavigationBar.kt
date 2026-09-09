@@ -309,7 +309,8 @@ private fun FloatingNavigationItem(
         Box(
             Modifier.size(48.dp).drawBehind {
                 // 8.1.0 选中态：主页=实心圆；子页=空心圆环（标签同步替换为子页名）。
-                val radius = size.minDimension / 2 * (0.86f + 0.14f * progress) * destinationPulse.value
+                // 8.1.0 第三轮：选中底色从 0.70 半径长到 1.0，配合页面缩小到同一位置，看起来是"被吸进这一格"。
+                val radius = size.minDimension / 2 * (0.70f + 0.30f * progress) * destinationPulse.value
                 // 8.1.0 第三轮：实心圆与空心圆环之间淡入淡出（此前是瞬时切换），subpageProgress 不再是死代码。
                 val ring = subpageProgress.coerceIn(0f, 1f)
                 if (!hasSubpage) {
