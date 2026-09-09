@@ -931,34 +931,42 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             listOf(0, 1, 2, 3).forEach { visibleTab ->
             if (visibleTab !in visitedTabs) return@forEach
             val isVisibleTab = visibleTab == tab
+            // 8.1.0 第三轮：该页签此刻是否停在子页（决定它离开时收起、回来时从图标放大）。
+            val hasSubpageNow = when (visibleTab) {
+                0 -> todayInboxOpen
+                2 -> planPage != null
+                3 -> settingsSubPage != null
+                else -> false
+            }
             // 8.1.0 第三轮：只有"本次导航离开的那个正在看子页的页签"才播收起动画（见 captureDepartingSubpage）；
             // 主页与主页之间直接切换一律用左右平移，不缩放。
             val collapseLeaving = !isVisibleTab && visibleTab == leavingSubpageTab
-            // 刚收起过又立刻回来的页签：直接归位，不能从 0.12 放大——那正是"主页间切换冒出缩放"。
-            val returningFromCollapse = isVisibleTab && visibleTab == leavingSubpageTab
             // 8.1.0 第三轮：页签平动幅度加大，切换方向更易读（原 48/64dp 太含蓄）。
             val slidePx = with(LocalDensity.current) { (if (lastNavKind == NavKind.JUMP) 96.dp else 80.dp).toPx() }
+            // 隐藏页签的静止缩放：仍开着子页的页签停在图标大小，回来时从图标放大（用户预期）；
+            // 已经回到主页的页签停在 1.0，回来时只平移、不缩放。
             val hiddenScale = when {
                 collapseLeaving -> MotionSpec.COLLAPSE_SCALE
+                hasSubpageNow -> MotionSpec.COLLAPSE_SCALE
                 lastNavKind == NavKind.JUMP -> 0.85f
                 else -> 1f
             }
-            // 缩放规格：隐藏页签一律瞬间归位（不可见，不该留下动画），
-            // 否则收起后停在 0.12 的页签下次进入会从 0.12 放大。
+            // 缩放规格：隐藏时瞬间归位（不可见，不该留动画）；到达时只有"仍开着子页"才放大。
             val scaleSpec: FiniteAnimationSpec<Float> = when {
                 collapseLeaving -> MotionSpec.collapseAcross()
-                isVisibleTab -> if (returningFromCollapse) snap() else MotionSpec.grow()
+                isVisibleTab -> if (hasSubpageNow) MotionSpec.grow() else snap()
                 else -> snap()
             }
             // 透明度用 Animatable：首次组合（含首次进入某页签）也能淡入，而不是"啪"地出现；
             // 今日页签是启动页，初值直接给 1，避免启动时整页淡入显得更慢。
             val tabAlpha = remember { Animatable(if (visibleTab == 0) 1f else 0f) }
-            LaunchedEffect(isVisibleTab, collapseLeaving) {
+            LaunchedEffect(isVisibleTab, collapseLeaving, hasSubpageNow) {
                 tabAlpha.animateTo(
                     if (isVisibleTab) 1f else 0f,
                     when {
                         collapseLeaving -> MotionSpec.collapseAcross()
-                        isVisibleTab -> MotionSpec.grow()
+                        // 从图标放大：直接给满，避免和放大叠加成"淡淡的影子"。
+                        isVisibleTab -> if (hasSubpageNow) snap() else MotionSpec.grow()
                         else -> MotionSpec.move()
                     }
                 )
@@ -990,8 +998,9 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                         translationX = tabX
                         scaleX = tabScale
                         scaleY = tabScale
-                        // 8.1.0 第三轮：深度缩放下，收敛点是**目标页签**的底栏槽位，页面被吸进即将选中的那一格底色里。
+                        // 8.1.0 第三轮：收起时吸进**目标页签**的槽位；从图标放大时从**自己**的槽位长出来。
                         if (collapseLeaving) transformOrigin = collapseOrigins[tab.coerceIn(0, 3)]
+                        else if (isVisibleTab && hasSubpageNow) transformOrigin = collapseOrigins[visibleTab]
                     }
                     // 8.1.0 第三轮：完全淡出的页签跳过绘制，只保留组合（切换仍是零重组），省掉不可见的合成开销。
                     .drawWithContent { if (tabAlpha.value > 0.004f) drawContent() }
