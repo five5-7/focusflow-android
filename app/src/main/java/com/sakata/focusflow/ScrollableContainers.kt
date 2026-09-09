@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.staticCompositionLocalOf
@@ -92,12 +91,12 @@ private fun ScrollThumb(scrollState: ScrollState, modifier: Modifier = Modifier)
             active -> 0.72f
             else -> 0.22f
         },
-        animationSpec = tween(180),
+        animationSpec = MotionSpec.quick(),
         label = "scroll-thumb-alpha"
     )
     val width by animateDpAsState(
         targetValue = if (active) 3.dp else 2.dp,
-        animationSpec = tween(180),
+        animationSpec = MotionSpec.quick(),
         label = "scroll-thumb-width"
     )
     val color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = alpha)

@@ -1,7 +1,8 @@
 package com.sakata.focusflow
 
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.core.tween
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.updateTransition
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -32,6 +33,21 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
  */
 internal val LocalNavCollapseOrigin = staticCompositionLocalOf<TransformOrigin?> { null }
 
+/**
+ * 8.1.0 第三轮：主页一侧的转场规格，与 [SubpageMotion] 严格对称。
+ * 主页出现（从子页返回）走收敛原点放大；主页消失（进入子页）向左让位。
+ * 没有收敛原点时（例如弹窗内）退回方向位移，行为与旧版一致。
+ */
+internal fun hubEnter(origin: TransformOrigin?): EnterTransition =
+    if (origin != null) {
+        scaleIn(MotionSpec.move(), initialScale = 0.40f, transformOrigin = origin) + fadeIn(MotionSpec.enter())
+    } else {
+        slideInHorizontally(MotionSpec.move()) { -it / 4 } + fadeIn(MotionSpec.enter())
+    }
+
+internal fun hubExit(): ExitTransition =
+    slideOutHorizontally(MotionSpec.move()) { -it / 4 } + fadeOut(MotionSpec.exit())
+
 /** Keep the outgoing destination alive until exit completes; don't read live page inside it. */
 @Composable
 internal fun <T : Any> SubpageMotion(
@@ -49,15 +65,18 @@ internal fun <T : Any> SubpageMotion(
         transitionSpec = {
             val direction = NavigationMotion.direction(initialState?.let(depth) ?: 0, targetState?.let(depth) ?: 0)
             when {
-                direction > 0 -> (slideInHorizontally(tween(motionMillis(220))) { it / 6 } + fadeIn(tween(motionMillis(180)))) togetherWith
-                    (slideOutHorizontally(tween(motionMillis(220))) { -it / 12 } + fadeOut(tween(motionMillis(150))))
-                direction < 0 && collapseOrigin != null ->
-                    // 8.1.0 ④：返回主页时，主页从导航栏对应位置放大覆盖，子页向该位置缩小收起。
-                    (scaleIn(tween(motionMillis(220)), initialScale = 0.40f, transformOrigin = collapseOrigin) + fadeIn(tween(motionMillis(180)))) togetherWith
-                        (scaleOut(tween(motionMillis(200)), targetScale = 0.40f, transformOrigin = collapseOrigin) + fadeOut(tween(motionMillis(150))))
-                direction < 0 -> (slideInHorizontally(tween(motionMillis(220))) { -it / 12 } + fadeIn(tween(motionMillis(180)))) togetherWith
-                    (slideOutHorizontally(tween(motionMillis(220))) { it / 6 } + fadeOut(tween(motionMillis(150))))
-                else -> fadeIn(tween(motionMillis(180))) togetherWith fadeOut(tween(motionMillis(150)))
+                direction > 0 ->
+                    (slideInHorizontally(MotionSpec.move()) { it / 6 } + fadeIn(MotionSpec.enter())) togetherWith
+                        (slideOutHorizontally(MotionSpec.move()) { -it / 12 } + fadeOut(MotionSpec.exit()))
+                // 8.1.0 ④：返回主页时，主页从导航栏对应位置放大覆盖，子页向该位置缩小收起。
+                // 收敛原点只用于"回到主页"这一步；子页之间的父子上退仍用方向位移，避免整页向底栏缩。
+                direction < 0 && targetState == null && collapseOrigin != null ->
+                    (scaleIn(MotionSpec.move(), initialScale = 0.40f, transformOrigin = collapseOrigin) + fadeIn(MotionSpec.enter())) togetherWith
+                        (scaleOut(MotionSpec.move(), targetScale = 0.40f, transformOrigin = collapseOrigin) + fadeOut(MotionSpec.exit()))
+                direction < 0 ->
+                    (slideInHorizontally(MotionSpec.move()) { -it / 12 } + fadeIn(MotionSpec.enter())) togetherWith
+                        (slideOutHorizontally(MotionSpec.move()) { it / 6 } + fadeOut(MotionSpec.exit()))
+                else -> fadeIn(MotionSpec.enter()) togetherWith fadeOut(MotionSpec.exit())
             }.using(null)
         }
     ) { destination ->

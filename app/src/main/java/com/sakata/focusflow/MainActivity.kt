@@ -18,7 +18,6 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -46,6 +45,7 @@ import androidx.compose.ui.graphics.TransformOrigin
 import androidx.core.view.WindowCompat
 import androidx.core.content.FileProvider
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -869,13 +869,13 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             val isVisibleTab = visibleTab == tab
             val slidePx = with(LocalDensity.current) { (if (lastNavKind == NavKind.JUMP) 64.dp else 48.dp).toPx() }
             val hiddenScale = if (lastNavKind == NavKind.JUMP) 0.85f else 1f
-            val tabAlpha by animateFloatAsState(if (isVisibleTab) 1f else 0f, tween(motionMillis(200)), label = "tabAlpha$visibleTab")
+            val tabAlpha by animateFloatAsState(if (isVisibleTab) 1f else 0f, MotionSpec.move(), label = "tabAlpha$visibleTab")
             val tabX by animateFloatAsState(
                 if (isVisibleTab) 0f else if (visibleTab < tab) -slidePx else slidePx,
-                tween(motionMillis(220)),
+                MotionSpec.move(),
                 label = "tabX$visibleTab"
             )
-            val tabScale by animateFloatAsState(if (isVisibleTab) 1f else hiddenScale, tween(motionMillis(220)), label = "tabScale$visibleTab")
+            val tabScale by animateFloatAsState(if (isVisibleTab) 1f else hiddenScale, MotionSpec.move(), label = "tabScale$visibleTab")
             Box(
                 Modifier.fillMaxSize()
                     .zIndex(if (isVisibleTab) 1f else 0f)
@@ -885,6 +885,8 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                         scaleX = tabScale
                         scaleY = tabScale
                     }
+                    // 8.1.0 第三轮：完全淡出的页签跳过绘制，只保留组合（切换仍是零重组），省掉不可见的合成开销。
+                    .drawWithContent { if (tabAlpha > 0.004f) drawContent() }
                     .then(
                         if (isVisibleTab) Modifier
                         else Modifier.clearAndSetSemantics {}.pointerInput(Unit) {

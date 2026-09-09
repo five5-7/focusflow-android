@@ -19,13 +19,10 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -168,11 +165,13 @@ import kotlinx.coroutines.withContext
     )
     val overviewScrollState = rememberScrollState()
     var inboxFilter by remember { mutableStateOf("全部") }
+    // 8.1.0 第三轮：今日概览出现/消失与 SubpageMotion 使用同一套规格，返回时从底栏对应位置放大覆盖。
+    val collapseOrigin = LocalNavCollapseOrigin.current
     Box(modifier.fillMaxSize()) {
         AnimatedVisibility(
             visible = !inboxOpen,
-            enter = slideInHorizontally(animationSpec = tween(260), initialOffsetX = { -it / 4 }) + fadeIn(tween(180)),
-            exit = slideOutHorizontally(animationSpec = tween(220), targetOffsetX = { -it / 4 }) + fadeOut(tween(150))
+            enter = hubEnter(collapseOrigin),
+            exit = hubExit()
         ) {
     ScrollableWithBar(scrollState = overviewScrollState) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
@@ -510,8 +509,8 @@ private fun TodayStatusPanel(
             }
             AnimatedVisibility(
                 visible = expanded,
-                enter = expandVertically(animationSpec = tween(200), expandFrom = Alignment.Top) + fadeIn(tween(160)),
-                exit = shrinkVertically(animationSpec = tween(180), shrinkTowards = Alignment.Top) + fadeOut(tween(120))
+                enter = expandVertically(animationSpec = MotionSpec.move(), expandFrom = Alignment.Top) + fadeIn(MotionSpec.enter()),
+                exit = shrinkVertically(animationSpec = MotionSpec.exit(), shrinkTowards = Alignment.Top) + fadeOut(MotionSpec.exit())
             ) {
                 Column(Modifier.fillMaxWidth().padding(top = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     HorizontalDivider()

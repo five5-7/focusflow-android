@@ -1,9 +1,11 @@
 package com.sakata.focusflow
 
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
@@ -112,11 +114,11 @@ internal fun FloatingNavigationBar(
     onLongPressBack: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    val background by animateColorAsState(containerColor, tween(motionMillis(220)), label = "navigationTheme")
+    val background by animateColorAsState(containerColor, MotionSpec.move(), label = "navigationTheme")
     val indicator = navigationIndicatorColor(background, MaterialTheme.colorScheme.primary)
     // 8.1.0 形变：每个顶角各自跟随自己的图标——有回退才伸出左角、有折返才伸出右角；图标消失即收回。
-    val backProgress by animateFloatAsState(if (canGoBack) 1f else 0f, tween(motionMillis(240)), label = "backCorner")
-    val forwardProgress by animateFloatAsState(if (canGoForward) 1f else 0f, tween(motionMillis(240)), label = "forwardCorner")
+    val backProgress by animateFloatAsState(if (canGoBack) 1f else 0f, MotionSpec.morph(), label = "backCorner")
+    val forwardProgress by animateFloatAsState(if (canGoForward) 1f else 0f, MotionSpec.morph(), label = "forwardCorner")
     val barShape = AsymmetricCapsuleShape(progressL = backProgress, progressR = forwardProgress, smallRadiusDp = 10f)
     BoxWithConstraints(
         modifier.fillMaxWidth().windowInsetsPadding(
@@ -279,19 +281,21 @@ private fun FloatingNavigationItem(
 ) {
     // Animate each slot: no selection block travels across the independent central Add action.
     // Compose respects the system animation-duration scale, including disabled animations.
-    val progress by animateFloatAsState(if (selected) 1f else 0f, tween(motionMillis(200)), label = "navigationSelection")
+    val progress by animateFloatAsState(if (selected) 1f else 0f, MotionSpec.move(), label = "navigationSelection")
     val fill = lerp(background, indicator, progress)
     // 8.1.0 副页（空心圆环态）时图标改用与底栏对比的深色；实心态按圆底色取对比色。
     val foreground = if (selected && hasSubpage) navigationContentColor(background) else navigationContentColor(fill)
-    val subpageProgress by animateFloatAsState(if (hasSubpage) 1f else 0f, tween(motionMillis(200)), label = "navigationDepth")
+    val animatedForeground by animateColorAsState(foreground, MotionSpec.move(), label = "navigationForeground")
+    val subpageProgress by animateFloatAsState(if (hasSubpage) 1f else 0f, MotionSpec.move(), label = "navigationDepth")
     val destinationPulse = remember { Animatable(1f) }
     var previousDestination by remember { mutableStateOf(destinationKey) }
     LaunchedEffect(destinationKey) {
         val changed = destinationKey != previousDestination
         previousDestination = destinationKey
-        if (selected && changed) {
-            destinationPulse.animateTo(0.90f, tween(motionMillis(80)))
-            destinationPulse.animateTo(1f, tween(motionMillis(140)))
+        if (selected && changed && MotionSpec.animationsEnabled) {
+            // 8.1.0 第三轮：轻微回弹（阻尼 0.42 可见过冲），比两段 tween 更有"落到位"的手感。
+            destinationPulse.snapTo(0.90f)
+            destinationPulse.animateTo(1f, spring(dampingRatio = 0.42f, stiffness = Spring.StiffnessMediumLow))
         } else destinationPulse.snapTo(1f)
     }
     Column(
@@ -306,28 +310,37 @@ private fun FloatingNavigationItem(
             Modifier.size(48.dp).drawBehind {
                 // 8.1.0 选中态：主页=实心圆；子页=空心圆环（标签同步替换为子页名）。
                 val radius = size.minDimension / 2 * (0.86f + 0.14f * progress) * destinationPulse.value
-                if (hasSubpage && selected) {
-                    drawCircle(fill, radius = radius, center = center, style = Stroke(width = 3.dp.toPx()))
-                } else {
+                // 8.1.0 第三轮：实心圆与空心圆环之间淡入淡出（此前是瞬时切换），subpageProgress 不再是死代码。
+                val ring = subpageProgress.coerceIn(0f, 1f)
+                if (!hasSubpage) {
                     drawCircle(fill, radius = radius, center = center)
+                } else {
+                    if (ring < 1f) drawCircle(fill.copy(alpha = 1f - ring), radius = radius, center = center)
+                    if (ring > 0f) {
+                        drawCircle(fill.copy(alpha = ring), radius = radius, center = center, style = Stroke(width = 3.dp.toPx()))
+                    }
                 }
             }, contentAlignment = Alignment.Center
         ) {
-            Icon(icon, contentDescription = null, tint = foreground,
+            Icon(icon, contentDescription = null, tint = animatedForeground,
                 modifier = Modifier.size(24.dp).graphicsLayer {
                     scaleX = 0.96f + 0.04f * progress
                     scaleY = scaleX
                 })
         }
-        Text(
-            // 8.1.0 副页表示：选中且处于子页时，标签替换为子页名（如「设置」→「外观」）。
-            if (selected && hasSubpage) destinationKey else label,
-            color = navigationContentColor(background),
-            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-            style = MaterialTheme.typography.labelMedium,
-            textAlign = TextAlign.Center,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
+        // 8.1.0 副页表示：选中且处于子页时，标签替换为子页名（如「设置」→「外观」）。
+        val displayLabel = if (selected && hasSubpage) destinationKey else label
+        // 8.1.0 第三轮：页签名与子页名之间交叉淡入，替代原来的瞬时替换。
+        Crossfade(targetState = displayLabel, animationSpec = MotionSpec.move(), label = "navigationLabel") { text ->
+            Text(
+                text,
+                color = navigationContentColor(background),
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                style = MaterialTheme.typography.labelMedium,
+                textAlign = TextAlign.Center,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
     }
 }
