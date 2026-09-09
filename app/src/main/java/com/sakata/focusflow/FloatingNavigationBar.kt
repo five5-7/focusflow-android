@@ -29,6 +29,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -40,6 +41,9 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -55,6 +59,8 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import kotlin.math.floor
+import kotlin.math.roundToInt
 
 /** Nav text remains readable independently of the user-selected body text color. */
 internal fun navigationContentColor(background: Color): Color =
@@ -120,6 +126,25 @@ internal fun FloatingNavigationBar(
     val backProgress by animateFloatAsState(if (canGoBack) 1f else 0f, MotionSpec.morph(), label = "backCorner")
     val forwardProgress by animateFloatAsState(if (canGoForward) 1f else 0f, MotionSpec.morph(), label = "forwardCorner")
     val barShape = AsymmetricCapsuleShape(progressL = backProgress, progressR = forwardProgress, smallRadiusDp = 10f)
+    val iconBoxPx = with(LocalDensity.current) { FloatingNavigationLayout.ICON_BOX_DP.dp.toPx() }
+    // 8.1.0 第三轮：选中底色改为"一块会平移的底色"——从上一个页签滑到当前页签，而不是各自淡入淡出。
+    // 槽位顺序：今日 / 日程 / [加号] / 计划 / 设置。
+    val selectedSlot = if (selectedTab < 2) selectedTab else selectedTab + 1
+    val slotCenters = remember { mutableStateListOf<Offset?>(null, null, null, null, null) }
+    var rowOrigin by remember { mutableStateOf(Offset.Zero) }
+    val indicatorSlot = remember { Animatable(selectedSlot.toFloat()) }
+    LaunchedEffect(selectedSlot) { indicatorSlot.animateTo(selectedSlot.toFloat(), MotionSpec.move()) }
+    // 目的地变化（子页名切换）时的轻微回弹。
+    val destinationPulse = remember { Animatable(1f) }
+    var previousDestination by remember { mutableStateOf(selectedPageDescription) }
+    LaunchedEffect(selectedPageDescription) {
+        val changed = selectedPageDescription != previousDestination
+        previousDestination = selectedPageDescription
+        if (changed && MotionSpec.animationsEnabled) {
+            destinationPulse.snapTo(0.90f)
+            destinationPulse.animateTo(1f, spring(dampingRatio = 0.42f, stiffness = Spring.StiffnessMediumLow))
+        } else destinationPulse.snapTo(1f)
+    }
     BoxWithConstraints(
         modifier.fillMaxWidth().windowInsetsPadding(
             safeInsets.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal)
@@ -142,8 +167,33 @@ internal fun FloatingNavigationBar(
                     val contentWidth = maxWidth.coerceAtLeast(FloatingNavigationLayout.MIN_CONTENT_WIDTH_DP.dp)
                     Box {
                         Box(Modifier.horizontalScroll(rememberScrollState())) {
+                            Box {
+                            // 底色块：在所有图标之下、且与图标同一坐标系（槽位中心由图标自己上报）。
+                            val slot = indicatorSlot.value
+                            val lower = floor(slot).toInt().coerceIn(0, 4)
+                            val upper = (lower + 1).coerceAtMost(4)
+                            val from = slotCenters[lower]
+                            val to = slotCenters[upper]
+                            if (from != null && to != null) {
+                                val f = slot - lower
+                                val center = Offset(from.x + (to.x - from.x) * f, from.y + (to.y - from.y) * f)
+                                Box(
+                                    Modifier
+                                        .offset { IntOffset((center.x - iconBoxPx / 2).roundToInt(), (center.y - iconBoxPx / 2).roundToInt()) }
+                                        .size(FloatingNavigationLayout.ICON_BOX_DP.dp)
+                                        .drawBehind {
+                                            val radius = size.minDimension / 2 * destinationPulse.value
+                                            if (hasSubpage) {
+                                                drawCircle(indicator, radius = radius, center = center, style = Stroke(width = 3.dp.toPx()))
+                                            } else {
+                                                drawCircle(indicator, radius = radius, center = center)
+                                            }
+                                        }
+                                )
+                            }
                             Row(
-                                Modifier.width(contentWidth).selectableGroup().padding(horizontal = 8.dp),
+                                Modifier.width(contentWidth).selectableGroup().padding(horizontal = 8.dp)
+                                    .onGloballyPositioned { rowOrigin = it.positionInRoot() },
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 val labels = listOf("今日", "日程", "计划", "设置")
@@ -168,9 +218,15 @@ internal fun FloatingNavigationBar(
                                         },
                                         hasSubpage = selectedTab == index && hasSubpage,
                                         destinationKey = if (selectedTab == index) selectedPageDescription else label,
+                                        onIconCenter = { center ->
+                                            val slotIndex = if (index < 2) index else index + 1
+                                            val relative = center - rowOrigin
+                                            if (slotCenters[slotIndex] != relative) slotCenters[slotIndex] = relative
+                                        },
                                         onClick = { onSelectTab(index) }
                                     )
                                 }
+                            }
                             }
                         }
                     }
@@ -277,27 +333,15 @@ internal fun HistoryListDialog(
 private fun FloatingNavigationItem(
     label: String, icon: ImageVector, selected: Boolean,
     background: Color, indicator: Color, modifier: Modifier,
-    hasSubpage: Boolean, destinationKey: String, onClick: () -> Unit
+    hasSubpage: Boolean, destinationKey: String,
+    onIconCenter: (Offset) -> Unit, onClick: () -> Unit
 ) {
-    // Animate each slot: no selection block travels across the independent central Add action.
-    // Compose respects the system animation-duration scale, including disabled animations.
+    // 选中态只驱动图标颜色/缩放；底色块由底栏统一绘制并平移（见 FloatingNavigationBar）。
     val progress by animateFloatAsState(if (selected) 1f else 0f, MotionSpec.move(), label = "navigationSelection")
     val fill = lerp(background, indicator, progress)
     // 8.1.0 副页（空心圆环态）时图标改用与底栏对比的深色；实心态按圆底色取对比色。
     val foreground = if (selected && hasSubpage) navigationContentColor(background) else navigationContentColor(fill)
     val animatedForeground by animateColorAsState(foreground, MotionSpec.move(), label = "navigationForeground")
-    val subpageProgress by animateFloatAsState(if (hasSubpage) 1f else 0f, MotionSpec.move(), label = "navigationDepth")
-    val destinationPulse = remember { Animatable(1f) }
-    var previousDestination by remember { mutableStateOf(destinationKey) }
-    LaunchedEffect(destinationKey) {
-        val changed = destinationKey != previousDestination
-        previousDestination = destinationKey
-        if (selected && changed && MotionSpec.animationsEnabled) {
-            // 8.1.0 第三轮：轻微回弹（阻尼 0.42 可见过冲），比两段 tween 更有"落到位"的手感。
-            destinationPulse.snapTo(0.90f)
-            destinationPulse.animateTo(1f, spring(dampingRatio = 0.42f, stiffness = Spring.StiffnessMediumLow))
-        } else destinationPulse.snapTo(1f)
-    }
     Column(
         modifier.heightIn(min = FloatingNavigationLayout.MIN_ITEM_HEIGHT_DP.dp)
             .clip(RoundedCornerShape(percent = 50))
@@ -307,21 +351,13 @@ private fun FloatingNavigationItem(
         verticalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterVertically)
     ) {
         Box(
-            Modifier.size(48.dp).drawBehind {
-                // 8.1.0 选中态：主页=实心圆；子页=空心圆环（标签同步替换为子页名）。
-                // 8.1.0 第三轮：选中底色从 0.70 半径长到 1.0，配合页面缩小到同一位置，看起来是"被吸进这一格"。
-                val radius = size.minDimension / 2 * (0.70f + 0.30f * progress) * destinationPulse.value
-                // 8.1.0 第三轮：实心圆与空心圆环之间淡入淡出（此前是瞬时切换），subpageProgress 不再是死代码。
-                val ring = subpageProgress.coerceIn(0f, 1f)
-                if (!hasSubpage) {
-                    drawCircle(fill, radius = radius, center = center)
-                } else {
-                    if (ring < 1f) drawCircle(fill.copy(alpha = 1f - ring), radius = radius, center = center)
-                    if (ring > 0f) {
-                        drawCircle(fill.copy(alpha = ring), radius = radius, center = center, style = Stroke(width = 3.dp.toPx()))
-                    }
-                }
-            }, contentAlignment = Alignment.Center
+            Modifier.size(FloatingNavigationLayout.ICON_BOX_DP.dp)
+                // 底色块需要知道自己该画在哪：由图标自己上报中心（同一坐标系，随字体/窄屏自动跟随）。
+                .onGloballyPositioned {
+                    val iconSize = it.size
+                    onIconCenter(it.positionInRoot() + Offset(iconSize.width / 2f, iconSize.height / 2f))
+                },
+            contentAlignment = Alignment.Center
         ) {
             Icon(icon, contentDescription = null, tint = animatedForeground,
                 modifier = Modifier.size(24.dp).graphicsLayer {
