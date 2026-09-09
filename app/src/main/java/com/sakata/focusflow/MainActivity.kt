@@ -2,19 +2,16 @@ package com.sakata.focusflow
 
 import android.Manifest
 import android.app.AlarmManager
-import android.app.DatePickerDialog
-import android.app.TimePickerDialog
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.os.PowerManager
 import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
-import androidx.activity.addCallback
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -23,22 +20,11 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.ScrollState
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.onSizeChanged
@@ -48,42 +34,20 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.core.view.WindowCompat
 import androidx.core.content.FileProvider
-import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.DateRange
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.graphics.BlendMode
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.lerp
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.zIndex
-import kotlin.math.pow
 import java.io.File
 import java.net.URL
 import java.util.Locale
@@ -99,7 +63,6 @@ private const val EXIT_PROMPT_WINDOW_MS = 4000L
 private data class SuspendedCourseEditor(val original: Course?)
 
 /** 8.1.0 导航类型标记：驱动页签容器转场动画（TAB=页签切换、BACK/FORWARD=回退/折返、JUMP=跨页跳转）。 */
-private enum class NavKind { TAB, BACK, FORWARD, JUMP }
 
 class MainActivity : ComponentActivity() {
     private var statusCheckInRequested by mutableStateOf(false)
@@ -138,9 +101,11 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         // 8.1.0 第三轮：冷启动到 Compose 的 BackHandler 挂上之间有一段窗口，
         // 此时系统返回会直接结束 Activity（表现为"刚打开就返回，没有二次确认"）。
-        // 这里先挂一个兜底回调吞掉返回；Compose 的处理器随后注册，优先级更高，行为不变。
-        onBackPressedDispatcher.addCallback(this) { /* 启动窗口内吞掉返回，等 Compose 接管 */ }
+        // 这里先挂一个兜底回调吞掉返回；首帧组合完成后立刻禁用，此后完全交给 Compose，
+        // 避免将来某个状态没有 Compose 处理器时返回被永久吞掉（审计 P3）。
+        onBackPressedDispatcher.addCallback(this, startupBackFallback)
         setContent {
+            LaunchedEffect(Unit) { startupBackFallback.isEnabled = false }
             FocusFlowApp(statusCheckInRequested, mealPromptRequested, mealFinishRequested, quickCaptureRequested, permissionOnboardingPending) {
                 statusCheckInRequested = false
                 mealPromptRequested = null
@@ -148,6 +113,11 @@ class MainActivity : ComponentActivity() {
                 quickCaptureRequested = false
             }
         }
+    }
+
+    /** 冷启动窗口内的返回兜底：首帧组合完成后由 Compose 关闭。 */
+    private val startupBackFallback = object : OnBackPressedCallback(true) {
+        override fun handleOnBackPressed() = Unit
     }
 
     /** Android 12 的精确闹钟需要用户授权；Android 13+ 由 USE_EXACT_ALARM 按核心日程用途授予。 */
@@ -403,8 +373,8 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     var suspendedCourseEditor by remember { mutableStateOf<SuspendedCourseEditor?>(null) }
     // 8.1.0 会话历史列表弹窗（长按底栏回退键打开）。
     var historyListOpen by remember { mutableStateOf(false) }
-    // 8.1.0 导航类型标记：驱动页签容器转场动画（TAB/BACK/FORWARD/JUMP）。
-    var lastNavKind by remember { mutableStateOf(NavKind.TAB) }
+    // 8.1.0 转场判定：只有"跳转"（通知/深链/跨页跳转）才改变位移幅度与静止缩放，其余导航一律普通切换。
+    var lastNavWasJump by remember { mutableStateOf(false) }
     // 8.1.0 第三轮：只有"把目标页签的子页收回主页"时才抑制（snapPageChange）；打开子页照常播放放大动画。
     var pageSnapTab by remember { mutableIntStateOf(-1) }
     var pageSnapToken by remember { mutableIntStateOf(0) }
@@ -471,18 +441,18 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
 
     /** 回退/折返：只走历史栈，不再记录新历史。 */
     fun goBackHistory() {
-        lastNavKind = NavKind.BACK
+        lastNavWasJump = false
         navHistory.back()?.let { prepareNavigation(it); applySnapshot(it) }
     }
 
     fun goForwardHistory() {
-        lastNavKind = NavKind.FORWARD
+        lastNavWasJump = false
         navHistory.forward()?.let { prepareNavigation(it); applySnapshot(it) }
     }
 
     /** 跨页跳转（通知/深链/课程编辑器跳地点等）：缩放+位移动画。 */
     fun jumpTo(next: PageSnapshot) {
-        lastNavKind = NavKind.JUMP
+        lastNavWasJump = true
         goTo(next)
     }
 
@@ -771,7 +741,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     fun selectTab(index: Int) {
         // Reset only the destination. The outgoing page must survive its exit animation.
         // 目标页签的副页会被重置回主页；"顺带重置"不补播动画，由 prepareNavigation 统一判定。
-        lastNavKind = NavKind.TAB
+        lastNavWasJump = false
         goTo(PageSnapshot(
             tab = index,
             todayInboxOpen = if (index == 0) false else todayInboxOpen,
@@ -791,7 +761,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
         (tab == 3 && settingsSubPage != null)
     BackHandler(enabled = !onCurrentSubpage) {
         if (tab != 0) {
-            lastNavKind = NavKind.BACK
+            lastNavWasJump = false
             goTo(PageSnapshot(0, false, planPage, settingsSubPage, settingsBackStack))
         } else if (exitConfirmDisabled) {
             (context as? android.app.Activity)?.finish()
@@ -959,10 +929,10 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             val collapseLeaving = !isVisibleTab && visibleTab == leavingSubpageTab
             // 8.1.0 第三轮：页签平动幅度加大，切换方向更易读（原 48/64dp 太含蓄）。
             val slidePx = with(LocalDensity.current) {
-                (if (lastNavKind == NavKind.JUMP) MotionSpec.JUMP_SLIDE_DP.dp else MotionSpec.TAB_SLIDE_DP.dp).toPx()
+                (if (lastNavWasJump) MotionSpec.JUMP_SLIDE_DP.dp else MotionSpec.TAB_SLIDE_DP.dp).toPx()
             }
             // 隐藏页签的静止缩放：仍开着子页 → 停在图标大小，回来时从图标放大；否则 1.0，只平移。
-            val hiddenScale = TabMotionRules.restingScale(hasSubpageNow, lastNavKind == NavKind.JUMP)
+            val hiddenScale = TabMotionRules.restingScale(hasSubpageNow, lastNavWasJump)
             // 缩放规格：隐藏时瞬间归位（不可见，不该留动画）；到达时只有"仍开着子页"才放大。
             val scaleSpec: FiniteAnimationSpec<Float> = when {
                 collapseLeaving -> MotionSpec.collapseAcross()
@@ -2176,7 +2146,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             entries = navHistory.entries(),
             current = navHistory.current,
             onSelect = { target ->
-                lastNavKind = NavKind.BACK
+                lastNavWasJump = false
                 // 与 goTo / back / forward 一致：先按 TabMotionRules 判定"谁在离开子页/目标子页是否被改掉"，
                 // 否则这条路径会丢掉收起动画、或把本该抑制的补播又播出来。
                 if (navHistory.jumpTo(target)) {

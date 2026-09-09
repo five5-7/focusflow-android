@@ -1,7 +1,6 @@
 package com.sakata.focusflow
 
 import android.content.Context
-import androidx.compose.ui.graphics.Color
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
