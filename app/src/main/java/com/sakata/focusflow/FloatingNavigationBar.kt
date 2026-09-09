@@ -36,6 +36,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.lerp
@@ -118,8 +119,11 @@ internal fun FloatingNavigationBar(
     onBackHistory: () -> Unit = {},
     onForwardHistory: () -> Unit = {},
     onLongPressBack: () -> Unit = {},
-    /** 弹窗打开时把底栏压暗到与遮罩一致（0f = 不压暗）；只影响绘制，不影响可点性。 */
-    dimAmount: Float = 0f,
+    /**
+     * 弹窗打开时把底栏压暗到与遮罩同一档（返回 0f = 不压暗）。
+     * 传 lambda 而不是 Float：只在绘制阶段读值，底栏不会因为压暗动画每帧重组。
+     */
+    dimAmount: () -> Float = { 0f },
     modifier: Modifier = Modifier
 ) {
     val background by animateColorAsState(containerColor, MotionSpec.move(), label = "navigationTheme")
@@ -155,12 +159,7 @@ internal fun FloatingNavigationBar(
     BoxWithConstraints(
         modifier.fillMaxWidth().windowInsetsPadding(
             safeInsets.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal)
-        )
-            // 弹窗打开时整条底栏（含图标与文字）压暗到与页面遮罩同一档，避免"页面暗、底栏亮"的突兀感。
-            .drawWithContent {
-                drawContent()
-                if (dimAmount > 0.001f) drawRect(Color.Black, alpha = dimAmount)
-            },
+        ),
         contentAlignment = Alignment.Center
     ) {
         val margin = FloatingNavigationLayout.horizontalMarginDp(maxWidth.value, LocalDensity.current.fontScale).dp
@@ -168,6 +167,25 @@ internal fun FloatingNavigationBar(
             Modifier.padding(horizontal = margin, vertical = 8.dp)
                 .widthIn(max = FloatingNavigationLayout.MAX_BAR_WIDTH_DP.dp)
                 .fillMaxWidth()
+                // 弹窗打开时只把**胶囊本身**压暗：画在满宽节点上会把外边距与底部 inset 叠加成更暗的横带。
+                // 压暗值在绘制阶段通过 lambda 读取，避免整条底栏在压暗动画的每一帧重组。
+                .drawWithContent {
+                    drawContent()
+                    val dim = dimAmount()
+                    if (dim > 0.001f) {
+                        val pad = 8.dp.toPx()
+                        val capsuleHeight = size.height - pad * 2
+                        if (capsuleHeight > 0f) {
+                            drawRoundRect(
+                                color = Color.Black,
+                                topLeft = Offset(0f, pad),
+                                size = Size(size.width, capsuleHeight),
+                                cornerRadius = CornerRadius(capsuleHeight / 2f, capsuleHeight / 2f),
+                                alpha = dim
+                            )
+                        }
+                    }
+                }
         ) {
             Surface(
                 modifier = Modifier.fillMaxWidth(),

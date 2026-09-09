@@ -65,6 +65,12 @@ internal class AppDialogHostState {
     internal var seq: Int by mutableStateOf(0)
     internal var nextSeq: Int = 0
 
+    /**
+     * 遮罩/卡片的动画进度（0→1）。底栏压暗也读它，因此两者**严格同步**，
+     * 且底栏只在绘制阶段取值（见 [FloatingNavigationBar] 的 dimAmount）。
+     */
+    internal val progress = Animatable(0f)
+
     internal val isOpen: Boolean get() = content != null
 }
 
@@ -87,7 +93,7 @@ internal fun AppDialogHost(state: AppDialogHostState, bottomInset: Dp = 0.dp, mo
     val open = content != null && dismiss != null
     val retained = remember { mutableStateOf<(@Composable () -> Unit)?>(null) }
     SideEffect { if (content != null) retained.value = content }
-    val progress = remember { Animatable(0f) }
+    val progress = state.progress
     val latestDismiss by rememberUpdatedState(dismiss)
     LaunchedEffect(open) {
         if (open) {
