@@ -133,23 +133,35 @@ import kotlinx.coroutines.withContext
             delay(if (activeSession == null) 30_000 else 1_000)
         }
     }
-    val inboxItems = items.filter { !it.done && it.kind == "收集箱" }
-    val pendingInboxItems = inboxItems.filter { CaptureRoute.fromKey(it.captureRoute) == CaptureRoute.INBOX }
-    val progressItems = inboxItems.filter { CaptureRoute.fromKey(it.captureRoute) == CaptureRoute.PROGRESS }
-    val referenceItems = inboxItems.filter { CaptureRoute.fromKey(it.captureRoute) == CaptureRoute.REFERENCE }
+    // 8.1.0 第三轮：以下派生值原先每次重组都重算（items 几百条、taskEvents 几千条），
+    // 切换页签/返回前台时会在动画开始前掉一帧；这里按输入缓存，输入不变就不再计算。
+    val inboxItems = remember(items) { items.filter { !it.done && it.kind == "收集箱" } }
+    val pendingInboxItems = remember(inboxItems) { inboxItems.filter { CaptureRoute.fromKey(it.captureRoute) == CaptureRoute.INBOX } }
+    val progressItems = remember(inboxItems) { inboxItems.filter { CaptureRoute.fromKey(it.captureRoute) == CaptureRoute.PROGRESS } }
+    val referenceItems = remember(inboxItems) { inboxItems.filter { CaptureRoute.fromKey(it.captureRoute) == CaptureRoute.REFERENCE } }
     val energyIsCurrent = StatusFreshnessPolicy.isCurrent(energyRecordedAt, now)
     val planningEnergy = if (energyIsCurrent) energyLevel else "正常"
-    val nextSuggestion = NextActionPlanner.recommend(items, nextCommitment, planningEnergy, goals, feedback, now, courses, commuteProfile)
-    val dailySummary = DailyLoopStats.summarize(items, now, taskEvents)
+    val nextSuggestion = remember(items, nextCommitment, planningEnergy, goals, feedback, now, courses, commuteProfile) {
+        NextActionPlanner.recommend(items, nextCommitment, planningEnergy, goals, feedback, now, courses, commuteProfile)
+    }
+    val dailySummary = remember(items, now, taskEvents) { DailyLoopStats.summarize(items, now, taskEvents) }
     // 6.9：已推荐去执行的任务不再重复出现在「需要恢复的安排」——推荐/恢复双入口去重（只影响 UI 展示）。
-    val recoveryCandidates = RecoveryInsights.candidates(items, now).filter { it.item.id != nextSuggestion?.item?.id }
-    val completedTodayItems = if (taskEvents.isEmpty()) {
-        items.filter { it.done && it.completedAt?.let(::isToday) == true }.sortedByDescending { it.completedAt }.map {
-            TaskRecorder.event(TaskEventType.TASK_COMPLETED, it.id, it.title, extra = it.completionLevel, at = it.completedAt ?: 0)
-        }
-    } else TaskHistory.completedOn(taskEvents, TaskHistory.dayStartOf(now))
-    val completedThisWeek = items.count { it.done && it.completedAt?.let(::isInCurrentWeek) == true }
-    val visibility = FeatureVisibilityPolicy.daily(
+    val recoveryCandidates = remember(items, now, nextSuggestion) {
+        RecoveryInsights.candidates(items, now).filter { it.item.id != nextSuggestion?.item?.id }
+    }
+    val completedTodayItems = remember(taskEvents, items, now) {
+        if (taskEvents.isEmpty()) {
+            items.filter { it.done && it.completedAt?.let(::isToday) == true }.sortedByDescending { it.completedAt }.map {
+                TaskRecorder.event(TaskEventType.TASK_COMPLETED, it.id, it.title, extra = it.completionLevel, at = it.completedAt ?: 0)
+            }
+        } else TaskHistory.completedOn(taskEvents, TaskHistory.dayStartOf(now))
+    }
+    val completedThisWeek = remember(items) { items.count { it.done && it.completedAt?.let(::isInCurrentWeek) == true } }
+    val visibility = remember(
+        baselineProfile, mealRecords, mealReminderEnabled, goals, items, courses,
+        campusLifeEnabled, statusCheckInEnabled, checkIns, windDownEnabled
+    ) {
+        FeatureVisibilityPolicy.daily(
         FeatureUsageSnapshot(
             baselineComplete = baselineProfile.isComplete,
             mealRecordCount = mealRecords.size,
@@ -163,6 +175,7 @@ import kotlinx.coroutines.withContext
             windDownEnabled = windDownEnabled
         )
     )
+    }
     val overviewScrollState = rememberScrollState()
     var inboxFilter by remember { mutableStateOf("全部") }
     Box(modifier.fillMaxSize()) {

@@ -72,15 +72,22 @@ import kotlinx.coroutines.withContext
     // AI 周总结生效 key：独立 key 留空时沿用教程搜索的硅基流动 key。
     val weeklySummaryKey = aiWeeklySummary.apiKey.ifBlank { tutorialSearch.apiKey }
     // 假期阶段：空挡与目标建议不把课程当作安排（课程管理页仍用完整列表）。
-    val planningCourses = if (lifeStage == LifeStage.HOLIDAY || !campusLifeEnabled) emptyList<Course>()
+    // 8.1.0 第三轮：以下都是每次重组重算的派生值，按输入缓存，避免导航时多花一帧。
+    val planningCourses = remember(courses, lifeStage, campusLifeEnabled) {
+        if (lifeStage == LifeStage.HOLIDAY || !campusLifeEnabled) emptyList<Course>()
         else CourseActivationPolicy.activeInUpcomingWeek(courses.filter { !it.needsConfirmation })
+    }
     var gapsTableExpanded by remember { mutableStateOf(false) }
-    val awaitingCourses = courses.filter { it.needsConfirmation }
-    val confirmedCourses = courses.filter { !it.needsConfirmation }
-    val conflictingCourses = confirmedCourses.filter { course -> course.enabled && confirmedCourses.any { other -> other.enabled && other != course && coursesOverlap(course, other) } }
-    val gaps = CourseGapPlanner.gaps(planningCourses.filter { !it.needsConfirmation }, profile, occupiedByWeekday(items))
-    val paused = items.filter { it.kind == "暂停" }
-    val historyDays = TaskHistory.lastDays(taskEvents, 7)
+    val awaitingCourses = remember(courses) { courses.filter { it.needsConfirmation } }
+    val confirmedCourses = remember(courses) { courses.filter { !it.needsConfirmation } }
+    val conflictingCourses = remember(confirmedCourses) {
+        confirmedCourses.filter { course -> course.enabled && confirmedCourses.any { other -> other.enabled && other != course && coursesOverlap(course, other) } }
+    }
+    val gaps = remember(planningCourses, profile, items) {
+        CourseGapPlanner.gaps(planningCourses.filter { !it.needsConfirmation }, profile, occupiedByWeekday(items))
+    }
+    val paused = remember(items) { items.filter { it.kind == "暂停" } }
+    val historyDays = remember(taskEvents) { TaskHistory.lastDays(taskEvents, 7) }
     val historyCompletedCount = historyDays.sumOf { it.completedCount }
     val historyRescheduledCount = historyDays.sumOf { it.rescheduledCount }
 

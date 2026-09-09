@@ -592,13 +592,19 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     }
     // 提升到 app 层：设置页主列表在子页面往返/切 tab 时保持滚动位置。
     val settingsScrollState = remember { ScrollState(0) }
-    val suggestedNextStep = items
-        .filter { !it.done && it.kind != "收集箱" && it.kind != "暂停" }
-        .sortedWith(compareBy<Item> { it.scheduledAt ?: Long.MAX_VALUE }.thenBy { it.title })
-        .firstOrNull()
-    val activeCourses = if (baselineProfile.lifeStage == LifeStage.HOLIDAY || !campusLifeEnabled) emptyList()
+    val suggestedNextStep = remember(items) {
+        items
+            .filter { !it.done && it.kind != "收集箱" && it.kind != "暂停" }
+            .sortedWith(compareBy<Item> { it.scheduledAt ?: Long.MAX_VALUE }.thenBy { it.title })
+            .firstOrNull()
+    }
+    // 8.1.0 第三轮：这两处是每次重组都会重算的派生值，直接挂在 app 层，
+    // 每次导航都会付一遍代价（items 几百条、taskEvents 几千条时尤其明显），改为 remember 缓存。
+    val activeCourses = remember(courses, baselineProfile.lifeStage, campusLifeEnabled) {
+        if (baselineProfile.lifeStage == LifeStage.HOLIDAY || !campusLifeEnabled) emptyList()
         else CourseActivationPolicy.activeInUpcomingWeek(courses.filter { !it.needsConfirmation })
-    val upcomingCommitment = NextActionPlanner.nextCommitment(items, activeCourses)
+    }
+    val upcomingCommitment = remember(items, activeCourses) { NextActionPlanner.nextCommitment(items, activeCourses) }
     val suggestedNextStepName = upcomingCommitment?.title ?: suggestedNextStep?.title.orEmpty()
     // 全部地点：内置目录或地点包为基底，自定义地点按名去重合并（同名自定义胜出）。
     // 新安装不预置任何校园地点；只有用户导入地点包或自行添加后才参与课程与通勤。
