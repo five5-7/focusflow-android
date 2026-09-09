@@ -16,6 +16,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.withFrameNanos
@@ -132,7 +135,13 @@ internal fun <T : Any> SubpageMotion(
         }
     }
     // Serialize taps while both layers exist; otherwise a tap may reach the old hub.
-    if (transition.isRunning || transition.currentState != transition.targetState) {
+    // 8.1.0 审计修复：以前这里在**组合期**直接读 transition.isRunning/currentState，
+    // 转场期间每帧都触发整页重组+重新布局（实测子页进出时连续十几帧稳定在 20–24ms）。
+    // 改成 derivedStateOf：只有"两层是否同时存在"翻转时才重组（每次转场 2 次）。
+    val twoLayersAlive by remember(transition) {
+        derivedStateOf { transition.isRunning || transition.currentState != transition.targetState }
+    }
+    if (twoLayersAlive) {
         Box(Modifier.fillMaxSize().clearAndSetSemantics {}.pointerInput(Unit) {
             awaitPointerEventScope {
                 while (true) awaitPointerEvent(PointerEventPass.Initial).changes.forEach { it.consume() }
