@@ -5,7 +5,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class UserGuideContentTest {
-    @Test fun `manual guide preserves the intended six blocks`() {
+    @Test fun `manual guide preserves the intended seven blocks`() {
         assertEquals(
             listOf(
                 "一、五分钟开始使用",
@@ -13,10 +13,25 @@ class UserGuideContentTest {
                 "三、日程、提醒与后台",
                 "四、默认设置与可选能力",
                 "五、课程、地点、通勤与目标",
-                "六、数据、隐私、更新与常见问题"
+                "六、数据、隐私、更新与常见问题",
+                "七、导航、返回与动效"
             ),
             userGuideChapters.map { it.title }
         )
+    }
+
+    /** 8.1.0：上一步／下一步（回退／折返）与弹窗期间底栏行为必须写进说明书。 */
+    @Test fun `manual guide documents navigation and dialog behaviour`() {
+        val guide = userGuideChapters.flatMap { it.lines }.joinToString("\n")
+        assertTrue(guide.contains("上一步／下一步"))
+        assertTrue(guide.contains("长按上一步"))
+        assertTrue(guide.contains("再按一次返回键退出应用"))
+        assertTrue(guide.contains("底栏会跟着一起变暗但仍可点"))
+        assertTrue(guide.contains("锁定竖屏"))
+        // 快速入门保持简单：同一批功能只在速查里用一句话点到，不复制说明书的全部细节。
+        val quick = quickStartChapters.flatMap { it.lines }.joinToString("\n")
+        assertTrue(quick.contains("上一步／下一步"))
+        assertTrue(!quick.contains("长按上一步会弹出本次会话的页面历史，点任意一条"))
     }
 
     @Test fun `quick start points to a manual guide rather than replacing it`() {
