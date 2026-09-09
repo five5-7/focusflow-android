@@ -32,6 +32,9 @@ internal object MotionSpec {
     /** 底栏圆瓣形变与选中态。 */
     const val MORPH_MS = 260
 
+    /** 副页收起/展开时长（缩小与放大共用，透明度跟随全程）。 */
+    const val SHRINK_MS = 260
+
     /** 强调减速：进入与落定。 */
     val enterEasing: Easing = CubicBezierEasing(0.05f, 0.7f, 0.1f, 1f)
 
@@ -50,6 +53,12 @@ internal object MotionSpec {
     fun <T> quick(): FiniteAnimationSpec<T> = spec(QUICK_MS, enterEasing)
 
     fun <T> morph(): FiniteAnimationSpec<T> = spec(MORPH_MS, enterEasing)
+
+    /** 副页收起：缩小与淡出同一时长、同一条"慢起快收"曲线，透明度跟缩小一起走完。 */
+    fun <T> shrink(): FiniteAnimationSpec<T> = spec(SHRINK_MS, exitEasing)
+
+    /** 副页展开：从底栏槽位放大回来，"快起慢落"。 */
+    fun <T> grow(): FiniteAnimationSpec<T> = spec(SHRINK_MS, enterEasing)
 
     private fun <T> spec(baseMs: Int, easing: Easing): FiniteAnimationSpec<T> =
         if (animationsEnabled) tween(motionMillis(baseMs), easing = easing) else snap()

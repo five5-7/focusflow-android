@@ -19,6 +19,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -165,12 +166,11 @@ import kotlinx.coroutines.withContext
     )
     val overviewScrollState = rememberScrollState()
     var inboxFilter by remember { mutableStateOf("全部") }
-    // 8.1.0 第三轮：今日概览出现/消失与 SubpageMotion 使用同一套规格，返回时从底栏对应位置放大覆盖。
-    val collapseOrigin = LocalNavCollapseOrigin.current
     Box(modifier.fillMaxSize()) {
         AnimatedVisibility(
             visible = !inboxOpen,
-            enter = hubEnter(collapseOrigin),
+            // 8.1.0 第三轮：主页直接出现在副页下层，不放大、不淡入；由副页缩小淡出把它露出来。
+            enter = EnterTransition.None,
             exit = hubExit()
         ) {
     ScrollableWithBar(scrollState = overviewScrollState) {

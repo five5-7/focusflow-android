@@ -19,6 +19,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -272,12 +273,11 @@ private data class BaselineVariantDraft(val name: String)
             }
         }
     }
-    // 8.1.0 第三轮：主页出现/消失与 SubpageMotion 使用同一套规格，返回主页时从底栏对应位置放大覆盖。
-    val collapseOrigin = LocalNavCollapseOrigin.current
     Box(modifier.fillMaxSize()) {
     AnimatedVisibility(
         visible = subPage == null,
-        enter = hubEnter(collapseOrigin),
+        // 8.1.0 第三轮：主页直接出现在副页下层，不放大、不淡入；由副页缩小淡出把它露出来。
+        enter = EnterTransition.None,
         exit = hubExit()
     ) {
     ScrollableWithBar(scrollState = settingsScrollState) {

@@ -865,17 +865,52 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             val scheduleCourses = activeCourses
             Box(pageModifier) {
             // 8.1.0 性能+转场：四个页签常驻组合（零重组），切换按导航类型做位移/缩放/淡入转场。
+            // 8.1.0 ④：子页收敛原点 = 该页签在底栏的槽位中心（x 分数按 5 槽均分估算）。
+            val collapseOrigins = listOf(
+                TransformOrigin(0.153f, 0.88f),
+                TransformOrigin(0.327f, 0.88f),
+                TransformOrigin(0.673f, 0.88f),
+                TransformOrigin(0.847f, 0.88f)
+            )
             listOf(0, 1, 2, 3).forEach { visibleTab ->
             val isVisibleTab = visibleTab == tab
+            // 8.1.0 第三轮：离开子页去别的页签时，副页所在页签向自己的底栏槽位缩小淡出，不再横向平移。
+            val tabHasSubpage = when (visibleTab) {
+                0 -> todayInboxOpen
+                2 -> planPage != null
+                3 -> settingsSubPage != null
+                else -> false
+            }
+            val leavingSubpage = !isVisibleTab && tabHasSubpage
             val slidePx = with(LocalDensity.current) { (if (lastNavKind == NavKind.JUMP) 64.dp else 48.dp).toPx() }
-            val hiddenScale = if (lastNavKind == NavKind.JUMP) 0.85f else 1f
-            val tabAlpha by animateFloatAsState(if (isVisibleTab) 1f else 0f, MotionSpec.move(), label = "tabAlpha$visibleTab")
+            val hiddenScale = when {
+                leavingSubpage -> 0.40f
+                lastNavKind == NavKind.JUMP -> 0.85f
+                else -> 1f
+            }
+            val tabAlpha by animateFloatAsState(
+                if (isVisibleTab) 1f else 0f,
+                when {
+                    leavingSubpage -> MotionSpec.shrink()
+                    isVisibleTab -> MotionSpec.grow()
+                    else -> MotionSpec.move()
+                },
+                label = "tabAlpha$visibleTab"
+            )
             val tabX by animateFloatAsState(
-                if (isVisibleTab) 0f else if (visibleTab < tab) -slidePx else slidePx,
+                if (isVisibleTab || leavingSubpage) 0f else if (visibleTab < tab) -slidePx else slidePx,
                 MotionSpec.move(),
                 label = "tabX$visibleTab"
             )
-            val tabScale by animateFloatAsState(if (isVisibleTab) 1f else hiddenScale, MotionSpec.move(), label = "tabScale$visibleTab")
+            val tabScale by animateFloatAsState(
+                if (isVisibleTab) 1f else hiddenScale,
+                when {
+                    leavingSubpage -> MotionSpec.shrink()
+                    isVisibleTab -> MotionSpec.grow()
+                    else -> MotionSpec.move()
+                },
+                label = "tabScale$visibleTab"
+            )
             Box(
                 Modifier.fillMaxSize()
                     .zIndex(if (isVisibleTab) 1f else 0f)
@@ -884,6 +919,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                         translationX = tabX
                         scaleX = tabScale
                         scaleY = tabScale
+                        if (leavingSubpage) transformOrigin = collapseOrigins[visibleTab]
                     }
                     // 8.1.0 第三轮：完全淡出的页签跳过绘制，只保留组合（切换仍是零重组），省掉不可见的合成开销。
                     .drawWithContent { if (tabAlpha > 0.004f) drawContent() }
@@ -896,13 +932,6 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                         }
                     )
             ) {
-            // 8.1.0 ④：子页返回主页的收敛原点 = 当前页签在底栏的槽位中心（x 分数按 5 槽均分估算）。
-            val collapseOrigins = listOf(
-                TransformOrigin(0.153f, 0.88f),
-                TransformOrigin(0.327f, 0.88f),
-                TransformOrigin(0.673f, 0.88f),
-                TransformOrigin(0.847f, 0.88f)
-            )
             CompositionLocalProvider(LocalNavCollapseOrigin provides collapseOrigins[visibleTab]) {
             val pageModifier = Modifier.fillMaxSize()
             when (visibleTab) {
@@ -1445,7 +1474,8 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             onBackHistory = { goBackHistory() },
             onForwardHistory = { goForwardHistory() },
             onLongPressBack = { historyListOpen = true },
-            modifier = Modifier.align(Alignment.BottomCenter).onSizeChanged {
+            // 8.1.0 第三轮：底栏始终在页面之上，副页缩小淡出时从其下方掠过，不被副页盖住。
+            modifier = Modifier.align(Alignment.BottomCenter).zIndex(2f).onSizeChanged {
                 floatingBarHeight = with(density) { it.height.toDp() }
             }
         )

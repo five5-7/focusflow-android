@@ -27,12 +27,15 @@ class MotionSpecTest {
         assertEquals(MotionSpec.MOVE_MS, tweenOf(MotionSpec.move<Float>()).durationMillis)
         assertEquals(MotionSpec.QUICK_MS, tweenOf(MotionSpec.quick<Float>()).durationMillis)
         assertEquals(MotionSpec.MORPH_MS, tweenOf(MotionSpec.morph<Float>()).durationMillis)
+        assertEquals(MotionSpec.SHRINK_MS, tweenOf(MotionSpec.shrink<Float>()).durationMillis)
+        assertEquals(MotionSpec.SHRINK_MS, tweenOf(MotionSpec.grow<Float>()).durationMillis)
     }
 
     @Test fun everySpecFollowsTheUserScale() {
         MotionSettings.update(0.5f)
         assertEquals(MotionSpec.ENTER_MS / 2, tweenOf(MotionSpec.enter<Float>()).durationMillis)
         assertEquals(MotionSpec.MORPH_MS / 2, tweenOf(MotionSpec.morph<Float>()).durationMillis)
+        assertEquals(MotionSpec.SHRINK_MS / 2, tweenOf(MotionSpec.shrink<Float>()).durationMillis)
         MotionSettings.update(1.5f)
         assertEquals((MotionSpec.ENTER_MS * 1.5f).toInt(), tweenOf(MotionSpec.enter<Float>()).durationMillis)
         assertEquals((MotionSpec.EXIT_MS * 1.5f).toInt(), tweenOf(MotionSpec.exit<Float>()).durationMillis)
@@ -45,6 +48,8 @@ class MotionSpecTest {
         assertTrue(MotionSpec.move<Float>() is SnapSpec<*>)
         assertTrue(MotionSpec.quick<Float>() is SnapSpec<*>)
         assertTrue(MotionSpec.morph<Float>() is SnapSpec<*>)
+        assertTrue(MotionSpec.shrink<Float>() is SnapSpec<*>)
+        assertTrue(MotionSpec.grow<Float>() is SnapSpec<*>)
         assertTrue(!MotionSpec.animationsEnabled)
     }
 
@@ -53,6 +58,12 @@ class MotionSpecTest {
         assertSame(MotionSpec.enterEasing, tweenOf(MotionSpec.enter<Float>()).easing)
         assertSame(MotionSpec.exitEasing, tweenOf(MotionSpec.exit<Float>()).easing)
         assertSame(MotionSpec.enterEasing, tweenOf(MotionSpec.move<Float>()).easing)
+        assertSame(MotionSpec.exitEasing, tweenOf(MotionSpec.shrink<Float>()).easing)
+        assertSame(MotionSpec.enterEasing, tweenOf(MotionSpec.grow<Float>()).easing)
+    }
+
+    @Test fun shrinkOutlastsThePushSoTheSubpageFadesThroughItsWholeCollapse() {
+        assertTrue(MotionSpec.SHRINK_MS > MotionSpec.MOVE_MS)
     }
 
     @Test fun userScaleIsClampedToTheSupportedRange() {
