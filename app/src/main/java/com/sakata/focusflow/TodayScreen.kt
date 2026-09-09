@@ -170,7 +170,7 @@ import kotlinx.coroutines.withContext
             visible = !inboxOpen,
             // 8.1.0 第三轮：主页入场随退出方案变化（缩小=直接出现；平移/视差=反向滑入；上滑=原地淡入）。
             enter = hubEnter(MotionSettings.exitScheme),
-            exit = hubExit()
+            exit = hubExit(MotionSettings.exitScheme)
         ) {
     ScrollableWithBar(scrollState = overviewScrollState) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {

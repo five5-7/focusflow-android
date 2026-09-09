@@ -277,7 +277,7 @@ private data class BaselineVariantDraft(val name: String)
         visible = subPage == null,
         // 8.1.0 第三轮：主页入场随退出方案变化（缩小=直接出现；平移/视差=反向滑入；上滑=原地淡入）。
         enter = hubEnter(MotionSettings.exitScheme),
-        exit = hubExit()
+        exit = hubExit(MotionSettings.exitScheme)
     ) {
     ScrollableWithBar(scrollState = settingsScrollState) {
         Text("设置", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
@@ -599,8 +599,8 @@ private data class BaselineVariantDraft(val name: String)
                         }
                         Text("影响页面转场与底部导航动画；系统「移除动画」设置仍然生效。", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         HorizontalDivider()
-                        // 8.1.0 第三轮：副页退出动画方案对比（临时开关，选定后删除）。
-                        Text("副页退出动画（临时对比）", fontWeight = FontWeight.SemiBold)
+                        // 8.1.0 第三轮：副页转场方案对比（临时开关，选定后删除）。
+                        Text("副页转场（临时对比）", fontWeight = FontWeight.SemiBold)
                         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             ExitScheme.entries.forEach { scheme ->
                                 FilterChip(
@@ -610,7 +610,7 @@ private data class BaselineVariantDraft(val name: String)
                                 )
                             }
                         }
-                        Text("只影响「副页 → 主页」的离场方式，用于真机对比；选定后会固定成一个并删除本行。", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("进出子页互为逆动作（进入=退出的倒放），四个方案只换动作形式，不换节奏；选定后会固定成一个并删除本行。", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         HorizontalDivider()
                         FocusFlowThemeOption.builtInEntries().forEach { option ->
                             val preview = focusFlowThemeSpec(option)
