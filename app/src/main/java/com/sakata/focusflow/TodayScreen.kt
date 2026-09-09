@@ -19,7 +19,6 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -169,8 +168,8 @@ import kotlinx.coroutines.withContext
     Box(modifier.fillMaxSize()) {
         AnimatedVisibility(
             visible = !inboxOpen,
-            // 8.1.0 第三轮：主页直接出现在副页下层，不放大、不淡入；由副页缩小淡出把它露出来。
-            enter = EnterTransition.None,
+            // 8.1.0 第三轮：主页入场随退出方案变化（缩小=直接出现；平移/视差=反向滑入；上滑=原地淡入）。
+            enter = hubEnter(MotionSettings.exitScheme),
             exit = hubExit()
         ) {
     ScrollableWithBar(scrollState = overviewScrollState) {

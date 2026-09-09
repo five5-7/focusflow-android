@@ -67,6 +67,22 @@ class MotionSpecTest {
         assertTrue(MotionSpec.SHRINK_MS < MotionSpec.MOVE_MS)
     }
 
+    @Test fun springsGetStifferWhenTheUserAsksForFasterMotion() {
+        MotionSettings.update(1f)
+        val standard = MotionSpec.springStiffness()
+        MotionSettings.update(0.5f)
+        val faster = MotionSpec.springStiffness()
+        MotionSettings.update(1.5f)
+        val slower = MotionSpec.springStiffness()
+        assertTrue(faster > standard)
+        assertTrue(standard > slower)
+    }
+
+    @Test fun disabledMotionSnapsSpringsToo() {
+        MotionSettings.update(0f)
+        assertTrue(MotionSpec.springSpec<Float>() is SnapSpec<*>)
+    }
+
     @Test fun userScaleIsClampedToTheSupportedRange() {
         MotionSettings.update(9f)
         assertEquals(1.5f, MotionSettings.durationScale, 0.0001f)

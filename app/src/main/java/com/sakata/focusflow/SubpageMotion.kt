@@ -9,6 +9,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -41,10 +42,19 @@ internal val LocalNavCollapseOrigin = staticCompositionLocalOf<TransformOrigin?>
 internal val LocalPageSnapToken = staticCompositionLocalOf { 0 }
 
 /**
- * 8.1.0 第三轮：主页一侧的转场规格，与 [SubpageMotion] 对称。
- * 主页消失（进入子页）向左让位；主页出现（从子页返回）不播动画——它直接出现在副页下层，
- * 由副页的缩小淡出把它露出来（见 [SubpageMotion] 的收敛分支）。
+ * 8.1.0 第三轮：主页一侧的转场规格，必须与 [SubpageMotion] 的退出分支配对。
+ * - 缩小方案：主页直接出现在下层（不放大、不淡入），由副页缩小淡出把它露出来；
+ * - 平移/视差方案：主页从反方向滑入，与副页对开；
+ * - 上滑方案：主页原地淡入。
+ * 主页消失（进入子页）一律向左让位。
  */
+internal fun hubEnter(scheme: ExitScheme): EnterTransition = when (scheme) {
+    ExitScheme.SHRINK -> EnterTransition.None
+    ExitScheme.SLIDE, ExitScheme.PARALLAX ->
+        slideInHorizontally(MotionSpec.springSpec()) { -it / 4 } + fadeIn(MotionSpec.move())
+    ExitScheme.LIFT -> fadeIn(MotionSpec.move())
+}
+
 internal fun hubExit(): ExitTransition =
     slideOutHorizontally(MotionSpec.move()) { -it / 4 } + fadeOut(MotionSpec.move())
 
@@ -68,13 +78,24 @@ internal fun <T : Any> SubpageMotion(
         modifier = Modifier.fillMaxSize().clipToBounds(),
         transitionSpec = {
             val direction = NavigationMotion.direction(initialState?.let(depth) ?: 0, targetState?.let(depth) ?: 0)
+            val scheme = MotionSettings.exitScheme
             when {
                 direction > 0 ->
                     // 平移与淡入淡出同一时长：出场页若先淡完，位移会被提前截断，看起来"平动很快"。
                     (slideInHorizontally(MotionSpec.move()) { it / 6 } + fadeIn(MotionSpec.move())) togetherWith
                         (slideOutHorizontally(MotionSpec.move()) { -it / 12 } + fadeOut(MotionSpec.move()))
-                // 8.1.0 第三轮：返回主页时主页直接出现在下层（不放大、不淡入），
-                // 只有副页向底栏槽位缩小到图标底色大小，并随缩小的全过程同步淡出。
+                // 返回主页：按当前方案选择副页的离场方式（主页一侧见 hubEnter）。
+                direction < 0 && targetState == null && scheme == ExitScheme.SLIDE ->
+                    (slideInHorizontally(MotionSpec.springSpec()) { -it / 4 } + fadeIn(MotionSpec.move())) togetherWith
+                        (slideOutHorizontally(MotionSpec.springSpec()) { it / 4 } + fadeOut(MotionSpec.move()))
+                direction < 0 && targetState == null && scheme == ExitScheme.PARALLAX ->
+                    // 副页先走（更快、位移更大），主页慢半拍跟上。
+                    (slideInHorizontally(MotionSpec.move()) { -it / 6 } + fadeIn(MotionSpec.move())) togetherWith
+                        (slideOutHorizontally(MotionSpec.springSpec()) { it / 3 } + fadeOut(MotionSpec.shrink()))
+                direction < 0 && targetState == null && scheme == ExitScheme.LIFT ->
+                    fadeIn(MotionSpec.move()) togetherWith
+                        (slideOutVertically(MotionSpec.springSpec()) { -it / 5 } + fadeOut(MotionSpec.move()))
+                // 8.1.0 第三轮：缩小方案——主页直接出现在下层，副页向目标底栏槽位缩小到图标大小并同步淡出。
                 direction < 0 && targetState == null && collapseOrigin != null ->
                     EnterTransition.None togetherWith
                         (scaleOut(MotionSpec.shrink(), targetScale = MotionSpec.COLLAPSE_SCALE, transformOrigin = collapseOrigin) +

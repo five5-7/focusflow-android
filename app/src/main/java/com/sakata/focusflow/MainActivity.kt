@@ -18,6 +18,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -897,39 +898,56 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                 else -> false
             }
             val leavingSubpage = !isVisibleTab && tabHasSubpage
+            // 8.1.0 第三轮：离开副页去别的页签时，按当前退出方案处理（缩小/平移/视差/上滑）。
+            val scheme = MotionSettings.exitScheme
+            val shrinkLeaving = leavingSubpage && scheme == ExitScheme.SHRINK
+            val liftLeaving = leavingSubpage && scheme == ExitScheme.LIFT
             // 8.1.0 第三轮：页签平动幅度加大，切换方向更易读（原 48/64dp 太含蓄）。
             val slidePx = with(LocalDensity.current) { (if (lastNavKind == NavKind.JUMP) 96.dp else 80.dp).toPx() }
+            // 退出副页时位移更大，方向感更明确。
+            val travelPx = with(LocalDensity.current) { 150.dp.toPx() }
+            val liftPx = with(LocalDensity.current) { 56.dp.toPx() }
+            val exitSpec: FiniteAnimationSpec<Float> = when {
+                shrinkLeaving -> MotionSpec.shrink()
+                leavingSubpage -> MotionSpec.move()
+                isVisibleTab -> MotionSpec.grow()
+                else -> MotionSpec.move()
+            }
             val hiddenScale = when {
-                leavingSubpage -> MotionSpec.COLLAPSE_SCALE
+                shrinkLeaving -> MotionSpec.COLLAPSE_SCALE
                 lastNavKind == NavKind.JUMP -> 0.85f
                 else -> 1f
             }
             val tabAlpha by animateFloatAsState(
                 if (isVisibleTab) 1f else 0f,
-                when {
-                    leavingSubpage -> MotionSpec.shrink()
-                    isVisibleTab -> MotionSpec.grow()
-                    else -> MotionSpec.move()
-                },
+                exitSpec,
                 label = "tabAlpha$visibleTab"
             )
             val tabX by animateFloatAsState(
-                if (isVisibleTab || leavingSubpage) 0f else if (visibleTab < tab) -slidePx else slidePx,
-                MotionSpec.move(),
+                when {
+                    isVisibleTab || shrinkLeaving -> 0f
+                    // 上滑方案：主页原地淡入，不参与横向移动。
+                    liftLeaving || scheme == ExitScheme.LIFT -> 0f
+                    leavingSubpage -> if (visibleTab < tab) -travelPx else travelPx
+                    visibleTab < tab -> -slidePx
+                    else -> slidePx
+                },
+                if (leavingSubpage) MotionSpec.springSpec<Float>() else MotionSpec.move(),
                 label = "tabX$visibleTab"
+            )
+            val tabY by animateFloatAsState(
+                if (liftLeaving) -liftPx else 0f,
+                MotionSpec.springSpec<Float>(),
+                label = "tabY$visibleTab"
             )
             val tabScale by animateFloatAsState(
                 if (isVisibleTab) 1f else hiddenScale,
-                when {
-                    leavingSubpage -> MotionSpec.shrink()
-                    isVisibleTab -> MotionSpec.grow()
-                    else -> MotionSpec.move()
-                },
+                exitSpec,
                 label = "tabScale$visibleTab"
             )
             // 8.1.0 第三轮：正在缩小的副页必须盖在目标主页之上，否则会被目标页的卡片压住；
             // 转场结束（透明度归零）后自动让位，避免透明页签挡住点击。
-            val shrinkingOnTop = leavingSubpage && tabAlpha < 0.996f
+            val shrinkingOnTop = shrinkLeaving && tabAlpha < 0.996f
             Box(
                 Modifier.fillMaxSize()
                     .zIndex(
@@ -942,11 +960,11 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                     .graphicsLayer {
                         alpha = tabAlpha
                         translationX = tabX
+                        translationY = tabY
                         scaleX = tabScale
                         scaleY = tabScale
-                        // 8.1.0 第三轮：跨页签离开副页时，收敛点是**目标页签**的底栏槽位，
-                    // 页面看起来被吸进即将选中的那一格底色里。
-                        if (leavingSubpage) transformOrigin = collapseOrigins[tab.coerceIn(0, 3)]
+                        // 8.1.0 第三轮：缩小方案下，收敛点是**目标页签**的底栏槽位，页面被吸进即将选中的那一格底色里。
+                        if (shrinkLeaving) transformOrigin = collapseOrigins[tab.coerceIn(0, 3)]
                     }
                     // 8.1.0 第三轮：完全淡出的页签跳过绘制，只保留组合（切换仍是零重组），省掉不可见的合成开销。
                     .drawWithContent { if (tabAlpha > 0.004f) drawContent() }

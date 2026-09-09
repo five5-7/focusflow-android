@@ -4,7 +4,20 @@ import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.Easing
 import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+
+/** 8.1.0 第三轮：副页退出动画方案（临时对比用；选定后固定成一个并删除设置里的开关）。 */
+internal enum class ExitScheme(val label: String) {
+    /** 向目标底栏槽位缩小并淡出（当前默认）。 */
+    SHRINK("缩小进底栏"),
+    /** 副页与主页一左一右对开（纯平移 + 缓动）。 */
+    SLIDE("左右平移"),
+    /** 副页先走、主页慢半拍跟上。 */
+    PARALLAX("视差平移"),
+    /** 副页上滑淡出，主页原地淡入。 */
+    LIFT("上滑淡出")
+}
 
 /**
  * 8.1.0 动画优化第三轮：把散落在各页的时长与缓动收拢为语义化规范。
@@ -68,6 +81,18 @@ internal object MotionSpec {
 
     /** 副页展开：从底栏槽位放大回来，"快起慢落"。 */
     fun <T> grow(): FiniteAnimationSpec<T> = spec(SHRINK_MS, enterEasing)
+
+    /**
+     * 弹簧规格：位移类动效用它比 tween 更自然。
+     * 弹簧没有时长参数，用刚度近似映射"动画速度"设置：倍率越小越硬（越快）。
+     */
+    fun <T> springSpec(): FiniteAnimationSpec<T> =
+        if (animationsEnabled) spring(dampingRatio = 0.82f, stiffness = springStiffness()) else snap()
+
+    internal fun springStiffness(): Float {
+        val scale = MotionSettings.durationScale.coerceAtLeast(0.15f)
+        return (1500f / (scale * scale)).coerceIn(120f, 12000f)
+    }
 
     private fun <T> spec(baseMs: Int, easing: Easing): FiniteAnimationSpec<T> =
         if (animationsEnabled) tween(motionMillis(baseMs), easing = easing) else snap()

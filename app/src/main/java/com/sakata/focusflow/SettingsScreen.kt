@@ -19,7 +19,6 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.EnterTransition
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -276,8 +275,8 @@ private data class BaselineVariantDraft(val name: String)
     Box(modifier.fillMaxSize()) {
     AnimatedVisibility(
         visible = subPage == null,
-        // 8.1.0 第三轮：主页直接出现在副页下层，不放大、不淡入；由副页缩小淡出把它露出来。
-        enter = EnterTransition.None,
+        // 8.1.0 第三轮：主页入场随退出方案变化（缩小=直接出现；平移/视差=反向滑入；上滑=原地淡入）。
+        enter = hubEnter(MotionSettings.exitScheme),
         exit = hubExit()
     ) {
     ScrollableWithBar(scrollState = settingsScrollState) {
@@ -599,6 +598,19 @@ private data class BaselineVariantDraft(val name: String)
                             }
                         }
                         Text("影响页面转场与底部导航动画；系统「移除动画」设置仍然生效。", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        HorizontalDivider()
+                        // 8.1.0 第三轮：副页退出动画方案对比（临时开关，选定后删除）。
+                        Text("副页退出动画（临时对比）", fontWeight = FontWeight.SemiBold)
+                        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            ExitScheme.entries.forEach { scheme ->
+                                FilterChip(
+                                    selected = MotionSettings.exitScheme == scheme,
+                                    onClick = { MotionSettings.updateExitScheme(scheme) },
+                                    label = { Text(scheme.label) }
+                                )
+                            }
+                        }
+                        Text("只影响「副页 → 主页」的离场方式，用于真机对比；选定后会固定成一个并删除本行。", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         HorizontalDivider()
                         FocusFlowThemeOption.builtInEntries().forEach { option ->
                             val preview = focusFlowThemeSpec(option)
