@@ -13,18 +13,8 @@ internal object MotionSettings {
     var durationScale by mutableStateOf(1f)
         private set
 
-    /**
-     * 8.1.0 第三轮：副页退出动画方案。临时对比用（内存态，不落盘、不新增存储键），
-     * 选定后固定为其中一个并删除设置里的开关。
-     */
-    var exitScheme by mutableStateOf(ExitScheme.DEPTH)
-
     fun update(scale: Float) {
         durationScale = scale.coerceIn(0f, 1.5f)
-    }
-
-    fun updateExitScheme(scheme: ExitScheme) {
-        exitScheme = scheme
     }
 }
 

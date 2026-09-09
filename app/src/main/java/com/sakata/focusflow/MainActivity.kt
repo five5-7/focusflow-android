@@ -398,9 +398,16 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     var historyListOpen by remember { mutableStateOf(false) }
     // 8.1.0 导航类型标记：驱动页签容器转场动画（TAB/BACK/FORWARD/JUMP）。
     var lastNavKind by remember { mutableStateOf(NavKind.TAB) }
-    // 8.1.0 第三轮：点击底栏入口回主页时，目标页签的副页重置不播缩小动画（用 token 触发重建）。
+    // 8.1.0 第三轮：点击底栏入口回主页时，目标页签的副页重置不播动画（snapPageChange 显式抑制）。
     var pageSnapTab by remember { mutableIntStateOf(-1) }
     var pageSnapToken by remember { mutableIntStateOf(0) }
+    // 只在"到达那一帧"生效：等动画窗口过去后复位，避免影响该页签后续的正常转场。
+    LaunchedEffect(pageSnapToken) {
+        if (pageSnapToken != 0) {
+            delay(MotionSpec.SUBPAGE_HOME_MS + 120L)
+            pageSnapTab = -1
+        }
+    }
     // 8.1.0 检查更新（仅 GitHub 正式版；下载后调系统安装）。
     var updateCheckState by remember { mutableStateOf(UpdateCheckState()) }
     var autoCheckUpdates by remember { mutableStateOf(store.loadAutoCheckUpdates()) }
@@ -745,7 +752,12 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     // 子页返回处理器在本处理器之后组合，子页打开时优先；弹窗是独立窗口，返回不会到达这里。
     var lastExitPromptAt by remember { mutableLongStateOf(0L) }
     var exitConfirmDisabled by remember { mutableStateOf(store.loadExitConfirmDisabled()) }
-    BackHandler(enabled = !todayInboxOpen && planPage == null && settingsSubPage == null) {
+    // 只按"当前页签"判断是否在子页：别的页签遗留的子页状态（切走后保留）不该让本处理器失效，
+    // 否则系统返回没有任何处理器接管，会直接退出应用、跳过二次确认。
+    val onCurrentSubpage = (tab == 0 && todayInboxOpen) ||
+        (tab == 2 && planPage != null) ||
+        (tab == 3 && settingsSubPage != null)
+    BackHandler(enabled = !onCurrentSubpage) {
         if (tab != 0) {
             lastNavKind = NavKind.BACK
             goTo(PageSnapshot(0, false, planPage, settingsSubPage, settingsBackStack))
@@ -898,25 +910,18 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                 else -> false
             }
             val leavingSubpage = !isVisibleTab && tabHasSubpage
-            // 8.1.0 第三轮：离开副页去别的页签时，按当前退出方案处理（缩小/平移/视差/上滑）。
-            val scheme = MotionSettings.exitScheme
-            val collapseLeaving = leavingSubpage && scheme == ExitScheme.DEPTH
-            val liftLeaving = leavingSubpage && scheme == ExitScheme.LIFT
+            // 8.1.0 第三轮：离开副页去别的页签时，副页所在页签向**目标页签**的底栏槽位缩小淡出；
+            // 主页与主页之间直接切换则一律用左右平移（不缩放）。
+            val collapseLeaving = leavingSubpage
             // 8.1.0 第三轮：页签平动幅度加大，切换方向更易读（原 48/64dp 太含蓄）。
             val slidePx = with(LocalDensity.current) { (if (lastNavKind == NavKind.JUMP) 96.dp else 80.dp).toPx() }
-            // 退出副页时位移更大，方向感更明确。
-            val travelPx = with(LocalDensity.current) { 150.dp.toPx() }
-            val liftPx = with(LocalDensity.current) { 56.dp.toPx() }
             val exitSpec: FiniteAnimationSpec<Float> = when {
-                collapseLeaving -> MotionSpec.shrink()
-                leavingSubpage -> MotionSpec.move()
+                collapseLeaving -> MotionSpec.collapseAcross()
                 isVisibleTab -> MotionSpec.grow()
                 else -> MotionSpec.move()
             }
             val hiddenScale = when {
                 collapseLeaving -> MotionSpec.COLLAPSE_SCALE
-                // 深度缩放：主页在底层停在 0.96，进出时在 0.96 与 1.0 之间让位。
-                scheme == ExitScheme.DEPTH -> 0.96f
                 lastNavKind == NavKind.JUMP -> 0.85f
                 else -> 1f
             }
@@ -926,21 +931,9 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                 label = "tabAlpha$visibleTab"
             )
             val tabX by animateFloatAsState(
-                when {
-                    isVisibleTab || collapseLeaving -> 0f
-                    // 深度缩放与上滑方案：主页只做缩放/淡入淡出，不参与横向移动。
-                    scheme == ExitScheme.DEPTH || liftLeaving || scheme == ExitScheme.LIFT -> 0f
-                    leavingSubpage -> if (visibleTab < tab) -travelPx else travelPx
-                    visibleTab < tab -> -slidePx
-                    else -> slidePx
-                },
-                if (leavingSubpage) MotionSpec.springSpec<Float>() else MotionSpec.move(),
+                if (isVisibleTab || collapseLeaving) 0f else if (visibleTab < tab) -slidePx else slidePx,
+                MotionSpec.move(),
                 label = "tabX$visibleTab"
-            )
-            val tabY by animateFloatAsState(
-                if (liftLeaving) -liftPx else 0f,
-                MotionSpec.springSpec<Float>(),
-                label = "tabY$visibleTab"
             )
             val tabScale by animateFloatAsState(
                 if (isVisibleTab) 1f else hiddenScale,
@@ -962,7 +955,6 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                     .graphicsLayer {
                         alpha = tabAlpha
                         translationX = tabX
-                        translationY = tabY
                         scaleX = tabScale
                         scaleY = tabScale
                         // 8.1.0 第三轮：深度缩放下，收敛点是**目标页签**的底栏槽位，页面被吸进即将选中的那一格底色里。

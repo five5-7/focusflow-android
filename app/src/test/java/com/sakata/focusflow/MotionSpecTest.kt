@@ -27,15 +27,16 @@ class MotionSpecTest {
         assertEquals(MotionSpec.MOVE_MS, tweenOf(MotionSpec.move<Float>()).durationMillis)
         assertEquals(MotionSpec.QUICK_MS, tweenOf(MotionSpec.quick<Float>()).durationMillis)
         assertEquals(MotionSpec.MORPH_MS, tweenOf(MotionSpec.morph<Float>()).durationMillis)
-        assertEquals(MotionSpec.SHRINK_MS, tweenOf(MotionSpec.shrink<Float>()).durationMillis)
-        assertEquals(MotionSpec.SHRINK_MS, tweenOf(MotionSpec.grow<Float>()).durationMillis)
+        assertEquals(MotionSpec.SUBPAGE_HOME_MS, tweenOf(MotionSpec.collapseHome<Float>()).durationMillis)
+        assertEquals(MotionSpec.SUBPAGE_HOME_MS, tweenOf(MotionSpec.grow<Float>()).durationMillis)
+        assertEquals(MotionSpec.SUBPAGE_CROSS_MS, tweenOf(MotionSpec.collapseAcross<Float>()).durationMillis)
     }
 
     @Test fun everySpecFollowsTheUserScale() {
         MotionSettings.update(0.5f)
         assertEquals(MotionSpec.ENTER_MS / 2, tweenOf(MotionSpec.enter<Float>()).durationMillis)
         assertEquals(MotionSpec.MORPH_MS / 2, tweenOf(MotionSpec.morph<Float>()).durationMillis)
-        assertEquals(MotionSpec.SHRINK_MS / 2, tweenOf(MotionSpec.shrink<Float>()).durationMillis)
+        assertEquals(MotionSpec.SUBPAGE_HOME_MS / 2, tweenOf(MotionSpec.collapseHome<Float>()).durationMillis)
         MotionSettings.update(1.5f)
         assertEquals((MotionSpec.ENTER_MS * 1.5f).toInt(), tweenOf(MotionSpec.enter<Float>()).durationMillis)
         assertEquals((MotionSpec.EXIT_MS * 1.5f).toInt(), tweenOf(MotionSpec.exit<Float>()).durationMillis)
@@ -48,7 +49,8 @@ class MotionSpecTest {
         assertTrue(MotionSpec.move<Float>() is SnapSpec<*>)
         assertTrue(MotionSpec.quick<Float>() is SnapSpec<*>)
         assertTrue(MotionSpec.morph<Float>() is SnapSpec<*>)
-        assertTrue(MotionSpec.shrink<Float>() is SnapSpec<*>)
+        assertTrue(MotionSpec.collapseHome<Float>() is SnapSpec<*>)
+        assertTrue(MotionSpec.collapseAcross<Float>() is SnapSpec<*>)
         assertTrue(MotionSpec.grow<Float>() is SnapSpec<*>)
         assertTrue(!MotionSpec.animationsEnabled)
     }
@@ -58,29 +60,17 @@ class MotionSpecTest {
         assertSame(MotionSpec.enterEasing, tweenOf(MotionSpec.enter<Float>()).easing)
         assertSame(MotionSpec.exitEasing, tweenOf(MotionSpec.exit<Float>()).easing)
         assertSame(MotionSpec.enterEasing, tweenOf(MotionSpec.move<Float>()).easing)
-        assertSame(MotionSpec.shrinkEasing, tweenOf(MotionSpec.shrink<Float>()).easing)
+        assertSame(MotionSpec.shrinkEasing, tweenOf(MotionSpec.collapseHome<Float>()).easing)
+        assertSame(MotionSpec.shrinkEasing, tweenOf(MotionSpec.collapseAcross<Float>()).easing)
         assertSame(MotionSpec.enterEasing, tweenOf(MotionSpec.grow<Float>()).easing)
     }
 
-    @Test fun scaleMovesQuickerThanTranslation() {
-        // 用户反馈：缩放拖沓、平动过快 → 缩放短于平动。
-        assertTrue(MotionSpec.SHRINK_MS < MotionSpec.MOVE_MS)
-    }
-
-    @Test fun springsGetStifferWhenTheUserAsksForFasterMotion() {
-        MotionSettings.update(1f)
-        val standard = MotionSpec.springStiffness()
-        MotionSettings.update(0.5f)
-        val faster = MotionSpec.springStiffness()
-        MotionSettings.update(1.5f)
-        val slower = MotionSpec.springStiffness()
-        assertTrue(faster > standard)
-        assertTrue(standard > slower)
-    }
-
-    @Test fun disabledMotionSnapsSpringsToo() {
-        MotionSettings.update(0f)
-        assertTrue(MotionSpec.springSpec<Float>() is SnapSpec<*>)
+    @Test fun subpageReturnTiersSpeed() {
+        // 用户要求：回到自己主页要"快于切换到其他主页、慢于原来的 200ms"。
+        assertTrue(MotionSpec.SUBPAGE_HOME_MS > 200)
+        assertTrue(MotionSpec.SUBPAGE_HOME_MS < MotionSpec.SUBPAGE_CROSS_MS)
+        // 副页收放要比整页平移快（缩放拖沓、平动过快的反馈）。
+        assertTrue(MotionSpec.SUBPAGE_HOME_MS < MotionSpec.MOVE_MS)
     }
 
     @Test fun userScaleIsClampedToTheSupportedRange() {

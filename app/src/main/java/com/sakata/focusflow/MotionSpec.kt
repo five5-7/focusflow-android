@@ -4,34 +4,16 @@ import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.Easing
 import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.animation.core.snap
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
-
-/**
- * 8.1.0 第三轮：副页转场方案（临时对比用；选定后固定成一个并删除设置里的开关）。
- * 硬性约束：**每个方案的前进与后退必须严格互为逆动作**，
- * 进入子页 = 退出子页的倒放，不允许"进出一套、回去另一套"。
- */
-internal enum class ExitScheme(val label: String) {
-    /** 深度缩放：子页从底栏图标处放大展开/缩回，主页在底层 1 ↔ 0.96 让位。 */
-    DEPTH("深度缩放"),
-    /** 左右平移：子页与主页一进一出，严格对开。 */
-    SLIDE("左右平移"),
-    /** 视差平移：子页走得多、主页走得少，两者同时完成。 */
-    PARALLAX("视差平移"),
-    /** 上滑：子页向上滑出/从上方落回，主页原地淡入淡出。 */
-    LIFT("上滑")
-}
 
 /**
  * 8.1.0 动画优化第三轮：把散落在各页的时长与缓动收拢为语义化规范。
  *
  * 约定：
- * - 所有时长都经 [motionMillis] 换算，「设置 → 外观 → 动画速度」才能覆盖全部动效
- *   （此前各子页 hub 转场与滚动条仍写死 120~260ms，关掉动画也照动）；
- * - 进入用强调减速（起步快、落定慢），退出用强调加速（起步慢、离场快），
- *   这样"谁进场、谁退场"一眼可辨，而不是两边同时匀速淡出；
- * - 速度设为 0（关闭动画）时一律退化为 [snap]，不做任何过渡。
+ * - 所有时长都经 [motionMillis] 换算，「设置 → 外观 → 动画速度」才能覆盖全部动效；
+ * - 进入用强调减速（起步快、落定慢），退出用强调加速（起步慢、离场快）；
+ * - 速度设为 0（关闭动画）时一律退化为 [snap]，不做任何过渡；
+ * - 副页进出严格互逆：进入 = 退出的倒放（见 SubpageMotion 的 enterSubpage / 返回分支）。
  */
 internal object MotionSpec {
     /** 进入时长：略长，留出落定感。 */
@@ -49,14 +31,23 @@ internal object MotionSpec {
     /** 底栏圆瓣形变与选中态。 */
     const val MORPH_MS = 260
 
-    /** 副页收起/展开时长（缩小与放大共用，透明度跟随全程）：比平动快，避免拖沓。 */
-    const val SHRINK_MS = 200
+    /**
+     * 副页收回自己主页的时长。
+     * 用户要求：比"切到其他主页"快、比原来 200ms 慢 —— 240ms。
+     */
+    const val SUBPAGE_HOME_MS = 240
+
+    /** 副页跨页签离开（切到其他主页）的时长：最慢的一档。 */
+    const val SUBPAGE_CROSS_MS = 320
 
     /**
      * 副页收敛后的最终缩放：约等于底栏选中图标底色的大小，
      * 让页面看起来是被"吸进"那一格的底色里，而不是缩成一块大方块。
      */
     const val COLLAPSE_SCALE = 0.12f
+
+    /** 主页在副页展开时的退让比例（深度缩放的底层）。 */
+    const val HUB_RECEDE_SCALE = 0.96f
 
     /** 强调减速：进入与落定。 */
     val enterEasing: Easing = CubicBezierEasing(0.05f, 0.7f, 0.1f, 1f)
@@ -80,23 +71,14 @@ internal object MotionSpec {
 
     fun <T> morph(): FiniteAnimationSpec<T> = spec(MORPH_MS, enterEasing)
 
-    /** 副页收起：缩小与淡出同一时长、同一条曲线，透明度跟缩小一起走完。 */
-    fun <T> shrink(): FiniteAnimationSpec<T> = spec(SHRINK_MS, shrinkEasing)
+    /** 副页收回自己主页：缩小与淡出同一时长、同一条曲线，透明度跟缩小一起走完。 */
+    fun <T> collapseHome(): FiniteAnimationSpec<T> = spec(SUBPAGE_HOME_MS, shrinkEasing)
+
+    /** 副页跨页签离开：同一条曲线，但更慢，与"回到自己主页"区分开。 */
+    fun <T> collapseAcross(): FiniteAnimationSpec<T> = spec(SUBPAGE_CROSS_MS, shrinkEasing)
 
     /** 副页展开：从底栏槽位放大回来，"快起慢落"。 */
-    fun <T> grow(): FiniteAnimationSpec<T> = spec(SHRINK_MS, enterEasing)
-
-    /**
-     * 弹簧规格：位移类动效用它比 tween 更自然。
-     * 弹簧没有时长参数，用刚度近似映射"动画速度"设置：倍率越小越硬（越快）。
-     */
-    fun <T> springSpec(): FiniteAnimationSpec<T> =
-        if (animationsEnabled) spring(dampingRatio = 0.82f, stiffness = springStiffness()) else snap()
-
-    internal fun springStiffness(): Float {
-        val scale = MotionSettings.durationScale.coerceAtLeast(0.15f)
-        return (1500f / (scale * scale)).coerceIn(120f, 12000f)
-    }
+    fun <T> grow(): FiniteAnimationSpec<T> = spec(SUBPAGE_HOME_MS, enterEasing)
 
     private fun <T> spec(baseMs: Int, easing: Easing): FiniteAnimationSpec<T> =
         if (animationsEnabled) tween(motionMillis(baseMs), easing = easing) else snap()

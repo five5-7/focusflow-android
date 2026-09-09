@@ -88,9 +88,9 @@ import kotlinx.coroutines.withContext
     Box(modifier.fillMaxSize()) {
         AnimatedVisibility(
             visible = page == null,
-            // 8.1.0 第三轮：主页入场随退出方案变化（缩小=直接出现；平移/视差=反向滑入；上滑=原地淡入）。
-            enter = hubEnter(MotionSettings.exitScheme),
-            exit = hubExit(MotionSettings.exitScheme)
+            // 8.1.0 第三轮：主页直接出现在副页下层（不放大、不淡入）；进入子页时它退到 0.96。
+            enter = hubEnter(),
+            exit = hubExit()
         ) {
         PlanHubScreen(
             modifier = Modifier.fillMaxSize(),
@@ -123,7 +123,7 @@ import kotlinx.coroutines.withContext
             scrollState = hubScrollState
         )
         }
-        SubpageMotion(page) { currentPage ->
+        SubpageMotion(page, snapPageChange = LocalPageSnapToken.current != 0) { currentPage ->
             if (currentPage != null) {
                 PlanSubpageFrame(Modifier.fillMaxSize(), currentPage.title) {
                     when (currentPage) {
