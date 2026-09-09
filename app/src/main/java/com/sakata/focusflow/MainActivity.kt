@@ -885,7 +885,8 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                 else -> false
             }
             val leavingSubpage = !isVisibleTab && tabHasSubpage
-            val slidePx = with(LocalDensity.current) { (if (lastNavKind == NavKind.JUMP) 64.dp else 48.dp).toPx() }
+            // 8.1.0 第三轮：页签平动幅度加大，切换方向更易读（原 48/64dp 太含蓄）。
+            val slidePx = with(LocalDensity.current) { (if (lastNavKind == NavKind.JUMP) 96.dp else 80.dp).toPx() }
             val hiddenScale = when {
                 leavingSubpage -> 0.40f
                 lastNavKind == NavKind.JUMP -> 0.85f
