@@ -748,7 +748,10 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                     val result = snackbarHostState.showSnackbar(
                         message = "再按一次返回键退出应用",
                         actionLabel = "不再提示",
-                        withDismissAction = true
+                        withDismissAction = true,
+                        // 8.1.0：有 action 时 Material3 默认时长是 Indefinite，会让"提示还在但窗口已过"；
+                        // 显式回到 Short，提示生命周期与 EXIT_PROMPT_WINDOW_MS 重新对齐。
+                        duration = SnackbarDuration.Short
                     )
                     if (result == SnackbarResult.ActionPerformed) {
                         exitConfirmDisabled = true
@@ -911,9 +914,18 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                 },
                 label = "tabScale$visibleTab"
             )
+            // 8.1.0 第三轮：正在缩小的副页必须盖在目标主页之上，否则会被目标页的卡片压住；
+            // 转场结束（透明度归零）后自动让位，避免透明页签挡住点击。
+            val shrinkingOnTop = leavingSubpage && tabAlpha < 0.996f
             Box(
                 Modifier.fillMaxSize()
-                    .zIndex(if (isVisibleTab) 1f else 0f)
+                    .zIndex(
+                        when {
+                            shrinkingOnTop -> 2f
+                            isVisibleTab -> 1f
+                            else -> 0f
+                        }
+                    )
                     .graphicsLayer {
                         alpha = tabAlpha
                         translationX = tabX

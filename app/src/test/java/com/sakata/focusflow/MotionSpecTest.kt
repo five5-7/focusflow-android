@@ -58,12 +58,13 @@ class MotionSpecTest {
         assertSame(MotionSpec.enterEasing, tweenOf(MotionSpec.enter<Float>()).easing)
         assertSame(MotionSpec.exitEasing, tweenOf(MotionSpec.exit<Float>()).easing)
         assertSame(MotionSpec.enterEasing, tweenOf(MotionSpec.move<Float>()).easing)
-        assertSame(MotionSpec.exitEasing, tweenOf(MotionSpec.shrink<Float>()).easing)
+        assertSame(MotionSpec.shrinkEasing, tweenOf(MotionSpec.shrink<Float>()).easing)
         assertSame(MotionSpec.enterEasing, tweenOf(MotionSpec.grow<Float>()).easing)
     }
 
-    @Test fun shrinkOutlastsThePushSoTheSubpageFadesThroughItsWholeCollapse() {
-        assertTrue(MotionSpec.SHRINK_MS > MotionSpec.MOVE_MS)
+    @Test fun scaleMovesQuickerThanTranslation() {
+        // 用户反馈：缩放拖沓、平动过快 → 缩放短于平动。
+        assertTrue(MotionSpec.SHRINK_MS < MotionSpec.MOVE_MS)
     }
 
     @Test fun userScaleIsClampedToTheSupportedRange() {

@@ -25,6 +25,7 @@ import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.zIndex
 
 /**
  * 8.1.0 子页→主页的收敛原点：由页签容器提供（对应底部导航栏该页签槽位中心），
@@ -38,7 +39,7 @@ internal val LocalNavCollapseOrigin = staticCompositionLocalOf<TransformOrigin?>
  * 由副页的缩小淡出把它露出来（见 [SubpageMotion] 的收敛分支）。
  */
 internal fun hubExit(): ExitTransition =
-    slideOutHorizontally(MotionSpec.move()) { -it / 4 } + fadeOut(MotionSpec.exit())
+    slideOutHorizontally(MotionSpec.move()) { -it / 4 } + fadeOut(MotionSpec.move())
 
 /** Keep the outgoing destination alive until exit completes; don't read live page inside it. */
 @Composable
@@ -51,15 +52,17 @@ internal fun <T : Any> SubpageMotion(
     val states = rememberSaveableStateHolder()
     val transition = updateTransition(page, label = "subpage-state")
     val collapseOrigin = LocalNavCollapseOrigin.current
-    Box(Modifier.fillMaxSize()) {
+    // 8.1.0 第三轮：副页层永远在主页之上（主页直接出现在下层，副页缩小淡出时不能被主页的卡片压住）。
+    Box(Modifier.fillMaxSize().zIndex(1f)) {
     transition.AnimatedContent(
         modifier = Modifier.fillMaxSize().clipToBounds(),
         transitionSpec = {
             val direction = NavigationMotion.direction(initialState?.let(depth) ?: 0, targetState?.let(depth) ?: 0)
             when {
                 direction > 0 ->
-                    (slideInHorizontally(MotionSpec.move()) { it / 6 } + fadeIn(MotionSpec.enter())) togetherWith
-                        (slideOutHorizontally(MotionSpec.move()) { -it / 12 } + fadeOut(MotionSpec.exit()))
+                    // 平移与淡入淡出同一时长：出场页若先淡完，位移会被提前截断，看起来"平动很快"。
+                    (slideInHorizontally(MotionSpec.move()) { it / 6 } + fadeIn(MotionSpec.move())) togetherWith
+                        (slideOutHorizontally(MotionSpec.move()) { -it / 12 } + fadeOut(MotionSpec.move()))
                 // 8.1.0 第三轮：返回主页时主页直接出现在下层（不放大、不淡入），
                 // 只有副页向底栏槽位缩小，并随缩小的全过程同步淡出（同一时长，避免透明度提前消失）。
                 direction < 0 && targetState == null && collapseOrigin != null ->
@@ -67,8 +70,8 @@ internal fun <T : Any> SubpageMotion(
                         (scaleOut(MotionSpec.shrink(), targetScale = 0.40f, transformOrigin = collapseOrigin) +
                             fadeOut(MotionSpec.shrink()))
                 direction < 0 ->
-                    (slideInHorizontally(MotionSpec.move()) { -it / 12 } + fadeIn(MotionSpec.enter())) togetherWith
-                        (slideOutHorizontally(MotionSpec.move()) { it / 6 } + fadeOut(MotionSpec.exit()))
+                    (slideInHorizontally(MotionSpec.move()) { -it / 12 } + fadeIn(MotionSpec.move())) togetherWith
+                        (slideOutHorizontally(MotionSpec.move()) { it / 6 } + fadeOut(MotionSpec.move()))
                 else -> fadeIn(MotionSpec.enter()) togetherWith fadeOut(MotionSpec.exit())
             }.using(null)
         }

@@ -23,8 +23,8 @@ internal object MotionSpec {
     /** 退出时长：略短，避免与进场争抢注意力。 */
     const val EXIT_MS = 170
 
-    /** 位移/缩放主体时长（子页推入、页签平移）。 */
-    const val MOVE_MS = 220
+    /** 位移主体时长（页签平移、子页推入）：比缩放慢，让"整页移动"显得稳。 */
+    const val MOVE_MS = 260
 
     /** 轻反馈（滚动条、展开收起）。 */
     const val QUICK_MS = 180
@@ -32,14 +32,17 @@ internal object MotionSpec {
     /** 底栏圆瓣形变与选中态。 */
     const val MORPH_MS = 260
 
-    /** 副页收起/展开时长（缩小与放大共用，透明度跟随全程）。 */
-    const val SHRINK_MS = 260
+    /** 副页收起/展开时长（缩小与放大共用，透明度跟随全程）：比平动快，避免拖沓。 */
+    const val SHRINK_MS = 200
 
     /** 强调减速：进入与落定。 */
     val enterEasing: Easing = CubicBezierEasing(0.05f, 0.7f, 0.1f, 1f)
 
     /** 强调加速：退出与离场。 */
     val exitEasing: Easing = CubicBezierEasing(0.3f, 0f, 0.8f, 0.15f)
+
+    /** 缩放离场：起步即动、末端加速（强调加速曲线起步太慢，缩小时会显得拖沓）。 */
+    val shrinkEasing: Easing = CubicBezierEasing(0.3f, 0f, 1f, 1f)
 
     /** 关闭动画时不做任何过渡。 */
     val animationsEnabled: Boolean get() = MotionSettings.durationScale > 0f
@@ -54,8 +57,8 @@ internal object MotionSpec {
 
     fun <T> morph(): FiniteAnimationSpec<T> = spec(MORPH_MS, enterEasing)
 
-    /** 副页收起：缩小与淡出同一时长、同一条"慢起快收"曲线，透明度跟缩小一起走完。 */
-    fun <T> shrink(): FiniteAnimationSpec<T> = spec(SHRINK_MS, exitEasing)
+    /** 副页收起：缩小与淡出同一时长、同一条曲线，透明度跟缩小一起走完。 */
+    fun <T> shrink(): FiniteAnimationSpec<T> = spec(SHRINK_MS, shrinkEasing)
 
     /** 副页展开：从底栏槽位放大回来，"快起慢落"。 */
     fun <T> grow(): FiniteAnimationSpec<T> = spec(SHRINK_MS, enterEasing)
