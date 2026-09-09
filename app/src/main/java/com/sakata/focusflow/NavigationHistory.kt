@@ -23,7 +23,7 @@ internal data class PageSnapshot(
     }
 
     /**
-     * 是否处于"当前页签的主页"（供 [NavHistory.markWorkedHere] 判断）。
+     * 是否处于"当前页签的主页"（决定规则 v3 的主页↔主页不记录、以及 [NavHistory.markWorkedHere]）。
      * 只看当前页签：别的页签遗留在后台的子页状态（切走后保留）不代表用户正在看子页。
      */
     fun isTabRoot(): Boolean = when (tab) {
@@ -59,7 +59,7 @@ internal class NavHistory(private val capacity: Int = 30) {
     var current: PageSnapshot = PageSnapshot.ROOT
         private set
 
-    /** 记录一次用户导航并应用新目的地；无变化或去抖抵消时返回 null。 */
+    /** 记录一次用户导航并应用新目的地；无变化、去抖抵消或主页↔主页时返回 null。 */
     fun goTo(next: PageSnapshot): PageSnapshot? {
         if (next == current) return null
         if (backStack.isNotEmpty() && next == backStack.last()) {
@@ -69,21 +69,22 @@ internal class NavHistory(private val capacity: Int = 30) {
             current = next
             return next
         }
-        // 8.1.0（按用户反馈）：点底栏入口切换主页同样记为一步——"上一步"必须能回到刚才那个页面。
-        // 反复点同一个入口不会重复记录（上面 next == current 已拦截）；A→B→A 由上面的去抖抵消。
-        // 另外避免与 markWorkedHere 叠加出重复的同一目的地。
-        if (backStack.isEmpty() || backStack.last() != current) {
-            backStack.addLast(current)
-            while (backStack.size > capacity) backStack.removeFirst()
+        // 规则 v3：主页↔主页的跳转不记录（底栏一键可达，不值得回退）。
+        if (current.isTabRoot() && next.isTabRoot()) {
+            forwardStack.clear()
+            current = next
+            return next
         }
+        backStack.addLast(current)
+        while (backStack.size > capacity) backStack.removeFirst()
         forwardStack.clear()
         current = next
         return next
     }
 
     /**
-     * 在主页做了实质数据操作时调用，把当前主页记为可回退的一步（幂等）。
-     * 8.1.0 起导航本身都会记录，这里只是保证"操作现场"也落在历史里。
+     * 规则 v3 数据操作兜底：在主页做了实质数据操作时调用，把当前主页记为可回退的一步（幂等）。
+     * 子页无需处理（进入子页时已记录）。
      */
     fun markWorkedHere() {
         if (!current.isTabRoot()) return

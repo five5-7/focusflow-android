@@ -34,9 +34,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.lerp
@@ -119,12 +117,6 @@ internal fun FloatingNavigationBar(
     onBackHistory: () -> Unit = {},
     onForwardHistory: () -> Unit = {},
     onLongPressBack: () -> Unit = {},
-    /**
-     * 弹窗打开时底栏的"被照亮"强度（0f = 不发光）。
-     * 不压暗底栏，而是在它下方画一圈主题色柔光——读起来是"底栏还亮着、被点亮了"，
-     * 而不是"页面暗、底栏亮"的突兀感。传 lambda：只在绘制阶段读值，避免每帧重组。
-     */
-    spotlight: () -> Float = { 0f },
     modifier: Modifier = Modifier
 ) {
     val background by animateColorAsState(containerColor, MotionSpec.move(), label = "navigationTheme")
@@ -164,34 +156,10 @@ internal fun FloatingNavigationBar(
         contentAlignment = Alignment.Center
     ) {
         val margin = FloatingNavigationLayout.horizontalMarginDp(maxWidth.value, LocalDensity.current.fontScale).dp
-        val glowColor = MaterialTheme.colorScheme.primary
         Box(
             Modifier.padding(horizontal = margin, vertical = 8.dp)
                 .widthIn(max = FloatingNavigationLayout.MAX_BAR_WIDTH_DP.dp)
                 .fillMaxWidth()
-                // 弹窗打开时**不压暗**底栏，而是在它下方画一圈主题色柔光：读起来是"底栏还亮着、被点亮了"，
-                // 而不是"页面暗、底栏亮"的突兀感。只画在胶囊区域，且强度在绘制阶段读取（不触发重组）。
-                .drawWithContent {
-                    val glow = spotlight()
-                    if (glow > 0.001f) {
-                        val pad = 8.dp.toPx()
-                        val capsuleHeight = size.height - pad * 2
-                        if (capsuleHeight > 0f) {
-                            // 由外向内叠几层低透明描边，近似一圈柔光。
-                            for (i in 4 downTo 1) {
-                                val expand = pad * i * 0.55f
-                                drawRoundRect(
-                                    color = glowColor,
-                                    topLeft = Offset(-expand, pad - expand),
-                                    size = Size(size.width + expand * 2, capsuleHeight + expand * 2),
-                                    cornerRadius = CornerRadius(capsuleHeight / 2f + expand, capsuleHeight / 2f + expand),
-                                    alpha = glow * (0.10f / i)
-                                )
-                            }
-                        }
-                    }
-                    drawContent()
-                }
         ) {
             Surface(
                 modifier = Modifier.fillMaxWidth(),

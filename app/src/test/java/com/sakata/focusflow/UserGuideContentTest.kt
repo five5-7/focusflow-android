@@ -26,7 +26,9 @@ class UserGuideContentTest {
         assertTrue(guide.contains("上一步／下一步"))
         assertTrue(guide.contains("长按上一步"))
         assertTrue(guide.contains("再按一次返回键退出应用"))
-        assertTrue(guide.contains("底栏会跟着一起变暗但仍可点"))
+        // 弹窗口径随实现调整：现在是"页内浮层 + 上下平移进出 + 底栏仍可点"（不再写压暗/柔光）。
+        assertTrue(guide.contains("从屏幕下方平移进出"))
+        assertTrue(guide.contains("打开时底栏仍可点"))
         assertTrue(guide.contains("锁定竖屏"))
         // 快速入门保持简单：同一批功能只在速查里用一句话点到，不复制说明书的全部细节。
         val quick = quickStartChapters.flatMap { it.lines }.joinToString("\n")

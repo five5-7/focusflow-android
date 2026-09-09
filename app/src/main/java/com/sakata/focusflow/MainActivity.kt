@@ -1548,8 +1548,6 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             onBackHistory = { goBackHistory() },
             onForwardHistory = { goForwardHistory() },
             onLongPressBack = { historyListOpen = true },
-            // 弹窗打开时底栏不压暗，而是亮起一圈主题色柔光（跟随弹窗的进度，严格同步）。
-            spotlight = { dialogHost.progress.value },
             // 8.1.0 第三轮：底栏始终在页面之上，副页缩小淡出时从其下方掠过，不被副页盖住。
             modifier = Modifier.align(Alignment.BottomCenter).zIndex(2f).onSizeChanged {
                 floatingBarHeight = with(density) { it.height.toDp() }

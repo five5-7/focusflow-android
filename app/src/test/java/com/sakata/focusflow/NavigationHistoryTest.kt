@@ -24,17 +24,14 @@ class NavigationHistoryTest {
     }
 
     @Test
-    fun tabToTabIsRecordedSoBackRestoresThePreviousPage() {
-        // 8.1.0 按用户反馈修改：点底栏入口切换主页也记一步，上一步能回到刚才那个页面。
+    fun rootToRootNotRecorded() {
         val h = NavHistory()
         val schedule = snap(PageSnapshot.TAB_SCHEDULE)
         val settings = snap(PageSnapshot.TAB_SETTINGS)
         h.goTo(schedule)
         h.goTo(settings)
         assertEquals(settings, h.current)
-        assertTrue(h.canGoBack())
-        assertEquals(schedule, h.back())
-        assertEquals(PageSnapshot.ROOT, h.back())
+        assertFalse(h.canGoBack())
         assertNull(h.back())
     }
 
