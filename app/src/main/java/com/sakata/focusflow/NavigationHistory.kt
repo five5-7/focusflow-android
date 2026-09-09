@@ -22,8 +22,16 @@ internal data class PageSnapshot(
         val ROOT = PageSnapshot(TAB_TODAY, false, null, null, emptyList())
     }
 
-    /** 是否处于无子页的页签主页（决定根页面返回是否触发退出提示）。 */
-    fun isTabRoot(): Boolean = !todayInboxOpen && planPage == null && settingsSubPage == null
+    /**
+     * 是否处于"当前页签的主页"（决定规则 v3 的主页↔主页不记录、以及 [NavHistory.markWorkedHere]）。
+     * 只看当前页签：别的页签遗留在后台的子页状态（切走后保留）不代表用户正在看子页。
+     */
+    fun isTabRoot(): Boolean = when (tab) {
+        TAB_TODAY -> !todayInboxOpen
+        TAB_PLANS -> planPage == null
+        TAB_SETTINGS -> settingsSubPage == null
+        else -> true
+    }
 
     /** 历史列表展示用标签。 */
     val label: String

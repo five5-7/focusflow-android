@@ -30,6 +30,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -136,15 +137,18 @@ internal fun FloatingNavigationBar(
     var layerOrigin by remember { mutableStateOf(Offset.Zero) }
     val indicatorSlot = remember { Animatable(selectedSlot.toFloat()) }
     LaunchedEffect(selectedSlot) { indicatorSlot.animateTo(selectedSlot.toFloat(), MotionSpec.move()) }
-    // 目的地变化（子页名切换）时的轻微回弹。
+    // 目的地变化（同一页签内子页名切换）时的轻微回弹；切页签不弹。
     val destinationPulse = remember { Animatable(1f) }
     var previousDestination by remember { mutableStateOf(selectedPageDescription) }
-    LaunchedEffect(selectedPageDescription) {
-        val changed = selectedPageDescription != previousDestination
+    var previousSelectedTab by remember { mutableIntStateOf(selectedTab) }
+    LaunchedEffect(selectedPageDescription, selectedTab) {
+        val tabChanged = selectedTab != previousSelectedTab
+        val destinationChanged = selectedPageDescription != previousDestination
         previousDestination = selectedPageDescription
-        if (changed && MotionSpec.animationsEnabled) {
+        previousSelectedTab = selectedTab
+        if (!tabChanged && destinationChanged && MotionSpec.animationsEnabled) {
             destinationPulse.snapTo(0.90f)
-            destinationPulse.animateTo(1f, spring(dampingRatio = 0.42f, stiffness = Spring.StiffnessMediumLow))
+            destinationPulse.animateTo(1f, MotionSpec.pulse())
         } else destinationPulse.snapTo(1f)
     }
     BoxWithConstraints(
@@ -170,33 +174,38 @@ internal fun FloatingNavigationBar(
                     Box {
                         Box(Modifier.horizontalScroll(rememberScrollState())) {
                             Box(Modifier.onGloballyPositioned { layerOrigin = it.positionInRoot() }) {
-                            // 底色块：在所有图标之下。槽位中心由各槽位自己上报（根坐标），
-                            // 这里统一减去 Row 的原点换算到本层，避免"上报时 Row 原点还没测到"导致错位。
-                            val slot = indicatorSlot.value
-                            val lower = floor(slot).toInt().coerceIn(0, 4)
-                            val upper = (lower + 1).coerceAtMost(4)
-                            val from = slotCenters[lower]
-                            val to = slotCenters[upper]
-                            if (from != null && to != null) {
-                                val f = slot - lower
-                                val start = from - layerOrigin
-                                val end = to - layerOrigin
-                                val center = Offset(start.x + (end.x - start.x) * f, start.y + (end.y - start.y) * f)
-                                Box(
-                                    Modifier
-                                        .offset { IntOffset((center.x - iconBoxPx / 2).roundToInt(), (center.y - iconBoxPx / 2).roundToInt()) }
-                                        .size(FloatingNavigationLayout.ICON_BOX_DP.dp)
-                                        .drawBehind {
-                                            // 圆心就是本方块的中心（方块已被 offset 摆到槽位上）。
-                                            val radius = size.minDimension / 2 * destinationPulse.value
-                                            if (hasSubpage) {
-                                                drawCircle(indicator, radius = radius, style = Stroke(width = 3.dp.toPx()))
-                                            } else {
-                                                drawCircle(indicator, radius = radius)
-                                            }
+                            // 底色块：位置在 layout 阶段算、半径与透明度在绘制阶段算，
+                            // 组合阶段不读动画值——否则整条底栏会在底色平移的每一帧重组。
+                            Box(
+                                Modifier
+                                    .offset {
+                                        val slot = indicatorSlot.value
+                                        val lower = floor(slot).toInt().coerceIn(0, 4)
+                                        val upper = (lower + 1).coerceAtMost(4)
+                                        val from = slotCenters[lower] ?: Offset.Zero
+                                        val to = slotCenters[upper] ?: from
+                                        val f = slot - lower
+                                        val start = from - layerOrigin
+                                        val end = to - layerOrigin
+                                        val centerX = start.x + (end.x - start.x) * f
+                                        val centerY = start.y + (end.y - start.y) * f
+                                        IntOffset((centerX - iconBoxPx / 2).roundToInt(), (centerY - iconBoxPx / 2).roundToInt())
+                                    }
+                                    .size(FloatingNavigationLayout.ICON_BOX_DP.dp)
+                                    .drawBehind {
+                                        // 槽位中心还没测到时先不画，避免首帧闪到左上角。
+                                        val slot = indicatorSlot.value
+                                        val lower = floor(slot).toInt().coerceIn(0, 4)
+                                        val upper = (lower + 1).coerceAtMost(4)
+                                        if (slotCenters[lower] == null || slotCenters[upper] == null) return@drawBehind
+                                        val radius = size.minDimension / 2 * destinationPulse.value
+                                        if (hasSubpage) {
+                                            drawCircle(indicator, radius = radius, style = Stroke(width = 3.dp.toPx()))
+                                        } else {
+                                            drawCircle(indicator, radius = radius)
                                         }
-                                )
-                            }
+                                    }
+                            )
                             Row(
                                 Modifier.width(contentWidth).selectableGroup().padding(horizontal = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically

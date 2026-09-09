@@ -88,11 +88,12 @@ internal fun <T : Any> SubpageMotion(
                     EnterTransition.None togetherWith
                         (scaleOut(MotionSpec.collapseHome(), targetScale = MotionSpec.COLLAPSE_SCALE, transformOrigin = origin) +
                             fadeOut(MotionSpec.collapseHome()))
-                // 子页之间的父子上退：父页从 0.96 放大回来，子页缩回图标。
+                // 子页之间的父子上退：父页从 0.96 放大回来、子页缩小淡出。
+                // 原点用**中心**：它回到的是上一层子页，不是页签主页，不该收敛到底栏图标。
                 direction < 0 ->
-                    (scaleIn(MotionSpec.move(), initialScale = MotionSpec.HUB_RECEDE_SCALE, transformOrigin = origin) +
+                    (scaleIn(MotionSpec.move(), initialScale = MotionSpec.HUB_RECEDE_SCALE, transformOrigin = TransformOrigin.Center) +
                         fadeIn(MotionSpec.move())) togetherWith
-                        (scaleOut(MotionSpec.collapseHome(), targetScale = MotionSpec.COLLAPSE_SCALE, transformOrigin = origin) +
+                        (scaleOut(MotionSpec.collapseHome(), targetScale = MotionSpec.COLLAPSE_SCALE, transformOrigin = TransformOrigin.Center) +
                             fadeOut(MotionSpec.collapseHome()))
                 else -> fadeIn(MotionSpec.enter()) togetherWith fadeOut(MotionSpec.exit())
             }.using(null)

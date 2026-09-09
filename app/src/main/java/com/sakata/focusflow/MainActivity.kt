@@ -409,18 +409,19 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     var pageSnapTab by remember { mutableIntStateOf(-1) }
     var pageSnapToken by remember { mutableIntStateOf(0) }
     // 只在"到达那一帧"生效：等动画窗口过去后复位，避免影响该页签后续的正常转场。
+    // 窗口随「外观 → 动画速度」缩放：0.5× 时动画更短，就不该再挡一倍时间。
     LaunchedEffect(pageSnapToken) {
         if (pageSnapToken != 0) {
-            delay(MotionSpec.SUBPAGE_HOME_MS + 120L)
-            pageSnapTab = -1
+            delay(motionMillis(MotionSpec.SUBPAGE_HOME_MS + 120).toLong())
+            pageSnapTab = TabMotionRules.NO_TAB
         }
     }
     // 8.1.0 第三轮：本次导航离开的"正在看子页"的页签（在应用快照前判定，见 captureDepartingSubpage）。
     var leavingSubpageTab by remember { mutableIntStateOf(-1) }
     LaunchedEffect(leavingSubpageTab) {
         if (leavingSubpageTab != -1) {
-            delay(MotionSpec.SUBPAGE_CROSS_MS + 80L)
-            leavingSubpageTab = -1
+            delay(motionMillis(MotionSpec.SUBPAGE_CROSS_MS + 80).toLong())
+            leavingSubpageTab = TabMotionRules.NO_TAB
         }
     }
     // 8.1.0 检查更新（仅 GitHub 正式版；下载后调系统安装）。
@@ -931,7 +932,8 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             // 8.1.0 第三轮：启动只组合当前页签（首帧不被三个整页拖慢）；
             // 首帧之后再逐帧补齐其余页签——否则第一次切到某页签时才组合整页，切换会明显掉帧。
             val visitedTabs = remember { mutableStateListOf(0) }
-            LaunchedEffect(tab) { if (tab !in visitedTabs) visitedTabs.add(tab) }
+            // 当前页签在组合期就入表：否则切过去的那一帧它还没被组合，页面会空白一帧。
+            if (tab !in visitedTabs) visitedTabs.add(tab)
             LaunchedEffect(Unit) {
                 withFrameNanos { }
                 for (extra in listOf(1, 2, 3)) {
@@ -949,7 +951,9 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             // 主页与主页之间直接切换一律用左右平移，不缩放。
             val collapseLeaving = !isVisibleTab && visibleTab == leavingSubpageTab
             // 8.1.0 第三轮：页签平动幅度加大，切换方向更易读（原 48/64dp 太含蓄）。
-            val slidePx = with(LocalDensity.current) { (if (lastNavKind == NavKind.JUMP) 96.dp else 80.dp).toPx() }
+            val slidePx = with(LocalDensity.current) {
+                (if (lastNavKind == NavKind.JUMP) MotionSpec.JUMP_SLIDE_DP.dp else MotionSpec.TAB_SLIDE_DP.dp).toPx()
+            }
             // 隐藏页签的静止缩放：仍开着子页 → 停在图标大小，回来时从图标放大；否则 1.0，只平移。
             val hiddenScale = TabMotionRules.restingScale(hasSubpageNow, lastNavKind == NavKind.JUMP)
             // 缩放规格：隐藏时瞬间归位（不可见，不该留动画）；到达时只有"仍开着子页"才放大。
@@ -982,8 +986,9 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                 scaleSpec,
                 label = "tabScale$visibleTab"
             )
-            // 8.1.0 第三轮：正在缩小的副页必须盖在目标主页之上，否则会被目标页的卡片压住；
-            // 收起结束（leavingSubpageTab 复位）后自动让位，避免透明页签挡住点击。
+            // 8.1.0 第三轮：正在缩小的副页必须盖在目标主页之上，否则会被目标页的卡片压住。
+            // 但它只负责绘制、**不参与输入**（见下方 then 分支）：一旦挂上消费型 pointerInput，
+            // 它作为同级最上层命中目标会吞掉可见页签的点击（实测：离开子页后约 400ms 内点不动）。
             val shrinkingOnTop = collapseLeaving
             Box(
                 Modifier.fillMaxSize()
@@ -1006,7 +1011,8 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                     // 8.1.0 第三轮：完全淡出的页签跳过绘制，只保留组合（切换仍是零重组），省掉不可见的合成开销。
                     .drawWithContent { if (tabAlpha.value > 0.004f) drawContent() }
                     .then(
-                        if (isVisibleTab) Modifier
+                        // 收起中的页签也不拦截输入：它只是画在上层，点击应落到可见页签。
+                        if (isVisibleTab || collapseLeaving) Modifier
                         else Modifier.clearAndSetSemantics {}.pointerInput(Unit) {
                             awaitPointerEventScope {
                                 while (true) awaitPointerEvent(PointerEventPass.Initial).changes.forEach { it.consume() }
@@ -2162,7 +2168,12 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             current = navHistory.current,
             onSelect = { target ->
                 lastNavKind = NavKind.BACK
-                if (navHistory.jumpTo(target)) applySnapshot(navHistory.current)
+                // 与 goTo / back / forward 一致：先按 TabMotionRules 判定"谁在离开子页/目标子页是否被改掉"，
+                // 否则这条路径会丢掉收起动画、或把本该抑制的补播又播出来。
+                if (navHistory.jumpTo(target)) {
+                    prepareNavigation(navHistory.current)
+                    applySnapshot(navHistory.current)
+                }
                 historyListOpen = false
             },
             onDismiss = { historyListOpen = false }

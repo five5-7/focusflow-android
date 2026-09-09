@@ -126,7 +126,9 @@ class NavigationHistoryTest {
     @Test
     fun entriesAndJumpTo() {
         val h = NavHistory()
-        val a = snap(1, plan = PlanPage.GOALS)
+        // 用真实组合：计划页签下的子页（tab=1 携带 planPage 是现实中不存在的状态，
+        // isTabRoot() 改为按当前页签判定后，这种构造会被正确视为"主页"）。
+        val a = snap(2, plan = PlanPage.GOALS)
         val b = snap(2, plan = PlanPage.COURSES)
         val c = snap(3, subPage = SettingsSubPage.ROADMAP)
         h.goTo(a); h.goTo(b); h.goTo(c)

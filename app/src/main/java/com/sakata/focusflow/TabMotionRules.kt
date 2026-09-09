@@ -38,10 +38,10 @@ internal object TabMotionRules {
         }
     }
 
-    /** 隐藏页签的静止缩放：仍开着子页 → 图标大小；跳转 → 0.85；否则 1.0。 */
+    /** 隐藏页签的静止缩放：仍开着子页 → 图标大小；跳转 → [MotionSpec.JUMP_REST_SCALE]；否则 1.0。 */
     fun restingScale(hasSubpage: Boolean, jumped: Boolean): Float = when {
         hasSubpage -> MotionSpec.COLLAPSE_SCALE
-        jumped -> 0.85f
+        jumped -> MotionSpec.JUMP_REST_SCALE
         else -> 1f
     }
 

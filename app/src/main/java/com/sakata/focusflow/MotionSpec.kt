@@ -13,7 +13,9 @@ import androidx.compose.animation.core.tween
  * - 所有时长都经 [motionMillis] 换算，「设置 → 外观 → 动画速度」才能覆盖全部动效；
  * - 进入用强调减速（起步快、落定慢），退出用强调加速（起步慢、离场快）；
  * - 速度设为 0（关闭动画）时一律退化为 [snap]，不做任何过渡；
- * - 副页进出严格互逆：进入 = 退出的倒放（见 SubpageMotion 的 enterSubpage / 返回分支）。
+ * - 副页转场：进入从底栏图标放大（不淡入，避免"淡影"）、退出缩回同一图标并同步淡出；
+ *   两侧时长一致（[SUBPAGE_HOME_MS]），主页一侧在进入时退到 [HUB_REDECE_SCALE]，
+ *   返回时主页直接出现在下层、不参与动画（见 SubpageMotion 与各页的 hubEnter/hubExit）。
  */
 internal object MotionSpec {
     /** 进入时长：略长，留出落定感。 */
@@ -30,6 +32,9 @@ internal object MotionSpec {
 
     /** 底栏圆瓣形变与选中态。 */
     const val MORPH_MS = 260
+
+    /** 底栏选中底色的目的地回弹。 */
+    const val PULSE_MS = 140
 
     /**
      * 副页收回自己主页的时长。
@@ -48,6 +53,15 @@ internal object MotionSpec {
 
     /** 主页在副页展开时的退让比例（深度缩放的底层）。 */
     const val HUB_RECEDE_SCALE = 0.96f
+
+    /** 跳转（通知/深链）时隐藏页签的静止缩放。 */
+    const val JUMP_REST_SCALE = 0.85f
+
+    /** 页签平动幅度（dp）：普通切换 / 跳转。 */
+    const val TAB_SLIDE_DP = 80
+
+    /** 页签平动幅度（dp）：跳转时更大，方向更易读。 */
+    const val JUMP_SLIDE_DP = 96
 
     /** 强调减速：进入与落定。 */
     val enterEasing: Easing = CubicBezierEasing(0.05f, 0.7f, 0.1f, 1f)
@@ -70,6 +84,9 @@ internal object MotionSpec {
     fun <T> quick(): FiniteAnimationSpec<T> = spec(QUICK_MS, enterEasing)
 
     fun <T> morph(): FiniteAnimationSpec<T> = spec(MORPH_MS, enterEasing)
+
+    /** 底栏选中底色的目的地回弹：同一条规范，随「动画速度」缩放。 */
+    fun <T> pulse(): FiniteAnimationSpec<T> = spec(PULSE_MS, enterEasing)
 
     /** 副页收回自己主页：缩小与淡出同一时长、同一条曲线，透明度跟缩小一起走完。 */
     fun <T> collapseHome(): FiniteAnimationSpec<T> = spec(SUBPAGE_HOME_MS, shrinkEasing)
