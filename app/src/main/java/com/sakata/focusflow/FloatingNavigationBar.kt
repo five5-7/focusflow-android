@@ -131,7 +131,9 @@ internal fun FloatingNavigationBar(
     // 槽位顺序：今日 / 日程 / [加号] / 计划 / 设置。
     val selectedSlot = if (selectedTab < 2) selectedTab else selectedTab + 1
     val slotCenters = remember { mutableStateListOf<Offset?>(null, null, null, null, null) }
-    var rowOrigin by remember { mutableStateOf(Offset.Zero) }
+    // 绘制层自己的原点（根坐标）。槽位中心也用根坐标上报，两者相减得到本层坐标，
+    // 避免"在 Row 上测原点、却画在与 Row 同层的 Box 里"这种坐标系错位（实测偏左 12dp）。
+    var layerOrigin by remember { mutableStateOf(Offset.Zero) }
     val indicatorSlot = remember { Animatable(selectedSlot.toFloat()) }
     LaunchedEffect(selectedSlot) { indicatorSlot.animateTo(selectedSlot.toFloat(), MotionSpec.move()) }
     // 目的地变化（子页名切换）时的轻微回弹。
@@ -167,8 +169,9 @@ internal fun FloatingNavigationBar(
                     val contentWidth = maxWidth.coerceAtLeast(FloatingNavigationLayout.MIN_CONTENT_WIDTH_DP.dp)
                     Box {
                         Box(Modifier.horizontalScroll(rememberScrollState())) {
-                            Box {
-                            // 底色块：在所有图标之下、且与图标同一坐标系（槽位中心由图标自己上报）。
+                            Box(Modifier.onGloballyPositioned { layerOrigin = it.positionInRoot() }) {
+                            // 底色块：在所有图标之下。槽位中心由各槽位自己上报（根坐标），
+                            // 这里统一减去 Row 的原点换算到本层，避免"上报时 Row 原点还没测到"导致错位。
                             val slot = indicatorSlot.value
                             val lower = floor(slot).toInt().coerceIn(0, 4)
                             val upper = (lower + 1).coerceAtMost(4)
@@ -176,30 +179,38 @@ internal fun FloatingNavigationBar(
                             val to = slotCenters[upper]
                             if (from != null && to != null) {
                                 val f = slot - lower
-                                val center = Offset(from.x + (to.x - from.x) * f, from.y + (to.y - from.y) * f)
+                                val start = from - layerOrigin
+                                val end = to - layerOrigin
+                                val center = Offset(start.x + (end.x - start.x) * f, start.y + (end.y - start.y) * f)
                                 Box(
                                     Modifier
                                         .offset { IntOffset((center.x - iconBoxPx / 2).roundToInt(), (center.y - iconBoxPx / 2).roundToInt()) }
                                         .size(FloatingNavigationLayout.ICON_BOX_DP.dp)
                                         .drawBehind {
+                                            // 圆心就是本方块的中心（方块已被 offset 摆到槽位上）。
                                             val radius = size.minDimension / 2 * destinationPulse.value
                                             if (hasSubpage) {
-                                                drawCircle(indicator, radius = radius, center = center, style = Stroke(width = 3.dp.toPx()))
+                                                drawCircle(indicator, radius = radius, style = Stroke(width = 3.dp.toPx()))
                                             } else {
-                                                drawCircle(indicator, radius = radius, center = center)
+                                                drawCircle(indicator, radius = radius)
                                             }
                                         }
                                 )
                             }
                             Row(
-                                Modifier.width(contentWidth).selectableGroup().padding(horizontal = 8.dp)
-                                    .onGloballyPositioned { rowOrigin = it.positionInRoot() },
+                                Modifier.width(contentWidth).selectableGroup().padding(horizontal = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 val labels = listOf("今日", "日程", "计划", "设置")
                                 val icons = listOf(Icons.Outlined.Home, Icons.Outlined.DateRange, Icons.Outlined.List, Icons.Outlined.Settings)
                                 labels.forEachIndexed { index, label ->
-                                    if (index == 2) Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                                    if (index == 2) Box(
+                                        Modifier.weight(1f).onGloballyPositioned {
+                                            // 加号占第 3 个槽位（索引 2），底色块经过它时必须能取到中心。
+                                            slotCenters[2] = it.positionInRoot() + Offset(it.size.width / 2f, it.size.height / 2f)
+                                        },
+                                        contentAlignment = Alignment.Center
+                                    ) {
                                         Surface(
                                             onClick = onAdd, modifier = Modifier.size(56.dp),
                                             shape = CircleShape,
@@ -220,8 +231,7 @@ internal fun FloatingNavigationBar(
                                         destinationKey = if (selectedTab == index) selectedPageDescription else label,
                                         onIconCenter = { center ->
                                             val slotIndex = if (index < 2) index else index + 1
-                                            val relative = center - rowOrigin
-                                            if (slotCenters[slotIndex] != relative) slotCenters[slotIndex] = relative
+                                            if (slotCenters[slotIndex] != center) slotCenters[slotIndex] = center
                                         },
                                         onClick = { onSelectTab(index) }
                                     )
