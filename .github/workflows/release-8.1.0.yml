@@ -1,0 +1,132 @@
+name: Publish FocusFlow 8.1.0
+
+# 发布前置：把下面 job 级 env 里的 TODO_* 换成「已验收 run」的真实值后再合并到 main。
+# 只要还有占位符，第一步就会失败，绝不会发布任何产物。
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/release-8.1.0.yml']
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: release-v8.1.0
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.repository == 'five5-7/focusflow-android' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      APPROVED_SOURCE_SHA: TODO_APPROVED_SOURCE_SHA
+      APPROVED_RUN_ID: TODO_RUN_ID
+      APPROVED_RUN_NUMBER: TODO_RUN_NUMBER
+      ARTIFACT_NAME: TODO_ARTIFACT_NAME
+      ARTIFACT_ID: TODO_ARTIFACT_ID
+      APK_FILE_NAME: TODO_APK_FILE_NAME
+      APK_SHA256: TODO_APK_SHA256
+      APK_BYTES: TODO_APK_BYTES
+    steps:
+      - name: Refuse to publish while pins are placeholders
+        if: contains(env.APK_SHA256, 'TODO_') || contains(env.APK_FILE_NAME, 'TODO_') || contains(env.APPROVED_SOURCE_SHA, 'TODO_')
+        run: |
+          echo '::error::release-8.1.0.yml still contains TODO_ placeholders; fill in the accepted run pins first'
+          exit 1
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify approved source and successful build
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const source = process.env.APPROVED_SOURCE_SHA;
+            const runId = Number(process.env.APPROVED_RUN_ID);
+            const runNumber = Number(process.env.APPROVED_RUN_NUMBER);
+            const {data: run} = await github.rest.actions.getWorkflowRun({...context.repo, run_id: runId});
+            if (run.head_sha !== source || run.run_number !== runNumber || run.conclusion !== 'success' ||
+                run.head_repository.full_name !== context.payload.repository.full_name ||
+                run.path !== '.github/workflows/build-apk.yml') throw new Error('Unapproved source build');
+            // 除发布说明与本工作流外，应用源码必须与已验证 run 完全一致。
+            await exec.exec('git', ['diff', '--exit-code', source, context.sha, '--',
+              'app', 'gradle', 'build.gradle.kts', 'settings.gradle.kts', 'gradle.properties']);
+            const artifacts = await github.paginate(github.rest.actions.listWorkflowRunArtifacts,
+              {...context.repo, run_id: runId});
+            const matches = artifacts.filter(a => a.name === process.env.ARTIFACT_NAME);
+            if (matches.length !== 1 || matches[0].id !== Number(process.env.ARTIFACT_ID) || matches[0].expired ||
+                matches[0].digest !== 'sha256:' + process.env.APK_SHA256) {
+              throw new Error('Approved artifact missing, expired or changed');
+            }
+
+      - name: Download approved APK without rebuilding
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          run-id: ${{ env.APPROVED_RUN_ID }}
+          github-token: ${{ github.token }}
+          path: release-artifact
+
+      - name: Recheck checksum, signing certificate and application metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk="release-artifact/$APK_FILE_NAME"
+          printf '%s  %s\n' "$APK_SHA256" "$apk" | sha256sum --check
+          test "$(stat -c '%s' "$apk")" = "$APK_BYTES"
+          build_tools="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          "$build_tools/apksigner" verify --print-certs "$apk" > signature.txt
+          grep -Fq 'certificate SHA-256 digest: 650a17f2bbc6d3cf7ac436e3ce7d4cbc1381cfd29052d6a8e06e70361ef48e8e' signature.txt
+          "$build_tools/aapt" dump badging "$apk" > metadata.txt
+          grep -Fq "package: name='com.sakata.focusflow' versionCode='520' versionName='8.1.0'" metadata.txt
+          if grep -q '^application-debuggable' metadata.txt; then exit 1; fi
+
+      - name: Upload verified asset then publish as Latest
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const crypto = require('crypto');
+            const tag = 'v8.1.0';
+            const name = process.env.APK_FILE_NAME;
+            const expected = 'sha256:' + process.env.APK_SHA256;
+            const bytes = fs.readFileSync('release-artifact/' + name);
+            if ('sha256:' + crypto.createHash('sha256').update(bytes).digest('hex') !== expected) {
+              throw new Error('Checksum changed before upload');
+            }
+            let release;
+            try { release = (await github.rest.repos.getReleaseByTag({...context.repo, tag})).data; }
+            catch (e) { if (e.status !== 404) throw e; }
+            if (release && release.target_commitish !== context.sha) {
+              throw new Error('Existing release belongs to another commit; refusing to overwrite');
+            }
+            try {
+              const {data: ref} = await github.rest.git.getRef({...context.repo, ref: 'tags/' + tag});
+              if (ref.object.sha !== context.sha) throw new Error('Existing tag points elsewhere');
+            } catch (e) { if (e.status !== 404) throw e; }
+            const body = fs.readFileSync('docs/8.1.0-release-notes.md', 'utf8');
+            if (!release) release = (await github.rest.repos.createRelease({...context.repo,
+              tag_name: tag, target_commitish: context.sha, name: 'FocusFlow 8.1.0 · 第四个正式版',
+              body, draft: true, prerelease: false})).data;
+            const assets = await github.paginate(github.rest.repos.listReleaseAssets,
+              {...context.repo, release_id: release.id});
+            let asset = assets.find(a => a.name === name);
+            if (!asset) asset = (await github.rest.repos.uploadReleaseAsset({...context.repo,
+              release_id: release.id, name, data: bytes,
+              headers: {'content-type': 'application/vnd.android.package-archive', 'content-length': bytes.length}
+            })).data;
+            if (asset.state !== 'uploaded' || asset.size !== bytes.length || asset.digest !== expected) {
+              throw new Error('Remote asset verification failed; release stays draft, no deletion');
+            }
+            if (release.draft) release = (await github.rest.repos.updateRelease({...context.repo,
+              release_id: release.id, draft: false, prerelease: false, make_latest: 'true'})).data;
+            if (release.prerelease || !release.published_at) throw new Error('Release is not public/stable');
+            await core.summary.addHeading('FocusFlow 8.1.0 published')
+              .addLink('Release', release.html_url).addBreak()
+              .addLink(name, asset.browser_download_url).addBreak()
+              .addRaw(expected).write();
