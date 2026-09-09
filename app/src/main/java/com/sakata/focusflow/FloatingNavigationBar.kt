@@ -34,6 +34,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -117,6 +118,8 @@ internal fun FloatingNavigationBar(
     onBackHistory: () -> Unit = {},
     onForwardHistory: () -> Unit = {},
     onLongPressBack: () -> Unit = {},
+    /** 弹窗打开时把底栏压暗到与遮罩一致（0f = 不压暗）；只影响绘制，不影响可点性。 */
+    dimAmount: Float = 0f,
     modifier: Modifier = Modifier
 ) {
     val background by animateColorAsState(containerColor, MotionSpec.move(), label = "navigationTheme")
@@ -152,7 +155,13 @@ internal fun FloatingNavigationBar(
     BoxWithConstraints(
         modifier.fillMaxWidth().windowInsetsPadding(
             safeInsets.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal)
-        ), contentAlignment = Alignment.Center
+        )
+            // 弹窗打开时整条底栏（含图标与文字）压暗到与页面遮罩同一档，避免"页面暗、底栏亮"的突兀感。
+            .drawWithContent {
+                drawContent()
+                if (dimAmount > 0.001f) drawRect(Color.Black, alpha = dimAmount)
+            },
+        contentAlignment = Alignment.Center
     ) {
         val margin = FloatingNavigationLayout.horizontalMarginDp(maxWidth.value, LocalDensity.current.fontScale).dp
         Box(

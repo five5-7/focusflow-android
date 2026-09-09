@@ -399,6 +399,12 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     val draftVault = remember { DraftVault() }
     // 8.1.0 第三轮：弹窗改为页内浮层（底栏仍可点、历史键可用），见 AppDialog.kt。
     val dialogHost = remember { AppDialogHostState() }
+    // 弹窗打开时底栏同步压暗：与遮罩同一档，跟弹窗一起淡入淡出。
+    val barDim by animateFloatAsState(
+        if (dialogHost.isOpen) MotionSpec.SCRIM_ALPHA else 0f,
+        MotionSpec.quick(),
+        label = "navigationBarDim"
+    )
 
     /** 把页面状态写回（统一导航与回退/折返恢复共用；不记录历史）。 */
     fun applySnapshot(snapshot: PageSnapshot) {
@@ -1542,6 +1548,8 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             onBackHistory = { goBackHistory() },
             onForwardHistory = { goForwardHistory() },
             onLongPressBack = { historyListOpen = true },
+            // 弹窗打开时底栏跟着遮罩一起压暗（同 32% 黑），避免"页面暗、底栏亮"的突兀感；只改绘制不改可点性。
+            dimAmount = barDim,
             // 8.1.0 第三轮：底栏始终在页面之上，副页缩小淡出时从其下方掠过，不被副页盖住。
             modifier = Modifier.align(Alignment.BottomCenter).zIndex(2f).onSizeChanged {
                 floatingBarHeight = with(density) { it.height.toDp() }
