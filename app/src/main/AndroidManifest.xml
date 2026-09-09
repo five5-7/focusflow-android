@@ -51,7 +51,13 @@
                 <action android:name="android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED" />
             </intent-filter>
         </receiver>
-        <activity android:name=".MainActivity" android:exported="true" android:launchMode="singleTop">
+        <!-- 竖屏锁定：本应用的布局（底部悬浮栏 + 单列卡片）为竖屏设计，横屏只是被拉伸的同一套布局。
+             横屏几何（弹窗避让底栏、窄屏不裁切）仍保留为兜底，大屏/分屏被系统忽略锁定时不会破版。 -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:screenOrientation="portrait">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
