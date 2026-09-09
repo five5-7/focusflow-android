@@ -63,9 +63,6 @@ internal object MotionSpec {
     /** 页签平动幅度（dp）：跳转时更大，方向更易读。 */
     const val JUMP_SLIDE_DP = 96
 
-    /** 弹窗卡片进场缩放：从 0.96 长到 1.0，与遮罩淡入同一节奏。 */
-    const val DIALOG_ENTER_SCALE = 0.96f
-
     /** 弹窗遮罩不透明度（浅色/深色同值，对齐 Material 的 Scrim）。 */
     const val SCRIM_ALPHA = 0.32f
 

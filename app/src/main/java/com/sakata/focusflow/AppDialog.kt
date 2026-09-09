@@ -36,6 +36,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
@@ -49,6 +51,9 @@ import androidx.compose.ui.zIndex
  *
  * 统一性：外观复刻 Material3 AlertDialog（同圆角、同内边距、同按钮排布），
  * 所有弹窗共用同一套返回键、遮罩点击、键盘避让与进场动画。
+ * 导航：任何页面导航（点入口、上一步／下一步、跳转、点 ＋）都会先关闭当前弹窗
+ * （[AppDialogHostState.dismissCurrent]，由 MainActivity 的 `goTo` 统一调用）——
+ * 弹窗是模态层，不该在切页后继续浮在新页面上。
  * 嵌套：弹窗打开期间又打开另一个（例如长按底栏回退键弹历史列表）时**后开的接管**，
  * 前一个的调用点保持组合，等宿主空闲后自动重新注册（见 [AppDialog]），
  * 因此不会退回系统弹窗、底栏也始终可用。
@@ -72,9 +77,20 @@ internal class AppDialogHostState {
     internal val progress = Animatable(0f)
 
     internal val isOpen: Boolean get() = content != null
+
+    /**
+     * 主动关闭当前弹窗（页面导航或点 ＋ 之前调用）。
+     * 只调调用点的 onDismissRequest，真正的清理仍由该调用点的 onDispose 完成。
+     */
+    internal fun dismissCurrent() {
+        onDismiss?.invoke()
+    }
 }
 
 internal val LocalAppDialogHost = staticCompositionLocalOf<AppDialogHostState?> { null }
+
+/** 弹窗卡片平移距离 = 屏幕高度的这个比例（进入从下往上、退出从上往下）。 */
+private const val DIALOG_SLIDE_SCREEN_FRACTION = 0.32f
 
 /**
  * 页内浮层宿主：放在悬浮底栏**之前**，因此永远位于底栏之下。
@@ -107,6 +123,11 @@ internal fun AppDialogHost(state: AppDialogHostState, bottomInset: Dp = 0.dp, mo
     // 弹窗打开期间，系统返回先关弹窗（本处理器最后注册，优先级最高）。
     BackHandler(enabled = open) { latestDismiss?.invoke() }
     val body = retained.value ?: return
+    // 卡片从屏幕下方平移进来、再平移回去（用户要求"上下平移进出屏幕"）；
+    // 遮罩仍然淡入淡出——跟着一起滑动会显得整个屏幕在晃。
+    val slidePx = with(LocalDensity.current) {
+        (LocalConfiguration.current.screenHeightDp * DIALOG_SLIDE_SCREEN_FRACTION).dp.toPx()
+    }
     // zIndex(1f)：盖住 StatusBarScrim（同 zIndex 0 的兄弟节点、组合在宿主之后），但仍在底栏（2f）之下。
     Box(Modifier.fillMaxSize().zIndex(1f)) {
         Box(
@@ -125,9 +146,9 @@ internal fun AppDialogHost(state: AppDialogHostState, bottomInset: Dp = 0.dp, mo
                     Modifier
                         .padding(24.dp)
                         .graphicsLayer {
-                            alpha = progress.value
-                            scaleX = MotionSpec.DIALOG_ENTER_SCALE + (1f - MotionSpec.DIALOG_ENTER_SCALE) * progress.value
-                            scaleY = scaleX
+                            val p = progress.value
+                            alpha = p
+                            translationY = (1f - p) * slidePx
                         }
                         // 卡片自身吞掉点击，否则点卡片空白处会穿透到遮罩、把弹窗关掉。
                         .pointerInput(Unit) { detectTapGestures { } }

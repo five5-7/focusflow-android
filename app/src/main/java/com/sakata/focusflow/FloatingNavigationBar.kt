@@ -120,10 +120,11 @@ internal fun FloatingNavigationBar(
     onForwardHistory: () -> Unit = {},
     onLongPressBack: () -> Unit = {},
     /**
-     * 弹窗打开时把底栏压暗到与遮罩同一档（返回 0f = 不压暗）。
-     * 传 lambda 而不是 Float：只在绘制阶段读值，底栏不会因为压暗动画每帧重组。
+     * 弹窗打开时底栏的"被照亮"强度（0f = 不发光）。
+     * 不压暗底栏，而是在它下方画一圈主题色柔光——读起来是"底栏还亮着、被点亮了"，
+     * 而不是"页面暗、底栏亮"的突兀感。传 lambda：只在绘制阶段读值，避免每帧重组。
      */
-    dimAmount: () -> Float = { 0f },
+    spotlight: () -> Float = { 0f },
     modifier: Modifier = Modifier
 ) {
     val background by animateColorAsState(containerColor, MotionSpec.move(), label = "navigationTheme")
@@ -163,28 +164,33 @@ internal fun FloatingNavigationBar(
         contentAlignment = Alignment.Center
     ) {
         val margin = FloatingNavigationLayout.horizontalMarginDp(maxWidth.value, LocalDensity.current.fontScale).dp
+        val glowColor = MaterialTheme.colorScheme.primary
         Box(
             Modifier.padding(horizontal = margin, vertical = 8.dp)
                 .widthIn(max = FloatingNavigationLayout.MAX_BAR_WIDTH_DP.dp)
                 .fillMaxWidth()
-                // 弹窗打开时只把**胶囊本身**压暗：画在满宽节点上会把外边距与底部 inset 叠加成更暗的横带。
-                // 压暗值在绘制阶段通过 lambda 读取，避免整条底栏在压暗动画的每一帧重组。
+                // 弹窗打开时**不压暗**底栏，而是在它下方画一圈主题色柔光：读起来是"底栏还亮着、被点亮了"，
+                // 而不是"页面暗、底栏亮"的突兀感。只画在胶囊区域，且强度在绘制阶段读取（不触发重组）。
                 .drawWithContent {
-                    drawContent()
-                    val dim = dimAmount()
-                    if (dim > 0.001f) {
+                    val glow = spotlight()
+                    if (glow > 0.001f) {
                         val pad = 8.dp.toPx()
                         val capsuleHeight = size.height - pad * 2
                         if (capsuleHeight > 0f) {
-                            drawRoundRect(
-                                color = Color.Black,
-                                topLeft = Offset(0f, pad),
-                                size = Size(size.width, capsuleHeight),
-                                cornerRadius = CornerRadius(capsuleHeight / 2f, capsuleHeight / 2f),
-                                alpha = dim
-                            )
+                            // 由外向内叠几层低透明描边，近似一圈柔光。
+                            for (i in 4 downTo 1) {
+                                val expand = pad * i * 0.55f
+                                drawRoundRect(
+                                    color = glowColor,
+                                    topLeft = Offset(-expand, pad - expand),
+                                    size = Size(size.width + expand * 2, capsuleHeight + expand * 2),
+                                    cornerRadius = CornerRadius(capsuleHeight / 2f + expand, capsuleHeight / 2f + expand),
+                                    alpha = glow * (0.10f / i)
+                                )
+                            }
                         }
                     }
+                    drawContent()
                 }
         ) {
             Surface(

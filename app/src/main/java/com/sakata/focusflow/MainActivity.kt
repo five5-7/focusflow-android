@@ -431,6 +431,9 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
 
     /** 所有页面级导航统一入口：记录历史并应用新目的地；目的地未变化则忽略。 */
     fun goTo(next: PageSnapshot) {
+        // 8.1.0：弹窗是模态层，任何导航（点入口、上一步／下一步、跳转）都先把它关掉——
+        // 否则会出现"页面切了、弹窗还浮在新页面上"，而这次切换又没进历史，用户回不去。
+        dialogHost.dismissCurrent()
         if (navHistory.goTo(next) == null) return
         prepareNavigation(next)
         applySnapshot(next)
@@ -1538,14 +1541,15 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                 else -> settingsSubPage?.title ?: "设置主页"
             },
             onSelectTab = { selectTab(it) },
-            onAdd = { addMenuOpen = true },
+            // 点 ＋ 视为"换一个动作"：先关掉当前弹窗再打开添加菜单（内容有草稿箱兜底）。
+            onAdd = { dialogHost.dismissCurrent(); addMenuOpen = true },
             canGoBack = navHistory.canGoBack(),
             canGoForward = navHistory.canGoForward(),
             onBackHistory = { goBackHistory() },
             onForwardHistory = { goForwardHistory() },
             onLongPressBack = { historyListOpen = true },
-            // 弹窗打开时底栏跟着遮罩一起压暗（同一条 Animatable，严格同步）；只改绘制不改可点性。
-            dimAmount = { MotionSpec.SCRIM_ALPHA * dialogHost.progress.value },
+            // 弹窗打开时底栏不压暗，而是亮起一圈主题色柔光（跟随弹窗的进度，严格同步）。
+            spotlight = { dialogHost.progress.value },
             // 8.1.0 第三轮：底栏始终在页面之上，副页缩小淡出时从其下方掠过，不被副页盖住。
             modifier = Modifier.align(Alignment.BottomCenter).zIndex(2f).onSizeChanged {
                 floatingBarHeight = with(density) { it.height.toDp() }
