@@ -51,7 +51,7 @@ internal fun QuickStartDialog(onDismiss: () -> Unit) {
     val tabs = rememberLazyListState()
     LaunchedEffect(chapter) { tabs.animateScrollToItem(chapter) }
     val contentHeight = (LocalConfiguration.current.screenHeightDp * 0.4f).coerceIn(140f, 340f).dp
-    AlertDialog(
+    AppDialog(
         onDismissRequest = onDismiss,
         title = { Text("快速入门 · ${chapter + 1}/${quickStartChapters.size}") },
         text = {
@@ -86,7 +86,7 @@ internal fun QuickStartDialog(onDismiss: () -> Unit) {
 
 @Composable
 internal fun CampusLifeChoiceDialog(onEnable: () -> Unit, onSkip: () -> Unit) {
-    AlertDialog(
+    AppDialog(
         onDismissRequest = onSkip,
         title = { Text("启用校园生活？") },
         text = {
@@ -165,7 +165,7 @@ internal fun UpdateNoticeDialog(
     onDismiss: () -> Unit,
     onOpenRoadmap: () -> Unit
 ) {
-    AlertDialog(
+    AppDialog(
         onDismissRequest = onDismiss,
         title = { Text("已更新至 $version") },
         text = {

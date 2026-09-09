@@ -36,7 +36,7 @@ internal fun CoursePeriodTableDialog(
     var periods by remember(initial) { mutableStateOf(saved?.periods ?: initial.periods) }
     fun persist() = vault.save(draftKey, PeriodTableDraft(periods))
     val valid = CoursePeriodTable(periods).isValid()
-    AlertDialog(
+    AppDialog(
         onDismissRequest = onDismiss,
         title = { Text(if (firstSetup) "先设置节次表" else "节次与时间") },
         text = {
@@ -183,7 +183,7 @@ internal fun CourseTimetable(
         }
     }
     selected?.let { course ->
-        AlertDialog(
+        AppDialog(
             onDismissRequest = { selected = null },
             title = { Text(course.title) },
             text = {

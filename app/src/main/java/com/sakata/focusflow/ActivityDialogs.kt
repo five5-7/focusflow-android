@@ -84,7 +84,7 @@ private data class ActivityTransitionDraft(val extensionMinutes: Int, val reason
 
 /** 加号菜单：快速记录 / 安排空闲活动（触发方式，与原有入口不冲突）。 */
 @Composable internal fun AddMenuDialog(onDismiss: () -> Unit, onQuickCapture: () -> Unit, onGamePlan: () -> Unit) {
-    AlertDialog(
+    AppDialog(
         onDismissRequest = onDismiss,
         title = { Text("添加") },
         text = { Column(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
@@ -140,7 +140,7 @@ internal fun activityTitleLabel(category: String): String = when (category) {
     val plannedAdvice = remember(plannedAt, durationNumber) {
         plannedAt?.let { conflictAdvice(it, durationNumber ?: 60, courses, items, profile) }
     }
-    AlertDialog(
+    AppDialog(
         onDismissRequest = onDismiss,
         title = { Text("安排空闲活动") },
         text = { ScrollableDialogBox(maxHeight = 480.dp, spacing = 8.dp) {
@@ -261,7 +261,7 @@ internal fun activityTitleLabel(category: String): String = when (category) {
         plannedMinutes = preset?.minutes
     )
     val calculatedEnd = if (timeMode == "时长") System.currentTimeMillis() + (minutes.toIntOrNull()?.coerceIn(1, 600) ?: 60) * 60_000L else untilAt
-    AlertDialog(
+    AppDialog(
         onDismissRequest = onDismiss,
         title = { Text("开始活动") },
         text = {
@@ -339,7 +339,7 @@ internal fun activityTitleLabel(category: String): String = when (category) {
     val canExtend = session.extensionCount < maxExtensions
     val extensionEnd = System.currentTimeMillis() + extensionMinutes * 60_000L
     val conflict = upcomingCommitment?.takeIf { it.startsAt < extensionEnd }
-    AlertDialog(
+    AppDialog(
         onDismissRequest = onDismiss,
         title = { Text(if (System.currentTimeMillis() >= session.endsAt) "活动时间到了" else "结束或调整活动") },
         text = {

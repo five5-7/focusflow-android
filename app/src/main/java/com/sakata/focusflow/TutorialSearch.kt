@@ -534,7 +534,7 @@ fun ResourceSummaryDialog(settings: TutorialSearchSettings, resource: LearningRe
     val scope = rememberCoroutineScope()
     fun persist() = vault.save(draftKey, ResourceSummaryDraft(text))
     val isError = result?.startsWith("【错误】") == true
-    AlertDialog(
+    AppDialog(
         onDismissRequest = { if (!generating) onDismiss() },
         title = { Text("AI 总结《${resource.title}》") },
         text = {
@@ -587,7 +587,7 @@ fun TutorialSearchDialog(
     val scope = rememberCoroutineScope()
     fun persist() = vault.save(draftKey, TutorialSearchDraft(title, description))
 
-    AlertDialog(
+    AppDialog(
         onDismissRequest = { if (!searching) onDismiss() },
         title = { Text("学习路径建议") },
         text = {
@@ -662,7 +662,7 @@ fun TutorialFinderDialog(
     var searching by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     fun persist() = vault.save(draftKey, TutorialFinderDraft(searchText))
-    AlertDialog(
+    AppDialog(
         onDismissRequest = { if (!searching) onDismiss() },
         title = { Text("搜学习教程") },
         text = {
@@ -748,7 +748,7 @@ fun VideoAnalysisDialog(
     var error by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     fun persist() = vault.save(draftKey, VideoAnalysisDraft(title, url, text))
-    AlertDialog(
+    AppDialog(
         onDismissRequest = { if (!analyzing) onDismiss() },
         title = { Text("视频分析（一站式整理）") },
         text = {

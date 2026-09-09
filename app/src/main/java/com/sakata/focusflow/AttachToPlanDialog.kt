@@ -19,7 +19,7 @@ internal fun AttachToPlanDialog(
     onAttach: (Goal) -> Unit
 ) {
     var selected by remember { mutableStateOf<Goal?>(null) }
-    AlertDialog(
+    AppDialog(
         onDismissRequest = onDismiss,
         title = { Text("转为计划的一部分") },
         text = {

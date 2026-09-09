@@ -315,7 +315,7 @@ private fun CustomPlaceEditorDialog(
     val kindOptions = listOf("教学楼", "实验", "学习", "运动", "其他")
     fun persist() = vault.save(draftKey, CustomPlaceDraft(name, kind))
 
-    AlertDialog(
+    AppDialog(
         onDismissRequest = onDismiss,
         title = { Text(if (existing == null) "新增自定义地点" else "编辑地点") },
         text = {
@@ -359,7 +359,7 @@ private fun AddPoiDialog(poi: AmapPoi, onDismiss: () -> Unit, onAdd: (CampusPlac
     var kind by remember { mutableStateOf(saved?.kind ?: AmapWebApi.suggestKind(poi.type)) }
     val kindOptions = listOf("教学楼", "实验", "学习", "运动", "其他")
     fun persist() = vault.save(draftKey, AddPoiDraft(zone, kind))
-    AlertDialog(
+    AppDialog(
         onDismissRequest = onDismiss,
         title = { Text("加入地点") },
         text = {

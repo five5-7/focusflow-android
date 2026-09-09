@@ -111,7 +111,7 @@ private data class ImprovementDraft(val text: String)
             Triple(fit.size, median, gaps.size)
         }
     }
-    AlertDialog(
+    AppDialog(
         onDismissRequest = onDismiss,
         title = { Text(if (initialGoal == null) "新增目标" else "编辑目标") },
         text = { Column(Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -165,7 +165,7 @@ private data class ImprovementDraft(val text: String)
     var url by remember { mutableStateOf(saved?.url ?: "") }
     var note by remember { mutableStateOf(saved?.note ?: "") }
     fun persist() = vault.save(draftKey, ResourceEditorDraft(title, url, note))
-    AlertDialog(onDismissRequest = onDismiss, title = { Text("收集教程") }, text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    AppDialog(onDismissRequest = onDismiss, title = { Text("收集教程") }, text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("只保存你已经确认过的真实链接、材料或笔记；保存后再到目标编辑器中按目标关联。")
         OutlinedTextField(value = title, onValueChange = { title = it; persist() }, label = { Text("教程名称") }, singleLine = true)
         OutlinedTextField(value = url, onValueChange = { url = it; persist() }, label = { Text("链接（可选）") }, singleLine = true)
@@ -174,7 +174,7 @@ private data class ImprovementDraft(val text: String)
 }
 
 @Composable internal fun CompletionDialog(item: Item, goal: Goal?, onDismiss: () -> Unit, onComplete: (String) -> Unit) {
-    AlertDialog(onDismissRequest = onDismiss, title = { Text("如何完成了这项任务？") }, text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    AppDialog(onDismissRequest = onDismiss, title = { Text("如何完成了这项任务？") }, text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(item.title)
         Text("完整标准：${goal?.metricTarget ?: "完成本次"}")
         goal?.minimumVersion?.takeIf { it.isNotBlank() }?.let { Text("最低版本：$it") }
@@ -189,7 +189,7 @@ private data class ImprovementDraft(val text: String)
     var difficulty by remember(level) { mutableStateOf(saved?.difficulty ?: "正常") }
     var barrier by remember(level) { mutableStateOf(saved?.barrier ?: "无") }
     fun persist() = vault.save(draftKey, FeedbackDraft(difficulty, barrier))
-    AlertDialog(onDismissRequest = onDismiss, title = { Text("用几秒记录一下？") }, text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    AppDialog(onDismissRequest = onDismiss, title = { Text("用几秒记录一下？") }, text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("$level。反馈用于调整下次安排，不用于评判。")
         Text("难度")
         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) { listOf("轻松", "正常", "吃力").forEach { value -> FilterChip(selected = difficulty == value, onClick = { difficulty = value; persist() }, label = { Text(value) }) } }
@@ -204,7 +204,7 @@ private data class ImprovementDraft(val text: String)
     val saved = vault.load<ImprovementDraft>(draftKey)
     var text by remember { mutableStateOf(saved?.text ?: "") }
     fun persist() = vault.save(draftKey, ImprovementDraft(text))
-    AlertDialog(onDismissRequest = onDismiss, title = { Text("记录改进想法") }, text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    AppDialog(onDismissRequest = onDismiss, title = { Text("记录改进想法") }, text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("例如：希望睡前模式在连续延期后自动提前减速提醒。")
         OutlinedTextField(value = text, onValueChange = { text = it; persist() }, placeholder = { Text("想深化、修复或新增什么？") }, minLines = 3)
     } }, confirmButton = { Button(enabled = text.isNotBlank(), onClick = { vault.clear(draftKey); onSave(text.trim()) }) { Text("保存") } }, dismissButton = { Row { TextButton(onClick = { vault.clear(draftKey); text = "" }) { Text("清空") }; TextButton(onClick = onDismiss) { Text("取消") } } })

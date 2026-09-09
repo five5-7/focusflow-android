@@ -3,7 +3,6 @@ package com.sakata.focusflow
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -35,7 +34,7 @@ internal fun CaptureOrganizeDialog(
     val saved = vault.load<CaptureOrganizeDraft>(draftKey)
     var nextAction by remember(item.id, item.nextAction) { mutableStateOf(saved?.nextAction ?: item.nextAction) }
     fun persist() = vault.save(draftKey, CaptureOrganizeDraft(nextAction))
-    AlertDialog(
+    AppDialog(
         onDismissRequest = onDismiss,
         title = { Text("整理《${item.title}》") },
         text = {

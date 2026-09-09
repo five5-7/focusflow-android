@@ -260,7 +260,7 @@ internal fun CustomThemeEditorContent(
         val saved = vault.load<PresetNameDraft>(draftKey)
         var presetName by remember { mutableStateOf(saved?.name ?: "预设 ${presets.size + 1}") }
         fun persist() = vault.save(draftKey, PresetNameDraft(presetName))
-        AlertDialog(
+        AppDialog(
             onDismissRequest = { namingPresetOpen = false },
             title = { Text("保存当前配色为预设") },
             text = {
@@ -323,7 +323,7 @@ internal fun ColorPaletteDialog(
     LaunchedEffect(tempColor) { hexText = formatHex(tempColor).removePrefix("#") }
     val contrast = contrastOf?.invoke(tempColor)
     val usable = contrast == null || contrast >= MIN_TEXT_CONTRAST
-    AlertDialog(
+    AppDialog(
         onDismissRequest = onDismiss,
         title = { Text("选择颜色") },
         text = {

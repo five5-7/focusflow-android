@@ -318,7 +318,7 @@ internal fun HistoryListDialog(
     onDismiss: () -> Unit
 ) {
     val reversed = entries.reversed()
-    AlertDialog(
+    AppDialog(
         onDismissRequest = onDismiss,
         title = { Text("本次会话的页面历史") },
         text = {

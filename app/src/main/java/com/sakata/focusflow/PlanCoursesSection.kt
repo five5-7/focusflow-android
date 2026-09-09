@@ -220,7 +220,7 @@ private fun ConfirmedCourses(confirmed: List<Course>, onEdit: (Course) -> Unit, 
         }
     }
     pendingDelete?.let { targets ->
-        AlertDialog(
+        AppDialog(
             onDismissRequest = { pendingDelete = null },
             title = { Text(if (targets.size == 1) "删除这门课程？" else "删除所选 ${targets.size} 门课程？") },
             text = { Text("课程将从课表、日程和空挡计算中移除；节次表、地点、任务和历史记录不会删除。") },

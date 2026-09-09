@@ -471,7 +471,7 @@ private fun TimelineEventDialog(
 ) {
     val eventColor = scheduleColor(event.type)
     val completedColor = scheduleColor(ScheduleType.COMPLETED)
-    AlertDialog(
+    AppDialog(
         onDismissRequest = onDismiss,
         title = { Text(event.title) },
         text = {

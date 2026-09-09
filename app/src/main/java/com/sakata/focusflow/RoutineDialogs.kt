@@ -119,7 +119,7 @@ internal fun DayGroupWizardDialog(existingGroups: List<DayGroup>, defaultWake: I
     fun persist() = vault.save(draftKey, DayGroupWizardDraft(groups, draftDays, draftWake, draftSleep, draftMeals))
     val assignedDays = groups.flatMap { it.days }.toSet()
     val unassigned = (1..7).filter { it !in assignedDays }
-    AlertDialog(
+    AppDialog(
         onDismissRequest = onDismiss,
         title = { Text("作息分组向导") },
         text = { Column(Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -195,7 +195,7 @@ internal fun DayGroupWizardDialog(existingGroups: List<DayGroup>, defaultWake: I
     var energy by remember { mutableStateOf(saved?.energy ?: (initialEnergy.takeIf { it in StatusCheckInCatalog.energies } ?: "正常")) }
     var activity by remember { mutableStateOf(saved?.activity ?: (initialActivity.takeIf { it in StatusCheckInCatalog.activities } ?: "空闲")) }
     fun persist() = vault.save(draftKey, StatusCheckInDraft(energy, activity))
-    AlertDialog(
+    AppDialog(
         onDismissRequest = onDismiss,
         title = { Text("记录现在状态") },
         text = {
@@ -234,7 +234,7 @@ internal fun DayGroupWizardDialog(existingGroups: List<DayGroup>, defaultWake: I
     var activity by remember { mutableStateOf(saved?.activity ?: (initialActivity.takeIf { it in StatusCheckInCatalog.activities } ?: "空闲")) }
     var remind by remember { mutableStateOf<Int?>(saved?.remind) }
     fun persist() = vault.save(draftKey, ActivityStatusDraft(activity, remind))
-    AlertDialog(
+    AppDialog(
         onDismissRequest = onDismiss,
         title = { Text("记录现在状态") },
         text = {
@@ -295,7 +295,7 @@ internal fun DayGroupWizardDialog(existingGroups: List<DayGroup>, defaultWake: I
     var entertainment by remember(initial) { mutableStateOf(saved?.entertainment ?: initial.entertainmentWindow) }
     fun persist() = vault.save(draftKey, BaselineOnboardingDraft(step, lifeStage, wakeMinute, sleepMinute, meals, entertainment))
     val steps = listOf("生活阶段", "作息", "餐点", "娱乐")
-    AlertDialog(
+    AppDialog(
         onDismissRequest = {},
         title = { Text(if (initial.isComplete) "编辑习惯基线" else "先了解你的大致节奏（可跳过）") },
         text = {
@@ -363,7 +363,7 @@ internal fun DayGroupWizardDialog(existingGroups: List<DayGroup>, defaultWake: I
 
 @Composable internal fun BaselineEventsDialog(events: List<BaselineEvent>, onDismiss: () -> Unit, onClear: () -> Unit, onDelete: (Long) -> Boolean) {
     var list by remember { mutableStateOf(events) }
-    AlertDialog(
+    AppDialog(
         onDismissRequest = onDismiss,
         title = { Text("原始事件记录") },
         text = {
@@ -392,7 +392,7 @@ internal fun DayGroupWizardDialog(existingGroups: List<DayGroup>, defaultWake: I
 }
 
 @Composable internal fun MealPromptDialog(type: MealType, plan: MealPlan, onDismiss: () -> Unit, onStarted: () -> Unit, onSnooze: () -> Unit, onSkip: () -> Unit) {
-    AlertDialog(
+    AppDialog(
         onDismissRequest = onDismiss,
         title = { Text("准备${type.label}？") },
         text = {
@@ -425,7 +425,7 @@ internal fun DayGroupWizardDialog(existingGroups: List<DayGroup>, defaultWake: I
     val amount = amountText.toIntOrNull()?.coerceIn(0, 9999) ?: -1
     val categories = listOf("食堂", "外卖", "自己做饭", "便利店", "其他")
     val payMethods = listOf("微信", "支付宝", "校园卡", "现金", "其他")
-    AlertDialog(
+    AppDialog(
         onDismissRequest = onDismiss,
         title = { Text("${type.label}吃完了吗？") },
         text = {
@@ -477,7 +477,7 @@ internal fun DayGroupWizardDialog(existingGroups: List<DayGroup>, defaultWake: I
 }
 
 @Composable internal fun MealRecordsDialog(records: List<MealRecord>, onDismiss: () -> Unit, onDelete: (Long) -> Unit) {
-    AlertDialog(
+    AppDialog(
         onDismissRequest = onDismiss,
         title = { Text("就餐记录") },
         text = {

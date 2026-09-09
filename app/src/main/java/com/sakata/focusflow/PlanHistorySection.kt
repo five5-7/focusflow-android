@@ -99,7 +99,7 @@ internal fun PlanHistorySection(events: List<TaskEvent>, onReplaceEvents: (List<
     }
     pendingDeleteIds?.let { targets ->
         val clearingAll = targets.size == events.size && events.all { it.id in targets }
-        AlertDialog(
+        AppDialog(
             onDismissRequest = { pendingDeleteIds = null },
             title = { Text(if (clearingAll) "清空全部历史？" else if (targets.size == 1) "删除这条历史？" else "删除所选 ${targets.size} 条历史？") },
             text = { Text("删除后将立即使用剩余事件重新计算近 7 天完成率、改期次数和本周执行摘要；任务本身不会删除。此操作不可撤销。") },

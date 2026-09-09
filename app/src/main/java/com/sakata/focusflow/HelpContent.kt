@@ -185,7 +185,7 @@ fun HelpToggleButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
 
 @Composable
 fun HelpDialog(title: String, sections: List<HelpSection>, onDismiss: () -> Unit, dismissButton: (@Composable () -> Unit)? = null) {
-    AlertDialog(
+    AppDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = {
@@ -208,7 +208,7 @@ fun HelpDialog(title: String, sections: List<HelpSection>, onDismiss: () -> Unit
 @Composable
 fun CourseVisionKeyGuideDialog(onDismiss: () -> Unit) {
     val context = LocalContext.current
-    AlertDialog(
+    AppDialog(
         onDismissRequest = onDismiss,
         title = { Text("如何获取硅基流动 API key") },
         text = {
@@ -235,7 +235,7 @@ fun WelcomeIntroDialog(onDismiss: () -> Unit) = QuickStartDialog(onDismiss)
 /** 首次完成习惯基线后的“后续在哪找”提示（只弹一次）。 */
 @Composable
 fun BaselineWhereToFindDialog(onDismiss: () -> Unit) {
-    AlertDialog(
+    AppDialog(
         onDismissRequest = onDismiss,
         title = { Text("生活基线已保存") },
         text = {

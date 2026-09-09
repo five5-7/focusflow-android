@@ -69,7 +69,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 @Composable internal fun CampusMapHelpDialog(onDismiss: () -> Unit) {
-    AlertDialog(
+    AppDialog(
         onDismissRequest = onDismiss,
         title = { Text("如何制作地点包") },
         text = {
@@ -108,7 +108,7 @@ private data class RouteCalibrationDraft(val minutesText: String)
     var minutes by remember(from, to, mode) { mutableStateOf(saved?.minutesText ?: currentMinutes.toString()) }
     val parsed = minutes.toIntOrNull()
     fun persist() = vault.save(draftKey, RouteCalibrationDraft(minutes))
-    AlertDialog(
+    AppDialog(
         onDismissRequest = onDismiss,
         title = { Text("确认本次通勤耗时") },
         text = {
@@ -126,7 +126,7 @@ private data class RouteCalibrationDraft(val minutesText: String)
 }
 
 @Composable internal fun CampusPlacePickerDialog(title: String, places: List<CampusPlace>, selectedName: String?, onDismiss: () -> Unit, onManagePlaces: () -> Unit, onSelect: (CampusPlace) -> Unit) {
-    AlertDialog(
+    AppDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = {
@@ -175,7 +175,7 @@ private data class AddInstalledAppDraft(val query: String, val selectedPkg: Stri
     var selectedPkg by remember { mutableStateOf(saved?.selectedPkg) }
     val filtered = if (query.isBlank()) installed else installed.filter { it.first.contains(query, true) || it.second.contains(query, true) }
     fun persist() = vault.save(draftKey, AddInstalledAppDraft(query, selectedPkg))
-    AlertDialog(
+    AppDialog(
         onDismissRequest = onDismiss,
         title = { Text("添加本机应用") },
         text = {
@@ -1343,7 +1343,7 @@ private data class BaselineVariantDraft(val name: String)
                         }
                         Text("安装需「未知来源」授权；发布包均为稳定签名，候选版仅供测试，正式版用户不会收到同基号候选。", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         if (confirmRcOpen) {
-                            AlertDialog(
+                            AppDialog(
                                 onDismissRequest = { confirmRcOpen = false },
                                 title = { Text("开启候选版推送？") },
                                 text = { Text("候选版（rc）未经完整验收，可能包含缺陷或数据风险；只建议开发者／验收设备开启。仍要开启吗？") },
@@ -1373,7 +1373,7 @@ private data class BaselineVariantDraft(val name: String)
         val saved = vault.load<BaselineVariantDraft>(draftKey)
         var variantName by remember { mutableStateOf(saved?.name ?: "") }
         fun persist() = vault.save(draftKey, BaselineVariantDraft(variantName))
-        AlertDialog(
+        AppDialog(
             onDismissRequest = { onBaselineVariantNameOpenChange(false) },
             title = { Text("另存当前方案") },
             text = { OutlinedTextField(value = variantName, onValueChange = { variantName = it; persist() }, label = { Text("方案名称，如“假期·早睡版”") }, singleLine = true) },

@@ -432,6 +432,8 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     // 8.1.0 导航历史与草稿保险箱（会话内）：页面目的地变化统一记录，回退/折返键恢复快照。
     val navHistory = remember { NavHistory() }
     val draftVault = remember { DraftVault() }
+    // 8.1.0 第三轮：弹窗改为页内浮层（底栏仍可点、历史键可用），见 AppDialog.kt。
+    val dialogHost = remember { AppDialogHostState() }
 
     /** 把页面状态写回（统一导航与回退/折返恢复共用；不记录历史）。 */
     fun applySnapshot(snapshot: PageSnapshot) {
@@ -887,6 +889,8 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
         val keyboardVisible = WindowInsets.ime.getBottom(density) > 0
         var floatingBarHeight by remember { mutableStateOf(112.dp) }
         Box(Modifier.fillMaxSize().imePadding()) {
+        // 8.1.0 第三轮：弹窗浮层挂在应用根，所有页面的 AppDialog 都能注册进来。
+        CompositionLocalProvider(LocalAppDialogHost provides dialogHost) {
         // Horizontal cutouts constrain the viewport. Top safety travels with scroll content.
         val safeContentInsets = WindowInsets.systemBars.union(WindowInsets.displayCutout)
         val topSafety = safeContentInsets.asPaddingValues().calculateTopPadding()
@@ -916,8 +920,10 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                 LocalScrollingTopPadding provides if (hasTopNotice) 0.dp else topSafety
             ) {
             // Applied and consumed once for both root pages and their animated children.
+            // 弹窗打开时页面内容对无障碍不可见（与系统弹窗行为一致）。
             val pageModifier = Modifier.padding(padding).consumeWindowInsets(padding)
                 .padding(bottom = if (keyboardVisible) floatingBarHeight else 0.dp)
+                .then(if (dialogHost.isOpen) Modifier.clearAndSetSemantics {} else Modifier)
             // 假期或校园生活关闭时，课程不参与今日、日程、空挡与目标建议；原数据仍保留。
             val scheduleCourses = activeCourses
             Box(pageModifier) {
@@ -1542,6 +1548,8 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             } // primary destinations keep-alive
             } // inset-aware viewport
         } // content padding provider / Scaffold
+        // 弹窗浮层在底栏之前：因此弹窗打开时悬浮底栏（含回退／折返键）仍在最上层、可点。
+        AppDialogHost(dialogHost)
         FloatingNavigationBar(
             safeInsets = safeContentInsets,
             containerColor = themeSpec.navigationBarColor,
@@ -1571,7 +1579,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             }
         )
         if (!hasTopNotice) StatusBarScrim(topSafety, Modifier.align(Alignment.TopCenter))
-        } // page with overlaid navigation; no full-width bottom surface
+        // page with overlaid navigation; no full-width bottom surface
         if (addMenuOpen) AddMenuDialog(
             onDismiss = { addMenuOpen = false },
             onQuickCapture = { addMenuOpen = false; addOpen = true },
@@ -2071,7 +2079,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             },
             onDelete = { eventId -> store.removeBaselineEvent(eventId) }
         )
-        if (baselineResetConfirmOpen) AlertDialog(
+        if (baselineResetConfirmOpen) AppDialog(
             onDismissRequest = { baselineResetConfirmOpen = false },
             title = { Text("重建习惯基线？") },
             text = { Text("会清空当前基线资料和全部原始事件记录，并重新开始引导。这个操作不可撤销。") },
@@ -2186,9 +2194,11 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                 mealRecords = store.loadMealRecords()
             }
         )
+        } // CompositionLocalProvider(LocalAppDialogHost)
     }
         }
     }
+}
 }
 
 

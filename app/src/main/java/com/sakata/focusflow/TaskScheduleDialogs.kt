@@ -122,7 +122,7 @@ private data class QuickCaptureEditorDraft(
     var durationValid by remember(item.id) { mutableStateOf(saved?.durationValid ?: true) }
     var priority by remember(item.id) { mutableStateOf(saved?.priority ?: item.priority) }
     fun persist() = vault.save(draftKey, InboxEditDraft(title, detail, duration, durationValid, priority))
-    AlertDialog(
+    AppDialog(
         onDismissRequest = onDismiss,
         title = { Text("编辑收集箱项目") },
         text = { Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -213,7 +213,7 @@ internal fun scheduleWindowOptions(now: Long = System.currentTimeMillis()): List
     var durationValid by remember(item.id) { mutableStateOf(saved?.durationValid ?: true) }
     fun persist() = vault.save(draftKey, FlexiblePlanDraft(duration, durationValid))
     val suggestions = remember(item.id, duration) { FlexiblePlanner.suggestions(item.copy(durationMinutes = duration), items, courses, energyLevel, profile = profile) }
-    AlertDialog(
+    AppDialog(
         onDismissRequest = onDismiss,
         title = { Text("为弹性任务初步规划") },
         text = {
@@ -317,7 +317,7 @@ internal fun DurationPicker(initialMinutes: Int, onChange: (Int?) -> Unit) {
     )
     val suggestions = FlexiblePlanner.suggestions(planningItem, items, courses, energyLevel, profile = profile)
 
-    AlertDialog(
+    AppDialog(
         onDismissRequest = onDismiss,
         title = { Text(if (item.kind == "收集箱") "安排收集箱任务" else "调整弹性安排") },
         text = {
@@ -480,7 +480,7 @@ internal fun DurationPicker(initialMinutes: Int, onChange: (Int?) -> Unit) {
             )
         }
     }
-    AlertDialog(
+    AppDialog(
         onDismissRequest = onDismiss,
         title = { Text("什么时候再提醒？") },
         text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -582,7 +582,7 @@ internal fun GoalScheduleDialog(
             )
         }
     }
-    AlertDialog(
+    AppDialog(
         onDismissRequest = onDismiss,
         title = { Text("安排《${goal.title}》") },
         text = {
@@ -672,7 +672,7 @@ internal fun timeOnSameDayAs(target: Long, minute: Int): Long =
     val parsedCount = lessonCount.toIntOrNull()
     val parsedEnd = parsedStart?.let { start -> parsedCount?.let { start + it - 1 } }
     val buildingName = if (customSelected) customName.trim() else (place?.name ?: "")
-    AlertDialog(
+    AppDialog(
         onDismissRequest = onDismiss,
         title = { Text(if (existing == null) "新增课程" else "编辑课程") },
         text = { Column(Modifier.heightIn(max = 520.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -809,7 +809,7 @@ internal fun quickCaptureDetail(draft: QuickCaptureDraft): String {
         windowStartAt = effectiveWindow?.startsAt,
         windowEndAt = effectiveWindow?.endsAt
     )
-    AlertDialog(
+    AppDialog(
         onDismissRequest = onDismiss,
         title = { Text("快速记录") },
         text = { Column(Modifier.heightIn(max = 500.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
