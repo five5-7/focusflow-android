@@ -45,6 +45,11 @@ class AppearanceContrastMatrixTest {
         val candidates: List<Int> = when (backdrop) {
             BackdropKind.THEME -> listOf(scheme.background.argbInt())
 
+            // 透明课表（BackdropKind.TRANSPARENT）在这一层不画任何东西：
+            // 正文直接落在**页面背景**上，所以它的对比度就是"页面角色"的对比度，
+            // 已由本文件的 nonImageBackdropsStayAtSevenToOne 覆盖，这里按主题纯色记账。
+            BackdropKind.TRANSPARENT -> listOf(scheme.background.argbInt())
+
             BackdropKind.GRADIENT -> ThemeGradient.pageStops(scheme, strength).map { it.argbInt() }
 
             BackdropKind.COLOR -> {

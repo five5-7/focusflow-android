@@ -132,6 +132,9 @@ internal fun PageBackdropControls(
                 BackdropKind.GRADIENT -> "主题渐变"
                 BackdropKind.COLOR -> "固定颜色"
                 BackdropKind.IMAGE -> "图片"
+                // 页面角色拿不到这一档（offeredPageBackdrops 里没有它），
+                // 这个分支只为编译期穷尽性存在。
+                BackdropKind.TRANSPARENT -> "透明"
             }
         }
         FlowRow(
@@ -532,6 +535,7 @@ internal fun TimetableBaseControls(
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             listOf(
                 BackdropKind.THEME to "跟随主题",
+                BackdropKind.TRANSPARENT to "透明",
                 BackdropKind.COLOR to "选颜色",
                 BackdropKind.IMAGE to "图片"
             ).forEach { (kind, label) ->

@@ -51,7 +51,17 @@ internal enum class BackdropKind(val storageKey: String) {
     COLOR("color"),
 
     /** 自导入图片。 */
-    IMAGE("image");
+    IMAGE("image"),
+
+    /**
+     * 全透明（不画底板，直接露出页面背景）。
+     *
+     * 维护者 2026-09-10：「加入日程表的透明背景选项」。与 [THEME] 的区别是
+     * THEME 画的是主题 surface 纯色，这里**什么都不画**——页面渐变／背景图／页面底色
+     * 会原样透出来，课表就成了一层浮在页面背景上的文字。所以它只对课表角色开放，
+     * 页面角色不提供这一档（页面本身就是最底层，透明等于黑屏）。
+     */
+    TRANSPARENT("transparent");
 
     companion object {
         fun fromKey(key: String?): BackdropKind =
@@ -240,11 +250,17 @@ internal data class AppearanceSpec(
             }
             BackdropKind.COLOR -> "固定底色"
             BackdropKind.IMAGE -> "图片底 " + backdropOpacity + '%'
+            // 页面角色拿不到这一档（见 offeredPageBackdrops），真读到了也按标准底色说。
+            BackdropKind.TRANSPARENT -> "标准底色"
         }
         return buildList {
             add(background)
             if (cardMaterial != CardMaterial.TONAL) add("卡片" + cardMaterial.label())
-            if (timetableBackdrop != BackdropKind.THEME) add("课表底色")
+            when (timetableBackdrop) {
+                BackdropKind.THEME -> Unit
+                BackdropKind.TRANSPARENT -> add("课表透明")
+                else -> add("课表底色")
+            }
         }.joinToString("·")
     }
 

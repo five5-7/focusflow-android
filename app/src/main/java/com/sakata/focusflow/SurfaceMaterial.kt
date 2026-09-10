@@ -354,6 +354,8 @@ internal fun Modifier.appearanceBackdrop(
         BackdropRole.Timetable -> spec.effectiveTimetableBackdrop
     }
     if (backdrop == BackdropKind.THEME) return this
+    // 全透明：这层什么都不画，页面背景原样透出（容器色那边已经让成透明）。
+    if (backdrop == BackdropKind.TRANSPARENT) return this
     // 「渐变跟随内容」时视口这层不画渐变：改由滚动内容自己按内容高度铺（见 ScrollableWithContainers），
     // 否则内容比视口短时会在下方露出一条对不上的固定渐变。
     if (backdrop == BackdropKind.GRADIENT && role == BackdropRole.Page && spec.gradientFollowsContent) return this
@@ -403,6 +405,7 @@ internal fun Modifier.appearanceBackdrop(
             }
 
             BackdropKind.THEME -> Unit
+            BackdropKind.TRANSPARENT -> Unit
         }
     }
 }
@@ -552,37 +555,23 @@ internal fun backdropColourAt(
 }
 
 /**
- * 底栏该用的**画刷**；**背景在底栏这一带左右同色时返回 null**。
+ * 底栏该用的**画刷**——**目前恒返回 null，即底栏一律走 Surface 的单色填充路径**。
  *
- * 返回 null 很重要：那种情况下"用单色"与"用画刷"结果完全相同，
- * 而单色走的是底栏原本那条**已经验证过**的绘制路径（Surface 的 color），
- * 少一层自己画的背景就少一类"看起来没渲染/糊掉"的风险。
- * 只有背景真的左右不同色（左右渐变、斜向）时才值得自己画。
+ * 为什么停用（如实记录，别急着再打开）：
+ * 为了表达左右渐变，曾让底栏在自己身上画一层水平渐变（并把 Surface 底色置透明）。
+ * 真机截图（`v3_sched.png`）逐像素量下来，底栏变成了**三层**：
+ * 外圈暗带 `rgb(176..191)`、内层亮胶囊 `x=162..1277 / y=2728..3035` `rgb(218,230,225)`、
+ * 而且 x=80..97 与 x=1342..1359 各有一条**18px 纯白带**（背景透出来的）。
+ * 也就是自绘的那层没有与 Surface 的形状/尺寸对齐，看起来就是"中间留了个胶囊状空白"。
  *
- * 这也是对维护者批评的直接回应：「你这个实现好像是针对单个情况逐一适配，成本高，效果差」。
- * 之前的做法是在底栏中心**取一个点**得到一个颜色——竖直渐变勉强能用，
- * 但底栏是横跨整屏的一条，遇到**左右渐变就完全表达不出来**，于是每发现一种方向就补一个分支。
- * 换成一构造通吃：底栏是一条**又宽又薄**的带子，取它**左右两端**的颜色做水平渐变。
- * - 竖直渐变：两端同色 → 退化成纯色（正确，且走回已验证路径）
- * - 左右渐变：两端就是真实两端（精确）
- * - 斜向：薄带内横向变化占主导，两端取色即该带的一阶近似（够准）
- * 没有任何方向分支。
+ * 结论：**单色 + Surface 自身绘制**是唯一被验证过的可靠路径；
+ * 左右渐变这个能力要有，但必须先解决"自绘层与 Surface 层如何对齐"，而不是继续在这条路上打补丁。
+ * 在解决之前，宁可接受"底栏不跟随左右渐变"，也不要一个视觉坏掉的底栏。
  */
 internal fun navBarBrushOverBackdrop(
     appearance: AppearanceSpec,
     themeSpec: FocusFlowThemeSpec
-): Brush? {
-    val scheme = themeSpec.colorScheme
-    fun end(fx: Float) = floatingSurfaceOverGradient(
-        base = backdropColourAt(appearance, scheme, fx, NAV_BAR_CENTRE_Y),
-        deltaFrom = scheme.background,
-        deltaTo = themeSpec.navigationBarColor
-    )
-    val left = end(0f)
-    val right = end(1f)
-    if (left.argbInt() == right.argbInt()) return null
-    return Brush.horizontalGradient(listOf(left, right))
-}
+): Brush? = null
 
 /**
  * 底栏带的**中心色**（供需要单一颜色的地方及单测使用）。

@@ -126,7 +126,12 @@ internal fun DailyScheduleTimeline(
                 bitmap = LocalBackdropBitmap.current,
                 role = BackdropRole.Timetable
             ),
-        colors = CardDefaults.cardColors(containerColor = timetableContainerColor())
+        colors = CardDefaults.cardColors(
+            containerColor = timetableContainerColor(),
+            // 底板让成透明时 contentColorFor(Transparent) 会给 Color.Unspecified，
+            // 深色模式下正文会因此掉回黑色，所以正文色一律显式给。
+            contentColor = MaterialTheme.colorScheme.onSurface
+        )
     ) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 10.dp)) {
             TimelineTimeAxis()
@@ -208,7 +213,12 @@ internal fun WeeklyScheduleTimeline(
                 bitmap = LocalBackdropBitmap.current,
                 role = BackdropRole.Timetable
             ),
-        colors = CardDefaults.cardColors(containerColor = timetableContainerColor())
+        colors = CardDefaults.cardColors(
+            containerColor = timetableContainerColor(),
+            // 底板让成透明时 contentColorFor(Transparent) 会给 Color.Unspecified，
+            // 深色模式下正文会因此掉回黑色，所以正文色一律显式给。
+            contentColor = MaterialTheme.colorScheme.onSurface
+        )
     ) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 2.dp, vertical = 10.dp)) {
             Row(Modifier.fillMaxWidth()) {
