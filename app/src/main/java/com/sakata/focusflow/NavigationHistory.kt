@@ -71,8 +71,10 @@ internal class NavHistory(private val capacity: Int = 30) {
         // 只是"同一页面上的弹窗开关"变化时不当作一次导航：保留弹窗层原样（不新增历史）。
         val target = if (next.withoutDialog() == current.withoutDialog()) current else next.withoutDialog()
         if (target == current) return null
-        if (backStack.isNotEmpty() && target == backStack.last()) {
-            // 去抖：切到 B 又切回上一个目的地，B 不入历史。
+        // 去抖：切到 B 又切回上一个目的地，B 不入历史。
+        // 例外：B 上开着弹窗——「副页 + 弹窗 + 已填数据」是一个整体，那是用户真的到过、动过的地方，
+        // 必须留在历史里；否则"点本页签回主页"这一步会把整体吃掉，上一步再也回不去（真机复现过）。
+        if (backStack.isNotEmpty() && target == backStack.last() && !current.dialogOpen) {
             backStack.removeLast()
             forwardStack.clear()
             current = target

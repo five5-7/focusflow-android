@@ -190,17 +190,33 @@ class NavigationHistoryTest {
 
     @Test
     fun switchingTabKeepsThePackageForBack() {
-        // 切页签（例如回本页签主页）后再上一步，同样回到整体状态。
+        // 真机复现过的路径：计划主页 → 课程（开弹窗）→ 点「计划」页签回本页签主页 → 上一步。
+        // 这一步以前会被 A→B→A 去抖吃掉，导致"回不到那个整体"。
         val h = NavHistory()
-        val courses = snap(2, plan = PlanPage.COURSES)
         val plansRoot = snap(2)
+        val courses = snap(2, plan = PlanPage.COURSES)
+        h.goTo(plansRoot)
         h.goTo(courses)
         h.setDialogLayer(true)
-        h.goTo(plansRoot) // 回到计划主页
-        assertEquals(plansRoot, h.current)
+        h.goTo(plansRoot)
+
+        assertTrue("回本页签主页后必须还能上一步", h.canGoBack())
         val back = h.back()!!
         assertEquals(courses, back.withoutDialog())
-        assertTrue(back.dialogOpen)
+        assertTrue("上一步要整包还原：副页 + 弹窗", back.dialogOpen)
+    }
+
+    @Test
+    fun plainBounceStillCollapses() {
+        // 没有弹窗的普通来回仍然去抖：计划主页 → 课程 → 计划主页，不留多余的一步
+        val h = NavHistory()
+        val plansRoot = snap(2)
+        val courses = snap(2, plan = PlanPage.COURSES)
+        h.goTo(plansRoot)
+        h.goTo(courses)
+        h.goTo(plansRoot)
+        assertFalse(h.canGoBack())
+        assertNull(h.back())
     }
 
     @Test

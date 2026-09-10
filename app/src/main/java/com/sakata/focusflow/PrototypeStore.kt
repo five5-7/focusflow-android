@@ -84,6 +84,37 @@ class PrototypeStore(context: Context) {
         preferences.edit().putBoolean("dark_mode", enabled).apply()
     }
 
+    /**
+     * 8.2.0 外观系统：全部可选、全部带默认值。
+     * 读不到或读坏了都退回 [AppearanceSpec.DEFAULT]（等于现在的样子），绝不抛错、绝不清数据。
+     * 背景图只存**私有目录内的相对文件名**，真实路径由 [AppearanceImages] 解析。
+     */
+    internal fun loadAppearance(): AppearanceSpec = AppearanceSpec.fromKeys(
+        pageBackdrop = preferences.getString("appearance_page_backdrop", null),
+        pageImage = preferences.getString("appearance_page_image", null),
+        backdropOpacity = preferences.getInt("appearance_backdrop_opacity", 100),
+        cardMaterial = preferences.getString("appearance_card_material", null),
+        timetableBackdrop = preferences.getString("appearance_timetable_backdrop", null),
+        timetableColor = preferences.getInt("appearance_timetable_color", 0),
+        timetableImage = preferences.getString("appearance_timetable_image", null),
+        timetableOpacity = preferences.getInt("appearance_timetable_opacity", 100),
+        extracted = preferences.getString("appearance_extracted_colors", null)
+    )
+
+    internal fun saveAppearance(spec: AppearanceSpec) {
+        preferences.edit()
+            .putString("appearance_page_backdrop", spec.pageBackdrop.storageKey)
+            .putString("appearance_page_image", spec.pageImage)
+            .putInt("appearance_backdrop_opacity", spec.backdropOpacity.coerceIn(0, 100))
+            .putString("appearance_card_material", spec.cardMaterial.storageKey)
+            .putString("appearance_timetable_backdrop", spec.timetableBackdrop.storageKey)
+            .putInt("appearance_timetable_color", spec.timetableColor)
+            .putString("appearance_timetable_image", spec.timetableImage)
+            .putInt("appearance_timetable_opacity", spec.timetableOpacity.coerceIn(0, 100))
+            .putString("appearance_extracted_colors", AppearanceSpec.encodeExtracted(spec.extractedColors))
+            .apply()
+    }
+
     fun saveReminderTestScheduled(expectedAt: Long) {
         preferences.edit()
             .putLong("reminder_test_expected_at", expectedAt)
