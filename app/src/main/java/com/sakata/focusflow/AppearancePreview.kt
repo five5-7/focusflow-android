@@ -65,9 +65,29 @@ internal fun AppearancePreview(
                     .height(176.dp)
                     .clip(shape)
                     // 跟随主题时不画任何背景层（与页面一致），其余档位交给同一套 appearanceBackdrop。
+                    //
+                    // 「渐变跟随内容」要单独处理：那条路上 appearanceBackdrop 会**提前 return**
+                    // （真实页面里渐变改由滚动内容按内容高度铺），预览块不是滚动容器，
+                    // 于是预览会变成一片纯色 —— 开关一开预览就不跟着变了。这里补一张
+                    // 撑满预览块高度的渐变，口径与 ScrollableWithBar 一致：预览看到的
+                    // "整块都铺着渐变"正是真实页面上内容够长时的样子。
                     .then(
                         if (appearance.pageBackdrop == BackdropKind.THEME) {
                             Modifier.background(scheme.background)
+                        } else {
+                            Modifier
+                        }
+                    )
+                    .then(
+                        if (appearance.pageBackdrop == BackdropKind.GRADIENT && appearance.gradientFollowsContent) {
+                            Modifier.background(
+                                ThemeGradient.page(
+                                    scheme,
+                                    appearance.gradientScale,
+                                    appearance.gradientTop,
+                                    appearance.gradientBottom
+                                )
+                            )
                         } else {
                             Modifier
                         }
