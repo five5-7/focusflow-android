@@ -308,6 +308,9 @@ internal fun Modifier.appearanceBackdrop(
         BackdropRole.Timetable -> spec.timetableBackdrop
     }
     if (backdrop == BackdropKind.THEME) return this
+    // 「渐变跟随内容」时视口这层不画渐变：改由滚动内容自己按内容高度铺（见 ScrollableWithContainers），
+    // 否则内容比视口短时会在下方露出一条对不上的固定渐变。
+    if (backdrop == BackdropKind.GRADIENT && role == BackdropRole.Page && spec.gradientFollowsContent) return this
     val alpha = when (role) {
         BackdropRole.Page -> spec.imageAlpha
         BackdropRole.Timetable -> spec.timetableAlpha

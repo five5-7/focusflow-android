@@ -2,6 +2,7 @@ package com.sakata.focusflow
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -49,11 +50,28 @@ internal fun ScrollableWithBar(
     content: @Composable ColumnScope.() -> Unit
 ) {
     Box(modifier.fillMaxSize()) {
+        // 8.2.0「渐变跟随内容」的**正解**：把渐变画在滚动内容自己的高度上。
+        // 之前试过"背景固定在视口 + 用滚动量算相位"，真机上相位始终为 0（试了两种来源），
+        // 而这里不需要任何滚动事件：brush 会铺满内容高度，内容有多长渐变就有多长，
+        // 于是每屏只走一小段、竖向变化更缓——正是维护者要的效果。
+        val appearance = LocalAppearance.current
+        val contentBackdrop = appearance.pageBackdrop == BackdropKind.GRADIENT &&
+            appearance.gradientFollowsContent
         Column(
-            Modifier.fillMaxSize().verticalScroll(scrollState).padding(
-                start = padding, end = padding, top = padding + LocalScrollingTopPadding.current,
-                bottom = padding + LocalFloatingBottomPadding.current
-            ),
+            Modifier.fillMaxSize().verticalScroll(scrollState)
+                .then(
+                    if (contentBackdrop) {
+                        Modifier.background(MaterialTheme.colorScheme.let { scheme ->
+                            ThemeGradient.page(scheme, appearance.gradientScale, 0f, 1f, appearance.gradientTop, appearance.gradientBottom)
+                        })
+                    } else {
+                        Modifier
+                    }
+                )
+                .padding(
+                    start = padding, end = padding, top = padding + LocalScrollingTopPadding.current,
+                    bottom = padding + LocalFloatingBottomPadding.current
+                ),
             verticalArrangement = Arrangement.spacedBy(spacing),
             content = content
         )
