@@ -3,6 +3,7 @@ package com.sakata.focusflow
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -52,5 +53,31 @@ class FocusCardMaterialTest {
         assertEquals(CardMaterial.entries.size, labels.size)
         assertEquals(labels.size, labels.toSet().size)
         assertEquals("默认", CardMaterial.TONAL.label())
+    }
+
+    /**
+     * 纸感画刷是在 `drawBehind` 里取的：如果每次都重建，滚动时就是每帧一张 64×64 位图。
+     * 这类抖动会被帧时间实测误读成"纸感本身很贵"，所以缓存语义要锁死。
+     */
+    @Test
+    fun brushCacheCreatesEachKeyExactlyOnce() {
+        val cache = SingleValueCache<String>()
+        var created = 0
+        fun value(seed: Long, alpha: Float) = cache.get(seed, alpha) {
+            created++
+            "brush-$seed-$alpha"
+        }
+
+        assertSame(value(DEFAULT_NOISE_SEED, DEFAULT_NOISE_ALPHA), value(DEFAULT_NOISE_SEED, DEFAULT_NOISE_ALPHA))
+        assertEquals("同一个 key 只能创建一次", 1, created)
+
+        // 不同种子 / 不同透明度是不同纹理，各建一次
+        value(1L, DEFAULT_NOISE_ALPHA)
+        value(DEFAULT_NOISE_SEED, 0.2f)
+        assertEquals(3, created)
+
+        // 回到旧 key 仍然复用，不会重建
+        value(DEFAULT_NOISE_SEED, DEFAULT_NOISE_ALPHA)
+        assertEquals(3, created)
     }
 }

@@ -94,18 +94,42 @@ private fun Modifier.cardMaterialFill(
 }
 
 /**
+ * 一个小缓存：同一个 key 只创建一次值。
+ *
+ * 存在的理由很具体：卡片是在 `drawBehind` 里取画刷的，而纸感画刷背后是**一张 64×64 位图**。
+ * 每帧都新建就是每秒几百次分配 + GC 抖动——真机上的表现是"纸感比其它材质更容易掉帧"，
+ * 而这类抖动最容易在帧时间实测里被误读成"纸感本身很贵"。把创建挪到首次使用之后，
+ * 滚动时只是复用同一张纹理。
+ *
+ * 抽成独立的类是为了能被纯单测覆盖（[paperNoiseBrush] 本身要碰 `android.graphics.Bitmap`，
+ * 在 JVM 单测里是 mock 不出来的）。
+ */
+internal class SingleValueCache<T : Any> {
+    private val entries = HashMap<Pair<Long, Float>, T>()
+
+    fun get(seed: Long, alpha: Float, create: () -> T): T = synchronized(entries) {
+        entries.getOrPut(seed to alpha) { create() }
+    }
+}
+
+private val paperNoiseCache = SingleValueCache<Brush>()
+
+/**
  * 纸感噪点：**程序生成**的 64×64 贴图，不进资源、不增加包体积。
  *
  * 噪点只做"上一档/下一档"的微扰（不连续调暗），因此不会把卡片整体压暗。
+ * 同一个 (seed, alpha) 只建一次（见 [SingleValueCache]）。
  */
 internal fun paperNoiseBrush(seed: Long = DEFAULT_NOISE_SEED, alpha: Float = DEFAULT_NOISE_ALPHA): Brush =
-    ShaderBrush(
-        ImageShader(
-            noiseBitmap(seed, alpha).asImageBitmap(),
-            TileMode.Repeated,
-            TileMode.Repeated
+    paperNoiseCache.get(seed, alpha) {
+        ShaderBrush(
+            ImageShader(
+                noiseBitmap(seed, alpha).asImageBitmap(),
+                TileMode.Repeated,
+                TileMode.Repeated
+            )
         )
-    )
+    }
 
 internal const val DEFAULT_NOISE_SEED = 0x5EEDL
 internal const val DEFAULT_NOISE_ALPHA = 0.05f
