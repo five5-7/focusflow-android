@@ -281,6 +281,82 @@ internal fun GradientStopsControls(
         )
     }
 
+    // 维护者口径：「在提供一定量的预制前提下添加自定义即可」——预制保留在上面，
+    // 这里补"自选两个颜色"。复用自定义主题编辑器里那套 HSV 取色器（ColorPaletteDialog），
+    // 不另造一个，避免两处取色体验不一致。
+    val followingTheme = appearance.gradientTop == 0 && appearance.gradientBottom == 0
+    var editingEndpoint by remember { mutableStateOf<GradientEndpoint?>(null) }
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text("自选两个颜色", style = MaterialTheme.typography.labelSmall)
+        GradientEndpoint.entries.forEach { endpoint ->
+            val current = if (endpoint == GradientEndpoint.TOP) appearance.gradientTop else appearance.gradientBottom
+            val label = if (endpoint == GradientEndpoint.TOP) "顶色" else "底色"
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Box(
+                    Modifier
+                        .size(30.dp)
+                        .clip(CircleShape)
+                        .background(if (current != 0) Color(current) else MaterialTheme.colorScheme.surfaceVariant)
+                        .border(
+                            width = if (current != 0) 2.dp else 1.dp,
+                            color = if (current != 0) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.outlineVariant
+                            },
+                            shape = CircleShape
+                        )
+                        .clickable { editingEndpoint = endpoint }
+                )
+                Text(label, style = MaterialTheme.typography.labelSmall)
+            }
+        }
+        if (!followingTheme) {
+            TextButton(onClick = {
+                onAppearanceChange(appearance.copy(gradientTop = 0, gradientBottom = 0))
+                onStatus("渐变配色已回到跟随主题")
+            }) { Text("用主题派生") }
+        }
+    }
+    if (followingTheme) {
+        Text(
+            "还没自选颜色：点上面两个圆圈分别挑「顶色」和「底色」，或直接用上面的预制。",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+
+    // 取色器：起始色 = 已选过就用它，否则用"主题派生出来的那一端"，
+    // 让用户从当前真实效果改起，而不是从一个突兀的纯色开始。
+    editingEndpoint?.let { endpoint ->
+        val scheme = MaterialTheme.colorScheme
+        val derived = ThemeGradient.pageStops(scheme, appearance.gradientScale).let {
+            if (endpoint == GradientEndpoint.TOP) it.first() else it.last()
+        }
+        val currentTop = appearance.gradientTop
+        val currentBottom = appearance.gradientBottom
+        ColorPaletteDialog(
+            current = if (endpoint == GradientEndpoint.TOP) {
+                if (currentTop != 0) Color(currentTop) else derived
+            } else {
+                if (currentBottom != 0) Color(currentBottom) else derived
+            },
+            onPick = { picked ->
+                val argb = picked.argbInt()
+                onAppearanceChange(
+                    if (endpoint == GradientEndpoint.TOP) {
+                        appearance.copy(gradientTop = argb)
+                    } else {
+                        appearance.copy(gradientBottom = argb)
+                    }
+                )
+                onStatus("已选${if (endpoint == GradientEndpoint.TOP) "顶色" else "底色"}")
+                editingEndpoint = null
+            },
+            onDismiss = { editingEndpoint = null }
+        )
+    }
+
     Text("渐变方向", style = MaterialTheme.typography.labelMedium)
     // 维护者口径：背景渐变应该可以指定方向。默认上→下 = 原来的样子。
     FlowRow(

@@ -19,6 +19,12 @@ internal enum class GradientDirection(val storageKey: String, val label: String)
 }
 
 /**
+ * 渐变两个端点（自选颜色用）。只是 UI/取色的一个标注，不落盘——
+ * 落盘用的还是既有的 `gradientTop` / `gradientBottom` 两个键（0 = 跟随主题）。
+ */
+internal enum class GradientEndpoint { TOP, BOTTOM }
+
+/**
  * 8.2.0 外观系统的数据模型：只描述"外观怎么画"，不含任何用户内容。
  *
  * 三条不变量（见 docs/8.2.0-appearance-plan.md）：

@@ -1,5 +1,6 @@
 package com.sakata.focusflow
 
+import androidx.compose.ui.graphics.luminance
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -92,5 +93,82 @@ class GradientDirectionTest {
         // 强度上限仍受常量约束（方向没碰它）
         val max = ThemeGradient.pageStops(scheme, GRADIENT_STRENGTH_MAX / 100f)
         assertEquals("上限档仍是三站", 3, max.size)
+    }
+}
+
+/**
+ * 渐变**自选两个颜色**（维护者口径：「在提供一定量的预制前提下添加自定义即可」）。
+ *
+ * 落盘复用既有的 `gradientTop` / `gradientBottom`（0 = 跟随主题），没有新增偏好键——
+ * 所以老装机、老预设的兼容性完全不变。
+ */
+class GradientCustomColoursTest {
+
+    private val scheme = focusFlowThemeSpec(FocusFlowThemeOption.OCEAN, darkMode = false).colorScheme
+
+    @Test
+    fun customEndpointsLandExactlyOnTheFirstAndLastStop() {
+        val top = 0xFF2244AA.toInt()
+        val bottom = 0xFFAACCEE.toInt()
+        val stops = ThemeGradient.pageStops(scheme, 1f, top, bottom)
+        assertEquals("自选顶色必须是第一站（原样，不被主题改写）", top, stops[0].argbInt())
+        assertEquals("自选底色必须是第三站（原样，不被主题改写）", bottom, stops[2].argbInt())
+    }
+
+    /** 只选一端时，另一端仍按主题派生——允许"只想改一头"这种用法。 */
+    @Test
+    fun pickingOnlyOneEndKeepsTheOtherDerived() {
+        val top = 0xFF2244AA.toInt()
+        val withTopOnly = ThemeGradient.pageStops(scheme, 1f, top, 0)
+        assertEquals(top, withTopOnly[0].argbInt())
+        val derived = ThemeGradient.pageStops(scheme, 1f, 0, 0)
+        assertEquals(
+            "没选的那一端应等于主题派生值",
+            derived[2].argbInt(),
+            withTopOnly[2].argbInt()
+        )
+    }
+
+    /** 0/0 必须仍然表示"跟随主题"，这是老装机与老预设的兼容底线。 */
+    @Test
+    fun zeroMeansFollowThemeOnBothEnds() {
+        assertEquals(
+            "gradientTop/Bottom 都为 0 时应完全等于跟随主题的结果",
+            ThemeGradient.pageStops(scheme, 1f, 0, 0),
+            ThemeGradient.pageStops(scheme, 1f)
+        )
+        assertEquals(0, AppearanceSpec.DEFAULT.gradientTop)
+        assertEquals(0, AppearanceSpec.DEFAULT.gradientBottom)
+    }
+
+    /** 自选色在深色模式下会被 adaptBackdropColor 压到深色底上（既有行为，这里守住）。 */
+    @Test
+    fun customColoursAreAdaptedForDarkMode() {
+        val dark = focusFlowThemeSpec(FocusFlowThemeOption.OCEAN, darkMode = true).colorScheme
+        val light = 0xFFF5F9FC.toInt()
+        val adapted = ThemeGradient.pageStops(dark, 1f, light, light)[0]
+        assertTrue(
+            "自选浅色在深色模式下必须被压暗，实际亮度 ${adapted.luminance()}",
+            adapted.luminance() < 0.4f
+        )
+    }
+
+    /** 方向与自选色可以叠加：反向之后两端对调，但颜色本身不变。 */
+    @Test
+    fun customColoursAndDirectionCompose() {
+        val top = 0xFF2244AA.toInt()
+        val bottom = 0xFFAACCEE.toInt()
+        val stops = ThemeGradient.pageStops(scheme, 1f, top, bottom)
+        val reversed = stops.reversed()
+        assertEquals(bottom, reversed[0].argbInt())
+        assertEquals(top, reversed[2].argbInt())
+    }
+
+    /** 两个端点枚举就是落盘用的那两个槽位，别再多出第三个概念。 */
+    @Test
+    fun thereAreExactlyTwoEndpoints() {
+        assertEquals(2, GradientEndpoint.entries.size)
+        assertEquals(GradientEndpoint.TOP, GradientEndpoint.entries[0])
+        assertEquals(GradientEndpoint.BOTTOM, GradientEndpoint.entries[1])
     }
 }
