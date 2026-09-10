@@ -281,6 +281,24 @@ internal fun GradientStopsControls(
         )
     }
 
+    Text("渐变方向", style = MaterialTheme.typography.labelMedium)
+    // 维护者口径：背景渐变应该可以指定方向。默认上→下 = 原来的样子。
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        GradientDirection.entries.forEach { dir ->
+            FilterChip(
+                selected = appearance.gradientDirection == dir,
+                onClick = {
+                    onAppearanceChange(appearance.copy(gradientDirection = dir))
+                    onStatus("渐变方向改为${dir.label}")
+                },
+                label = { Text(dir.label) }
+            )
+        }
+    }
+
     Text("渐变强度 ${appearance.gradientStrength}%", style = MaterialTheme.typography.labelMedium)
     Slider(
         value = appearance.gradientStrength.toFloat(),

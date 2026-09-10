@@ -153,12 +153,26 @@ internal object ThemeGradient {
      * 就提前返回了。早期那套"按累计滚动量截窗口"的实现（phase/window 两个参数）已经删除，
      * 它在生产路径上永远不可达；历史在 git `cfbfaab` 之前。
      */
+    /**
+     * [direction] 决定"从哪一端开始铺"（维护者口径：渐变应可指定方向）。
+     * 默认 [GradientDirection.TOP_DOWN] = 原来的 `Brush.verticalGradient`，逐像素不变。
+     * 三站颜色的**顺序不变**，只是铺的方向不同。
+     */
     fun page(
         scheme: ColorScheme,
         strength: Float = 1f,
         top: Int = 0,
-        bottom: Int = 0
-    ): Brush = Brush.verticalGradient(pageStops(scheme, strength, top, bottom))
+        bottom: Int = 0,
+        direction: GradientDirection = GradientDirection.TOP_DOWN
+    ): Brush {
+        val stops = pageStops(scheme, strength, top, bottom)
+        return when (direction) {
+            GradientDirection.TOP_DOWN -> Brush.verticalGradient(stops)
+            GradientDirection.BOTTOM_UP -> Brush.verticalGradient(stops.reversed())
+            GradientDirection.LEFT_RIGHT -> Brush.horizontalGradient(stops)
+            GradientDirection.RIGHT_LEFT -> Brush.horizontalGradient(stops.reversed())
+        }
+    }
 
     /** 卡片渐变：左上到右下，比页面更轻，保证卡片仍然"更亮一层"。 */
     fun card(scheme: ColorScheme): Brush = Brush.linearGradient(
@@ -173,8 +187,7 @@ internal object ThemeGradient {
         1f to blendSrgb(scheme.background, scheme.primary, 0.02f)
     )
 
-    fun pageStops(scheme: ColorScheme, strength: Float = 1f, top: Int = 0, bottom: Int = 0): List<Color> {
-        val s = strength.coerceIn(0f, GRADIENT_STRENGTH_MAX / 100f)
+    fun pageStops(scheme: ColorScheme, strength: Float = 1f, top: Int = 0, bottom: Int = 0): List<Color> {        val s = strength.coerceIn(0f, GRADIENT_STRENGTH_MAX / 100f)
         // 深色模式单独一套幅度（维护者提醒"注意适配深色模式"）：
         // 深色页面上"顶亮 85%"会变成一条刺眼亮带，而且深色模式的正文是浅色的，
         // 浅底会直接把可读性吃掉。所以深色下只做"顶上微微提亮、底下压深"。
@@ -337,7 +350,7 @@ internal fun Modifier.appearanceBackdrop(
                 if (role == BackdropRole.Timetable) {
                     ThemeGradient.timetable(scheme)
                 } else {
-                    ThemeGradient.page(scheme, spec.gradientScale, spec.gradientTop, spec.gradientBottom)
+                    ThemeGradient.page(scheme, spec.gradientScale, spec.gradientTop, spec.gradientBottom, spec.gradientDirection)
                 }
             )
 

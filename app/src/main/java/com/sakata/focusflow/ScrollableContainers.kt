@@ -62,7 +62,7 @@ internal fun ScrollableWithBar(
                 .then(
                     if (contentBackdrop) {
                         Modifier.background(MaterialTheme.colorScheme.let { scheme ->
-                            ThemeGradient.page(scheme, appearance.gradientScale, appearance.gradientTop, appearance.gradientBottom)
+                            ThemeGradient.page(scheme, appearance.gradientScale, appearance.gradientTop, appearance.gradientBottom, appearance.gradientDirection)
                         })
                     } else {
                         Modifier

@@ -1,6 +1,24 @@
 package com.sakata.focusflow
 
 /**
+ * 页面渐变的方向（维护者口径：背景渐变应该可以指定方向）。
+ *
+ * 默认 [TOP_DOWN] = 现状逐像素不变（老装机读不到这个键就是原来的样子）。
+ * 方向只影响"从哪一端开始铺"，三站颜色的顺序不变。
+ */
+internal enum class GradientDirection(val storageKey: String, val label: String) {
+    TOP_DOWN("topdown", "上→下"),
+    BOTTOM_UP("bottomup", "下→上"),
+    LEFT_RIGHT("leftright", "左→右"),
+    RIGHT_LEFT("rightleft", "右→左");
+
+    companion object {
+        fun fromKey(key: String?): GradientDirection =
+            entries.firstOrNull { it.storageKey == key } ?: TOP_DOWN
+    }
+}
+
+/**
  * 8.2.0 外观系统的数据模型：只描述"外观怎么画"，不含任何用户内容。
  *
  * 三条不变量（见 docs/8.2.0-appearance-plan.md）：
@@ -85,7 +103,9 @@ internal data class AppearanceSpec(
      * 存在的理由：这些效果是逐帧的绘制/动画成本，低端机上会吃掉流畅度，
      * 需要一个"我要流畅，不要花哨"的开关——而不是逼用户去猜某个具体档位。
      */
-    val richEffects: Boolean = true
+    val richEffects: Boolean = true,
+    /** 页面渐变方向；默认上→下（与首次实现逐像素一致）。 */
+    val gradientDirection: GradientDirection = GradientDirection.TOP_DOWN
 ) {
     /** 背景图不透明度换算成 0..1，越界读数夹回合法区间。 */
     val imageAlpha: Float get() = backdropOpacity.coerceIn(0, 100) / 100f
@@ -209,7 +229,8 @@ internal data class AppearanceSpec(
             timetableImage: String?,
             timetableOpacity: Int,
             extracted: String?,
-            richEffects: Boolean = true
+            richEffects: Boolean = true,
+            gradientDirection: String? = null
         ): AppearanceSpec = AppearanceSpec(
             pageBackdrop = BackdropKind.fromKey(pageBackdrop),
             pageImage = pageImage.orEmpty(),
@@ -225,7 +246,8 @@ internal data class AppearanceSpec(
             timetableImage = timetableImage.orEmpty(),
             timetableOpacity = timetableOpacity,
             extractedColors = decodeExtracted(extracted),
-            richEffects = richEffects
+            richEffects = richEffects,
+            gradientDirection = GradientDirection.fromKey(gradientDirection)
         )
     }
 }
