@@ -1,0 +1,147 @@
+package com.sakata.focusflow
+
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Slider
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.toPixelMap
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+
+/**
+ * 8.2.0「设置 → 外观 → 页面背景」这一段。
+ *
+ * 全部可选、默认跟随主题；导入的图片只写进应用私有目录，不出本机、不上传。
+ * 图片背景之上永远压一层主题遮罩（见 [scrimAlpha]），正文对比度靠它保住。
+ */
+@Composable
+internal fun AppearanceSettingsSection(
+    appearance: AppearanceSpec,
+    onAppearanceChange: (AppearanceSpec) -> Unit,
+    onApplyExtractedTheme: (FocusFlowThemeColors) -> Unit
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var status by remember { mutableStateOf<String?>(null) }
+
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val extension = context.contentResolver.getType(uri)?.substringAfterLast('/')
+            val name = AppearanceImages.newName(extension)
+            val stored = withContext(Dispatchers.IO) {
+                val stream = runCatching { context.contentResolver.openInputStream(uri) }.getOrNull()
+                stream != null && AppearanceImages.store(context, name, stream, 1440, 3168)
+            }
+            if (stored) {
+                // 先落下新图再切模式：切模式会立刻触发解码，避免出现"模式是新图但文件还是旧的"。
+                onAppearanceChange(appearance.copy(pageBackdrop = BackdropKind.IMAGE, pageImage = name))
+                status = "已导入，只存在本机（原图不会被上传）"
+            } else {
+                status = "这张图片读不出来，换一张试试"
+            }
+        }
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            listOf(
+                BackdropKind.THEME to "跟随主题",
+                BackdropKind.GRADIENT to "主题渐变",
+                BackdropKind.IMAGE to "图片"
+            ).forEach { (kind, label) ->
+                FilterChip(
+                    selected = appearance.pageBackdrop == kind,
+                    onClick = { onAppearanceChange(appearance.copy(pageBackdrop = kind)) },
+                    label = { Text(label) }
+                )
+            }
+        }
+
+        if (appearance.pageBackdrop == BackdropKind.IMAGE) {
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                TextButton(onClick = {
+                    picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                }) { Text(if (appearance.pageImage.isBlank()) "选择图片" else "更换图片") }
+                if (appearance.pageImage.isNotBlank()) {
+                    TextButton(onClick = {
+                        val old = appearance.pageImage
+                        onAppearanceChange(appearance.copy(pageImage = "", pageBackdrop = BackdropKind.THEME))
+                        scope.launch { withContext(Dispatchers.IO) { AppearanceImages.delete(context, old) } }
+                        status = "已移除图片背景"
+                    }) { Text("移除图片") }
+                }
+            }
+            Text("不透明度 ${appearance.backdropOpacity}%", style = MaterialTheme.typography.labelMedium)
+            Slider(
+                value = appearance.backdropOpacity.toFloat(),
+                onValueChange = { onAppearanceChange(appearance.copy(backdropOpacity = it.toInt().coerceIn(0, 100))) },
+                valueRange = 0f..100f,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Text(
+                "0% 等于只用主题底色；图片之上始终压一层主题遮罩，保证正文读得清。",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            if (appearance.pageImage.isNotBlank()) {
+                TextButton(onClick = {
+                    scope.launch {
+                        val palette = withContext(Dispatchers.Default) {
+                            extractPalette(context, appearance.pageImage)
+                        }
+                        if (ExtractedTheme.worthApplying(palette) && palette != null) {
+                            onApplyExtractedTheme(ExtractedTheme.derive(palette))
+                            status = "已按图片抽色并应用（主色 #%06X）".format(palette.primary and 0xFFFFFF)
+                        } else {
+                            status = "这张图没有足够明显的颜色，主题保持不变"
+                        }
+                    }
+                }) { Text("从图片抽取主题色") }
+            }
+        }
+
+        Text(
+            "渐变与抽色都按当前配色派生，不写死色值；文字对比度按 WCAG 校验。",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        status?.let {
+            Text(it, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+        }
+    }
+}
+
+/** 图上取色：只解到 64×64 再喂给抽取器（省内存、结果稳定）。 */
+private fun extractPalette(context: android.content.Context, name: String): ExtractedPalette? {
+    val bitmap = AppearanceImages.load(context, name, 64, 64) ?: return null
+    val map = bitmap.toPixelMap()
+    val pixels = IntArray(bitmap.width * bitmap.height)
+    for (y in 0 until bitmap.height) {
+        for (x in 0 until bitmap.width) {
+            pixels[y * bitmap.width + x] = map[x, y].argbInt()
+        }
+    }
+    return PaletteExtractor.extract(pixels)
+}
+
+/** 局部小工具：这里只需要 6dp / 8dp 两个间距，避免为了两个值引入额外 import。 */
+private fun Int.dp0() = androidx.compose.ui.unit.Dp(this.toFloat())

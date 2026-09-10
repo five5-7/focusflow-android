@@ -1,5 +1,6 @@
 package com.sakata.focusflow
 
+import androidx.compose.foundation.background
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
@@ -27,6 +28,26 @@ import kotlin.math.roundToInt
  * 卡片仍是容器色，[Modifier.appearanceBackdrop] 在默认外观下不新增任何绘制。
  */
 internal val LocalAppearance = staticCompositionLocalOf { AppearanceSpec.DEFAULT }
+
+/** 当前解码好的背景图（没设图或解码失败就是 null）。由应用根提供，深层页面不再各自解码。 */
+internal val LocalBackdropBitmap = staticCompositionLocalOf<ImageBitmap?> { null }
+
+/**
+ * 页面层的**不透明**背景。
+ *
+ * 动画期间两层会同时在场（副页放大/缩小、主页左右平移、收起中的页签），每层必须自己是不透明的，
+ * 否则会互相透出来——真机复现：主题渐变下副页放大时整屏像变透明了。
+ * 默认外观下就是原来的纯色（逐像素不变）；非默认外观下每层**各画一遍**同一个背景。
+ */
+@Composable
+internal fun Modifier.pageLayerBackground(flatColor: Color): Modifier {
+    val appearance = LocalAppearance.current
+    return if (appearance.pageBackdrop == BackdropKind.THEME) {
+        background(flatColor)
+    } else {
+        appearanceBackdrop(appearance, MaterialTheme.colorScheme, LocalBackdropBitmap.current)
+    }
+}
 
 /** 页面容器色：跟随主题时就是原来的 background；选了渐变/图片就交给背景层去画（透明）。 */
 @Composable
@@ -57,7 +78,13 @@ internal fun blendSrgb(base: Color, overlay: Color, alpha: Float): Color {
 /** 主题渐变：按当前配色派生，不写死色值，自定义主题与深色模式自动跟着变。 */
 internal object ThemeGradient {
 
-    /** 页面渐变：顶部淡淡带一点主题色，向下回到页面底色。 */
+    /**
+     * 页面渐变：**顶亮 → 中为底色 → 底略深**，像一束光从上方打下来。
+     *
+     * 方向是刻意的：深色文字在浅底上对比度最高，所以"变亮"放在上面、"变深"放在下面，
+     * 整条渐变里正文对比度都不低于纯色页面（真机实测见 docs/8.2.0-appearance-plan.md）。
+     * 幅度也必须够大，否则会被看成"背景整体变深了一档"而不是渐变（维护者真机反馈过这一点）。
+     */
     fun page(scheme: ColorScheme): Brush = Brush.verticalGradient(pageStops(scheme))
 
     /** 卡片渐变：左上到右下，比页面更轻，保证卡片仍然"更亮一层"。 */
@@ -74,9 +101,9 @@ internal object ThemeGradient {
     )
 
     fun pageStops(scheme: ColorScheme): List<Color> = listOf(
-        blendSrgb(scheme.background, scheme.primary, 0.14f),
-        blendSrgb(scheme.background, scheme.primary, 0.05f),
-        scheme.background
+        blendSrgb(scheme.background, Color.White, 0.85f),
+        scheme.background,
+        blendSrgb(scheme.background, Color.Black, 0.07f)
     )
 
     fun cardStops(scheme: ColorScheme): List<Color> = listOf(

@@ -127,7 +127,9 @@ internal fun <T : Any> SubpageMotion(
                 }
             } else Modifier
             states.SaveableStateProvider(destination.toString()) {
-                Box(Modifier.fillMaxSize().background(containerColor).then(input)) {
+                // 每层自带不透明背景：非默认外观（渐变/图片）下各画一遍同一个背景，
+                // 否则放大/缩小时两层会互相透出来（真机复现：副页放大期间画面变成透明）。
+                Box(Modifier.fillMaxSize().pageLayerBackground(containerColor).then(input)) {
                     content(destination)
                 }
             }

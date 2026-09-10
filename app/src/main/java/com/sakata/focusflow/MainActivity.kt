@@ -911,6 +911,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
         // 8.1.0 第三轮：弹窗浮层挂在应用根，所有页面的 AppDialog 都能注册进来。
         CompositionLocalProvider(
             LocalAppearance provides appearance,
+            LocalBackdropBitmap provides pageBackdropBitmap,
             LocalAppDialogHost provides dialogHost
         ) {
         // Horizontal cutouts constrain the viewport. Top safety travels with scroll content.
@@ -1044,6 +1045,9 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                     }
                     // 8.1.0 第三轮：完全淡出的页签跳过绘制，只保留组合（切换仍是零重组），省掉不可见的合成开销。
                     .drawWithContent { if (tabAlpha.value > 0.004f) drawContent() }
+                    // 8.2.0：每个页签层自带不透明背景。动画期间两层同时在场（平动、收起），
+                    // 透明层会互相透出来；默认外观下这里画的就是原来的页面底色，逐像素不变。
+                    .pageLayerBackground(MaterialTheme.colorScheme.background)
                     .then(
                         // 收起中的页签也不拦截输入：它只是画在上层，点击应落到可见页签。
                         if (isVisibleTab || collapseLeaving) Modifier
