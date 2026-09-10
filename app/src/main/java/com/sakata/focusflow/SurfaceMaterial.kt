@@ -193,11 +193,11 @@ internal object ThemeGradient {
      * 自选渐变配色（顶色 → 底色）；选了以后 [pageStops] 就用它，不再按主题派生。
      *
      * 原先八组全是"接近白的浅色"，两两差别很小、真机上挑不出明显不同的效果
-     * （维护者反馈"颜色可选范围扩大一点"）。现在扩到 14 组，并按"两端的色差"排序：
-     * 前段是原来那批极浅的，中段加大明度落差，后段四组是**明显有色**的深一点的纸色。
+     * （维护者反馈"颜色可选范围扩大一点"）。现在扩到 13 组，并按"两端的色差"排序：
+     * 前段是原来那批极浅的，中段加大明度落差，后段是**明显有色**的纸色。
      *
      * 深色模式下这一切仍然成立：两端都会经 [adaptBackdropColor] 以 0.22 权重压到深色底上，
-     * 保留色相、整页仍是深色，所以"选了深色纸色"在深色模式下不会变成一块亮斑。
+     * 保留色相、整页仍是深色。深色模式需要的"深色渐变"由主题渐变按明暗各派生一套幅度。
      */
     internal val PAGE_GRADIENT_PAIRS: List<Pair<Int, Int>> = listOf(
         // —— 极浅纸色（原有八组，保持在前，老用户的位置不变）——
@@ -215,8 +215,11 @@ internal object ThemeGradient {
         0xFFF6FBF3.toInt() to 0xFFC8DCC4.toInt(), // 新芽 → 苔痕
         // —— 后段：明显有色 / 略深，两端差得开 ——
         0xFFF3F6FA.toInt() to 0xFFB9C7D6.toInt(), // 铅灰 → 石青
-        0xFFF7F1EE.toInt() to 0xFFCBB4A8.toInt(), // 陶土 → 赭石
-        0xFF2B3038.toInt() to 0xFF11151A.toInt()  // 墨夜 → 深空（深色档）
+        0xFFF7F1EE.toInt() to 0xFFCBB4A8.toInt()  // 陶土 → 赭石
+        // 注意：这里**不放**"深色档"的配色（例如 墨夜→深空）。深色模式下所有自选端色
+        // 都会被 adaptBackdropColor 以 0.22 权重压到深色底上，一个本来就很深的组合压完
+        // 会和页面底色几乎重合（实测 rgb(22,24,27) vs 页面 rgb(18,20,23)）——等于选了个没反应。
+        // 深色模式要的"深色渐变"由主题渐变自己派生（pageStops 在深色下另有一套幅度）。
     )
 
     fun cardStops(scheme: ColorScheme): List<Color> = listOf(
