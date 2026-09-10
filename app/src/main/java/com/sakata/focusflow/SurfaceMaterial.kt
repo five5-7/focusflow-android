@@ -552,41 +552,36 @@ internal fun backdropColourAt(
 }
 
 /**
- * 底栏该用的**画刷**（而不是一个颜色）。
+ * 底栏该用的**画刷**；**背景在底栏这一带左右同色时返回 null**。
  *
- * 这是对维护者批评的直接回应：「你这个实现好像是针对单个情况逐一适配，成本高，效果差」。
- * 之前的做法是在底栏中心**取一个点**得到一个颜色——这对竖直渐变勉强能用，
- * 但底栏是横跨整屏的一条，遇到**左右渐变就完全表达不出来**（维护者：
- * "导航栏不会相应左右渐变的底色"），于是每发现一种方向就补一个分支。
+ * 返回 null 很重要：那种情况下"用单色"与"用画刷"结果完全相同，
+ * 而单色走的是底栏原本那条**已经验证过**的绘制路径（Surface 的 color），
+ * 少一层自己画的背景就少一类"看起来没渲染/糊掉"的风险。
+ * 只有背景真的左右不同色（左右渐变、斜向）时才值得自己画。
  *
- * 换成一构造通吃：底栏是一条**又宽又薄**的带子，所以取它**左右两端**的颜色做一条水平渐变。
- * - 竖直渐变：左右两端同色 → 水平渐变自然退化成纯色（正确）；
- * - 左右渐变：两端就是真实的两端（精确）；
- * - 斜向：薄带内横向变化占主导，两端取色即为该带的一阶近似（够准）。
- * 没有任何方向分支，也不会再有"某种方向没适配"。
- *
- * 主题那层"浮层相对页面底色"的差值按**每个端点**叠加，所以设计关系在任何背景下都守恒。
+ * 这也是对维护者批评的直接回应：「你这个实现好像是针对单个情况逐一适配，成本高，效果差」。
+ * 之前的做法是在底栏中心**取一个点**得到一个颜色——竖直渐变勉强能用，
+ * 但底栏是横跨整屏的一条，遇到**左右渐变就完全表达不出来**，于是每发现一种方向就补一个分支。
+ * 换成一构造通吃：底栏是一条**又宽又薄**的带子，取它**左右两端**的颜色做水平渐变。
+ * - 竖直渐变：两端同色 → 退化成纯色（正确，且走回已验证路径）
+ * - 左右渐变：两端就是真实两端（精确）
+ * - 斜向：薄带内横向变化占主导，两端取色即该带的一阶近似（够准）
+ * 没有任何方向分支。
  */
 internal fun navBarBrushOverBackdrop(
     appearance: AppearanceSpec,
     themeSpec: FocusFlowThemeSpec
-): Brush {
+): Brush? {
     val scheme = themeSpec.colorScheme
-    // 底栏带的中心高度（视口归一化）
-    val bandY = NAV_BAR_CENTRE_Y
     fun end(fx: Float) = floatingSurfaceOverGradient(
-        base = backdropColourAt(appearance, scheme, fx, bandY),
+        base = backdropColourAt(appearance, scheme, fx, NAV_BAR_CENTRE_Y),
         deltaFrom = scheme.background,
         deltaTo = themeSpec.navigationBarColor
     )
     val left = end(0f)
     val right = end(1f)
-    return if (left.argbInt() == right.argbInt()) {
-        // 两端同色（竖直渐变/纯色）→ 用纯色画刷，省掉一次 shader 求值
-        Brush.verticalGradient(listOf(left, left))
-    } else {
-        Brush.horizontalGradient(listOf(left, right))
-    }
+    if (left.argbInt() == right.argbInt()) return null
+    return Brush.horizontalGradient(listOf(left, right))
 }
 
 /**
