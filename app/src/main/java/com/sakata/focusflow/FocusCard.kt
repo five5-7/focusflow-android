@@ -69,23 +69,24 @@ internal fun FocusCard(
     }
 }
 
-/** 卡片材质的底色层：材质层（渐变/柔光）→ 纸感噪点（可选）→ 两侧内收。 */
+/** 卡片材质的底色层：**调用方给的底色** → 材质层（渐变/柔光）→ 纸感纸纹 → 两侧内收。 */
 private fun Modifier.cardMaterialFill(
     containerColor: Color,
     material: CardMaterial,
     scheme: ColorScheme
 ): Modifier = drawBehind {
-    // 材质叠层与底栏共用同一份实现（materialBrush），只是底色不同。
+    // 先把调用方指定的底色铺上。**这一句不能省**：材质层是"以底色为基色"的渐变，
+    // 直接拿它当底色会把调用方的底色（例如"已选择"用的 primaryContainer）整个换掉。
+    drawRect(containerColor)
+    // 材质叠层与底栏/弹窗共用同一份实现（materialBrush），只是底色不同。
     val layer = materialBrush(material, containerColor, scheme)
     if (layer != null) {
         drawRect(layer)
-    } else {
-        // 默认材质不会走到这里（FocusCard 里 TONAL 直接返回原生 Card），留着只是为了穷尽分支。
-        drawRect(containerColor)
-    }
-    // 纸感 = 柔光 + 一层极淡噪点。
-    if (material == CardMaterial.PAPER) {
-        drawRect(paperNoiseBrush())
+        if (material == CardMaterial.PAPER) {
+            // 纸感 = 柔光 + 一点整体压深 + 纸纹；与 surfaceMaterialFill 同一套口径。
+            drawRect(scheme.onSurface.copy(alpha = PAPER_SHEEN_ALPHA))
+            drawRect(paperNoiseBrush())
+        }
     }
     // 两侧轻微内收：靠里的浅、靠边的略深，和底栏用同一套语言，避免"贴纸感"。
     val edge = scheme.onSurface.copy(alpha = 0.03f)
@@ -138,7 +139,26 @@ internal fun paperNoiseBrush(seed: Long = DEFAULT_NOISE_SEED, alpha: Float = DEF
     }
 
 internal const val DEFAULT_NOISE_SEED = 0x5EEDL
-internal const val DEFAULT_NOISE_ALPHA = 0.05f
+
+/**
+ * 纸感噪点的不透明度上限。
+ *
+ * **从 0.05 提到 0.22**：0.05 时单像素实际 alpha 平均只有 `0.05 × 0.5 × 255 ≈ 6`，
+ * 即约 2.4% 的明暗扰动，而 64×64 的贴图铺在卡片上、又在 4 倍密度屏上被缩小显示，
+ * 这点扰动**肉眼根本看不出来**——维护者连续两轮反馈"柔光和纸感没有区别"，根因就在这里：
+ * 两者底层用的同一张柔光渐变，唯一的差别只剩这层看不见的噪点。
+ * 0.22 之后是约 11% 的扰动，在真机上能看出细颗粒的纸纹，但仍不会把卡片压暗
+ * （噪点是"上下扰动"，不是单向压暗）。
+ */
+internal const val DEFAULT_NOISE_ALPHA = 0.22f
+
+/**
+ * 纸感在柔光之外额外的**轻微整体压暗**，让"纸"比"柔光"更沉一点。
+ *
+ * 光靠噪点两者还是容易混（尤其在深色模式、噪点对比本来就弱的底色上），
+ * 所以再给纸感一个可量化的区别：整体叠一层极淡的 onSurface。
+ */
+internal const val PAPER_SHEEN_ALPHA = 0.05f
 internal const val NOISE_SIZE = 64
 
 /**

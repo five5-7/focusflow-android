@@ -135,11 +135,8 @@ internal fun FloatingNavigationBar(
     val barDim by animateFloatAsState(if (dialogOpen) MotionSpec.SCRIM_ALPHA else 0f, MotionSpec.move(), label = "barDim")
     val barShadow by animateDpAsState(if (dialogOpen) 1.dp else 7.dp, MotionSpec.move(), label = "barShadow")
     // 8.2.0：卡片材质同样作用在底栏上（维护者口径「材质也影响导航栏」）。
-    // 用与卡片同一个 materialBrush，底色换成底栏自己的 navigationBarColor；
-    // 纸感在底栏上不再叠噪点——那层噪点是为"纸面卡片"做的，铺满一条底栏会显得脏。
+    // 走与卡片同一份 surfaceMaterialFill，只是底色换成底栏自己的 navigationBarColor。
     val barMaterial = LocalAppearance.current.effectiveCardMaterial
-    val scheme = MaterialTheme.colorScheme
-    val materialBrushValue = materialBrush(barMaterial, background, scheme)
     // 8.1.0 形变：每个顶角各自跟随自己的图标——有回退才伸出左角、有折返才伸出右角；图标消失即收回。
     val backProgress by animateFloatAsState(if (canGoBack) 1f else 0f, MotionSpec.morph(), label = "backCorner")
     val forwardProgress by animateFloatAsState(if (canGoForward) 1f else 0f, MotionSpec.morph(), label = "forwardCorner")
@@ -183,17 +180,14 @@ internal fun FloatingNavigationBar(
             Surface(
                 // 弹窗打开时整体压暗：用 graphicsLayer 的 alpha 让底栏"沉到遮罩下面"，
                 // 与弹窗那层 Color.Black + SCRIM_ALPHA 同一个观感。
+                //
+                // 材质叠层必须走 surfaceMaterialFill（内部先 clip(barShape)）：
+                // 之前这里直接 drawBehind 画矩形，而 drawBehind 在 Surface 的形状裁剪之外，
+                // 于是底栏上冒出一整块矩形底色（维护者反馈"像一块矩形底"）。
                 modifier = Modifier
                     .fillMaxWidth()
                     .graphicsLayer { alpha = 1f - barDim }
-                    // 材质叠层画在底栏自己的形状里（Surface 已按 barShape 裁切）。
-                    .then(
-                        if (materialBrushValue != null) {
-                            Modifier.drawBehind { drawRect(materialBrushValue) }
-                        } else {
-                            Modifier
-                        }
-                    ),
+                    .surfaceMaterialFill(barMaterial, background, barShape),
                 shape = barShape,
                 color = background, tonalElevation = 0.dp,
                 // 维护者口径：不要那条 2dp 的硬灰线，改成"靠里浅、靠边深"的过渡——

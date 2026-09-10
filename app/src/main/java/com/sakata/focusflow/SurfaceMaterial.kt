@@ -7,6 +7,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -494,8 +495,9 @@ internal fun cardMaterialBrush(material: CardMaterial): Brush? =
  * 材质叠层（通用）：给定**底色**，返回该材质要在它上面画的一层；[CardMaterial.TONAL] 返回 null。
  *
  * 抽成"给定底色"而不是写死 `surfaceContainerLow`，是因为同一套材质还要用在
- * **底栏**上——底栏的底色是 `navigationBarColor`，不是卡片色。维护者口径：
- * 「材质也影响导航栏」。卡片、底栏、以后别的表面都从这里取，只有一份实现。
+ * **底栏**、**弹窗**上——它们的底色分别是 `navigationBarColor` / `surfaceContainerHigh`，
+ * 都不是卡片色。维护者口径：「材质也影响导航栏」「弹窗也没有材质渲染」。
+ * 卡片、底栏、弹窗都从这里取，只有一份实现。
  */
 internal fun materialBrush(material: CardMaterial, base: Color, scheme: ColorScheme): Brush? =
     when (material) {
@@ -503,6 +505,38 @@ internal fun materialBrush(material: CardMaterial, base: Color, scheme: ColorSch
         CardMaterial.GRADIENT -> Brush.verticalGradient(listOf(blendSrgb(base, scheme.primary, 0.07f), base))
         CardMaterial.SOFT, CardMaterial.PAPER -> softLightBrush(base, scheme.onSurface)
     }
+
+/**
+ * 把材质叠层画在**调用方自己的形状里**。
+ *
+ * 必须用 `clip(shape)` 再 `drawBehind`：起初底栏是直接 `drawBehind { drawRect(brush) }` 的，
+ * 而 `drawBehind` 画在 Surface 的形状裁剪**之外**，于是底栏上出现了一整块矩形底色
+ * （维护者反馈："用材质时悬浮栏会出现一块矩形底"）。这里统一裁到形状内，杜绝同一类错误。
+ *
+ * [CardMaterial.PAPER] 额外叠一层噪点（纸感 = 柔光 + 纸纹）。
+ */
+@Composable
+internal fun Modifier.surfaceMaterialFill(
+    material: CardMaterial,
+    base: Color,
+    shape: Shape
+): Modifier {
+    val scheme = MaterialTheme.colorScheme
+    val layer = materialBrush(material, base, scheme)
+    if (layer == null) return this
+    return this
+        .clip(shape)
+        .drawBehind {
+            drawRect(layer)
+            if (material == CardMaterial.PAPER) {
+                // 纸感 = 柔光 + 纸纹 + 一点点整体压深。
+                // 那层压深是"可量化的区别"：只靠噪点的话，两者在深色底上仍然很难分辨
+                // （维护者连续两轮反馈"柔光和纸感没区别"）。压深很淡，不会让正文变糊。
+                drawRect(scheme.onSurface.copy(alpha = PAPER_SHEEN_ALPHA))
+                drawRect(paperNoiseBrush())
+            }
+        }
+}
 
 /**
  * 柔光的顶面高光强度（白色混入比例）与底部压深强度（onSurface 混入比例）。

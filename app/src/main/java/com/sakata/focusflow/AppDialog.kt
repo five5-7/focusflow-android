@@ -218,6 +218,13 @@ internal fun AppDialogHost(
                         modifier = modifier
                             .widthIn(min = 280.dp, max = 560.dp)
                             .litShadow(SurfaceLighting.DIALOG_SHADOW, shape)
+                            // 维护者口径「弹窗也没有材质渲染」：弹窗卡片同样吃当前材质，
+                            // 与页面卡片/底栏共用一份实现，底色是弹窗自己的 surfaceContainerHigh。
+                            .surfaceMaterialFill(
+                                LocalAppearance.current.effectiveCardMaterial,
+                                MaterialTheme.colorScheme.surfaceContainerHigh,
+                                shape
+                            )
                     ) {
                         Box {
                             // 顶部高光：光源在上方，卡片顶面微亮、往下回落，避免"贴纸感"。
