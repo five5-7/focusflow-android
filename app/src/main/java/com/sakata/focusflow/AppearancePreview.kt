@@ -92,7 +92,11 @@ internal fun AppearancePreview(
                             Modifier
                         }
                     )
-                    .appearanceBackdrop(appearance, scheme, bitmap)
+                    .appearanceBackdrop(
+                        appearance, scheme, bitmap,
+                        // 预览也要用同一套自适应遮罩，否则预览比真实页面更花/更糊。
+                        imageLuminance = rememberImageLuminance(bitmap)
+                    )
             ) {
                 Column(
                     Modifier.fillMaxSize().padding(12.dp),

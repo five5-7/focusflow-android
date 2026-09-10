@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
@@ -61,7 +62,13 @@ internal fun Modifier.pageLayerBackground(flatColor: Color): Modifier {
     ) {
         background(flatColor)
     } else {
-        appearanceBackdrop(appearance, MaterialTheme.colorScheme, LocalBackdropBitmap.current)
+        appearanceBackdrop(
+            appearance,
+            MaterialTheme.colorScheme,
+            LocalBackdropBitmap.current,
+            // 按图片真实亮度决定遮罩厚度：固定厚度会让"浅图 + 低不透明度"把正文洗没。
+            imageLuminance = rememberImageLuminance(LocalBackdropBitmap.current)
+        )
     }
 }
 
@@ -292,7 +299,17 @@ internal fun Modifier.appearanceBackdrop(
     spec: AppearanceSpec,
     scheme: ColorScheme,
     bitmap: ImageBitmap?,
-    role: BackdropRole = BackdropRole.Page
+    role: BackdropRole = BackdropRole.Page,
+    /**
+     * 背景图的平均亮度（0..1），由 [rememberImageLuminance] 采样得到。
+     *
+     * 默认值分角色给：**页面**取 0.5（"未知"时的保守中点），**课表底板**取 1f。
+     * 课表取 1f 是刻意的：`AppearanceContrastMatrixTest` 里课表/日程表那一档的对比度
+     * 是拿 `scrimAlpha`（不看图片亮度）算出来的既定预算，传 1f 正好让
+     * `adaptiveScrimAlpha` 退化成与 `scrimAlpha` 完全相同的结果，**不会悄悄改掉已验证的不变量**。
+     * 课表底图要按真实亮度自适应，得连那张表一起重算，属于独立改动。
+     */
+    imageLuminance: Float = if (role == BackdropRole.Timetable) 1f else 0.5f
 ): Modifier {
     val backdrop = when (role) {
         // 用 effective*：关掉「丰富效果」时渐变/图片一律回落成主题纯色
@@ -334,7 +351,13 @@ internal fun Modifier.appearanceBackdrop(
                 if (bitmap != null && alpha > 0f) {
                     drawImageCover(bitmap, alpha)
                     // 图片之上永远压一层主题遮罩：正文对比度靠它保住（见 AppearanceContrast）。
-                    drawRect(scheme.background.copy(alpha = scrimAlpha(alpha)))
+                    // 厚度按图片实际明暗自适应——固定厚度会让"浅图@低不透明度"把正文洗没。
+                    drawRect(
+                        scheme.background.copy(
+                            // textIsLight = 正文是浅色的（深色模式），此时亮图最危险。
+                            alpha = adaptiveScrimAlpha(alpha, imageLuminance, scheme.onBackground.luminance() > 0.5f)
+                        )
+                    )
                 }
             }
 
@@ -345,6 +368,87 @@ internal fun Modifier.appearanceBackdrop(
 
 /** 图片不透明度越高，遮罩越厚；0.34–0.78 之间，既有图感又保得住文字。 */
 internal fun scrimAlpha(imageAlpha: Float): Float = 0.34f + 0.44f * imageAlpha.coerceIn(0f, 1f)
+
+/**
+ * 按**图片实际明暗**决定的遮罩厚度。
+ *
+ * 为什么需要它：原先的 [scrimAlpha] 只跟"不透明度"有关，完全不看图片内容。
+ * 于是"浅色图 + 低不透明度"会把整页洗白，而深色模式的正文是浅色的——
+ * 真机实测：白图 @1% 时正文对底色只有 **1.80:1**、@50% **3.44:1**，完全读不清
+ * （维护者反馈"淡色底浅色字看不见"）。
+ *
+ * 判别口径是**正文是深还是浅**（[textIsLight]），不是"页面是深还是浅"。
+ * 道理：正文是浅色的，就需要它背后是暗的 → **图片越亮越危险**，遮罩要更厚；
+ * 正文是深色的，需要背景是亮的 → 图片越暗越危险。
+ * （一开始我把这条写反了，写成"页面越深越危险"，单测当场抓住：
+ * 深色模式 + 亮图时遮罩丝毫没加厚。）
+ *
+ * 下限 [scrimAlpha] 保持不变，所以原来的观感只会更清楚、不会更花。
+ */
+internal fun adaptiveScrimAlpha(imageAlpha: Float, imageLuminance: Float, textIsLight: Boolean): Float {
+    val base = scrimAlpha(imageAlpha)
+    val lum = imageLuminance.coerceIn(0f, 1f)
+    // 正文浅 → 亮图危险（risky = lum）；正文深 → 暗图危险（risky = 1 - lum）。
+    val risky = if (textIsLight) lum else 1f - lum
+    // 图片几乎不可见时谈不上风险，用 alpha 加权，n=0 时严格等于旧值。
+    val weight = imageAlpha.coerceIn(0f, 1f)
+    return (base + (1f - base) * risky * weight).coerceIn(0f, 0.98f)
+}
+
+/**
+ * 把一张背景图取色成"平均亮度"（0..1）。
+ *
+ * 最多采 32×32 个点：这是每帧要用的量，不能遍历整张原图（1440×3168 会有 450 万个像素）。
+ * 采样点均匀铺开，所以即使图很大也只需要约一千次读数。
+ */
+internal fun averageLuminance(pixels: IntArray, width: Int, height: Int): Float {
+    if (width <= 0 || height <= 0 || pixels.isEmpty()) return 0f
+    val step = maxOf(1, minOf(width, height) / 32)
+    var sum = 0.0
+    var n = 0
+    var y = 0
+    while (y < height) {
+        var x = 0
+        while (x < width) {
+            val p = pixels[y * width + x]
+            val r = ((p shr 16) and 0xFF) / 255f
+            val g = ((p shr 8) and 0xFF) / 255f
+            val b = (p and 0xFF) / 255f
+            // 与 AppearanceContrast.luminance 同一套权重（相对亮度，不是简单平均）
+            sum += (0.2126f * srgbToLinear(r) + 0.7152f * srgbToLinear(g) + 0.0722f * srgbToLinear(b))
+            n++
+            x += step
+        }
+        y += step
+    }
+    return if (n == 0) 0f else (sum / n).toFloat().coerceIn(0f, 1f)
+}
+
+private fun srgbToLinear(v: Float): Float =
+    if (v <= 0.03928f) v / 12.92f else Math.pow(((v + 0.055f) / 1.055f).toDouble(), 2.4).toFloat()
+
+/**
+ * 取一张背景图的平均亮度，**结果按位图缓存**。
+ *
+ * 缓存是必需的：`appearanceBackdrop` 挂在 `drawBehind` 之前、每次重组都会求值，
+ * 而读像素是 O(n) 的操作。同一张图只采一次，换图才重算。
+ * 用 `ImageBitmap` 本身当 key：它是个有身份的对象，换图必然是不同实例。
+ */
+@Composable
+internal fun rememberImageLuminance(bitmap: ImageBitmap?): Float =
+    remember(bitmap) { bitmap?.let { sampleLuminance(it) } ?: 0.5f }
+
+private fun sampleLuminance(bitmap: ImageBitmap): Float = runCatching {
+    val w = bitmap.width
+    val h = bitmap.height
+    if (w <= 0 || h <= 0) return 0.5f
+    // 整张读进来再按步长跳采。读的是已经降采样过的背景图（≤1440×3168），
+    // 一次分配 + 一次读比"按块多次 readPixels"简单得多，而且不会漏掉图的任意一角
+    // （只读左上角的话，一张"上半白下半黑"的图会被判成全白，遮罩算错）。
+    val pixels = IntArray(w * h)
+    bitmap.readPixels(pixels, startX = 0, startY = 0, width = w, height = h)
+    averageLuminance(pixels, w, h)
+}.getOrDefault(0.5f)
 
 /** 背景图按"保持比例、居中裁切"铺满：算源矩形，目标永远是整块画布（不会出现负偏移）。 */
 private fun DrawScope.drawImageCover(bitmap: ImageBitmap, alpha: Float) {

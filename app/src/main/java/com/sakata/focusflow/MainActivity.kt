@@ -911,7 +911,9 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                 .appearanceBackdrop(
                     spec = appearance,
                     scheme = MaterialTheme.colorScheme,
-                    bitmap = pageBackdropBitmap
+                    bitmap = pageBackdropBitmap,
+                    // 按图片真实亮度决定遮罩厚度（浅图 + 低不透明度会把正文洗没）。
+                    imageLuminance = rememberImageLuminance(pageBackdropBitmap)
                 )
         )
         // 8.1.0 第三轮：弹窗浮层挂在应用根，所有页面的 AppDialog 都能注册进来。
