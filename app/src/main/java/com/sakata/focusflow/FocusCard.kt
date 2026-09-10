@@ -81,7 +81,14 @@ private fun Modifier.cardMaterialFill(
     material: CardMaterial,
     scheme: ColorScheme
 ): Modifier = drawBehind {
-    // 先把调用方指定的底色铺上。**这一句不能省**：材质层是"以底色为基色"的渐变，
+    // 先把卡片做成**不透明**：不少调用点用的是半透明底色
+    // （例如「接下来」卡 = surfaceVariant.copy(alpha = 0.45f)）。
+    // 半透明意味着**页面渐变会从卡片底下透出来**，于是同一张卡片在不同滚动位置颜色不同，
+    // 往上滑就变暗/变亮（维护者反馈："卡片处于下方时没有材质渲染，而在上方才有渲染"）。
+    // 材质必须只由卡片自己的底色决定，所以先铺一层固定的页面底色，再叠调用方的底色——
+    // 等价于"这张卡放在一块平整的页面底色上"，与它此刻落在渐变哪一段无关。
+    drawRect(scheme.background)
+    // 调用方指定的底色。**这一句不能省**：材质层是"以底色为基色"的渐变，
     // 直接拿它当底色会把调用方的底色（例如"已选择"用的 primaryContainer）整个换掉。
     drawRect(containerColor)
     // 材质叠层与底栏/弹窗共用同一份实现（materialBrush），只是底色不同。
@@ -89,8 +96,11 @@ private fun Modifier.cardMaterialFill(
     if (layer != null) {
         drawRect(layer)
         if (material == CardMaterial.PAPER) {
-            // 纸感 = 柔光 + 一点整体压深 + 纸纹；与 surfaceMaterialFill 同一套口径。
-            drawRect(scheme.onSurface.copy(alpha = PAPER_SHEEN_ALPHA))
+            // 纸感 = 柔光 + 纸纹。
+            // **不再叠那层整体压深**：实测 PAPER_SHEEN_ALPHA=0.05 会把卡面压低约 11 灰阶，
+            // 而中性的纸纹只有约 2 灰阶的颗粒——于是"纸感"变成"卡片换了个更深的颜色"，
+            // 正是维护者反复反馈的问题。纸纹现在是亮度中性的（Overlay），
+            // 纸感与柔光的区别由"有没有纸纹"承担，不再靠压暗。
             drawPaperGrain()
         }
     }
@@ -199,7 +209,6 @@ internal const val DEFAULT_NOISE_ALPHA = 0.22f
  * 光靠噪点两者还是容易混（尤其在深色模式、噪点对比本来就弱的底色上），
  * 所以再给纸感一个可量化的区别：整体叠一层极淡的 onSurface。
  */
-internal const val PAPER_SHEEN_ALPHA = 0.05f
 internal const val NOISE_SIZE = 64
 
 /**

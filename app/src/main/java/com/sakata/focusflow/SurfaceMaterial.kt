@@ -658,10 +658,9 @@ internal fun Modifier.surfaceMaterialFill(
         .drawBehind {
             drawRect(layer)
             if (material == CardMaterial.PAPER) {
-                // 纸感 = 柔光 + 纸纹 + 一点点整体压深。
-                // 那层压深是"可量化的区别"：只靠噪点的话，两者在深色底上仍然很难分辨
-                // （维护者连续两轮反馈"柔光和纸感没区别"）。压深很淡，不会让正文变糊。
-                drawRect(scheme.onSurface.copy(alpha = PAPER_SHEEN_ALPHA))
+                // 纸感 = 柔光 + 纸纹。**不再叠那层整体压深**：实测它把卡面压低约 11 灰阶，
+                // 而中性的纸纹只有约 2 灰阶颗粒，于是"纸感"变成"换了个更深的颜色"。
+                // 纸感与柔光的区别现在由"有没有纸纹"承担。
                 drawPaperGrain()
             }
         }
