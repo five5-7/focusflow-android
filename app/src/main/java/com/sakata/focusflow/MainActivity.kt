@@ -257,12 +257,15 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     }
     // 8.1.0 动画速度（外观页）：全局时长倍率，写入 MotionSettings 供各动画换算。
     var animationSpeed by remember { mutableStateOf(store.loadAnimationSpeed()) }
-    // 8.2.0：关掉「丰富的动画与外观效果」时，时长整体收紧到 0.6 倍——
-    // 只保留最基本的淡入淡出与颜色过渡，不做长时间缩放/形变，低端机更跟手。
-    // 注意这里是"更短"而不是 0：置 0 会让 MotionSpec 全部退化成 snap，
-    // 那就连"最基本的淡入淡出"也没有了，与这个开关的承诺不符。
+    // 8.2.0「丰富的动画与外观效果」对动画的影响有**两条**，缺一不可：
+    //   ① 时长收紧到 0.6 倍。注意不是 0——置 0 会让 MotionSpec 全部退化成 snap，
+    //      连"最基本的淡入淡出"都没了，与这个开关的承诺不符。
+    //   ② **形态**收成恒等（位移 0、缩放 1、底栏不形变）——这条是维护者两次追问的重点：
+    //      只改时长的话，"开启/关闭丰富效果"在动画上等于没用。
+    //      MotionSpec 的 tabSlideDp / collapseScale / hubRecedeScale / morphEnabled 都读 richForms。
     val effectiveMotionScale = if (appearance.richEffects) animationSpeed else animationSpeed * 0.6f
     LaunchedEffect(effectiveMotionScale) { MotionSettings.update(effectiveMotionScale) }
+    LaunchedEffect(appearance.richEffects) { MotionSettings.updateRichForms(appearance.richEffects) }
     var customThemeColors by remember { mutableStateOf(store.loadCustomThemeColors() ?: FocusFlowThemeOption.CUSTOM.colors) }
     var themePresets by remember { mutableStateOf(store.loadThemePresets()) }
     // 自定义主题的"恢复默认"目标：最近一次选过的内置主题。
@@ -995,7 +998,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             val collapseLeaving = !isVisibleTab && visibleTab == leavingSubpageTab
             // 8.1.0 第三轮：页签平动幅度加大，切换方向更易读（原 48/64dp 太含蓄）。
             val slidePx = with(LocalDensity.current) {
-                (if (lastNavWasJump) MotionSpec.JUMP_SLIDE_DP.dp else MotionSpec.TAB_SLIDE_DP.dp).toPx()
+                (if (lastNavWasJump) MotionSpec.jumpSlideDp.dp else MotionSpec.tabSlideDp.dp).toPx()
             }
             // 隐藏页签的静止缩放：仍开着子页 → 停在图标大小，回来时从图标放大；否则 1.0，只平移。
             val hiddenScale = TabMotionRules.restingScale(hasSubpageNow, lastNavWasJump)

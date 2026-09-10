@@ -423,16 +423,34 @@ internal fun pageBrushFor(
     GradientDirection.BOTTOM_UP -> Brush.verticalGradient(stops.reversed())
     GradientDirection.LEFT_RIGHT -> Brush.horizontalGradient(stops)
     GradientDirection.RIGHT_LEFT -> Brush.horizontalGradient(stops.reversed())
-    GradientDirection.DIAGONAL_DOWN -> Brush.linearGradient(
+    // **斜向必须按 45° 取轴，不能"角对角"。**
+    //
+    // 维护者连续两轮反馈"对角渐变未实装 / 还是只是上下渐变"——原因就在这里：
+    // 手机屏是 1440×3168（高是宽的 2.2 倍），角对角那条轴与竖直方向只差约 24°，
+    // 于是横向只有约 41% 的色程，肉眼看起来就是一个**近乎竖直**的渐变。
+    // 真正的"斜着来"要按 45° 定轴：轴长取矩形在 45° 方向上的投影 (w + h) / √2，
+    // 起点/终点按中心 ± 半轴算，这样整条色程跨满屏幕，横向变化一眼可见。
+    GradientDirection.DIAGONAL_DOWN -> diagonalBrush(stops, size, downRight = true)
+    GradientDirection.DIAGONAL_UP -> diagonalBrush(stops, size, downRight = false)
+}
+
+/** 45° 斜向渐变的轴：中心 ± (轴长/2) · 单位方向。 */
+private fun diagonalBrush(stops: List<Color>, size: Size, downRight: Boolean): Brush {
+    val cx = size.width / 2f
+    val cy = size.height / 2f
+    // 45° 单位向量
+    val ux = 0.70710678f
+    val uy = 0.70710678f
+    // 矩形在 45° 轴上的投影长度，保证整条色程覆盖整块画布
+    val axis = (size.width + size.height) * 0.5f * 1.41421356f
+    val half = axis / 2f
+    // 起点恒在 -方向 一侧：左上→右下 时起点是左上；左下→右上 时起点是左下。
+    val sx = -ux
+    val sy = if (downRight) -uy else uy
+    return Brush.linearGradient(
         colors = stops,
-        start = Offset.Zero,
-        end = Offset(size.width, size.height)
-    )
-    GradientDirection.DIAGONAL_UP -> Brush.linearGradient(
-        colors = stops,
-        // 左下 → 右上。这两条对角线是镜像关系，不能用"反向站点"替代（那只是同一条线倒着走）。
-        start = Offset(0f, size.height),
-        end = Offset(size.width, 0f)
+        start = Offset(cx + sx * half, cy + sy * half),
+        end = Offset(cx - sx * half, cy - sy * half)
     )
 }
 
@@ -498,25 +516,43 @@ internal const val NAV_BAR_CENTRE_Y = 0.93f
 internal const val NAV_BAR_CENTRE_X = 0.5f
 
 /**
+ * 「跟随内容」时渐变一共铺多少屏（与 `GRADIENT_SCROLL_SPAN` 同一口径）。
+ *
+ * 这个模式下渐变铺在**滚动内容自己的高度**上（内容比视口长），
+ * 所以视口底部那一点对应的归一化位置要按这个跨度折算，而不是按"一屏"。
+ */
+internal const val FOLLOWS_CONTENT_SPAN = 3.2f
+
+/**
  * 页面背景此刻在**底栏那一点**的实际颜色。
  *
  * 非渐变档直接用页面底色（跟随主题 / 固定颜色都是纯色，底栏本来就压在同一个颜色上）；
  * 渐变档用 [gradientColourAt] 问出底栏背后的那一点。
  *
- * 抽成函数是为了让"底栏取色"这条规则只有一处实现，也便于单测按矩阵覆盖。
+ * **「跟随内容」要单独折算**（维护者反馈："如果设置渐变跟随内容，则导航栏只呈现一个颜色
+ * 而非因所处位置底色而变化"）：那个模式下渐变铺满整段内容（约 [FOLLOWS_CONTENT_SPAN] 屏），
+ * 视口底部对应的归一化位置是 `0.93 / span` 而不是 `0.93`——按一屏算会取到渐变很靠后的位置，
+ * 与真实底色差很远。
+ *
+ * 已知局限（如实记录）：这里只按"滚动到顶部"折算，**没有跟实际滚动量联动**。
+ * 要做到"随滚动实时变化"，得把页面的滚动量接进来（各页各自持有 ScrollState），
+ * 属于独立改动；当前至少保证取到的是"这一段跨度里的正确位置"，而不是错的位置。
  */
 internal fun backdropColourBehindNavBar(
     appearance: AppearanceSpec,
     scheme: ColorScheme
 ): Color = when (appearance.effectivePageBackdrop) {
-    BackdropKind.GRADIENT -> gradientColourAt(
-        appearance.gradientDirection,
-        ThemeGradient.pageStops(
-            scheme, appearance.gradientScale, appearance.gradientTop, appearance.gradientBottom
-        ),
-        NAV_BAR_CENTRE_X,
-        NAV_BAR_CENTRE_Y
-    )
+    BackdropKind.GRADIENT -> {
+        val span = if (appearance.gradientFollowsContent) FOLLOWS_CONTENT_SPAN else 1f
+        gradientColourAt(
+            appearance.gradientDirection,
+            ThemeGradient.pageStops(
+                scheme, appearance.gradientScale, appearance.gradientTop, appearance.gradientBottom
+            ),
+            NAV_BAR_CENTRE_X,
+            NAV_BAR_CENTRE_Y / span
+        )
+    }
     else -> scheme.background
 }
 

@@ -138,8 +138,8 @@ internal fun FloatingNavigationBar(
     // 走与卡片同一份 surfaceMaterialFill，只是底色换成底栏自己的 navigationBarColor。
     val barMaterial = LocalAppearance.current.effectiveCardMaterial
     // 8.1.0 形变：每个顶角各自跟随自己的图标——有回退才伸出左角、有折返才伸出右角；图标消失即收回。
-    val backProgress by animateFloatAsState(if (canGoBack) 1f else 0f, MotionSpec.morph(), label = "backCorner")
-    val forwardProgress by animateFloatAsState(if (canGoForward) 1f else 0f, MotionSpec.morph(), label = "forwardCorner")
+    val backProgress by animateFloatAsState(if (canGoBack && MotionSpec.morphEnabled) 1f else 0f, MotionSpec.morph(), label = "backCorner")
+    val forwardProgress by animateFloatAsState(if (canGoForward && MotionSpec.morphEnabled) 1f else 0f, MotionSpec.morph(), label = "forwardCorner")
     val barShape = AsymmetricCapsuleShape(progressL = backProgress, progressR = forwardProgress, smallRadiusDp = 18f)
     val iconBoxPx = with(LocalDensity.current) { FloatingNavigationLayout.ICON_BOX_DP.dp.toPx() }
     // 8.1.0 第三轮：选中底色改为"一块会平移的底色"——从上一个页签滑到当前页签，而不是各自淡入淡出。

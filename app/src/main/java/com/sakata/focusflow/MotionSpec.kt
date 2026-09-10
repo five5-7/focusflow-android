@@ -78,6 +78,30 @@ internal object MotionSpec {
     /** 关闭动画时不做任何过渡。 */
     val animationsEnabled: Boolean get() = MotionSettings.durationScale > 0f
 
+    // ---- 「丰富的动画与外观效果」关掉时，形变幅度一律收成恒等 ----
+    //
+    // 维护者反馈："开启丰富还是只变了动画速度"。之前只改了时长，形态没变，
+    // 所以开关在动画上等于没用。下面这几个访问器把位移/缩放/形变收成 0/1，
+    // 各页的 `fade + transform` 就自然退化成纯淡入淡出（不动调用点结构）。
+
+    /** 页签平动幅度：关掉丰富效果后为 0 → 只剩淡入淡出。 */
+    val tabSlideDp: Int get() = if (MotionSettings.richForms) TAB_SLIDE_DP else 0
+
+    /** 跳转时的平动幅度：同上。 */
+    val jumpSlideDp: Int get() = if (MotionSettings.richForms) JUMP_SLIDE_DP else 0
+
+    /** 副页收敛缩放：关掉后为 1 → 不缩放。 */
+    val collapseScale: Float get() = if (MotionSettings.richForms) COLLAPSE_SCALE else 1f
+
+    /** 主页退让缩放：关掉后为 1 → 不退让。 */
+    val hubRecedeScale: Float get() = if (MotionSettings.richForms) HUB_RECEDE_SCALE else 1f
+
+    /** 跳转时隐藏页签的静止缩放：关掉后为 1。 */
+    val jumpRestScale: Float get() = if (MotionSettings.richForms) JUMP_REST_SCALE else 1f
+
+    /** 底栏顶角形变是否启用；关掉后底栏保持完整胶囊，不再随箭头伸缩。 */
+    val morphEnabled: Boolean get() = MotionSettings.richForms
+
     fun <T> enter(): FiniteAnimationSpec<T> = spec(ENTER_MS, enterEasing)
 
     fun <T> exit(): FiniteAnimationSpec<T> = spec(EXIT_MS, exitEasing)
