@@ -169,6 +169,10 @@ fun focusFlowThemeSpec(option: FocusFlowThemeOption, customColors: FocusFlowThem
     val colors = if (option == FocusFlowThemeOption.CUSTOM) customColors ?: option.colors else option.colors
     // Material defaults are purple unless every used surface role is explicitly themed.
     val themed = spec.copy(colorScheme = spec.colorScheme.copy(
+        // 分层（方向 B）：页面底色比卡片深一档。卡片停在 surfaceContainerLow 的近白
+        // （暖杏下约 rgb(255,251,249)），页面压深 5% 到约 rgb(242,236,232)，
+        // 于是"卡片浮在页面上"不靠阴影也看得出来；深色模式在 darkenScheme 里另有一套值，不受影响。
+        background = deepen(spec.colorScheme.background, PAGE_DEPTH),
         surfaceContainerLowest = lerp(colors.neutral, Color.White, 0.95f),
         surfaceContainerLow = lerp(colors.neutral, Color.White, 0.45f),
         surfaceContainer = colors.neutral,
@@ -384,3 +388,18 @@ private fun darkenScheme(base: ColorScheme): ColorScheme {
 private fun onOf(color: Color): Color = if (color.luminance() > 0.5f) Color.Black else Color.White
 private fun containerOf(color: Color): Color = lerp(color, Color.White, 0.82f)
 private fun onContainerOf(color: Color): Color = lerp(color, Color.Black, 0.35f)
+
+/** 页面底色相对卡片压深的比例（浅色模式）。 */
+private const val PAGE_DEPTH = 0.05f
+
+/**
+ * 在 sRGB 分量上等比压深：保持色相、结果可预期。
+ * 不用 `lerp(color, Black, f)` 是因为 Compose 的颜色插值走的是线性空间，
+ * 同样一个 0.05 出来会浅一半，调参时对不上账。
+ */
+private fun deepen(color: Color, amount: Float): Color = Color(
+    red = color.red * (1f - amount),
+    green = color.green * (1f - amount),
+    blue = color.blue * (1f - amount),
+    alpha = color.alpha
+)

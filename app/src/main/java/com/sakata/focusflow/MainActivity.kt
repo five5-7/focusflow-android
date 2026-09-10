@@ -401,6 +401,23 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     val draftVault = remember { DraftVault() }
     // 8.1.0 第三轮：弹窗改为页内浮层（底栏仍可点、历史键可用），见 AppDialog.kt。
     val dialogHost = remember { AppDialogHostState() }
+    // 8.1.0 第四轮：弹窗浮层是历史的一步——上一步只关弹窗（页面不动），下一步原样带回。
+    // 真正显示与否由历史决定：current.dialogOpen 为 false 时宿主只"收起"弹窗、不注销内容，
+    // 调用点状态与草稿因此都还在（这就是"下一步打开且数据还在"）。
+    var dialogLayerVisible by remember { mutableStateOf(false) }
+
+    /** 弹窗浮层可见性一律以历史为准；改动历史后调用。 */
+    fun syncDialogLayer() {
+        dialogLayerVisible = navHistory.current.dialogOpen
+    }
+
+    // 弹窗注册＝记一步历史（打开）；注销＝真正关掉，清掉已无法恢复的弹窗历史快照。
+    // 键里带上 seq：被"收起"的弹窗仍占着宿主，此时再开一个弹窗 isOpen 不变，
+    // 只有 seq 会变——不带它就是"新弹窗打开后看不见"。
+    LaunchedEffect(dialogHost.isOpen, dialogHost.seq) {
+        if (dialogHost.isOpen) navHistory.setDialogLayer(true) else navHistory.clearDialogLayer()
+        syncDialogLayer()
+    }
 
     /** 把页面状态写回（统一导航与回退/折返恢复共用；不记录历史）。 */
     fun applySnapshot(snapshot: PageSnapshot) {
@@ -431,23 +448,31 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
 
     /** 所有页面级导航统一入口：记录历史并应用新目的地；目的地未变化则忽略。 */
     fun goTo(next: PageSnapshot) {
-        // 8.1.0：弹窗是模态层，任何导航（点入口、上一步／下一步、跳转）都先把它关掉——
-        // 否则会出现"页面切了、弹窗还浮在新页面上"，而这次切换又没进历史，用户回不去。
-        dialogHost.dismissCurrent()
+        // 8.1.0 第四轮（用户口径）：弹窗是**当前状态的一部分**，切页不销毁它、只把它收起。
+        // 既不会出现"页面切了、弹窗还浮在新页面上"（它不显示），也不会丢掉它：
+        // 这次切换把「副页 + 弹窗 + 已填数据」整体压进历史，从别处上一步回来就整包还原。
+        // 可见性一律由 history.current.dialogOpen 决定（syncDialogLayer）。
         if (navHistory.goTo(next) == null) return
         prepareNavigation(next)
         applySnapshot(next)
+        syncDialogLayer()
     }
 
-    /** 回退/折返：只走历史栈，不再记录新历史。 */
+    /**
+     * 回退/折返：只走历史栈，不再记录新历史。
+     * 8.1.0 第四轮：弹窗是历史的一步，因此这里**不**关闭弹窗——
+     * 上一步正好把弹窗层退掉（只关弹窗、页面不动），下一步再把它带回来。
+     */
     fun goBackHistory() {
         lastNavWasJump = false
         navHistory.back()?.let { prepareNavigation(it); applySnapshot(it) }
+        syncDialogLayer()
     }
 
     fun goForwardHistory() {
         lastNavWasJump = false
         navHistory.forward()?.let { prepareNavigation(it); applySnapshot(it) }
+        syncDialogLayer()
     }
 
     /** 跨页跳转（通知/深链/课程编辑器跳地点等）：缩放+位移动画。 */
@@ -891,10 +916,16 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                 LocalScrollingTopPadding provides if (hasTopNotice) 0.dp else topSafety
             ) {
             // Applied and consumed once for both root pages and their animated children.
-            // 弹窗打开时页面内容对无障碍不可见（与系统弹窗行为一致）。
+            // 弹窗真正显示时页面内容对无障碍不可见（与系统弹窗行为一致）；
+            // 弹窗被上一步"收起"（仍注册、只是不在场）时页面照常可读、可点。
+            // 收起期间不额外拦触摸：真机上点页面上的**其他**入口照常打开新弹窗
+            // （新弹窗接管时会把被收起的那个真正关掉，见 AppDialogHostState.dismissSuspendedOnTakeover）；
+            // 已知边界：再点**同一个**入口不会有反应——调用点的"打开"开关仍是 true，
+            // 同一个开关写 true 等于没变，Compose 不会重组。要修得改弹窗打开状态的建模方式（例如用 token 而不是 Boolean），
+            // 属于独立改动，先按现状记录。
             val pageModifier = Modifier.padding(padding).consumeWindowInsets(padding)
                 .padding(bottom = if (keyboardVisible) floatingBarHeight else 0.dp)
-                .then(if (dialogHost.isOpen) Modifier.clearAndSetSemantics {} else Modifier)
+                .then(if (dialogLayerVisible) Modifier.clearAndSetSemantics {} else Modifier)
             // 假期或校园生活关闭时，课程不参与今日、日程、空挡与目标建议；原数据仍保留。
             val scheduleCourses = activeCourses
             Box(pageModifier) {
@@ -1523,7 +1554,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
         } // content padding provider / Scaffold
         // 弹窗浮层在底栏之前：因此弹窗打开时悬浮底栏（含回退／折返键）仍在最上层、可点。
         // 传底栏实测高度：卡片只在底栏之上的区域居中，横屏时底部按钮不会被底栏盖住。
-        AppDialogHost(dialogHost, bottomInset = floatingBarHeight)
+        AppDialogHost(dialogHost, bottomInset = floatingBarHeight, visible = dialogLayerVisible)
         FloatingNavigationBar(
             safeInsets = safeContentInsets,
             containerColor = themeSpec.navigationBarColor,
@@ -2158,6 +2189,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                     applySnapshot(navHistory.current)
                 }
                 historyListOpen = false
+                syncDialogLayer()
             },
             onDismiss = { historyListOpen = false }
         )

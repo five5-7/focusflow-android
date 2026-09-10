@@ -2,6 +2,7 @@ package com.sakata.focusflow
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -32,12 +33,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
@@ -51,9 +55,11 @@ import androidx.compose.ui.zIndex
  *
  * 统一性：外观复刻 Material3 AlertDialog（同圆角、同内边距、同按钮排布），
  * 所有弹窗共用同一套返回键、遮罩点击、键盘避让与进场动画。
- * 导航：任何页面导航（点入口、上一步／下一步、跳转、点 ＋）都会先关闭当前弹窗
- * （[AppDialogHostState.dismissCurrent]，由 MainActivity 的 `goTo` 统一调用）——
- * 弹窗是模态层，不该在切页后继续浮在新页面上。
+ * 导航：任何页面导航（点入口、点 ＋、跳转）都会先关闭当前弹窗
+ * （[AppDialogHostState.dismissCurrent]，由 MainActivity 的 `goTo` 统一调用）。
+ * 但**上一步／下一步不关弹窗**：弹窗是历史的一步（见 [PageSnapshot.dialogOpen]），
+ * 上一步把它"收起"（[visible] = false，内容仍注册），下一步再原样带回——
+ * 这正是用户要的"上一步后窗口关闭、再下一步窗口打开且数据还在"。
  * 嵌套：弹窗打开期间又打开另一个（例如长按底栏回退键弹历史列表）时**后开的接管**，
  * 前一个的调用点保持组合，等宿主空闲后自动重新注册（见 [AppDialog]），
  * 因此不会退回系统弹窗、底栏也始终可用。
@@ -71,8 +77,14 @@ internal class AppDialogHostState {
     internal var nextSeq: Int = 0
 
     /**
-     * 遮罩/卡片的动画进度（0→1）。底栏压暗也读它，因此两者**严格同步**，
-     * 且底栏只在绘制阶段取值（见 [FloatingNavigationBar] 的 dimAmount）。
+     * 宿主此刻是否真的在场（false = 被"上一步"收起，内容仍注册）。
+     * 由 [AppDialogHost] 每次组合同步，用于 [dismissSuspendedOnTakeover]。
+     */
+    internal var visible: Boolean by mutableStateOf(true)
+
+    /**
+     * 遮罩与卡片共用的动画进度（0→1），只在绘制阶段读取，
+     * 因此收起/进场期间不会引起逐帧重组。
      */
     internal val progress = Animatable(0f)
 
@@ -85,6 +97,15 @@ internal class AppDialogHostState {
     internal fun dismissCurrent() {
         onDismiss?.invoke()
     }
+
+    /**
+     * 有新弹窗要接管宿主时调用：当前这个若正被"收起"（上一步把它挪出屏幕，
+     * 但调用点状态仍是打开），它在页面上已经看不见、也等不到下一步了——
+     * 直接真正关掉它，否则它会在新弹窗关闭后又自己冒回来。
+     */
+    internal fun dismissSuspendedOnTakeover() {
+        if (isOpen && !visible) onDismiss?.invoke()
+    }
 }
 
 internal val LocalAppDialogHost = staticCompositionLocalOf<AppDialogHostState?> { null }
@@ -96,31 +117,49 @@ private const val DIALOG_SLIDE_SCREEN_FRACTION = 0.32f
  * 页内浮层宿主：放在悬浮底栏**之前**，因此永远位于底栏之下。
  *
  * 进场/退场用同一条规范（[MotionSpec.enter] / [MotionSpec.exit]）：
- * 遮罩淡入淡出，卡片同步轻微放大/缩小。退场时调用方已经离开组合、内容会被清空，
- * 因此这里额外保留最后一次内容 [retained]，让 170ms 的退场动画有东西可画。
+ * 遮罩淡入淡出，卡片同步上下平移。退场时调用方已经离开组合、内容会被清空，
+ * 因此这里额外保留最后一次内容 [retained]，让退场动画有东西可画。
+ *
+ * [visible] 由导航历史驱动：false 且内容仍注册时是"收起"而不是"关掉"——
+ * 卡片滑出屏幕、不响应触摸、不进无障碍树，但组合与调用点状态全部保留，
+ * 所以下一步把它带回来时数据还在（见 [PageSnapshot.dialogOpen]）。
  *
  * [bottomInset] 传悬浮底栏的实测高度：卡片只在底栏**之上**的区域居中，
  * 否则横屏（竖向空间只有 520dp 左右）时卡片底部按钮会被底栏盖住。
  */
 @Composable
-internal fun AppDialogHost(state: AppDialogHostState, bottomInset: Dp = 0.dp, modifier: Modifier = Modifier) {
+internal fun AppDialogHost(
+    state: AppDialogHostState,
+    bottomInset: Dp = 0.dp,
+    visible: Boolean = true,
+    modifier: Modifier = Modifier
+) {
     val content = state.content
     val dismiss = state.onDismiss
-    val open = content != null && dismiss != null
+    val registered = content != null && dismiss != null
+    // 在场＝已注册 且 这一步历史说弹窗是开着的。
+    val open = registered && visible
+    // 让宿主状态知道此刻是否在场（"收起"期间接管旧弹窗要用）。放在早退之前。
+    SideEffect { state.visible = visible }
     val retained = remember { mutableStateOf<(@Composable () -> Unit)?>(null) }
     SideEffect { if (content != null) retained.value = content }
     val progress = state.progress
     val latestDismiss by rememberUpdatedState(dismiss)
+    val focusManager = LocalFocusManager.current
     LaunchedEffect(open) {
         if (open) {
             progress.snapTo(0f)
             progress.animateTo(1f, MotionSpec.enter())
         } else {
+            // 收起/关闭都要把键盘收掉，否则弹窗走了输入法还停在屏幕上。
+            // （读 progress.value 在副作用里做，避免组合期每帧取动画值。）
+            if (progress.value > 0f) focusManager.clearFocus(force = true)
             progress.animateTo(0f, MotionSpec.exit())
-            retained.value = null
+            // 只有"真正关掉"才丢内容；单纯收起时保留，等待下一步带回来。
+            if (!registered) retained.value = null
         }
     }
-    // 弹窗打开期间，系统返回先关弹窗（本处理器最后注册，优先级最高）。
+    // 弹窗在场期间，系统返回先关弹窗（本处理器最后注册，优先级最高）。
     BackHandler(enabled = open) { latestDismiss?.invoke() }
     val body = retained.value ?: return
     // 卡片从屏幕下方平移进来、再平移回去（用户要求"上下平移进出屏幕"）；
@@ -129,13 +168,24 @@ internal fun AppDialogHost(state: AppDialogHostState, bottomInset: Dp = 0.dp, mo
         (LocalConfiguration.current.screenHeightDp * DIALOG_SLIDE_SCREEN_FRACTION).dp.toPx()
     }
     // zIndex(1f)：盖住 StatusBarScrim（同 zIndex 0 的兄弟节点、组合在宿主之后），但仍在底栏（2f）之下。
-    Box(Modifier.fillMaxSize().zIndex(1f)) {
+    Box(
+        Modifier.fillMaxSize().zIndex(1f)
+            // 收起状态不进无障碍树（卡片已在屏幕外）。
+            .then(if (open) Modifier else Modifier.clearAndSetSemantics {})
+    ) {
         Box(
             Modifier.fillMaxSize()
                 .graphicsLayer { alpha = MotionSpec.SCRIM_ALPHA * progress.value }
                 .background(Color.Black)
                 // 遮罩点击关闭：不用 clickable，避免无障碍树里多出一个没有名字的可点节点。
-                .pointerInput(Unit) { detectTapGestures { latestDismiss?.invoke() } }
+                // 收起状态**完全不挂** pointerInput——只挂节点不消费也会挡住下层页面的点击。
+                .then(
+                    if (open) {
+                        Modifier.pointerInput(Unit) { detectTapGestures { latestDismiss?.invoke() } }
+                    } else {
+                        Modifier
+                    }
+                )
         )
         // 卡片位置：优先在整屏居中（Material 观感）；空间不够时上移到"底栏之上"，
         // 保证按钮永远不会被底栏盖住（横屏竖向只有 520dp 左右，必须让位）。
@@ -151,16 +201,37 @@ internal fun AppDialogHost(state: AppDialogHostState, bottomInset: Dp = 0.dp, mo
                             translationY = (1f - p) * slidePx
                         }
                         // 卡片自身吞掉点击，否则点卡片空白处会穿透到遮罩、把弹窗关掉。
-                        .pointerInput(Unit) { detectTapGestures { } }
+                        // 同样只在场时挂：收起时不能留下任何会挡住页面点击的节点。
+                        .then(if (open) Modifier.pointerInput(Unit) { detectTapGestures { } } else Modifier)
                 ) {
+                    val shape = RoundedCornerShape(28.dp)
                     Surface(
-                        shape = RoundedCornerShape(28.dp),
+                        shape = shape,
                         color = MaterialTheme.colorScheme.surfaceContainerHigh,
                         tonalElevation = 6.dp,
-                        shadowElevation = 6.dp,
+                        // 阴影自己画：Material 默认是纯黑直角阴影，这里换成主题染色的软阴影，
+                        // 并把卡片抬得更高，让它明显浮在压暗的页面之上（分层）。
+                        shadowElevation = 0.dp,
+                        // 极细描边：花哨度很低，但在深色遮罩上能把卡片边缘勾清楚。
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
                         // 调用方传的 modifier 作用在卡片上（与 AlertDialog 语义一致）。
-                        modifier = modifier.widthIn(min = 280.dp, max = 560.dp)
-                    ) { body() }
+                        modifier = modifier
+                            .widthIn(min = 280.dp, max = 560.dp)
+                            .litShadow(SurfaceLighting.DIALOG_SHADOW, shape)
+                    ) {
+                        Box {
+                            // 顶部高光：光源在上方，卡片顶面微亮、往下回落，避免"贴纸感"。
+                            Box(
+                                Modifier.matchParentSize().background(
+                                    Brush.verticalGradient(
+                                        0f to Color.White.copy(alpha = SurfaceLighting.TOP_LIGHT_ALPHA),
+                                        0.6f to Color.Transparent
+                                    )
+                                )
+                            )
+                            body()
+                        }
+                    }
                 }
             }
         ) { measurables, constraints ->
@@ -247,6 +318,8 @@ internal fun AppDialog(
     // active 变化时重新评估：被别人顶掉 → 注销自己；宿主空闲 → 重新注册（历史列表关掉后弹窗自己回来）。
     DisposableEffect(host, active) {
         if (active) {
+            // 上一个若只是被"收起"，它已经不在场了：先真正关掉，免得它稍后冒回来。
+            host.dismissSuspendedOnTakeover()
             host.owner = token
             host.seq = mySeq
             host.onDismiss = { latestDismiss() }

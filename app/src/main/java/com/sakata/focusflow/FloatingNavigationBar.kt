@@ -317,13 +317,15 @@ internal fun HistoryListDialog(
     onDismiss: () -> Unit
 ) {
     val reversed = entries.reversed()
+    // 列表按页面粒度展示（弹窗层不进列表），因此比较时也去掉弹窗层。
+    val currentPage = current.withoutDialog()
     AppDialog(
         onDismissRequest = onDismiss,
         title = { Text("本次会话的页面历史") },
         text = {
             Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
                 reversed.forEach { snapshot ->
-                    val isCurrent = snapshot == current
+                    val isCurrent = snapshot == currentPage
                     Surface(
                         onClick = { onSelect(snapshot) },
                         shape = RoundedCornerShape(8.dp),

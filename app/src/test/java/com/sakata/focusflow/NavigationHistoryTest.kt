@@ -144,6 +144,133 @@ class NavigationHistoryTest {
     }
 
     @Test
+    fun openingDialogAddsNoHistoryStep() {
+        // 用户口径：打开弹窗本身不算一步。「副页 + 弹窗 + 已填数据」是同一个整体。
+        val h = NavHistory()
+        val courses = snap(2, plan = PlanPage.COURSES)
+        h.goTo(courses)
+        assertTrue(h.setDialogLayer(true)) // 手动新增 → 打开课程编辑弹窗
+        assertEquals(courses.copy(dialogOpen = true), h.current)
+        // 上一步：回到进入课程子页之前的那一步（计划主页），不是"只关弹窗"
+        val previous = h.back()!!
+        assertEquals(PageSnapshot.ROOT, previous)
+        assertFalse(previous.dialogOpen)
+        // 下一步：整包回来——副页 + 弹窗（数据由调用点与草稿箱保留）
+        val restored = h.forward()!!
+        assertEquals(courses, restored.withoutDialog())
+        assertTrue(restored.dialogOpen)
+        assertFalse(h.setDialogLayer(true)) // 已是打开状态
+    }
+
+    @Test
+    fun dialogOnTabRootAddsNoBackStep() {
+        // 主页上开弹窗不产生历史：上一步没有目标（只能靠底栏回主页）。
+        val h = NavHistory()
+        h.goTo(snap(0))
+        assertFalse(h.canGoBack())
+        h.setDialogLayer(true)
+        assertFalse(h.canGoBack())
+        assertNull(h.back())
+    }
+
+    @Test
+    fun leavingThePageAndComingBackRestoresTheWholePackage() {
+        // 从「课程 + 弹窗」跳到别处（管理地点/其他页），上一步要回到这个整体状态。
+        val h = NavHistory()
+        val courses = snap(2, plan = PlanPage.COURSES)
+        val commute = snap(3, subPage = SettingsSubPage.COMMUTE_PLACES)
+        h.goTo(courses)
+        h.setDialogLayer(true)
+        h.goTo(commute) // 跳转：整体压栈
+        assertEquals(commute, h.current)
+        val back = h.back()!!
+        assertEquals(courses, back.withoutDialog())
+        assertTrue(back.dialogOpen) // 整包还原：副页 + 弹窗
+    }
+
+    @Test
+    fun switchingTabKeepsThePackageForBack() {
+        // 切页签（例如回本页签主页）后再上一步，同样回到整体状态。
+        val h = NavHistory()
+        val courses = snap(2, plan = PlanPage.COURSES)
+        val plansRoot = snap(2)
+        h.goTo(courses)
+        h.setDialogLayer(true)
+        h.goTo(plansRoot) // 回到计划主页
+        assertEquals(plansRoot, h.current)
+        val back = h.back()!!
+        assertEquals(courses, back.withoutDialog())
+        assertTrue(back.dialogOpen)
+    }
+
+    @Test
+    fun samePageNavigationKeepsTheDialog() {
+        // 同一页面上的导航（例如再点一次当前入口）不该把弹窗关掉。
+        val h = NavHistory()
+        val courses = snap(2, plan = PlanPage.COURSES)
+        h.goTo(courses)
+        h.setDialogLayer(true)
+        assertNull(h.goTo(courses)) // 目的地没变：什么都不发生
+        assertTrue(h.current.dialogOpen)
+    }
+
+    @Test
+    fun closingDialogByUserMakesItUnrecoverable() {
+        val h = NavHistory()
+        val courses = snap(2, plan = PlanPage.COURSES)
+        val commute = snap(3, subPage = SettingsSubPage.COMMUTE_PLACES)
+        h.goTo(courses)
+        h.setDialogLayer(true)
+        h.goTo(commute) // 栈里留下"课程 + 弹窗"的整体
+        h.setDialogLayer(false) // 用户在收起/离开期间把它真正关掉
+        assertFalse(h.current.dialogOpen)
+        val back = h.back()!!
+        assertEquals(courses, back) // 回来时不再带弹窗（它已经没了）
+        assertFalse(back.dialogOpen)
+    }
+
+    @Test
+    fun clearingDialogLayerDemotesThePackageToPlainPage() {
+        val h = NavHistory()
+        val courses = snap(2, plan = PlanPage.COURSES)
+        val commute = snap(3, subPage = SettingsSubPage.COMMUTE_PLACES)
+        h.goTo(courses)
+        h.setDialogLayer(true)
+        h.goTo(commute)
+        h.clearDialogLayer() // 调用点注销（弹窗真的关掉了）
+        assertFalse(h.current.dialogOpen)
+        // 页面这一步留着（用户确实到过课程页），只是回来时不再带弹窗
+        assertEquals(courses, h.back())
+        assertEquals(PageSnapshot.ROOT, h.back())
+    }
+
+    @Test
+    fun entriesSkipDialogLayer() {
+        val h = NavHistory()
+        val courses = snap(2, plan = PlanPage.COURSES)
+        val commute = snap(3, subPage = SettingsSubPage.COMMUTE_PLACES)
+        h.goTo(courses)
+        h.setDialogLayer(true)
+        h.goTo(commute)
+        // 历史列表按页面粒度展示：同一个页面不会因为弹窗开关出现两次
+        assertEquals(listOf(PageSnapshot.ROOT, courses, commute), h.entries())
+    }
+
+    @Test
+    fun jumpToWhileDialogOpenClearsTheLayer() {
+        val h = NavHistory()
+        val courses = snap(2, plan = PlanPage.COURSES)
+        val goals = snap(2, plan = PlanPage.GOALS)
+        h.goTo(goals)
+        h.goTo(courses)
+        h.setDialogLayer(true)
+        assertTrue(h.jumpTo(goals))
+        assertEquals(goals, h.current)
+        assertFalse(h.current.dialogOpen)
+        assertEquals(PageSnapshot.ROOT, h.back())
+    }
+
+    @Test
     fun snapshotLabels() {
         assertEquals("今日主页", PageSnapshot.ROOT.label)
         assertEquals("今日 · 收集箱", snap(0, inbox = true).label)
