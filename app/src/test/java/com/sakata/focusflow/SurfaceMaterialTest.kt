@@ -2,6 +2,7 @@ package com.sakata.focusflow
 
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
@@ -221,6 +222,49 @@ class SurfaceMaterialTest {
             assertTrue("页面预设底色要压得住正文：$preset", timetableBaseIsReadable(preset))
             assertTrue(AppearanceContrast.luminance(preset) > 0.7f)
         }
+    }
+
+    @Test
+    fun darkModeGradientStaysDarkAndReadable() {
+        val dark = focusFlowThemeSpec(FocusFlowThemeOption.APRICOT, darkMode = true).colorScheme
+        val stops = ThemeGradient.pageStops(dark, 1f)
+        for (stop in stops) {
+            assertTrue("深色模式下渐变各点都必须是深色，实际亮度 ${stop.luminance()}", stop.luminance() < 0.35f)
+            val ratio = AppearanceContrast.ratio(dark.onBackground.argbInt(), argb(stop))
+            assertTrue("深色模式正文在渐变上要达标，实际 $ratio", ratio >= 7f)
+        }
+        // 方向仍然是"上亮下深"（那束光还在，只是幅度收得很小）
+        assertTrue(stops[0].luminance() > stops[2].luminance())
+        // 最强档也不能翻车
+        for (stop in ThemeGradient.pageStops(dark, 2f)) {
+            assertTrue(stop.luminance() < 0.4f)
+            assertTrue(AppearanceContrast.ratio(dark.onBackground.argbInt(), argb(stop)) >= 7f)
+        }
+    }
+
+    @Test
+    fun customLightColoursAreAdaptedInDarkMode() {
+        val dark = focusFlowThemeSpec(FocusFlowThemeOption.APRICOT, darkMode = true).colorScheme
+        val (top, bottom) = ThemeGradient.PAGE_GRADIENT_PAIRS[1] // 雾蓝 → 浅蓝
+        val stops = ThemeGradient.pageStops(dark, 1f, top, bottom)
+        for (stop in stops) {
+            assertTrue("自选浅色在深色模式下必须被压暗，实际亮度 ${stop.luminance()}", stop.luminance() < 0.4f)
+            assertTrue(AppearanceContrast.ratio(dark.onBackground.argbInt(), argb(stop)) >= 7f)
+        }
+        // 浅色模式仍然原样使用用户选的颜色
+        val light = focusFlowThemeSpec(FocusFlowThemeOption.APRICOT).colorScheme
+        assertEquals(top, argb(ThemeGradient.pageStops(light, 1f, top, bottom)[0]))
+    }
+
+    @Test
+    fun fixedPageColourIsAdaptedInDarkModeToo() {
+        val dark = focusFlowThemeSpec(FocusFlowThemeOption.APRICOT, darkMode = true).colorScheme
+        val preset = PAGE_BASE_PRESETS[0]
+        val adapted = adaptBackdropColor(dark, androidx.compose.ui.graphics.Color(preset))
+        assertTrue("深色模式下固定背景色也要压到深色", adapted.luminance() < 0.4f)
+        // 浅色模式不变
+        val light = focusFlowThemeSpec(FocusFlowThemeOption.APRICOT).colorScheme
+        assertEquals(preset, adaptBackdropColor(light, androidx.compose.ui.graphics.Color(preset)).argbInt())
     }
 
     @Test

@@ -20,6 +20,7 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
@@ -175,12 +176,24 @@ internal object ThemeGradient {
 
     fun pageStops(scheme: ColorScheme, strength: Float = 1f, top: Int = 0, bottom: Int = 0): List<Color> {
         val s = strength.coerceIn(0f, 2f)
-        val autoTop = blendSrgb(scheme.background, Color.White, 0.85f * s)
-        val autoBottom = blendSrgb(scheme.background, Color.Black, 0.07f * s)
-        // 自选渐变色（维护者要求）：选了什么就用什么，强度继续作为"向页面底色回退"的倍率，
-        // 于是"强度 = 0"在自选配色下依然是纯色，两个控件不打架。
-        val chosenTop = if (top != 0) blendSrgb(scheme.background, Color(top), s.coerceAtMost(1f)) else autoTop
-        val chosenBottom = if (bottom != 0) blendSrgb(scheme.background, Color(bottom), s.coerceAtMost(1f)) else autoBottom
+        // 深色模式单独一套幅度（维护者提醒"注意适配深色模式"）：
+        // 深色页面上"顶亮 85%"会变成一条刺眼亮带，而且深色模式的正文是浅色的，
+        // 浅底会直接把可读性吃掉。所以深色下只做"顶上微微提亮、底下压深"。
+        val dark = scheme.background.luminance() < 0.5f
+        val autoTop = if (dark) {
+            blendSrgb(scheme.background, Color.White, 0.10f * s)
+        } else {
+            blendSrgb(scheme.background, Color.White, 0.85f * s)
+        }
+        val autoBottom = if (dark) {
+            blendSrgb(scheme.background, Color.Black, 0.25f * s)
+        } else {
+            blendSrgb(scheme.background, Color.Black, 0.07f * s)
+        }
+        // 自选渐变色（维护者要求）：选了什么就用什么；深色模式下先适配（见 adaptBackdropColor），
+        // 强度继续作为"向页面底色回退"的倍率，于是"强度 = 0"在自选配色下依然是纯色。
+        val chosenTop = if (top != 0) adaptBackdropColor(scheme, Color(top), s) else autoTop
+        val chosenBottom = if (bottom != 0) adaptBackdropColor(scheme, Color(bottom), s) else autoBottom
         val middle = if (top != 0 || bottom != 0) blendSrgb(chosenTop, chosenBottom, 0.5f) else scheme.background
         return listOf(chosenTop, middle, chosenBottom)
     }
@@ -202,6 +215,19 @@ internal object ThemeGradient {
         blendSrgb(scheme.surfaceContainerLow, scheme.primary, 0.01f)
     )
 }
+
+/**
+ * 把用户选的**浅色**适配到当前明暗（维护者提醒"注意适配深色模式"）。
+ *
+ * 浅色模式下原样使用；深色模式下按低权重压到深色底色上——保留用户选的色相，
+ * 但整页仍然是深色，浅色的正文才读得清。预设色板与"固定背景色"都走这里。
+ */
+internal fun adaptBackdropColor(scheme: ColorScheme, chosen: Color, scale: Float = 1f): Color =
+    if (scheme.background.luminance() < 0.5f) {
+        blendSrgb(scheme.background, chosen, 0.22f * scale.coerceIn(0f, 1f))
+    } else {
+        blendSrgb(scheme.background, chosen, scale.coerceIn(0f, 1f))
+    }
 
 /** 背景层要画在哪一层。 */
 internal enum class BackdropRole { Page, Timetable }
@@ -291,7 +317,8 @@ internal fun Modifier.appearanceBackdrop(
             )
 
             BackdropKind.COLOR -> {
-                val base = if (picked != 0) Color(picked) else blendSrgb(scheme.background, scheme.primary, 0.10f)
+                val auto = blendSrgb(scheme.background, scheme.primary, 0.10f)
+                val base = adaptBackdropColor(scheme, if (picked != 0) Color(picked) else auto)
                 drawRect(Brush.verticalGradient(listOf(blendSrgb(base, Color.White, 0.06f), base)))
             }
 

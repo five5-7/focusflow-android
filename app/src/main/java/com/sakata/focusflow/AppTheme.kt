@@ -509,7 +509,7 @@ private fun darkenScheme(base: ColorScheme): ColorScheme {
 }
 
 // 派生辅助：由主色自动生成文字/容器色（自定义主题与内置 tertiary 共用）。
-private fun onOf(color: Color): Color = if (color.luminance() > 0.5f) Color.Black else Color.White
+internal fun onOf(color: Color): Color = if (color.luminance() > 0.5f) Color.Black else Color.White
 private fun containerOf(color: Color): Color = lerp(color, Color.White, 0.82f)
 private fun onContainerOf(color: Color): Color = lerp(color, Color.Black, 0.35f)
 

@@ -137,6 +137,22 @@ internal fun CustomThemeEditorContent(
         "主题使用六个全局色：主色、副色、强调色、中性色、文字色、导航栏色。导航栏背景可独立调整，图标和文字自动保持对比；课程色块与提醒警示保留原有语义。",
         style = MaterialTheme.typography.bodySmall
     )
+    // 8.2.0 第 7 项：当场给出对比度体检——自由改色最容易踩的坑是"读不清"，不是"不好看"。
+    val worstFinding = ThemeContrastAudit.worst(colors)
+    val contrastWarning = ThemeContrastAudit.warning(colors)
+    Text(
+        if (contrastWarning == null) {
+            "对比度体检：全部达标（最紧的一处是${worstFinding.label} ${"%.1f".format(worstFinding.ratio)}:1）"
+        } else {
+            "对比度体检：$contrastWarning"
+        },
+        style = MaterialTheme.typography.bodySmall,
+        color = if (contrastWarning == null) {
+            MaterialTheme.colorScheme.onSurfaceVariant
+        } else {
+            MaterialTheme.colorScheme.error
+        }
+    )
     // 尚未启用自定义主题时（如从"以此改色"进入）：配色只作为工作副本，确认后才切换全局主题。
     if (!customActive) {
         ElevatedCard(
