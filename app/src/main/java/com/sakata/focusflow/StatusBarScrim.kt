@@ -7,72 +7,43 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
-/** Visual treatment only: never owns insets, height of the viewport, or pointer input. */
+/**
+ * Visual treatment only: never owns insets, height of the viewport, or pointer input.
+ *
+ * **渐变档下这一层什么都不画。**
+ *
+ * 维护者连续三轮反馈"通知栏的渲染分层问题"（切割感 / 接缝 / 依然分层）。查下来根因在设计本身：
+ * 这一层是**第二次**把同一个渐变画一遍——即使几何算得再准，两层独立抗锯齿、独立像素对齐，
+ * 边界处必然出现可辨的接缝；前两轮我都在调"这一次画得准不准"，属于治标。
+ *
+ * 正解是**不要重复画**：页面背景层（`MainActivity` 的根 `Box` + `appearanceBackdrop`）
+ * 本来就是整屏绘制、已经覆盖状态栏区域，那里的颜色天然是对的。所以渐变档直接不画，
+ * "分层"就无从产生。
+ *
+ * 跟随主题 / 固定颜色档保留原来的淡出：那是**默认外观**的一部分，必须逐像素不变；
+ * 而且纯色档下本层与背后颜色本来就一致，不存在分层问题。
+ */
 @Composable
 internal fun StatusBarScrim(safeTop: Dp, modifier: Modifier = Modifier) {
     if (safeTop <= 0.dp) return
-    // 8.2.0：这层压在屏幕最上方，颜色必须跟页面背景一致。
-    //
-    // 跟随主题（默认）：**保持原样**——一层页面底色的纵向淡出，逐像素不变。
-    //
-    // 主题渐变：原来写死 `pageStops(...).first()`，只取"顶部色"，
-    // 于是 下→上 取到了底站、左→右 与斜向更是取单一颜色去代表一条**横向变化**的颜色，
-    // 表现为"左右方向的渐变覆盖不到通知栏"（维护者反馈）。
-    // 现在用**与页面同一个画刷、同一套几何**：画刷按整屏尺寸算，再只画本层这一条，
-    // 于是通知栏那一条与页面顶部逐像素对齐，与方向无关。
     val appearance = LocalAppearance.current
-    val scheme = MaterialTheme.colorScheme
-    val isGradient = appearance.effectivePageBackdrop == BackdropKind.GRADIENT
-    if (!isGradient) {
-        val base = scheme.background
-        Box(
-            modifier.fillMaxWidth().height(safeTop + 12.dp)
-                .background(
-                    Brush.verticalGradient(
-                        0f to base.copy(alpha = 0.96f),
-                        0.55f to base.copy(alpha = 0.80f),
-                        1f to base.copy(alpha = 0f)
-                    )
-                ).clearAndSetSemantics {}
-        )
-        return
-    }
+    // 渐变档：交给页面背景层去呈现，本层不参与（见上文说明）。
+    if (appearance.effectivePageBackdrop == BackdropKind.GRADIENT) return
 
-    val stops = ThemeGradient.pageStops(
-        scheme, appearance.gradientScale, appearance.gradientTop, appearance.gradientBottom
-    )
-    val direction = appearance.gradientDirection
-    // 整屏高度：渐变必须按整屏几何取色，否则把整条渐变压进通知栏这一窄条就完全不对了。
-    val screenHeightDp = LocalConfiguration.current.screenHeightDp
-    val screenHeightPx = with(LocalDensity.current) { screenHeightDp.dp.toPx() }
-
+    val base = MaterialTheme.colorScheme.background
     Box(
         modifier.fillMaxWidth().height(safeTop + 12.dp)
-            .drawBehind {
-                // 用整屏尺寸当画刷几何，只在本层范围内作画 → 取到的是页面顶部的真实那一段。
-                //
-                // **不再叠"淡出到页面底色"的第二层。** 维护者反馈"直接切割通知栏太暴力了，
-                // 观感不太好"——原因就在这里：淡出的终点是 `scheme.background`，
-                // 而本层正下方的页面其实是**渐变的那一段**（≈顶站），两者不是一个颜色，
-                // 于是本层底边出现一条可见的横向接缝。
-                // 既然本层已经与页面渐变逐像素对齐，它本身就与下方页面连续，不需要再淡出。
-                drawRect(
-                    pageBrushFor(direction, stops, Size(size.width, screenHeightPx)),
-                    topLeft = Offset.Zero,
-                    size = size
+            .background(
+                Brush.verticalGradient(
+                    0f to base.copy(alpha = 0.96f),
+                    0.55f to base.copy(alpha = 0.80f),
+                    1f to base.copy(alpha = 0f)
                 )
-            }
-            .clearAndSetSemantics {}
+            ).clearAndSetSemantics {}
     )
 }
