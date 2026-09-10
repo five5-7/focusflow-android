@@ -1,7 +1,6 @@
 package com.sakata.focusflow
 
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -42,7 +41,7 @@ internal fun AppearanceSettingsSection(
     val scope = rememberCoroutineScope()
     var status by remember { mutableStateOf<String?>(null) }
 
-    val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
         scope.launch {
             val extension = context.contentResolver.getType(uri)?.substringAfterLast('/')
@@ -76,10 +75,26 @@ internal fun AppearanceSettingsSection(
             }
         }
 
+        if (appearance.pageBackdrop == BackdropKind.GRADIENT) {
+            Text("渐变强度 ${appearance.gradientStrength}%", style = MaterialTheme.typography.labelMedium)
+            Slider(
+                value = appearance.gradientStrength.toFloat(),
+                onValueChange = { onAppearanceChange(appearance.copy(gradientStrength = it.toInt().coerceIn(0, 200))) },
+                valueRange = 0f..200f,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Text(
+                "100% 是设计值（顶亮 → 底色 → 微深）；调到 0% 等于纯色，往右更明显。",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+
         if (appearance.pageBackdrop == BackdropKind.IMAGE) {
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 TextButton(onClick = {
-                    picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                    // OpenDocument：走系统文件选择器，不需要任何存储/媒体权限，所有 API 级别一致。
+                    picker.launch(arrayOf("image/*"))
                 }) { Text(if (appearance.pageImage.isBlank()) "选择图片" else "更换图片") }
                 if (appearance.pageImage.isNotBlank()) {
                     TextButton(onClick = {

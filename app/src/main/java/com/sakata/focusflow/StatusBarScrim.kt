@@ -19,8 +19,9 @@ internal fun StatusBarScrim(safeTop: Dp, modifier: Modifier = Modifier) {
     // 8.2.0：这层压在屏幕最上方，颜色必须跟页面背景一致。
     // 跟随主题时就是原来的页面底色；主题渐变时用渐变的**顶部色**——否则最上面一截仍是旧颜色，
     // 看起来像"顶部功能栏没跟着变"（维护者真机反馈过这一点）。
-    val base = when (LocalAppearance.current.pageBackdrop) {
-        BackdropKind.GRADIENT -> ThemeGradient.pageStops(MaterialTheme.colorScheme).first()
+    val appearance = LocalAppearance.current
+    val base = when (appearance.pageBackdrop) {
+        BackdropKind.GRADIENT -> ThemeGradient.pageStops(MaterialTheme.colorScheme, appearance.gradientScale).first()
         else -> MaterialTheme.colorScheme.background
     }
     Box(modifier.fillMaxWidth().height(safeTop + 12.dp)

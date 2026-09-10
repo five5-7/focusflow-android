@@ -1579,6 +1579,14 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                     onAppearanceChange = { updated ->
                         appearance = updated
                         store.saveAppearance(updated)
+                    },
+                    onApplyExtractedTheme = { extracted ->
+                        // 「系统自抽主题色」的结果作为一套自定义主题落地：同时记住颜色与当前主题，
+                        // 与自定义主题编辑器走同一条保存路径，用户之后随时能改回去。
+                        customThemeColors = extracted
+                        store.saveCustomThemeColors(extracted)
+                        themeOption = FocusFlowThemeOption.CUSTOM
+                        store.saveTheme(FocusFlowThemeOption.CUSTOM)
                     })
             }
             }

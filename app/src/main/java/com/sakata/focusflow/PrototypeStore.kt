@@ -93,6 +93,7 @@ class PrototypeStore(context: Context) {
         pageBackdrop = preferences.getString("appearance_page_backdrop", null),
         pageImage = preferences.getString("appearance_page_image", null),
         backdropOpacity = preferences.getInt("appearance_backdrop_opacity", 100),
+        gradientStrength = preferences.getInt("appearance_gradient_strength", 100),
         cardMaterial = preferences.getString("appearance_card_material", null),
         timetableBackdrop = preferences.getString("appearance_timetable_backdrop", null),
         timetableColor = preferences.getInt("appearance_timetable_color", 0),
@@ -106,6 +107,7 @@ class PrototypeStore(context: Context) {
             .putString("appearance_page_backdrop", spec.pageBackdrop.storageKey)
             .putString("appearance_page_image", spec.pageImage)
             .putInt("appearance_backdrop_opacity", spec.backdropOpacity.coerceIn(0, 100))
+            .putInt("appearance_gradient_strength", spec.gradientStrength.coerceIn(0, 200))
             .putString("appearance_card_material", spec.cardMaterial.storageKey)
             .putString("appearance_timetable_backdrop", spec.timetableBackdrop.storageKey)
             .putInt("appearance_timetable_color", spec.timetableColor)

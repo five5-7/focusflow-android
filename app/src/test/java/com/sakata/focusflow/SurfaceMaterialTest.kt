@@ -127,6 +127,36 @@ class SurfaceMaterialTest {
     }
 
     @Test
+    fun gradientStrengthScalesTheAmplitude() {
+        val plain = argb(apricot.background)
+        // 0% = 纯色：三站全是底色
+        for (stop in ThemeGradient.pageStops(apricot, 0f)) {
+            assertEquals(plain, argb(stop))
+        }
+        // 100% 就是设计值：与不带参数的调用完全一致
+        assertEquals(ThemeGradient.pageStops(apricot), ThemeGradient.pageStops(apricot, 1f))
+        // 强度越大，上下两端的幅度越大
+        fun topGap(s: Float) = AppearanceContrast.channelDistance(argb(ThemeGradient.pageStops(apricot, s)[0]), plain)
+        fun bottomGap(s: Float) = AppearanceContrast.channelDistance(argb(ThemeGradient.pageStops(apricot, s)[2]), plain)
+        assertTrue(topGap(2f) > topGap(1f))
+        assertTrue(topGap(1f) > topGap(0.5f))
+        assertTrue(bottomGap(2f) > bottomGap(1f))
+        assertTrue(bottomGap(1f) > bottomGap(0.5f))
+        // 越界读数夹回 0..2，不抛错
+        assertEquals(ThemeGradient.pageStops(apricot, 0f), ThemeGradient.pageStops(apricot, -5f))
+        assertEquals(ThemeGradient.pageStops(apricot, 2f), ThemeGradient.pageStops(apricot, 9f))
+    }
+
+    @Test
+    fun strongestGradientStillKeepsBodyTextAtAaaLevel() {
+        val text = 0xFF241D1A.toInt()
+        for (stop in ThemeGradient.pageStops(apricot, 2f)) {
+            val ratio = AppearanceContrast.ratio(text, argb(stop))
+            assertTrue("最强档也要 ≥7:1（AAA），实际 $ratio", ratio >= 7f)
+        }
+    }
+
+    @Test
     fun defaultAppearanceChangesNothing() {
         val spec = AppearanceSpec.DEFAULT
         assertTrue(!spec.backsPageWithSomething())

@@ -84,8 +84,9 @@ internal object ThemeGradient {
      * 方向是刻意的：深色文字在浅底上对比度最高，所以"变亮"放在上面、"变深"放在下面，
      * 整条渐变里正文对比度都不低于纯色页面（真机实测见 docs/8.2.0-appearance-plan.md）。
      * 幅度也必须够大，否则会被看成"背景整体变深了一档"而不是渐变（维护者真机反馈过这一点）。
+     * [strength] 是强度倍率：0 = 纯色，1 = 设计值（默认），2 = 最深；由「外观 → 页面背景 → 渐变强度」调。
      */
-    fun page(scheme: ColorScheme): Brush = Brush.verticalGradient(pageStops(scheme))
+    fun page(scheme: ColorScheme, strength: Float = 1f): Brush = Brush.verticalGradient(pageStops(scheme, strength))
 
     /** 卡片渐变：左上到右下，比页面更轻，保证卡片仍然"更亮一层"。 */
     fun card(scheme: ColorScheme): Brush = Brush.linearGradient(
@@ -100,11 +101,14 @@ internal object ThemeGradient {
         1f to blendSrgb(scheme.background, scheme.primary, 0.02f)
     )
 
-    fun pageStops(scheme: ColorScheme): List<Color> = listOf(
-        blendSrgb(scheme.background, Color.White, 0.85f),
-        scheme.background,
-        blendSrgb(scheme.background, Color.Black, 0.07f)
-    )
+    fun pageStops(scheme: ColorScheme, strength: Float = 1f): List<Color> {
+        val s = strength.coerceIn(0f, 2f)
+        return listOf(
+            blendSrgb(scheme.background, Color.White, 0.85f * s),
+            scheme.background,
+            blendSrgb(scheme.background, Color.Black, 0.07f * s)
+        )
+    }
 
     fun cardStops(scheme: ColorScheme): List<Color> = listOf(
         blendSrgb(scheme.surfaceContainerLow, scheme.primary, 0.07f),
@@ -140,7 +144,11 @@ internal fun Modifier.appearanceBackdrop(
     return drawBehind {
         when (backdrop) {
             BackdropKind.GRADIENT -> drawRect(
-                if (role == BackdropRole.Timetable) ThemeGradient.timetable(scheme) else ThemeGradient.page(scheme)
+                if (role == BackdropRole.Timetable) {
+                    ThemeGradient.timetable(scheme)
+                } else {
+                    ThemeGradient.page(scheme, spec.gradientScale)
+                }
             )
 
             BackdropKind.COLOR -> {

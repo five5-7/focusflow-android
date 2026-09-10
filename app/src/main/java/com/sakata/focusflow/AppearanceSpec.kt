@@ -57,6 +57,8 @@ internal data class AppearanceSpec(
     val pageBackdrop: BackdropKind = BackdropKind.THEME,
     val pageImage: String = "",
     val backdropOpacity: Int = 100,
+    /** 渐变强度百分比：100 = 设计值（默认，与首次实现逐像素一致），0 = 等于纯色，200 = 最深。 */
+    val gradientStrength: Int = 100,
     val cardMaterial: CardMaterial = CardMaterial.TONAL,
     val timetableBackdrop: BackdropKind = BackdropKind.THEME,
     val timetableColor: Int = 0,
@@ -66,6 +68,9 @@ internal data class AppearanceSpec(
 ) {
     /** 背景图不透明度换算成 0..1，越界读数夹回合法区间。 */
     val imageAlpha: Float get() = backdropOpacity.coerceIn(0, 100) / 100f
+
+    /** 渐变强度换算成倍率（0..2）。 */
+    val gradientScale: Float get() = gradientStrength.coerceIn(0, 200) / 100f
 
     val timetableAlpha: Float get() = timetableOpacity.coerceIn(0, 100) / 100f
 
@@ -101,6 +106,7 @@ internal data class AppearanceSpec(
             pageBackdrop: String?,
             pageImage: String?,
             backdropOpacity: Int,
+            gradientStrength: Int,
             cardMaterial: String?,
             timetableBackdrop: String?,
             timetableColor: Int,
@@ -111,6 +117,7 @@ internal data class AppearanceSpec(
             pageBackdrop = BackdropKind.fromKey(pageBackdrop),
             pageImage = pageImage.orEmpty(),
             backdropOpacity = backdropOpacity,
+            gradientStrength = gradientStrength,
             cardMaterial = CardMaterial.fromKey(cardMaterial),
             timetableBackdrop = BackdropKind.fromKey(timetableBackdrop),
             timetableColor = timetableColor,

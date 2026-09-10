@@ -26,6 +26,7 @@ class AppearanceSpecTest {
             pageBackdrop = "nonsense",
             pageImage = null,
             backdropOpacity = 100,
+            gradientStrength = 100,
             cardMaterial = "unknown-material",
             timetableBackdrop = null,
             timetableColor = 0,
@@ -48,6 +49,16 @@ class AppearanceSpecTest {
         // 越界读数夹回合法区间
         assertEquals(1f, AppearanceSpec(backdropOpacity = 250).imageAlpha, 0.0001f)
         assertEquals(0f, AppearanceSpec(backdropOpacity = -8).imageAlpha, 0.0001f)
+    }
+
+    @Test
+    fun gradientStrengthDefaultsAndClamps() {
+        assertEquals(100, AppearanceSpec.DEFAULT.gradientStrength)
+        assertEquals(1f, AppearanceSpec.DEFAULT.gradientScale, 0.0001f)
+        assertEquals(2f, AppearanceSpec(gradientStrength = 500).gradientScale, 0.0001f)
+        assertEquals(0f, AppearanceSpec(gradientStrength = -20).gradientScale, 0.0001f)
+        // 老装机（没有这个键）读出来必须是设计值，外观不变
+        assertEquals(100, AppearanceSpec.fromKeys(null, null, 100, 100, null, null, 0, null, 100, null).gradientStrength)
     }
 
     @Test
