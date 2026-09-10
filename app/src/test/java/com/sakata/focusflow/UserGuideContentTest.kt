@@ -5,7 +5,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class UserGuideContentTest {
-    @Test fun `manual guide preserves the intended seven blocks`() {
+    @Test fun `manual guide preserves the intended blocks`() {
         assertEquals(
             listOf(
                 "一、五分钟开始使用",
@@ -14,10 +14,23 @@ class UserGuideContentTest {
                 "四、默认设置与可选能力",
                 "五、课程、地点、通勤与目标",
                 "六、数据、隐私、更新与常见问题",
-                "七、导航、返回与动效"
+                "七、导航、返回与动效",
+                "八、外观与主题"
             ),
             userGuideChapters.map { it.title }
         )
+    }
+
+    /** 8.2.0：外观系统的可选能力必须写进说明书（用户要求「做完改动要记得改文本」）。 */
+    @Test fun `manual guide documents the appearance system`() {
+        val guide = userGuideChapters.flatMap { it.lines }.joinToString("\n")
+        for (keyword in listOf(
+            "跟随主题", "主题渐变", "固定颜色", "自选图片",
+            "渐变跟随内容", "不透明度", "从图片抽取主题色",
+            "卡片材质", "只改底板", "对比度体检", "深色模式"
+        )) {
+            assertTrue("说明书第八章应写明「$keyword」", guide.contains(keyword))
+        }
     }
 
     /** 8.1.0：上一步／下一步（回退／折返）与弹窗期间底栏行为必须写进说明书。 */
