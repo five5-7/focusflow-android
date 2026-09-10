@@ -154,9 +154,11 @@ internal object ThemeGradient {
      * 它在生产路径上永远不可达；历史在 git `cfbfaab` 之前。
      */
     /**
-     * [direction] 决定"从哪一端开始铺"（维护者口径：渐变应可指定方向）。
+     * [direction] 决定"从哪一端开始铺"（维护者口径：渐变应可指定方向，含斜向）。
      * 默认 [GradientDirection.TOP_DOWN] = 原来的 `Brush.verticalGradient`，逐像素不变。
      * 三站颜色的**顺序不变**，只是铺的方向不同。
+     *
+     * 斜向需要画布尺寸，所以这个重载只处理正方向的四种；斜向请用 [pageBrushFor]。
      */
     fun page(
         scheme: ColorScheme,
@@ -171,6 +173,10 @@ internal object ThemeGradient {
             GradientDirection.BOTTOM_UP -> Brush.verticalGradient(stops.reversed())
             GradientDirection.LEFT_RIGHT -> Brush.horizontalGradient(stops)
             GradientDirection.RIGHT_LEFT -> Brush.horizontalGradient(stops.reversed())
+            // 斜向落到这里说明调用方没给尺寸；退化成左上→右下（Compose 对
+            // linearGradient 默认 start=Zero / end=Infinite 就是这条对角线）。
+            GradientDirection.DIAGONAL_DOWN, GradientDirection.DIAGONAL_UP ->
+                Brush.linearGradient(stops, start = Offset.Zero, end = Offset.Infinite)
         }
     }
 
@@ -187,15 +193,31 @@ internal object ThemeGradient {
         1f to blendSrgb(scheme.background, scheme.primary, 0.02f)
     )
 
-    fun pageStops(scheme: ColorScheme, strength: Float = 1f, top: Int = 0, bottom: Int = 0): List<Color> {        val s = strength.coerceIn(0f, GRADIENT_STRENGTH_MAX / 100f)
+    fun pageStops(scheme: ColorScheme, strength: Float = 1f, top: Int = 0, bottom: Int = 0): List<Color> {
+        val s = strength.coerceIn(0f, GRADIENT_STRENGTH_MAX / 100f)
         // 深色模式单独一套幅度（维护者提醒"注意适配深色模式"）：
         // 深色页面上"顶亮 85%"会变成一条刺眼亮带，而且深色模式的正文是浅色的，
         // 浅底会直接把可读性吃掉。所以深色下只做"顶上微微提亮、底下压深"。
         val dark = scheme.background.luminance() < 0.5f
-        val autoTop = if (dark) {
+        val rawTop = if (dark) {
             blendSrgb(scheme.background, Color.White, 0.10f * s)
         } else {
             blendSrgb(scheme.background, Color.White, 0.85f * s)
+        }
+        // 「顶亮」不能亮过卡片层 —— 否则**页面顶部比卡片还亮**，卡片在最上面会消失、
+        // 往下才突然"浮"出来，看起来就是"渐变越暗的地方卡片反而越亮"。
+        //
+        // 实测（薄荷绿·浅色）：页面底色 #EAEEEB、卡片层 surfaceContainerLow #FAFCFB，
+        // 而旧算式把顶站算成 #FCFCFC —— 比卡片还亮 2/255，两者几乎糊在一起；
+        // 而底站是 #B0B3B0，卡片在那一端又亮得突兀。整页的"底/面"关系被翻转了。
+        //
+        // 修法：顶站一旦亮过卡片层，就压到"卡片层 → 页面底色"之间偏卡片的一侧，
+        // 保证 页面 ≤ 卡片 始终成立（浅色模式下卡片永远是更亮的那一层）。
+        val cardLayer = scheme.surfaceContainerLow
+        val autoTop = if (!dark && rawTop.luminance() > cardLayer.luminance()) {
+            blendSrgb(cardLayer, scheme.background, 0.35f)
+        } else {
+            rawTop
         }
         val autoBottom = if (dark) {
             blendSrgb(scheme.background, Color.Black, 0.25f * s)
@@ -350,7 +372,12 @@ internal fun Modifier.appearanceBackdrop(
                 if (role == BackdropRole.Timetable) {
                     ThemeGradient.timetable(scheme)
                 } else {
-                    ThemeGradient.page(scheme, spec.gradientScale, spec.gradientTop, spec.gradientBottom, spec.gradientDirection)
+                    // 走 pageBrushFor：斜向需要画布尺寸，而这里（drawBehind 内）正好有 size。
+                    pageBrushFor(
+                        spec.gradientDirection,
+                        ThemeGradient.pageStops(scheme, spec.gradientScale, spec.gradientTop, spec.gradientBottom),
+                        size
+                    )
                 }
             )
 
@@ -380,8 +407,36 @@ internal fun Modifier.appearanceBackdrop(
     }
 }
 
-/** 图片不透明度越高，遮罩越厚；0.34–0.78 之间，既有图感又保得住文字。 */
-internal fun scrimAlpha(imageAlpha: Float): Float = 0.34f + 0.44f * imageAlpha.coerceIn(0f, 1f)
+/**
+ * **已知画布尺寸**时的页面渐变画刷——斜向必须走这里。
+ *
+ * `verticalGradient` / `horizontalGradient` 不需要尺寸，但斜向需要知道画布宽高
+ * 才能定出对角线的两端，所以绘制点必须用 `drawBehind` 这类能拿到 `size` 的地方，
+ * 而不是 `Modifier.background(brush)`。三个绘制点（根背景、跟随内容、预览块）都走这个函数。
+ */
+internal fun pageBrushFor(
+    direction: GradientDirection,
+    stops: List<Color>,
+    size: Size
+): Brush = when (direction) {
+    GradientDirection.TOP_DOWN -> Brush.verticalGradient(stops)
+    GradientDirection.BOTTOM_UP -> Brush.verticalGradient(stops.reversed())
+    GradientDirection.LEFT_RIGHT -> Brush.horizontalGradient(stops)
+    GradientDirection.RIGHT_LEFT -> Brush.horizontalGradient(stops.reversed())
+    GradientDirection.DIAGONAL_DOWN -> Brush.linearGradient(
+        colors = stops,
+        start = Offset.Zero,
+        end = Offset(size.width, size.height)
+    )
+    GradientDirection.DIAGONAL_UP -> Brush.linearGradient(
+        colors = stops,
+        // 左下 → 右上。这两条对角线是镜像关系，不能用"反向站点"替代（那只是同一条线倒着走）。
+        start = Offset(0f, size.height),
+        end = Offset(size.width, 0f)
+    )
+}
+
+/** 图片不透明度越高，遮罩越厚；0.34–0.78 之间，既有图感又保得住文字。 */internal fun scrimAlpha(imageAlpha: Float): Float = 0.34f + 0.44f * imageAlpha.coerceIn(0f, 1f)
 
 /**
  * 按**图片实际明暗**决定的遮罩厚度。

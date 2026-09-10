@@ -62,10 +62,24 @@ internal fun AppearanceSettingsSection(
             onAppearanceChange = onAppearanceChange,
             onApplyExtractedTheme = onApplyExtractedTheme
         )
-        HorizontalDivider()
-        CardMaterialControls(appearance = appearance, onAppearanceChange = onAppearanceChange)
-        HorizontalDivider()
-        TimetableBaseControls(appearance = appearance, onAppearanceChange = onAppearanceChange)
+        // 关掉「丰富的动画与外观效果」时，卡片材质与课表底色**完全不参与渲染**
+        // （effectiveCardMaterial 回落 TONAL、effectiveTimetableBackdrop 回落 THEME）。
+        // AGENTS.md 明确要求"界面里不存在承诺了却不生效的开关"，所以这时把它们收起来，
+        // 并写清"设置还在、重开即可恢复"，而不是留一堆点了没反应的控件。
+        if (appearance.richEffects) {
+            HorizontalDivider()
+            CardMaterialControls(appearance = appearance, onAppearanceChange = onAppearanceChange)
+            HorizontalDivider()
+            TimetableBaseControls(appearance = appearance, onAppearanceChange = onAppearanceChange)
+        } else {
+            HorizontalDivider()
+            Text(
+                "卡片材质与课表底色已随「丰富的动画与外观效果」一起暂停——" +
+                    "之前选过的设置都还留着，重新打开开关就会恢复。",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
     }
 }
 
@@ -108,32 +122,57 @@ internal fun PageBackdropControls(
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         // 用 FlowRow 而不是 Row：真机上四个标签排一行会把"图片"挤掉（8.2.0 真机发现），
         // 窄屏/大字体下应该自动换行。
+        //
+        // 关掉「丰富效果」时只留"跟随主题 / 固定颜色"：渐变与图片那两档此时**不参与渲染**
+        // （effectivePageBackdrop 会把它们回落成 THEME），留着就是"承诺了却不生效"的开关。
+        // 选中态也一律按 **effective** 判定，让界面显示的就是实际画出来的那一档。
+        val offered = appearance.offeredPageBackdrops.map { kind ->
+            kind to when (kind) {
+                BackdropKind.THEME -> "跟随主题"
+                BackdropKind.GRADIENT -> "主题渐变"
+                BackdropKind.COLOR -> "固定颜色"
+                BackdropKind.IMAGE -> "图片"
+            }
+        }
         FlowRow(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            listOf(
-                BackdropKind.THEME to "跟随主题",
-                BackdropKind.GRADIENT to "主题渐变",
-                BackdropKind.COLOR to "固定颜色",
-                BackdropKind.IMAGE to "图片"
-            ).forEach { (kind, label) ->
+            offered.forEach { (kind, label) ->
                 FilterChip(
-                    selected = appearance.pageBackdrop == kind,
-                    onClick = { onAppearanceChange(appearance.copy(pageBackdrop = kind)) },
+                    selected = appearance.effectivePageBackdrop == kind,
+                    onClick = {
+                        // 关掉丰富效果时如果用户点"跟随主题"，顺手把原始档位也归位，
+                        // 否则原始值会一直停在 GRADIENT，重新打开开关时"突然又变了"，很困惑。
+                        onAppearanceChange(
+                            if (!appearance.richEffects && kind == BackdropKind.THEME) {
+                                appearance.copy(pageBackdrop = kind, gradientTop = 0, gradientBottom = 0)
+                            } else {
+                                appearance.copy(pageBackdrop = kind)
+                            }
+                        )
+                    },
                     label = { Text(label) }
                 )
             }
         }
+        if (!appearance.richEffects) {
+            Text(
+                "已暂停渐变与图片背景（跟随主题／固定颜色不受影响）。" +
+                    "在下面重新打开「丰富的动画与外观效果」即可恢复你之前选过的那一套。",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
 
-        if (appearance.pageBackdrop == BackdropKind.GRADIENT) {
+        if (appearance.effectivePageBackdrop == BackdropKind.GRADIENT) {
             GradientStopsControls(appearance = appearance, onAppearanceChange = onAppearanceChange) {
                 status = it
             }
         }
 
         // 8.2.0 §7.5：固定背景色（维护者要求"实现固定背景色"）。
-        if (appearance.pageBackdrop == BackdropKind.COLOR) {
+        if (appearance.effectivePageBackdrop == BackdropKind.COLOR) {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 PAGE_BASE_PRESETS.forEach { preset ->
                     val selected = appearance.pageColor == preset
@@ -160,7 +199,7 @@ internal fun PageBackdropControls(
             }
         }
 
-        if (appearance.pageBackdrop == BackdropKind.IMAGE) {
+        if (appearance.effectivePageBackdrop == BackdropKind.IMAGE) {
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 TextButton(onClick = {
                     // OpenDocument：走系统文件选择器，不需要任何存储/媒体权限，所有 API 级别一致。

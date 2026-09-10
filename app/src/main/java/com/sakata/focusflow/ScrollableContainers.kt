@@ -1,5 +1,6 @@
 package com.sakata.focusflow
 
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
@@ -57,13 +58,27 @@ internal fun ScrollableWithBar(
         val appearance = LocalAppearance.current
         val contentBackdrop = appearance.effectivePageBackdrop == BackdropKind.GRADIENT &&
             appearance.gradientFollowsContent
+        // 站点色必须在组合期算好：drawBehind 的 lambda 不是 @Composable，里面读不到 MaterialTheme。
+        val schemeForBackdrop = MaterialTheme.colorScheme
+        val contentStops = if (contentBackdrop) {
+            ThemeGradient.pageStops(
+                schemeForBackdrop,
+                appearance.gradientScale,
+                appearance.gradientTop,
+                appearance.gradientBottom
+            )
+        } else {
+            emptyList()
+        }
         Column(
             Modifier.fillMaxSize().verticalScroll(scrollState)
                 .then(
                     if (contentBackdrop) {
-                        Modifier.background(MaterialTheme.colorScheme.let { scheme ->
-                            ThemeGradient.page(scheme, appearance.gradientScale, appearance.gradientTop, appearance.gradientBottom, appearance.gradientDirection)
-                        })
+                        // 跟随内容时渐变画在滚动 Column 自己的高度上；斜向同样需要尺寸，
+                        // 所以从 background(brush) 改成 drawBehind（那里有 size）。
+                        Modifier.drawBehind {
+                            drawRect(pageBrushFor(appearance.gradientDirection, contentStops, size))
+                        }
                     } else {
                         Modifier
                     }

@@ -10,7 +10,15 @@ internal enum class GradientDirection(val storageKey: String, val label: String)
     TOP_DOWN("topdown", "上→下"),
     BOTTOM_UP("bottomup", "下→上"),
     LEFT_RIGHT("leftright", "左→右"),
-    RIGHT_LEFT("rightleft", "右→左");
+    RIGHT_LEFT("rightleft", "右→左"),
+    /** 斜向：左上 → 右下（维护者口径「渐变应该可以斜着来啊」）。 */
+    DIAGONAL_DOWN("diagdown", "左上→右下"),
+    /** 斜向：左下 → 右上。 */
+    DIAGONAL_UP("diagup", "左下→右上");
+
+    /** 斜向需要画布尺寸才能算两端，不能只靠 vertical/horizontal 包装。 */
+    val isDiagonal: Boolean
+        get() = this == DIAGONAL_DOWN || this == DIAGONAL_UP
 
     companion object {
         fun fromKey(key: String?): GradientDirection =
@@ -141,6 +149,25 @@ internal data class AppearanceSpec(
     /** 实际要用的卡片材质：关掉丰富效果时回落成默认纯色卡片。 */
     val effectiveCardMaterial: CardMaterial
         get() = if (richEffects) cardMaterial else CardMaterial.TONAL
+
+    /**
+     * 界面此刻该提供哪些背景档位。
+     *
+     * 关掉丰富效果时只留「跟随主题／固定颜色」：渐变与图片此时**不参与渲染**
+     * （[effectivePageBackdrop] 会把它们回落成 THEME），继续摆出来就是
+     * "承诺了却不生效"的开关——AGENTS.md 明确不允许。
+     *
+     * 抽成纯函数是为了能被单测直接锁住（Compose 的界面本身不好断言）。
+     */
+    val offeredPageBackdrops: List<BackdropKind>
+        get() = if (richEffects) {
+            listOf(BackdropKind.THEME, BackdropKind.GRADIENT, BackdropKind.COLOR, BackdropKind.IMAGE)
+        } else {
+            listOf(BackdropKind.THEME, BackdropKind.COLOR)
+        }
+
+    /** 材质与课表底色的控件此刻是否该出现（与 [offeredPageBackdrops] 同一个开关）。 */
+    val showsMaterialControls: Boolean get() = richEffects
 
     /** 页面此刻是否真的有一张可画的背景图。 */
     val hasPageImage: Boolean

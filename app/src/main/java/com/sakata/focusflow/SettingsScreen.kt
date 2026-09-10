@@ -594,7 +594,12 @@ private data class BaselineVariantDraft(val name: String)
                         )
                         HorizontalDivider()
                         FocusFlowThemeOption.builtInEntries().forEach { option ->
-                            val preview = focusFlowThemeSpec(option)
+                            // 必须传 darkMode：不传就会拿到**浅色**方案的 primaryContainer，
+                            // 深色模式下那是一块接近白的卡片，压在一整页深色上极其刺眼，
+                            // 而且卡上的「已选择」用的是浅色方案的 primary（也是浅色），
+                            // 浅字压浅底基本看不清（维护者反馈"选中的颜色对应的卡片过亮，
+                            // 导致上面的字不清晰"，已用截图确认）。
+                            val preview = focusFlowThemeSpec(option, darkMode = darkMode)
                             FocusCard(
                                 containerColor = if (themeOption == option) preview.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.38f),
                                 modifier = Modifier.fillMaxWidth().clickable { onThemeChange(option) }
@@ -625,7 +630,7 @@ private data class BaselineVariantDraft(val name: String)
                         }
                         // 自定义主题：点卡只进入编辑器，不切主题；确认由编辑器内"应用此配色"完成，
                         // 与内置主题"以此改色"一致，避免点卡即应用造成违和。
-                        val customPreview = focusFlowThemeSpec(FocusFlowThemeOption.CUSTOM, customThemeColors)
+                        val customPreview = focusFlowThemeSpec(FocusFlowThemeOption.CUSTOM, customThemeColors, darkMode = darkMode)
                         FocusCard(
                             containerColor = if (themeOption == FocusFlowThemeOption.CUSTOM) customPreview.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.38f),
                             modifier = Modifier.fillMaxWidth().clickable {

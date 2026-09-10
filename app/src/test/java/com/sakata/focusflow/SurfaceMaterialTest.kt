@@ -135,11 +135,17 @@ class SurfaceMaterialTest {
         }
         // 100% 就是设计值：与不带参数的调用完全一致
         assertEquals(ThemeGradient.pageStops(apricot), ThemeGradient.pageStops(apricot, 1f))
-        // 强度越大，上下两端的幅度越大
+        // 强度越大，幅度越大。
+        //
+        // 注意**顶部只涨到"卡片层"为止**：旧算式把顶站一路提到混 85% 白，
+        // 结果页面顶部比卡片还亮，卡片在页顶消失、往下才突然浮出来
+        // （维护者反馈"渐变越暗的地方卡片反而越亮，是不是写反了"——确实反了）。
+        // 现在顶站一旦亮过卡片层就被压回来，所以它**不再随强度单调增长**，
+        // 而底部不受这个约束，仍然单调增长。这正是"梯度可见"与"卡片分层"两条约束的取舍点。
         fun topGap(s: Float) = AppearanceContrast.channelDistance(argb(ThemeGradient.pageStops(apricot, s)[0]), plain)
         fun bottomGap(s: Float) = AppearanceContrast.channelDistance(argb(ThemeGradient.pageStops(apricot, s)[2]), plain)
-        assertTrue(topGap(2f) > topGap(1f))
-        assertTrue(topGap(1f) > topGap(0.5f))
+        assertTrue("顶部在到顶之前应随强度增长", topGap(1f) > topGap(0.5f))
+        assertTrue("顶部到顶后不再增长（不许亮过卡片层）", topGap(2f) >= topGap(1f))
         assertTrue(bottomGap(2f) > bottomGap(1f))
         assertTrue(bottomGap(1f) > bottomGap(0.5f))
         // 越界读数夹回 0..GRADIENT_STRENGTH_MAX/100，不抛错

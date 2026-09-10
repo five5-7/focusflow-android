@@ -110,4 +110,53 @@ class RichEffectsTest {
         assertTrue("底站要比中间沉", stops[2].luminance() < stops[1].luminance())
         assertEquals("中间站就是底色本身", base, stops[1])
     }
+
+    /**
+     * 关掉丰富效果后，界面**不能再摆出**那些不参与渲染的档位与控件。
+     *
+     * 理由不是美观，而是 AGENTS.md 的硬要求：「界面里不存在"承诺了却不生效"的开关」。
+     * 渐变与图片此时会被 effectivePageBackdrop 回落成 THEME，
+     * 卡片材质回落成 TONAL、课表底色回落成 THEME —— 留着控件就是骗人。
+     */
+    @Test
+    fun controlsThatNoLongerDoAnythingAreNotOffered() {
+        val rich = AppearanceSpec.DEFAULT
+        assertTrue("开着时应提供四档背景", rich.offeredPageBackdrops.size == 4)
+        assertTrue(rich.offeredPageBackdrops.contains(BackdropKind.GRADIENT))
+        assertTrue(rich.offeredPageBackdrops.contains(BackdropKind.IMAGE))
+        assertTrue("开着时应显示材质/课表底色控件", rich.showsMaterialControls)
+
+        val plain = rich.copy(richEffects = false)
+        assertEquals(
+            "关着时只应提供 跟随主题 / 固定颜色",
+            listOf(BackdropKind.THEME, BackdropKind.COLOR),
+            plain.offeredPageBackdrops
+        )
+        assertTrue("关着时不该再提供渐变", !plain.offeredPageBackdrops.contains(BackdropKind.GRADIENT))
+        assertTrue("关着时不该再提供图片", !plain.offeredPageBackdrops.contains(BackdropKind.IMAGE))
+        assertTrue("关着时应收起材质/课表底色控件", !plain.showsMaterialControls)
+    }
+
+    /**
+     * 提供的档位必须**都真的生效** —— 这是上一条的实质版本：
+     * 对 offeredPageBackdrops 里的每一档，实际渲染用的档位不能被打回 THEME。
+     * （固定颜色是刻意保留的：它只是一块纯色填充，几乎没有绘制成本。）
+     */
+    @Test
+    fun everyOfferedBackdropActuallyRenders() {
+        for (rich in listOf(false, true)) {
+            for (kind in AppearanceSpec(richEffects = rich).offeredPageBackdrops) {
+                val spec = AppearanceSpec(
+                    pageBackdrop = kind,
+                    pageImage = if (kind == BackdropKind.IMAGE) "x.png" else "",
+                    richEffects = rich
+                )
+                assertEquals(
+                    "提供了背景档位「$kind」（richEffects=$rich）就必须真的生效，不能被回落掉",
+                    kind,
+                    spec.effectivePageBackdrop
+                )
+            }
+        }
+    }
 }
