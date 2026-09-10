@@ -1613,7 +1613,13 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
         AppDialogHost(dialogHost, bottomInset = floatingBarHeight, visible = dialogLayerVisible)
         FloatingNavigationBar(
             safeInsets = safeContentInsets,
-            containerColor = themeSpec.navigationBarColor,
+            // 底栏颜色跟随**它背后那一点**的页面渐变。
+            // 维护者口径：默认渐变是上亮下暗，底栏固定用主题色就会显得偏亮；
+            // 而且明确要求"不要只针对这一种情况打补丁"——所以做法不是"顶亮底深时把底栏压暗"，
+            // 而是：取底栏背后的渐变色，再叠上主题原本设计好的"浮层相对页面底色"的差值。
+            // 这样"底栏比页面暗一档"这个设计关系在**任何渐变、任何方向、任何明暗**下都成立。
+            // 非渐变档（跟随主题/固定颜色）时 floatingSurfaceOverGradient 也退化回主题色。
+            containerColor = navBarColourOverBackdrop(appearance, themeSpec),
             selectedTab = tab,
             hasSubpage = when (tab) {
                 0 -> todayInboxOpen

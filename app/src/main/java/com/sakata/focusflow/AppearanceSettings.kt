@@ -476,10 +476,24 @@ internal fun CardMaterialControls(
             }
         }
         Text(
-            "默认＝原来的纯色卡片（逐像素不变）；渐变按当前配色派生，柔光加顶面高光与主题阴影，纸感在柔光上再叠一层程序生成的淡噪点（不增加包体积）。",
+            "默认＝原来的纯色卡片（逐像素不变）；渐变按当前配色派生；柔光给卡面一层很淡的顶亮底沉。",
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
+        // 卡片渐变方向（维护者口径：卡片的渐变要能选上→下 / 下→上）。
+        // 只在柔光下有意义——渐变材质的走向是主题派生的，不跟这个开关。
+        if (appearance.cardMaterial == CardMaterial.SOFT) {
+            Text("卡面渐变方向", style = MaterialTheme.typography.labelMedium)
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                listOf(false to "上→下", true to "下→上").forEach { (reversed, label) ->
+                    FilterChip(
+                        selected = appearance.cardGradientReversed == reversed,
+                        onClick = { onAppearanceChange(appearance.copy(cardGradientReversed = reversed)) },
+                        label = { Text(label) }
+                    )
+                }
+            }
+        }
     }
 }
 

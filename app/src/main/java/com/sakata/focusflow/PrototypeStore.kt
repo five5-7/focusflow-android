@@ -119,7 +119,8 @@ class PrototypeStore(context: Context) {
         extracted = preferences.getString("appearance_extracted_colors", null),
         // 读不到 = true（保持现状）：老装机升级后行为不变。
         richEffects = preferences.getBoolean("appearance_rich_effects", true),
-        gradientDirection = preferences.getString("appearance_gradient_direction", null)
+        gradientDirection = preferences.getString("appearance_gradient_direction", null),
+        cardGradientReversed = preferences.getBoolean("appearance_card_gradient_reversed", false)
     )
 
     internal fun saveAppearance(spec: AppearanceSpec) {
@@ -140,6 +141,7 @@ class PrototypeStore(context: Context) {
             .putString("appearance_extracted_colors", AppearanceSpec.encodeExtracted(spec.extractedColors))
             .putBoolean("appearance_rich_effects", spec.richEffects)
             .putString("appearance_gradient_direction", spec.gradientDirection.storageKey)
+            .putBoolean("appearance_card_gradient_reversed", spec.cardGradientReversed)
             .apply()
     }
 

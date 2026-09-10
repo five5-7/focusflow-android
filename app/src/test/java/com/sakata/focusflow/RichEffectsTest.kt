@@ -31,13 +31,13 @@ class RichEffectsTest {
     fun turningItOffFallsBackToPlainRendering() {
         val rich = AppearanceSpec(
             pageBackdrop = BackdropKind.GRADIENT,
-            cardMaterial = CardMaterial.PAPER,
+            cardMaterial = CardMaterial.SOFT,
             timetableBackdrop = BackdropKind.IMAGE,
             timetableImage = "t.png"
         )
         // 开着：原样
         assertEquals(BackdropKind.GRADIENT, rich.effectivePageBackdrop)
-        assertEquals(CardMaterial.PAPER, rich.effectiveCardMaterial)
+        assertEquals(CardMaterial.SOFT, rich.effectiveCardMaterial)
         assertEquals(BackdropKind.IMAGE, rich.effectiveTimetableBackdrop)
 
         val plain = rich.copy(richEffects = false)
@@ -73,12 +73,12 @@ class RichEffectsTest {
         // "回落"只发生在渲染层：原始偏好必须原样留着，否则再打开开关就回不来了。
         val off = AppearanceSpec(
             pageBackdrop = BackdropKind.GRADIENT,
-            cardMaterial = CardMaterial.PAPER,
+            cardMaterial = CardMaterial.SOFT,
             gradientStrength = 180,
             richEffects = false
         )
         assertEquals(BackdropKind.GRADIENT, off.pageBackdrop)
-        assertEquals(CardMaterial.PAPER, off.cardMaterial)
+        assertEquals(CardMaterial.SOFT, off.cardMaterial)
         assertEquals(180, off.gradientStrength)
         // 再打开 → 立刻恢复成原来那套
         assertEquals(BackdropKind.GRADIENT, off.copy(richEffects = true).effectivePageBackdrop)
@@ -90,7 +90,7 @@ class RichEffectsTest {
         val base = scheme.surfaceContainerLow
         assertNull("默认材质不叠任何东西", materialBrush(CardMaterial.TONAL, base, scheme))
         // 另外三档都必须真的产出一层，否则就是"设置了却没变化"的假开关
-        for (material in listOf(CardMaterial.GRADIENT, CardMaterial.SOFT, CardMaterial.PAPER)) {
+        for (material in listOf(CardMaterial.GRADIENT, CardMaterial.SOFT, CardMaterial.SOFT)) {
             assertTrue(
                 "$material 必须产出可见的一层",
                 materialBrush(material, base, scheme) != null

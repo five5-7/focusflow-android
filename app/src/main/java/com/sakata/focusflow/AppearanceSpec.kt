@@ -59,7 +59,19 @@ internal enum class BackdropKind(val storageKey: String) {
     }
 }
 
-/** 卡片材质（表现层）。 */
+/**
+ * 卡片材质（表现层）。
+ *
+ * **「纸感」已删除**（维护者 2026-09-10 口径：「纸感如果只是纹路的话就可以删掉了」）。
+ * 原因记录在此，避免以后又想加回来：纸感与柔光的区别**只可能**是一层纹理
+ * （颜色关系两者相同），而纹理在近白卡片上无法既可见又保持亮度中性——
+ * 近白底已经没有"提亮"的空间，任何纹理都只能压暗；压暗得少就看不见，看得见就变成"换个更深的颜色"。
+ * 实测数据：Overlay 方案在 base=0.98 时只有约 2 灰阶（不可见），
+ * 而旧的纯黑/纯白 alpha 方案会整体压暗 26 灰阶（太多）。
+ *
+ * 兼容：老装机/老预设里存的 `"paper"` 经 [fromKey] 退回 [TONAL]，
+ * 不抛错、不清数据（与既有降级口径一致）。
+ */
 internal enum class CardMaterial(val storageKey: String) {
     /** 现状：单一容器色。 */
     TONAL("tonal"),
@@ -67,11 +79,8 @@ internal enum class CardMaterial(val storageKey: String) {
     /** 主题渐变卡面。 */
     GRADIENT("gradient"),
 
-    /** 柔光：顶面高光 + 主题染色阴影 + 细描边。 */
-    SOFT("soft"),
-
-    /** 纸感：柔光 + 极淡噪点纹理。 */
-    PAPER("paper");
+    /** 柔光：顶面高光 + 底部微沉。 */
+    SOFT("soft");
 
     companion object {
         fun fromKey(key: String?): CardMaterial =
@@ -119,7 +128,15 @@ internal data class AppearanceSpec(
      */
     val richEffects: Boolean = true,
     /** 页面渐变方向；默认上→下（与首次实现逐像素一致）。 */
-    val gradientDirection: GradientDirection = GradientDirection.TOP_DOWN
+    val gradientDirection: GradientDirection = GradientDirection.TOP_DOWN,
+    /**
+     * **卡片**渐变方向：false = 上→下（顶亮底沉，默认=现状），true = 下→上。
+     *
+     * 维护者口径：「卡片的渐变可以提供上到下以及下到上两个方向」。
+     * 刻意**不复用** [gradientDirection]：页面那档有 6 个方向（含斜向与横向），
+     * 卡片只要两个竖直方向；共用会把页面的斜向顺手套到卡片上。
+     */
+    val cardGradientReversed: Boolean = false
 ) {
     /** 背景图不透明度换算成 0..1，越界读数夹回合法区间。 */
     val imageAlpha: Float get() = backdropOpacity.coerceIn(0, 100) / 100f
@@ -263,7 +280,8 @@ internal data class AppearanceSpec(
             timetableOpacity: Int,
             extracted: String?,
             richEffects: Boolean = true,
-            gradientDirection: String? = null
+            gradientDirection: String? = null,
+            cardGradientReversed: Boolean = false
         ): AppearanceSpec = AppearanceSpec(
             pageBackdrop = BackdropKind.fromKey(pageBackdrop),
             pageImage = pageImage.orEmpty(),
@@ -280,7 +298,8 @@ internal data class AppearanceSpec(
             timetableOpacity = timetableOpacity,
             extractedColors = decodeExtracted(extracted),
             richEffects = richEffects,
-            gradientDirection = GradientDirection.fromKey(gradientDirection)
+            gradientDirection = GradientDirection.fromKey(gradientDirection),
+            cardGradientReversed = cardGradientReversed
         )
     }
 }

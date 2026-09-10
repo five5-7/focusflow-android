@@ -96,7 +96,7 @@ class AppearanceSpecTest {
             pageBackdrop = BackdropKind.IMAGE,
             pageImage = "gone.jpg",
             backdropOpacity = 70,
-            cardMaterial = CardMaterial.PAPER,
+            cardMaterial = CardMaterial.SOFT,
             timetableBackdrop = BackdropKind.IMAGE,
             timetableImage = "gone2.jpg"
         )
@@ -106,7 +106,7 @@ class AppearanceSpecTest {
         assertEquals(BackdropKind.THEME, degraded.timetableBackdrop)
         assertEquals("", degraded.timetableImage)
         // 只降级"图片"这一件事：材质、不透明度等其余设置原样保留
-        assertEquals(CardMaterial.PAPER, degraded.cardMaterial)
+        assertEquals(CardMaterial.SOFT, degraded.cardMaterial)
         assertEquals(70, degraded.backdropOpacity)
 
         // 文件都在：一个字段都不许动
@@ -121,13 +121,13 @@ class AppearanceSpecTest {
     fun summaryDescribesTheLook() {
         assertEquals("标准底色", AppearanceSpec.DEFAULT.summary())
         assertEquals(
-            "渐变 120%·自选色·卡片纸感·课表底色",
+            "渐变 120%·自选色·卡片柔光·课表底色",
             AppearanceSpec(
                 pageBackdrop = BackdropKind.GRADIENT,
                 gradientStrength = 120,
                 gradientTop = 0xFF112233.toInt(),
                 gradientBottom = 0xFFEEDDCC.toInt(),
-                cardMaterial = CardMaterial.PAPER,
+                cardMaterial = CardMaterial.SOFT,
                 timetableBackdrop = BackdropKind.COLOR
             ).summary()
         )

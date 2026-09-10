@@ -61,15 +61,14 @@ internal fun StatusBarScrim(safeTop: Dp, modifier: Modifier = Modifier) {
         modifier.fillMaxWidth().height(safeTop + 12.dp)
             .drawBehind {
                 // 用整屏尺寸当画刷几何，只在本层范围内作画 → 取到的是页面顶部的真实那一段。
-                val brush = pageBrushFor(direction, stops, Size(size.width, screenHeightPx))
-                drawRect(brush, topLeft = Offset.Zero, size = size)
-                // 向下淡出成页面底色，让状态栏与正文衔接（与默认档的淡出观感一致）。
+                //
+                // **不再叠"淡出到页面底色"的第二层。** 维护者反馈"直接切割通知栏太暴力了，
+                // 观感不太好"——原因就在这里：淡出的终点是 `scheme.background`，
+                // 而本层正下方的页面其实是**渐变的那一段**（≈顶站），两者不是一个颜色，
+                // 于是本层底边出现一条可见的横向接缝。
+                // 既然本层已经与页面渐变逐像素对齐，它本身就与下方页面连续，不需要再淡出。
                 drawRect(
-                    Brush.verticalGradient(
-                        0f to Color.Transparent,
-                        0.55f to scheme.background.copy(alpha = 0.35f),
-                        1f to scheme.background.copy(alpha = 1f)
-                    ),
+                    pageBrushFor(direction, stops, Size(size.width, screenHeightPx)),
                     topLeft = Offset.Zero,
                     size = size
                 )

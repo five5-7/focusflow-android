@@ -497,6 +497,47 @@ internal fun floatingSurfaceOverGradient(
 internal const val NAV_BAR_CENTRE_Y = 0.93f
 internal const val NAV_BAR_CENTRE_X = 0.5f
 
+/**
+ * 页面背景此刻在**底栏那一点**的实际颜色。
+ *
+ * 非渐变档直接用页面底色（跟随主题 / 固定颜色都是纯色，底栏本来就压在同一个颜色上）；
+ * 渐变档用 [gradientColourAt] 问出底栏背后的那一点。
+ *
+ * 抽成函数是为了让"底栏取色"这条规则只有一处实现，也便于单测按矩阵覆盖。
+ */
+internal fun backdropColourBehindNavBar(
+    appearance: AppearanceSpec,
+    scheme: ColorScheme
+): Color = when (appearance.effectivePageBackdrop) {
+    BackdropKind.GRADIENT -> gradientColourAt(
+        appearance.gradientDirection,
+        ThemeGradient.pageStops(
+            scheme, appearance.gradientScale, appearance.gradientTop, appearance.gradientBottom
+        ),
+        NAV_BAR_CENTRE_X,
+        NAV_BAR_CENTRE_Y
+    )
+    else -> scheme.background
+}
+
+/**
+ * 底栏在**当前页面背景**下该用的颜色。
+ *
+ * 这就是维护者要的"不要只针对一种情况打补丁"：不是判断"是不是顶亮底深"，
+ * 而是**先问出底栏背后是什么颜色**，再把主题设计好的差值叠上去。
+ * 于是 6 个方向 × 全部预制配色 × 明暗 × 渐变强度 都自动成立。
+ *
+ * [themeSpec] 提供主题的固定底栏色与页面底色——两者之差就是那层设计关系。
+ */
+internal fun navBarColourOverBackdrop(
+    appearance: AppearanceSpec,
+    themeSpec: FocusFlowThemeSpec
+): Color = floatingSurfaceOverGradient(
+    base = backdropColourBehindNavBar(appearance, themeSpec.colorScheme),
+    deltaFrom = themeSpec.colorScheme.background,
+    deltaTo = themeSpec.navigationBarColor
+)
+
 /** 图片不透明度越高，遮罩越厚；0.34–0.78 之间，既有图感又保得住文字。 */internal fun scrimAlpha(imageAlpha: Float): Float = 0.34f + 0.44f * imageAlpha.coerceIn(0f, 1f)
 
 /**
@@ -612,10 +653,9 @@ private fun DrawScope.drawImageCover(bitmap: ImageBitmap, alpha: Float) {
  *
  * [CardMaterial.TONAL] 返回 null（= 直接用原来的容器色卡片）。
  *
- * 柔光与纸感**必须有可见的填充变化**：原先两者都 `-> null`，只在 [FocusCard] 里挂了同一份
- * 阴影，结果"柔光"和"纸感"渲染出来完全一样，而柔光本身又看不出任何变化（真机反馈：
- * "柔光和纸感似乎是一样的"）。现在两者都走 [materialBrush] 的柔光底（顶面提亮 → 底部微沉），
- * 纸感在其之上再叠一层噪点（见 [FocusCard]）。
+ * 柔光**必须有可见的填充变化**：它曾经和已删除的「纸感」一起 `-> null`，
+ * 结果两者渲染完全相同、柔光本身也看不出变化（真机反馈"柔光和纸感似乎是一样的"）。
+ * 现在走 [materialBrush] 的柔光底（顶面提亮 → 底部微沉）。
  */
 @Composable
 internal fun cardMaterialBrush(material: CardMaterial): Brush? =
@@ -628,11 +668,17 @@ internal fun cardMaterialBrush(material: CardMaterial): Brush? =
  * 都不是卡片色。维护者口径：「材质也影响导航栏」「弹窗也没有材质渲染」。
  * 卡片、底栏、弹窗都从这里取，只有一份实现。
  */
-internal fun materialBrush(material: CardMaterial, base: Color, scheme: ColorScheme): Brush? =
+internal fun materialBrush(
+    material: CardMaterial,
+    base: Color,
+    scheme: ColorScheme,
+    /** 柔光渐变方向：false = 上→下（顶亮底沉），true = 下→上。维护者口径的两个方向。 */
+    softReversed: Boolean = false
+): Brush? =
     when (material) {
         CardMaterial.TONAL -> null
         CardMaterial.GRADIENT -> Brush.verticalGradient(listOf(blendSrgb(base, scheme.primary, 0.07f), base))
-        CardMaterial.SOFT, CardMaterial.PAPER -> softLightBrush(base, scheme.onSurface)
+        CardMaterial.SOFT -> softLightBrush(base, scheme.onSurface, softReversed)
     }
 
 /**
@@ -641,8 +687,6 @@ internal fun materialBrush(material: CardMaterial, base: Color, scheme: ColorSch
  * 必须用 `clip(shape)` 再 `drawBehind`：起初底栏是直接 `drawBehind { drawRect(brush) }` 的，
  * 而 `drawBehind` 画在 Surface 的形状裁剪**之外**，于是底栏上出现了一整块矩形底色
  * （维护者反馈："用材质时悬浮栏会出现一块矩形底"）。这里统一裁到形状内，杜绝同一类错误。
- *
- * [CardMaterial.PAPER] 额外叠一层噪点（纸感 = 柔光 + 纸纹）。
  */
 @Composable
 internal fun Modifier.surfaceMaterialFill(
@@ -651,19 +695,11 @@ internal fun Modifier.surfaceMaterialFill(
     shape: Shape
 ): Modifier {
     val scheme = MaterialTheme.colorScheme
-    val layer = materialBrush(material, base, scheme)
+    val layer = materialBrush(material, base, scheme, LocalAppearance.current.cardGradientReversed)
     if (layer == null) return this
     return this
         .clip(shape)
-        .drawBehind {
-            drawRect(layer)
-            if (material == CardMaterial.PAPER) {
-                // 纸感 = 柔光 + 纸纹。**不再叠那层整体压深**：实测它把卡面压低约 11 灰阶，
-                // 而中性的纸纹只有约 2 灰阶颗粒，于是"纸感"变成"换了个更深的颜色"。
-                // 纸感与柔光的区别现在由"有没有纸纹"承担。
-                drawPaperGrain()
-            }
-        }
+        .drawBehind { drawRect(layer) }
 }
 
 /**
@@ -693,14 +729,19 @@ internal const val SOFT_BOTTOM_SHADE = 0.05f
  * 对测试不可见——想断言"柔光到底画了什么"就只能从纯函数这一层拿。
  * 画刷与测试都从这一个地方取，不会出现"文档/测试与实现漂移"。
  */
-internal fun softLightStops(base: Color, shade: Color): List<Color> = listOf(
-    blendSrgb(base, Color.White, SOFT_TOP_LIGHT),
-    base,
-    blendSrgb(base, shade, SOFT_BOTTOM_SHADE)
-)
+internal fun softLightStops(base: Color, shade: Color, reversed: Boolean = false): List<Color> {
+    val stops = listOf(
+        blendSrgb(base, Color.White, SOFT_TOP_LIGHT),
+        base,
+        blendSrgb(base, shade, SOFT_BOTTOM_SHADE)
+    )
+    // 反向 = 把三站倒过来铺（底下变亮、顶上微沉），而不是换一组新颜色——
+    // 这样"换了方向"不会引入没被对比度总账覆盖过的颜色。
+    return if (reversed) stops.reversed() else stops
+}
 
-internal fun softLightBrush(base: Color, shade: Color): Brush =
-    Brush.verticalGradient(softLightStops(base, shade))
+internal fun softLightBrush(base: Color, shade: Color, reversed: Boolean = false): Brush =
+    Brush.verticalGradient(softLightStops(base, shade, reversed))
 
 /** 供测试：Crop 铺满时源图应取的矩形（与 [drawImageCover] 同一套算法）。 */
 internal fun coverSourceRect(srcW: Int, srcH: Int, dstW: Float, dstH: Float): IntArray {

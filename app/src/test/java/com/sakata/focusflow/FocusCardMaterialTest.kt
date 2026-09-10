@@ -1,100 +1,94 @@
 package com.sakata.focusflow
 
-import org.junit.Assert.assertArrayEquals
+import androidx.compose.material3.lightColorScheme
+import androidx.compose.ui.graphics.luminance
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotEquals
-import org.junit.Assert.assertSame
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
+/**
+ * 卡片材质的表现层回归。
+ *
+ * **「纸感」已于 2026-09-10 删除**（维护者口径：「纸感如果只是纹路的话就可以删掉了」），
+ * 相关的纸纹/噪点测试（noisePixels / paperNoiseBrush / SingleValueCache）随实现一起删掉，
+ * 不再保留"测已经不存在的东西"的测试。
+ *
+ * 删除原因留档：纸感与柔光的区别**只可能**是一层纹理（颜色关系相同），
+ * 而纹理在近白卡片上无法既可见又保持亮度中性 —— 近白底没有"提亮"空间，
+ * 任何纹理都只能压暗；压得少就看不见（Overlay 方案实测仅约 2 灰阶），
+ * 压得多就变成"换个更深的颜色"（旧方案实测压暗 26 灰阶）。
+ */
 class FocusCardMaterialTest {
 
     @Test
-    fun noiseIsDeterministicAndSized() {
-        assertEquals(NOISE_SIZE * NOISE_SIZE, noisePixels().size)
-        // 同一种子逐像素一致（纯函数，可回归）
-        assertArrayEquals(noisePixels(), noisePixels())
-        // 不同种子应当不同
-        assertNotEquals(
-            noisePixels(seed = 1L).toList(),
-            noisePixels(seed = 2L).toList()
-        )
-    }
-
-    /**
-     * 纸纹**必须是亮度中性的**——这是真机目视复核抓出来的缺陷：
-     * 旧实现用"纯黑/纯白像素 + 不同 alpha"，而 alpha 合成往下压是乘性、往上提是加性，
-     * 两者不对称，于是一半黑一半白平均下来仍然把卡片整体压暗。
-     * 实测纸感把绿卡压暗约 **26 灰阶**、白卡约 18 灰阶 —— 纸感变成了"换个更深的颜色"，
-     * 而不是"同一张纸上加纹理"。
-     *
-     * 现在像素围绕中性灰 128 生成、配合 `BlendMode.Overlay` 绘制（128 = 恒等），
-     * 所以平均灰阶必须非常接近 128。
-     */
-    @Test
-    fun paperGrainIsLuminanceNeutralSoItNeverDarkensTheCard() {
-        val pixels = noisePixels(alpha = DEFAULT_NOISE_ALPHA)
-        val greys = pixels.map { it and 0xFF }
-        // 全部像素都不透明：强度由"离 128 多远"承载，而不是靠 alpha
-        assertTrue("纸纹像素应完全不透明", pixels.all { ((it ushr 24) and 0xFF) == 0xFF })
-        val average = greys.average()
-        assertTrue(
-            "平均灰阶必须贴近 128（Overlay 的恒等点），实际 $average —— 偏离就会整体压暗或提亮",
-            kotlin.math.abs(average - 128.0) < 2.0
-        )
-    }
-
-    @Test
-    fun noiseIsRoughlyBalancedBetweenLightAndDark() {
-        val pixels = noisePixels()
-        val bright = pixels.count { (it and 0xFF) > 127 }
-        val total = pixels.size
-        assertTrue("亮暗像素应大致各半，实际 $bright / $total", bright > total / 3 && bright < total * 2 / 3)
-    }
-
-    /** [alpha] 现在的含义是**纹理强度**：越大离中灰越远（纹理越粗），0 = 完全无纹理。 */
-    @Test
-    fun textureStrengthScalesTheDeviationFromNeutralGrey() {
-        fun deviation(alpha: Float): Double {
-            val greys = noisePixels(alpha = alpha).map { it and 0xFF }
-            return greys.map { kotlin.math.abs(it - 128.0) }.average()
-        }
-        assertTrue("强度越大，偏离中灰越远", deviation(0.5f) > deviation(0.2f))
-        // 强度 0 = 整片都是中性灰 = Overlay 恒等 = 完全不影响画面
-        assertEquals("强度 0 应完全是中性灰", 0.0, deviation(0f), 0.001)
-    }
-
-    @Test
-    fun labelsCoverEveryMaterialAndStayDistinct() {
+    fun threeMaterialsAreLabelledDistinctly() {
         val labels = CardMaterial.entries.map { it.label() }
         assertEquals(CardMaterial.entries.size, labels.size)
-        assertEquals(labels.size, labels.toSet().size)
+        assertEquals("材质名不能重复", labels.size, labels.toSet().size)
         assertEquals("默认", CardMaterial.TONAL.label())
+        assertEquals("渐变", CardMaterial.GRADIENT.label())
+        assertEquals("柔光", CardMaterial.SOFT.label())
+    }
+
+    /** 纸感已删：老装机/老预设里存的 `"paper"` 必须**优雅降级**，不抛错、不清数据。 */
+    @Test
+    fun removedPaperMaterialDegradesToTonal() {
+        assertEquals(
+            "老存档里的 paper 应退回默认材质",
+            CardMaterial.TONAL,
+            CardMaterial.fromKey("paper")
+        )
+        assertEquals(CardMaterial.TONAL, CardMaterial.fromKey(null))
+        assertEquals(CardMaterial.TONAL, CardMaterial.fromKey(""))
+        assertEquals(CardMaterial.TONAL, CardMaterial.fromKey("nonsense"))
+        // 现有三档仍能正常往返
+        for (m in CardMaterial.entries) {
+            assertEquals(m, CardMaterial.fromKey(m.storageKey))
+        }
+    }
+
+    @Test
+    fun everyRemainingMaterialProducesAVisibleLayer() {
+        val scheme = lightColorScheme()
+        val base = scheme.surfaceContainerLow
+        assertNull("默认材质不叠任何东西（走原生 Card）", materialBrush(CardMaterial.TONAL, base, scheme))
+        for (material in listOf(CardMaterial.GRADIENT, CardMaterial.SOFT)) {
+            assertTrue("$material 必须产出可见的一层", materialBrush(material, base, scheme) != null)
+        }
     }
 
     /**
-     * 纸感画刷是在 `drawBehind` 里取的：如果每次都重建，滚动时就是每帧一张 64×64 位图。
-     * 这类抖动会被帧时间实测误读成"纸感本身很贵"，所以缓存语义要锁死。
+     * 柔光必须是"顶亮 → 底色 → 底沉"的三站，方向不能反
+     * （维护者反馈过"曲线反了"，所以这里把方向钉死）。
+     *
+     * 注意：它**不是**亮度中性的——近白卡片没有提亮空间，所以净效果是略偏暗。
+     * 这是物理约束而不是缺陷；真正要守的是"方向正确"与"可见"。
      */
     @Test
-    fun brushCacheCreatesEachKeyExactlyOnce() {
-        val cache = SingleValueCache<String>()
-        var created = 0
-        fun value(seed: Long, alpha: Float) = cache.get(seed, alpha) {
-            created++
-            "brush-$seed-$alpha"
+    fun softLightIsATopLitThreeStopGradient() {
+        val scheme = lightColorScheme()
+        val base = scheme.surfaceContainerLow
+        val stops = softLightStops(base, scheme.onSurface)
+        assertEquals("柔光是三站", 3, stops.size)
+        assertEquals("中间站就是底色本身", base, stops[1])
+        assertTrue("顶站要比中间亮", stops[0].luminance() > stops[1].luminance())
+        assertTrue("底站要比中间沉", stops[2].luminance() < stops[1].luminance())
+    }
+
+    /** 柔光要真的看得出来：顶底落差不能小到不可感知。 */
+    @Test
+    fun softLightIsStrongEnoughToBeVisible() {
+        for (theme in FocusFlowThemeOption.builtInEntries()) {
+            for (dark in listOf(false, true)) {
+                val scheme = focusFlowThemeSpec(theme, darkMode = dark).colorScheme
+                val stops = softLightStops(scheme.surfaceContainerLow, scheme.onSurface)
+                val delta = kotlin.math.abs(stops[0].luminance() - stops[2].luminance())
+                assertTrue(
+                    "${theme.label}（${if (dark) "深色" else "浅色"}）柔光顶底亮度差只有 $delta，太小会看不出来",
+                    delta > 0.01f
+                )
+            }
         }
-
-        assertSame(value(DEFAULT_NOISE_SEED, DEFAULT_NOISE_ALPHA), value(DEFAULT_NOISE_SEED, DEFAULT_NOISE_ALPHA))
-        assertEquals("同一个 key 只能创建一次", 1, created)
-
-        // 不同种子 / 不同透明度是不同纹理，各建一次
-        value(1L, DEFAULT_NOISE_ALPHA)
-        value(DEFAULT_NOISE_SEED, 0.2f)
-        assertEquals(3, created)
-
-        // 回到旧 key 仍然复用，不会重建
-        value(DEFAULT_NOISE_SEED, DEFAULT_NOISE_ALPHA)
-        assertEquals(3, created)
     }
 }

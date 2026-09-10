@@ -32,7 +32,7 @@ class ThemePresetCodecTest {
         gradientTop = 0xFFDCE9F2.toInt(),
         gradientBottom = 0xFFF7FBFF.toInt(),
         gradientFollowsContent = true,
-        cardMaterial = CardMaterial.PAPER,
+        cardMaterial = CardMaterial.SOFT,
         timetableBackdrop = BackdropKind.COLOR,
         timetableColor = 0xFFF2ECE8.toInt()
     )
