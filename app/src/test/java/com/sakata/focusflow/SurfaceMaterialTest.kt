@@ -142,17 +142,22 @@ class SurfaceMaterialTest {
         assertTrue(topGap(1f) > topGap(0.5f))
         assertTrue(bottomGap(2f) > bottomGap(1f))
         assertTrue(bottomGap(1f) > bottomGap(0.5f))
-        // 越界读数夹回 0..2，不抛错
+        // 越界读数夹回 0..GRADIENT_STRENGTH_MAX/100，不抛错
+        val max = GRADIENT_STRENGTH_MAX / 100f
         assertEquals(ThemeGradient.pageStops(apricot, 0f), ThemeGradient.pageStops(apricot, -5f))
-        assertEquals(ThemeGradient.pageStops(apricot, 2f), ThemeGradient.pageStops(apricot, 9f))
+        assertEquals(ThemeGradient.pageStops(apricot, max), ThemeGradient.pageStops(apricot, 9f))
+        // 上限确实比原来的 200% 更明显（这正是"扩大范围"的意义）
+        assertTrue(bottomGap(max) > bottomGap(2f))
     }
 
     @Test
     fun strongestGradientStillKeepsBodyTextAtAaaLevel() {
         val text = 0xFF241D1A.toInt()
-        for (stop in ThemeGradient.pageStops(apricot, 2f)) {
+        // 直接拿**上限那一档**来测：这才是用户能把滑块推到的最不利情况。
+        // （上限从 200 提到 240 时，正是这条把"还能不能再高"变成可算的问题。）
+        for (stop in ThemeGradient.pageStops(apricot, GRADIENT_STRENGTH_MAX / 100f)) {
             val ratio = AppearanceContrast.ratio(text, argb(stop))
-            assertTrue("最强档也要 ≥7:1（AAA），实际 $ratio", ratio >= 7f)
+            assertTrue("最强档（${GRADIENT_STRENGTH_MAX}%）也要 ≥7:1（AAA），实际 $ratio", ratio >= 7f)
         }
     }
 

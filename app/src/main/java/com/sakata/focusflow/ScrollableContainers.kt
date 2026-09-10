@@ -55,7 +55,7 @@ internal fun ScrollableWithBar(
         // 而这里不需要任何滚动事件：brush 会铺满内容高度，内容有多长渐变就有多长，
         // 于是每屏只走一小段、竖向变化更缓——正是维护者要的效果。
         val appearance = LocalAppearance.current
-        val contentBackdrop = appearance.pageBackdrop == BackdropKind.GRADIENT &&
+        val contentBackdrop = appearance.effectivePageBackdrop == BackdropKind.GRADIENT &&
             appearance.gradientFollowsContent
         Column(
             Modifier.fillMaxSize().verticalScroll(scrollState)

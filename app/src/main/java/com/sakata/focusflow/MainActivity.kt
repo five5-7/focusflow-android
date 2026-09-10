@@ -257,7 +257,12 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     }
     // 8.1.0 动画速度（外观页）：全局时长倍率，写入 MotionSettings 供各动画换算。
     var animationSpeed by remember { mutableStateOf(store.loadAnimationSpeed()) }
-    LaunchedEffect(animationSpeed) { MotionSettings.update(animationSpeed) }
+    // 8.2.0：关掉「丰富的动画与外观效果」时，时长整体收紧到 0.6 倍——
+    // 只保留最基本的淡入淡出与颜色过渡，不做长时间缩放/形变，低端机更跟手。
+    // 注意这里是"更短"而不是 0：置 0 会让 MotionSpec 全部退化成 snap，
+    // 那就连"最基本的淡入淡出"也没有了，与这个开关的承诺不符。
+    val effectiveMotionScale = if (appearance.richEffects) animationSpeed else animationSpeed * 0.6f
+    LaunchedEffect(effectiveMotionScale) { MotionSettings.update(effectiveMotionScale) }
     var customThemeColors by remember { mutableStateOf(store.loadCustomThemeColors() ?: FocusFlowThemeOption.CUSTOM.colors) }
     var themePresets by remember { mutableStateOf(store.loadThemePresets()) }
     // 自定义主题的"恢复默认"目标：最近一次选过的内置主题。
@@ -1625,6 +1630,8 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             onAdd = { dialogHost.dismissCurrent(); addMenuOpen = true },
             canGoBack = navHistory.canGoBack(),
             canGoForward = navHistory.canGoForward(),
+            // 弹窗打开时让底栏退后（压暗 + 收阴影）：它的 zIndex 比弹窗层高，遮罩盖不到它。
+            dialogOpen = dialogLayerVisible,
             onBackHistory = { goBackHistory() },
             onForwardHistory = { goForwardHistory() },
             onLongPressBack = { historyListOpen = true },

@@ -564,6 +564,15 @@ private data class BaselineVariantDraft(val name: String)
                             onDarkModeChange
                         )
                         HorizontalDivider()
+                        // 维护者口径：这些效果都是逐帧的绘制成本，低端机会吃掉流畅度，
+                        // 需要一个"要流畅、不要花哨"的总开关，而不是让用户去猜某个具体档位。
+                        SettingSwitch(
+                            "丰富的动画与外观效果",
+                            "开启：多个渐变、卡片材质（柔光/纸感）、页面与课表底图，以及底栏形变与转场动画。" +
+                                "关闭：只留最基本的淡入淡出与纯色配色，低端机上更流畅（背景选过的图片与渐变色都保留，随时可再开回来）。",
+                            appearance.richEffects
+                        ) { onAppearanceChange(appearance.copy(richEffects = it)) }
+                        HorizontalDivider()
                         Text("动画速度", fontWeight = FontWeight.SemiBold)
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             listOf(0f to "关闭", 0.5f to "较快", 1f to "标准", 1.5f to "较慢").forEach { (scale, label) ->

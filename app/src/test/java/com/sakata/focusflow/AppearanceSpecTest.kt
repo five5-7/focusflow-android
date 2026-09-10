@@ -59,7 +59,8 @@ class AppearanceSpecTest {
     fun gradientStrengthDefaultsAndClamps() {
         assertEquals(100, AppearanceSpec.DEFAULT.gradientStrength)
         assertEquals(1f, AppearanceSpec.DEFAULT.gradientScale, 0.0001f)
-        assertEquals(2f, AppearanceSpec(gradientStrength = 500).gradientScale, 0.0001f)
+        // 上限 = GRADIENT_STRENGTH_MAX（2026-09-10 由 200 调到 300）：越界读数夹到上限
+        assertEquals(GRADIENT_STRENGTH_MAX / 100f, AppearanceSpec(gradientStrength = 500).gradientScale, 0.0001f)
         assertEquals(0f, AppearanceSpec(gradientStrength = -20).gradientScale, 0.0001f)
         // 老装机（没有这个键）读出来必须是设计值，外观不变
         assertEquals(100, AppearanceSpec.fromKeys(null, null, 100, 100, 0, false, 0, 0, null, null, 0, null, 100, null).gradientStrength)

@@ -229,16 +229,19 @@ internal fun GradientStopsControls(
     onStatus: (String) -> Unit
 ) {
     Text("渐变配色", style = MaterialTheme.typography.labelMedium)
-    // 9 个色板（8 组自选 + 跟随主题）一行放不下，用 FlowRow 自动换行。
+    // 色板数量多（自选组 + 「跟随主题」），一行放不下，用 FlowRow 自动换行。
+    // 尺寸从 34dp/间距 10dp 收到 30dp/间距 8dp：旧值在 360dp 宽屏上一次只放得下 8 个
+    // （9 × 34 + 8 × 10 = 386 > 可用 328dp），最后一个被挤到边上贴边显示
+    // （维护者反馈"固定配色最右侧选项会被挤压"）。收小后 11 个一行、且换行也均匀。
     FlowRow(
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         ThemeGradient.PAGE_GRADIENT_PAIRS.forEach { (top, bottom) ->
             val selected = appearance.gradientTop == top && appearance.gradientBottom == bottom
             Box(
                 Modifier
-                    .size(34.dp)
+                    .size(30.dp)
                     .clip(CircleShape)
                     .background(
                         androidx.compose.ui.graphics.Brush.verticalGradient(
@@ -259,7 +262,7 @@ internal fun GradientStopsControls(
         // "跟随主题"档：清掉自选色
         Box(
             Modifier
-                .size(34.dp)
+                .size(30.dp)
                 .clip(CircleShape)
                 .background(MaterialTheme.colorScheme.surfaceVariant)
                 .border(
@@ -281,12 +284,12 @@ internal fun GradientStopsControls(
     Text("渐变强度 ${appearance.gradientStrength}%", style = MaterialTheme.typography.labelMedium)
     Slider(
         value = appearance.gradientStrength.toFloat(),
-        onValueChange = { onAppearanceChange(appearance.copy(gradientStrength = it.toInt().coerceIn(0, 200))) },
-        valueRange = 0f..200f,
+        onValueChange = { onAppearanceChange(appearance.copy(gradientStrength = it.toInt().coerceIn(0, GRADIENT_STRENGTH_MAX))) },
+        valueRange = 0f..GRADIENT_STRENGTH_MAX.toFloat(),
         modifier = Modifier.fillMaxWidth()
     )
     Text(
-        "100% 是设计值（顶亮 → 底色 → 微深）；调到 0% 等于纯色，往右更明显。",
+        "100% 是设计值（顶亮 → 底色 → 微深）；调到 0% 等于纯色，往右更明显（最高 $GRADIENT_STRENGTH_MAX%）。",
         style = MaterialTheme.typography.labelSmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant
     )

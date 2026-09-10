@@ -20,7 +20,7 @@ internal fun StatusBarScrim(safeTop: Dp, modifier: Modifier = Modifier) {
     // 跟随主题时就是原来的页面底色；主题渐变时用渐变的**顶部色**——否则最上面一截仍是旧颜色，
     // 看起来像"顶部功能栏没跟着变"（维护者真机反馈过这一点）。
     val appearance = LocalAppearance.current
-    val base = when (appearance.pageBackdrop) {
+    val base = when (appearance.effectivePageBackdrop) {
         BackdropKind.GRADIENT -> ThemeGradient.pageStops(MaterialTheme.colorScheme, appearance.gradientScale).first()
         else -> MaterialTheme.colorScheme.background
     }

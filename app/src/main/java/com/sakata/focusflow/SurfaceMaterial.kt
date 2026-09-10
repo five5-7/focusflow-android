@@ -56,8 +56,8 @@ internal fun Modifier.pageLayerBackground(flatColor: Color): Modifier {
     // 但**层本身仍必须不透明**——否则会退回 8.1.1 修过的"转场时两层互相透出来"。
     // 这里用主题页面底色兜底：内容会盖住它；内容比视口短时下方也是干净的页面底色，
     // 不会露出对不上的渐变。
-    return if (appearance.pageBackdrop == BackdropKind.THEME ||
-        (appearance.pageBackdrop == BackdropKind.GRADIENT && appearance.gradientFollowsContent)
+    return if (appearance.effectivePageBackdrop == BackdropKind.THEME ||
+        (appearance.effectivePageBackdrop == BackdropKind.GRADIENT && appearance.gradientFollowsContent)
     ) {
         background(flatColor)
     } else {
@@ -68,7 +68,7 @@ internal fun Modifier.pageLayerBackground(flatColor: Color): Modifier {
 /** 页面容器色：跟随主题时就是原来的 background；选了渐变/图片就交给背景层去画（透明）。 */
 @Composable
 internal fun pageContainerColor(): Color =
-    if (LocalAppearance.current.pageBackdrop == BackdropKind.THEME) {
+    if (LocalAppearance.current.effectivePageBackdrop == BackdropKind.THEME) {
         MaterialTheme.colorScheme.background
     } else {
         Color.Transparent
@@ -82,7 +82,7 @@ internal fun pageContainerColor(): Color =
  */
 @Composable
 internal fun timetableContainerColor(): Color =
-    if (LocalAppearance.current.timetableBackdrop == BackdropKind.THEME) {
+    if (LocalAppearance.current.effectiveTimetableBackdrop == BackdropKind.THEME) {
         MaterialTheme.colorScheme.surface
     } else {
         Color.Transparent
@@ -104,6 +104,29 @@ internal fun blendSrgb(base: Color, overlay: Color, alpha: Float): Color {
         alpha = base.alpha
     )
 }
+
+/**
+ * 渐变强度的可选上限（百分数）。100 = 设计值，0 = 纯色。
+ *
+ * 2026-09-10 由 200 提到 240（维护者口径「强度可选范围扩大一点」）。
+ *
+ * **这个数字是算出来的，不是拍的。** 强度直接乘在"顶亮/底深"的混色权重上，
+ * 调大就会把最不利底色压穿。实测各档的"全主题 · 明暗"最低正文对比度：
+ *
+ * | 强度 | 最低对比度 | 最不利格子 |
+ * |---|---|---|
+ * | 200% | 8.07 | 海盐蓝·深色 |
+ * | **240%** | **6.97** | 海盐蓝·深色（底站） |
+ * | 250% | 6.68 | 同上 |
+ * | 240% | 6.97 | 同上（差一点点，仍然不过 7:1） |
+ * | 300% | 5.54 | 同上 |
+ *
+ * 上限取"仍能守住 7:1（AAA）的最大档"：240% 实测 6.972 仍差一点点，
+ * 所以停在 225%。再往上就必须放宽
+ * `AppearanceContrastMatrixTest.nonImageBackdropsStayAtSevenToOne` 这条预算，
+ * 而那属于产品取舍，不该顺手改掉。
+ */
+internal const val GRADIENT_STRENGTH_MAX = 225
 
 /** 主题渐变：按当前配色派生，不写死色值，自定义主题与深色模式自动跟着变。 */
 internal object ThemeGradient {
@@ -143,7 +166,7 @@ internal object ThemeGradient {
     )
 
     fun pageStops(scheme: ColorScheme, strength: Float = 1f, top: Int = 0, bottom: Int = 0): List<Color> {
-        val s = strength.coerceIn(0f, 2f)
+        val s = strength.coerceIn(0f, GRADIENT_STRENGTH_MAX / 100f)
         // 深色模式单独一套幅度（维护者提醒"注意适配深色模式"）：
         // 深色页面上"顶亮 85%"会变成一条刺眼亮带，而且深色模式的正文是浅色的，
         // 浅底会直接把可读性吃掉。所以深色下只做"顶上微微提亮、底下压深"。
@@ -166,8 +189,18 @@ internal object ThemeGradient {
         return listOf(chosenTop, middle, chosenBottom)
     }
 
-    /** 自选渐变配色（顶色 → 底色）；选了以后 [pageStops] 就用它，不再按主题派生。 */
+    /**
+     * 自选渐变配色（顶色 → 底色）；选了以后 [pageStops] 就用它，不再按主题派生。
+     *
+     * 原先八组全是"接近白的浅色"，两两差别很小、真机上挑不出明显不同的效果
+     * （维护者反馈"颜色可选范围扩大一点"）。现在扩到 14 组，并按"两端的色差"排序：
+     * 前段是原来那批极浅的，中段加大明度落差，后段四组是**明显有色**的深一点的纸色。
+     *
+     * 深色模式下这一切仍然成立：两端都会经 [adaptBackdropColor] 以 0.22 权重压到深色底上，
+     * 保留色相、整页仍是深色，所以"选了深色纸色"在深色模式下不会变成一块亮斑。
+     */
     internal val PAGE_GRADIENT_PAIRS: List<Pair<Int, Int>> = listOf(
+        // —— 极浅纸色（原有八组，保持在前，老用户的位置不变）——
         0xFFFFFCF8.toInt() to 0xFFECE4DE.toInt(), // 暖白 → 暖灰
         0xFFF5F9FC.toInt() to 0xFFDEE8F0.toInt(), // 雾蓝 → 浅蓝
         0xFFF8FBF4.toInt() to 0xFFE2ECDC.toInt(), // 淡竹 → 浅竹
@@ -175,7 +208,15 @@ internal object ThemeGradient {
         0xFFFAF8FD.toInt() to 0xFFE8E3F2.toInt(), // 浅薰 → 淡紫
         0xFFFCF9F2.toInt() to 0xFFEEE5D6.toInt(), // 亚麻 → 燕麦
         0xFFF7FAFB.toInt() to 0xFFE2E7E9.toInt(), // 青灰 → 雾灰
-        0xFFFFFAF0.toInt() to 0xFFF2E2CE.toInt()  // 晨曦 → 暖沙
+        0xFFFFFAF0.toInt() to 0xFFF2E2CE.toInt(), // 晨曦 → 暖沙
+        // —— 中段：加大明度落差，渐变看得更清楚 ——
+        0xFFFFFDF7.toInt() to 0xFFDCD3C4.toInt(), // 素笺 → 灰卡
+        0xFFFBFDFF.toInt() to 0xFFC9D8E4.toInt(), // 霜白 → 远山
+        0xFFF6FBF3.toInt() to 0xFFC8DCC4.toInt(), // 新芽 → 苔痕
+        // —— 后段：明显有色 / 略深，两端差得开 ——
+        0xFFF3F6FA.toInt() to 0xFFB9C7D6.toInt(), // 铅灰 → 石青
+        0xFFF7F1EE.toInt() to 0xFFCBB4A8.toInt(), // 陶土 → 赭石
+        0xFF2B3038.toInt() to 0xFF11151A.toInt()  // 墨夜 → 深空（深色档）
     )
 
     fun cardStops(scheme: ColorScheme): List<Color> = listOf(
@@ -251,8 +292,10 @@ internal fun Modifier.appearanceBackdrop(
     role: BackdropRole = BackdropRole.Page
 ): Modifier {
     val backdrop = when (role) {
-        BackdropRole.Page -> spec.pageBackdrop
-        BackdropRole.Timetable -> spec.timetableBackdrop
+        // 用 effective*：关掉「丰富效果」时渐变/图片一律回落成主题纯色
+        // （固定颜色例外，它只是一块纯色填充，几乎没有绘制成本）。
+        BackdropRole.Page -> spec.effectivePageBackdrop
+        BackdropRole.Timetable -> spec.effectiveTimetableBackdrop
     }
     if (backdrop == BackdropKind.THEME) return this
     // 「渐变跟随内容」时视口这层不画渐变：改由滚动内容自己按内容高度铺（见 ScrollableWithContainers），
@@ -328,17 +371,63 @@ private fun DrawScope.drawImageCover(bitmap: ImageBitmap, alpha: Float) {
 }
 
 /**
- * 卡片材质对应的画刷。
+ * 卡片材质对应的画刷（在卡片底色之上叠的那一层）。
  *
- * [CardMaterial.TONAL] 返回 null（= 现在的容器色）；柔光与纸感在阶段 E 落地，
- * 落地前一律按现状渲染，避免出现"设置了却没变化"的假开关。
+ * [CardMaterial.TONAL] 返回 null（= 直接用原来的容器色卡片）。
+ *
+ * 柔光与纸感**必须有可见的填充变化**：原先两者都 `-> null`，只在 [FocusCard] 里挂了同一份
+ * 阴影，结果"柔光"和"纸感"渲染出来完全一样，而柔光本身又看不出任何变化（真机反馈：
+ * "柔光和纸感似乎是一样的"）。现在两者都走 [materialBrush] 的柔光底（顶面提亮 → 底部微沉），
+ * 纸感在其之上再叠一层噪点（见 [FocusCard]）。
  */
 @Composable
-internal fun cardMaterialBrush(material: CardMaterial): Brush? = when (material) {
-    CardMaterial.TONAL -> null
-    CardMaterial.GRADIENT -> ThemeGradient.card(MaterialTheme.colorScheme)
-    CardMaterial.SOFT, CardMaterial.PAPER -> null
-}
+internal fun cardMaterialBrush(material: CardMaterial): Brush? =
+    materialBrush(material, MaterialTheme.colorScheme.surfaceContainerLow, MaterialTheme.colorScheme)
+/**
+ * 材质叠层（通用）：给定**底色**，返回该材质要在它上面画的一层；[CardMaterial.TONAL] 返回 null。
+ *
+ * 抽成"给定底色"而不是写死 `surfaceContainerLow`，是因为同一套材质还要用在
+ * **底栏**上——底栏的底色是 `navigationBarColor`，不是卡片色。维护者口径：
+ * 「材质也影响导航栏」。卡片、底栏、以后别的表面都从这里取，只有一份实现。
+ */
+internal fun materialBrush(material: CardMaterial, base: Color, scheme: ColorScheme): Brush? =
+    when (material) {
+        CardMaterial.TONAL -> null
+        CardMaterial.GRADIENT -> Brush.verticalGradient(listOf(blendSrgb(base, scheme.primary, 0.07f), base))
+        CardMaterial.SOFT, CardMaterial.PAPER -> softLightBrush(base, scheme.onSurface)
+    }
+
+/**
+ * 柔光的顶面高光强度（白色混入比例）与底部压深强度（onSurface 混入比例）。
+ *
+ * 刻意保持很淡：卡片正文用的是 `onSurface`，顶面提亮会让深色文字对比度变好、
+ * 底部压深会让它变差，所以底部权重必须更小。`FocusCardMaterialTest` 里有断言守着
+ * "柔光/纸感在最不利的一站上，onSurface 正文对比度仍 ≥ 4.5:1"（7 套主题 × 明暗）。
+ */
+internal const val SOFT_TOP_LIGHT = 0.055f
+internal const val SOFT_BOTTOM_SHADE = 0.030f
+
+/**
+ * 柔光的底色层：顶面微亮、底部微沉，像被上方的光轻轻照到。
+ *
+ * 深色模式下同样成立——提亮是"往白里混"、压深是"往文字色里混"，
+ * 两者都朝各自明暗的反方向走，所以深色表面是"顶上稍亮、底下稍暗"，不会发灰。
+ */
+/**
+ * 柔光的三个站点（顶亮 → 底色 → 底沉）。
+ *
+ * 单独抽出来是因为 `Brush.VerticalGradient.colorStops` 在当前 Compose 版本里
+ * 对测试不可见——想断言"柔光到底画了什么"就只能从纯函数这一层拿。
+ * 画刷与测试都从这一个地方取，不会出现"文档/测试与实现漂移"。
+ */
+internal fun softLightStops(base: Color, shade: Color): List<Color> = listOf(
+    blendSrgb(base, Color.White, SOFT_TOP_LIGHT),
+    base,
+    blendSrgb(base, shade, SOFT_BOTTOM_SHADE)
+)
+
+internal fun softLightBrush(base: Color, shade: Color): Brush =
+    Brush.verticalGradient(softLightStops(base, shade))
 
 /** 供测试：Crop 铺满时源图应取的矩形（与 [drawImageCover] 同一套算法）。 */
 internal fun coverSourceRect(srcW: Int, srcH: Int, dstW: Float, dstH: Float): IntArray {

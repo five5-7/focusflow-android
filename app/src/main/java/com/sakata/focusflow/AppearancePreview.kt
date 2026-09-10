@@ -72,14 +72,14 @@ internal fun AppearancePreview(
                     // 撑满预览块高度的渐变，口径与 ScrollableWithBar 一致：预览看到的
                     // "整块都铺着渐变"正是真实页面上内容够长时的样子。
                     .then(
-                        if (appearance.pageBackdrop == BackdropKind.THEME) {
+                        if (appearance.effectivePageBackdrop == BackdropKind.THEME) {
                             Modifier.background(scheme.background)
                         } else {
                             Modifier
                         }
                     )
                     .then(
-                        if (appearance.pageBackdrop == BackdropKind.GRADIENT && appearance.gradientFollowsContent) {
+                        if (appearance.effectivePageBackdrop == BackdropKind.GRADIENT && appearance.gradientFollowsContent) {
                             Modifier.background(
                                 ThemeGradient.page(
                                     scheme,

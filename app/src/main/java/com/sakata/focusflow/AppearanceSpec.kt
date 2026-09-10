@@ -75,23 +75,54 @@ internal data class AppearanceSpec(
     val timetableColor: Int = 0,
     val timetableImage: String = "",
     val timetableOpacity: Int = 100,
-    val extractedColors: List<Long> = emptyList()
+    val extractedColors: List<Long> = emptyList(),
+    /**
+     * 丰富的动画与外观效果（维护者口径 8.2.0）。
+     *
+     * 默认 **true = 保持现状**，老装机读不到这个键就等于现在的样子。
+     * 关掉之后只保留最基本的渲染：背景退成纯色（渐变/图片/课表底图都不画）、
+     * 卡片材质回落成默认纯色卡片、各种装饰性动画与底栏形变走最简形态。
+     * 存在的理由：这些效果是逐帧的绘制/动画成本，低端机上会吃掉流畅度，
+     * 需要一个"我要流畅，不要花哨"的开关——而不是逼用户去猜某个具体档位。
+     */
+    val richEffects: Boolean = true
 ) {
     /** 背景图不透明度换算成 0..1，越界读数夹回合法区间。 */
     val imageAlpha: Float get() = backdropOpacity.coerceIn(0, 100) / 100f
 
-    /** 渐变强度换算成倍率（0..2）。 */
-    val gradientScale: Float get() = gradientStrength.coerceIn(0, 200) / 100f
+    /** 渐变强度换算成倍率（0..[GRADIENT_STRENGTH_MAX]/100）。 */
+    val gradientScale: Float get() = gradientStrength.coerceIn(0, GRADIENT_STRENGTH_MAX) / 100f
 
     val timetableAlpha: Float get() = timetableOpacity.coerceIn(0, 100) / 100f
 
+    /**
+     * 实际要画的页面背景档位：关掉丰富效果时，除了"固定颜色"以外的花哨档位
+     * （主题渐变 / 自选图片）一律回落成 [BackdropKind.THEME]。
+     *
+     * 保留固定颜色是有意的：那只是一块纯色填充，几乎没有绘制成本，
+     * 而且是用户明确选过的"页面主色"，砍掉反而像是把设置弄丢了。
+     */
+    val effectivePageBackdrop: BackdropKind
+        get() = if (richEffects) pageBackdrop else when (pageBackdrop) {
+            BackdropKind.COLOR -> BackdropKind.COLOR
+            else -> BackdropKind.THEME
+        }
+
+    /** 实际要画的课表底色档位：关掉丰富效果时只保留"跟随主题"。 */
+    val effectiveTimetableBackdrop: BackdropKind
+        get() = if (richEffects) timetableBackdrop else BackdropKind.THEME
+
+    /** 实际要用的卡片材质：关掉丰富效果时回落成默认纯色卡片。 */
+    val effectiveCardMaterial: CardMaterial
+        get() = if (richEffects) cardMaterial else CardMaterial.TONAL
+
     /** 页面此刻是否真的有一张可画的背景图。 */
     val hasPageImage: Boolean
-        get() = pageBackdrop == BackdropKind.IMAGE && pageImage.isNotBlank() && backdropOpacity > 0
+        get() = effectivePageBackdrop == BackdropKind.IMAGE && pageImage.isNotBlank() && backdropOpacity > 0
 
     /** 课表此刻是否真的有一张可画的背景图。 */
     val hasTimetableImage: Boolean
-        get() = timetableBackdrop == BackdropKind.IMAGE && timetableImage.isNotBlank() && timetableOpacity > 0
+        get() = effectiveTimetableBackdrop == BackdropKind.IMAGE && timetableImage.isNotBlank() && timetableOpacity > 0
 
     /** 课表是否用了自选颜色。 */
     val timetableUsesColor: Boolean
@@ -177,7 +208,8 @@ internal data class AppearanceSpec(
             timetableColor: Int,
             timetableImage: String?,
             timetableOpacity: Int,
-            extracted: String?
+            extracted: String?,
+            richEffects: Boolean = true
         ): AppearanceSpec = AppearanceSpec(
             pageBackdrop = BackdropKind.fromKey(pageBackdrop),
             pageImage = pageImage.orEmpty(),
@@ -192,7 +224,8 @@ internal data class AppearanceSpec(
             timetableColor = timetableColor,
             timetableImage = timetableImage.orEmpty(),
             timetableOpacity = timetableOpacity,
-            extractedColors = decodeExtracted(extracted)
+            extractedColors = decodeExtracted(extracted),
+            richEffects = richEffects
         )
     }
 }

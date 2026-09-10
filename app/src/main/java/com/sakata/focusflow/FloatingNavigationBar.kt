@@ -2,6 +2,7 @@ package com.sakata.focusflow
 
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.BorderStroke
@@ -117,6 +118,8 @@ internal fun FloatingNavigationBar(
     onAdd: () -> Unit,
     canGoBack: Boolean = false,
     canGoForward: Boolean = false,
+    /** 弹窗浮层是否打开：打开时底栏退到后面去（压暗 + 收阴影），别抢弹窗的存在感。 */
+    dialogOpen: Boolean = false,
     onBackHistory: () -> Unit = {},
     onForwardHistory: () -> Unit = {},
     onLongPressBack: () -> Unit = {},
@@ -124,6 +127,19 @@ internal fun FloatingNavigationBar(
 ) {
     val background by animateColorAsState(containerColor, MotionSpec.move(), label = "navigationTheme")
     val indicator = navigationIndicatorColor(background, MaterialTheme.colorScheme.primary)
+    // 8.2.0：弹窗打开时底栏跟着"退后"。
+    // 底栏的 zIndex 比弹窗层高（弹窗打开时它还要可点），所以弹窗那层 32% 的遮罩**盖不到它**——
+    // 真机上的表现就是"弹窗开了，底栏一点没变，反而比弹窗还抢眼"（维护者反馈）。
+    // 这里让底栏自己同步压暗，并把 7dp 的投影收到 1dp：压暗让它退到遮罩底下，
+    // 收阴影则去掉了那圈"浮在最上层"的观感。用 MotionSpec.move() 与弹窗遮罩同节奏。
+    val barDim by animateFloatAsState(if (dialogOpen) MotionSpec.SCRIM_ALPHA else 0f, MotionSpec.move(), label = "barDim")
+    val barShadow by animateDpAsState(if (dialogOpen) 1.dp else 7.dp, MotionSpec.move(), label = "barShadow")
+    // 8.2.0：卡片材质同样作用在底栏上（维护者口径「材质也影响导航栏」）。
+    // 用与卡片同一个 materialBrush，底色换成底栏自己的 navigationBarColor；
+    // 纸感在底栏上不再叠噪点——那层噪点是为"纸面卡片"做的，铺满一条底栏会显得脏。
+    val barMaterial = LocalAppearance.current.effectiveCardMaterial
+    val scheme = MaterialTheme.colorScheme
+    val materialBrushValue = materialBrush(barMaterial, background, scheme)
     // 8.1.0 形变：每个顶角各自跟随自己的图标——有回退才伸出左角、有折返才伸出右角；图标消失即收回。
     val backProgress by animateFloatAsState(if (canGoBack) 1f else 0f, MotionSpec.morph(), label = "backCorner")
     val forwardProgress by animateFloatAsState(if (canGoForward) 1f else 0f, MotionSpec.morph(), label = "forwardCorner")
@@ -165,12 +181,25 @@ internal fun FloatingNavigationBar(
                 .fillMaxWidth()
         ) {
             Surface(
-                modifier = Modifier.fillMaxWidth(),
+                // 弹窗打开时整体压暗：用 graphicsLayer 的 alpha 让底栏"沉到遮罩下面"，
+                // 与弹窗那层 Color.Black + SCRIM_ALPHA 同一个观感。
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .graphicsLayer { alpha = 1f - barDim }
+                    // 材质叠层画在底栏自己的形状里（Surface 已按 barShape 裁切）。
+                    .then(
+                        if (materialBrushValue != null) {
+                            Modifier.drawBehind { drawRect(materialBrushValue) }
+                        } else {
+                            Modifier
+                        }
+                    ),
                 shape = barShape,
                 color = background, tonalElevation = 0.dp,
                 // 维护者口径：不要那条 2dp 的硬灰线，改成"靠里浅、靠边深"的过渡——
                 // 描边收成几乎看不见的发丝线，靠阴影把边缘柔化出去（3dp → 7dp）。
-                shadowElevation = 7.dp,
+                // 弹窗打开时收到 1dp：那圈投影正是"抢弹窗存在感"的来源。
+                shadowElevation = barShadow,
                 border = BorderStroke(0.6.dp, navigationContentColor(background).copy(alpha = 0.12f))
             ) {
                 // Internal padding contains BOTH selected background and ripple within the outer corners.

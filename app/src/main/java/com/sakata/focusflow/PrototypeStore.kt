@@ -116,7 +116,9 @@ class PrototypeStore(context: Context) {
         timetableColor = preferences.getInt("appearance_timetable_color", 0),
         timetableImage = preferences.getString("appearance_timetable_image", null),
         timetableOpacity = preferences.getInt("appearance_timetable_opacity", 100),
-        extracted = preferences.getString("appearance_extracted_colors", null)
+        extracted = preferences.getString("appearance_extracted_colors", null),
+        // 读不到 = true（保持现状）：老装机升级后行为不变。
+        richEffects = preferences.getBoolean("appearance_rich_effects", true)
     )
 
     internal fun saveAppearance(spec: AppearanceSpec) {
@@ -124,7 +126,7 @@ class PrototypeStore(context: Context) {
             .putString("appearance_page_backdrop", spec.pageBackdrop.storageKey)
             .putString("appearance_page_image", spec.pageImage)
             .putInt("appearance_backdrop_opacity", spec.backdropOpacity.coerceIn(0, 100))
-            .putInt("appearance_gradient_strength", spec.gradientStrength.coerceIn(0, 200))
+            .putInt("appearance_gradient_strength", spec.gradientStrength.coerceIn(0, GRADIENT_STRENGTH_MAX))
             .putInt("appearance_page_color", spec.pageColor)
             .putBoolean("appearance_gradient_follows", spec.gradientFollowsContent)
             .putInt("appearance_gradient_top", spec.gradientTop)
@@ -135,6 +137,7 @@ class PrototypeStore(context: Context) {
             .putString("appearance_timetable_image", spec.timetableImage)
             .putInt("appearance_timetable_opacity", spec.timetableOpacity.coerceIn(0, 100))
             .putString("appearance_extracted_colors", AppearanceSpec.encodeExtracted(spec.extractedColors))
+            .putBoolean("appearance_rich_effects", spec.richEffects)
             .apply()
     }
 

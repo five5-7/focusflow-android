@@ -31,6 +31,8 @@ class AppearanceContrastMatrixTest {
         "跟随主题" to Triple(BackdropKind.THEME, 100, 1f),
         "主题渐变" to Triple(BackdropKind.GRADIENT, 100, 1f),
         "渐变 200%" to Triple(BackdropKind.GRADIENT, 100, 2f),
+        // 强度上限那一档必须进总账：上限一旦调大，这里就是"最不利底色"的看门人。
+        "渐变 ${GRADIENT_STRENGTH_MAX}%（上限）" to Triple(BackdropKind.GRADIENT, 100, GRADIENT_STRENGTH_MAX / 100f),
         "固定颜色" to Triple(BackdropKind.COLOR, 100, 1f),
         "图片 1%" to Triple(BackdropKind.IMAGE, 1, 1f),
         "图片 50%" to Triple(BackdropKind.IMAGE, 50, 1f),

@@ -36,7 +36,8 @@ internal fun FocusCard(
     shape: Shape = CardDefaults.shape,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    val material = LocalAppearance.current.cardMaterial
+    // effectiveCardMaterial：关掉「丰富效果」时一律回落成原生纯色卡片。
+    val material = LocalAppearance.current.effectiveCardMaterial
     if (material == CardMaterial.TONAL) {
         Card(
             modifier = modifier,
@@ -68,16 +69,21 @@ internal fun FocusCard(
     }
 }
 
-/** 卡片材质的底色层：底色 → 渐变（可选）→ 纸感噪点（可选）→ 两侧内收。 */
+/** 卡片材质的底色层：材质层（渐变/柔光）→ 纸感噪点（可选）→ 两侧内收。 */
 private fun Modifier.cardMaterialFill(
     containerColor: Color,
     material: CardMaterial,
     scheme: ColorScheme
 ): Modifier = drawBehind {
-    drawRect(containerColor)
-    if (material == CardMaterial.GRADIENT) {
-        drawRect(ThemeGradient.card(scheme))
+    // 材质叠层与底栏共用同一份实现（materialBrush），只是底色不同。
+    val layer = materialBrush(material, containerColor, scheme)
+    if (layer != null) {
+        drawRect(layer)
+    } else {
+        // 默认材质不会走到这里（FocusCard 里 TONAL 直接返回原生 Card），留着只是为了穷尽分支。
+        drawRect(containerColor)
     }
+    // 纸感 = 柔光 + 一层极淡噪点。
     if (material == CardMaterial.PAPER) {
         drawRect(paperNoiseBrush())
     }
