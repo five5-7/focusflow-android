@@ -164,8 +164,11 @@ internal fun FloatingNavigationBar(
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 shape = barShape,
-                color = background, tonalElevation = 0.dp, shadowElevation = 3.dp,
-                border = BorderStroke(2.dp, navigationContentColor(background).copy(alpha = 0.40f))
+                color = background, tonalElevation = 0.dp,
+                // 维护者口径：不要那条 2dp 的硬灰线，改成"靠里浅、靠边深"的过渡——
+                // 描边收成几乎看不见的发丝线，靠阴影把边缘柔化出去（3dp → 7dp）。
+                shadowElevation = 7.dp,
+                border = BorderStroke(0.6.dp, navigationContentColor(background).copy(alpha = 0.12f))
             ) {
                 // Internal padding contains BOTH selected background and ripple within the outer corners.
                 BoxWithConstraints(Modifier.padding(FloatingNavigationLayout.INNER_PADDING_DP.dp)) {
@@ -259,7 +262,7 @@ internal fun FloatingNavigationBar(
                 onLongPress = onLongPressBack,
                 description = "回退到上一个页面；长按查看历史",
                 tint = navigationContentColor(background),
-                modifier = Modifier.align(Alignment.TopStart).offset(x = 2.dp, y = 1.dp)
+                modifier = Modifier.align(Alignment.TopStart).offset(x = 6.dp, y = 14.dp)
             )
             CornerSymbol(
                 visible = canGoForward,
@@ -269,7 +272,7 @@ internal fun FloatingNavigationBar(
                 onLongPress = null,
                 description = "折返到后一个页面",
                 tint = navigationContentColor(background),
-                modifier = Modifier.align(Alignment.TopEnd).offset(x = (-2).dp, y = 1.dp)
+                modifier = Modifier.align(Alignment.TopEnd).offset(x = (-6).dp, y = 14.dp)
             )
         }
     }
@@ -296,7 +299,8 @@ private fun CornerSymbol(
     }
     Box(
         modifier = modifier
-            .size(28.dp)
+            // 维护者口径：箭头放大（28 → 38dp 触控框），更容易看见也更好点。
+            .size(38.dp)
             .graphicsLayer { alpha = progress.coerceIn(0f, 1f) }
             .clip(CircleShape)
             .then(clickModifier)
@@ -304,7 +308,7 @@ private fun CornerSymbol(
             .semantics { stateDescription = description },
         contentAlignment = Alignment.Center
     ) {
-        Icon(icon, contentDescription = description, tint = tint, modifier = Modifier.size(20.dp))
+        Icon(icon, contentDescription = description, tint = tint, modifier = Modifier.size(28.dp))
     }
 }
 

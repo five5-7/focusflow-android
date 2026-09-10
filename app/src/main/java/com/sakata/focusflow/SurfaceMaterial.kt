@@ -59,6 +59,20 @@ internal fun pageContainerColor(): Color =
     }
 
 /**
+ * 课表 / 日程表底板的卡片色。
+ *
+ * 选了底色或底图时让出容器色（透明），由 [Modifier.appearanceBackdrop] 的 Timetable 角色去画；
+ * 跟随主题时保持原来的 surface —— 默认外观逐像素不变。
+ */
+@Composable
+internal fun timetableContainerColor(): Color =
+    if (LocalAppearance.current.timetableBackdrop == BackdropKind.THEME) {
+        MaterialTheme.colorScheme.surface
+    } else {
+        Color.Transparent
+    }
+
+/**
  * 在 sRGB 分量上按 [alpha] 把 [overlay] 混进 [base]。
  *
  * 显式实现（而不是直接用 Compose 的 `lerp`）是为了让混合系数能被单测和文档直接对上账；
@@ -118,6 +132,27 @@ internal object ThemeGradient {
 
 /** 背景层要画在哪一层。 */
 internal enum class BackdropRole { Page, Timetable }
+
+/**
+ * 课表 / 日程表底色预设。
+ *
+ * 刻意全部取"很浅的中性纸色"：课表上压着格线、节次小字和各色课程块，
+ * 底色一旦偏深就会和它们打架。单测逐个校验它们与浅色主题的副文本色对比度达标。
+ */
+internal val TIMETABLE_BASE_PRESETS: List<Int> = listOf(
+    0xFFF2ECE8.toInt(), // 暖纸
+    0xFFEFF2F5.toInt(), // 冷纸
+    0xFFF3F0EA.toInt(), // 沙
+    0xFFEDF3EF.toInt(), // 薄荷
+    0xFFF2EEF6.toInt(), // 丁香
+    0xFFF0F1F3.toInt(), // 石墨
+    0xFFEAF0F4.toInt(), // 天青
+    0xFFF5F0EE.toInt()  // 玫瑰
+)
+
+/** 课表底色是否压得住格线与小字（浅色主题的副文本色为参照）。 */
+internal fun timetableBaseIsReadable(base: Int, textColor: Int = 0xFF44565B.toInt()): Boolean =
+    AppearanceContrast.passes(textColor, base)
 
 /**
  * 在当前内容之下画背景层。

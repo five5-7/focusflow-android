@@ -109,6 +109,20 @@ internal fun CourseTimetable(
     var selected by remember { mutableStateOf<Course?>(null) }
     val rowHeight = if (compactView) 42.dp else 70.dp
     val headerHeight = if (compactView) 34.dp else 44.dp
+    // 8.2.0「课表底色」：只给课表底板铺一层选定的颜色或图片（跟随主题时这里什么都没加，
+    // 逐像素与之前一致）。课程块颜色仍是课程数据，一个字不动。
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .appearanceBackdrop(
+                spec = LocalAppearance.current,
+                scheme = MaterialTheme.colorScheme,
+                bitmap = LocalBackdropBitmap.current,
+                role = BackdropRole.Timetable
+            )
+            .padding(2.dp)
+    ) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
             Spacer(Modifier.weight(1f))
@@ -182,6 +196,7 @@ internal fun CourseTimetable(
             }
         }
     }
+    } // 课表底色 Box
     selected?.let { course ->
         AppDialog(
             onDismissRequest = { selected = null },

@@ -115,7 +115,19 @@ internal fun DailyScheduleTimeline(
             )
         }
     var selected by remember { mutableStateOf<TimelineEvent?>(null) }
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+    // 8.2.0「课表/日程表底色」：与课表同一套底板（只动底板，日程块颜色不变）。
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .appearanceBackdrop(
+                spec = LocalAppearance.current,
+                scheme = MaterialTheme.colorScheme,
+                bitmap = LocalBackdropBitmap.current,
+                role = BackdropRole.Timetable
+            ),
+        colors = CardDefaults.cardColors(containerColor = timetableContainerColor())
+    ) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 10.dp)) {
             TimelineTimeAxis()
             TimelineDayLane(
@@ -186,7 +198,18 @@ internal fun WeeklyScheduleTimeline(
         }
         Switch(checked = showCourseInfo, onCheckedChange = { showCourseInfo = it })
     }
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .appearanceBackdrop(
+                spec = LocalAppearance.current,
+                scheme = MaterialTheme.colorScheme,
+                bitmap = LocalBackdropBitmap.current,
+                role = BackdropRole.Timetable
+            ),
+        colors = CardDefaults.cardColors(containerColor = timetableContainerColor())
+    ) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 2.dp, vertical = 10.dp)) {
             Row(Modifier.fillMaxWidth()) {
                 Spacer(Modifier.width(40.dp))

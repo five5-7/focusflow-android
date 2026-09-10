@@ -157,6 +157,18 @@ class SurfaceMaterialTest {
     }
 
     @Test
+    fun timetableBasePresetsAreAllReadable() {
+        assertEquals(8, TIMETABLE_BASE_PRESETS.size)
+        for (preset in TIMETABLE_BASE_PRESETS) {
+            assertTrue("预设底色必须压得住格线小字：$preset", timetableBaseIsReadable(preset))
+            // 也必须是"很浅的纸色"，不能深到抢课程块
+            assertTrue("预设底色要够浅，实际亮度 ${AppearanceContrast.luminance(preset)}", AppearanceContrast.luminance(preset) > 0.75f)
+        }
+        // 深色会如实被判为不达标（UI 据此提示）
+        assertTrue(!timetableBaseIsReadable(0xFF3A3A3A.toInt()))
+    }
+
+    @Test
     fun defaultAppearanceChangesNothing() {
         val spec = AppearanceSpec.DEFAULT
         assertTrue(!spec.backsPageWithSomething())

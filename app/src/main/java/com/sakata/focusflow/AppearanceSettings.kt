@@ -2,11 +2,18 @@ package com.sakata.focusflow
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
@@ -18,8 +25,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -142,6 +152,120 @@ internal fun AppearanceSettingsSection(
         status?.let {
             Text(it, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
         }
+    }
+
+    HorizontalDivider()
+    TimetableBaseSection(
+        appearance = appearance,
+        onAppearanceChange = onAppearanceChange,
+        onStatus = { status = it }
+    )
+}
+
+/**
+ * 「课表与日程表底色」：跟随主题 / 选色 / 图片，只影响底板，课程块与日程块的颜色来自数据、不动。
+ */
+@Composable
+private fun TimetableBaseSection(
+    appearance: AppearanceSpec,
+    onAppearanceChange: (AppearanceSpec) -> Unit,
+    onStatus: (String) -> Unit
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val extension = context.contentResolver.getType(uri)?.substringAfterLast('/')
+            val name = AppearanceImages.newName(extension)
+            val stored = withContext(Dispatchers.IO) {
+                val stream = runCatching { context.contentResolver.openInputStream(uri) }.getOrNull()
+                stream != null && AppearanceImages.store(context, name, stream, 1440, 3168)
+            }
+            if (stored) {
+                onAppearanceChange(appearance.copy(timetableBackdrop = BackdropKind.IMAGE, timetableImage = name))
+                onStatus("课表底色已换成这张图片")
+            } else {
+                onStatus("这张图片读不出来，换一张试试")
+            }
+        }
+    }
+
+    Text("课表与日程表底色", fontWeight = FontWeight.SemiBold)
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        listOf(
+            BackdropKind.THEME to "跟随主题",
+            BackdropKind.COLOR to "选颜色",
+            BackdropKind.IMAGE to "图片"
+        ).forEach { (kind, label) ->
+            FilterChip(
+                selected = appearance.timetableBackdrop == kind,
+                onClick = { onAppearanceChange(appearance.copy(timetableBackdrop = kind)) },
+                label = { Text(label) }
+            )
+        }
+    }
+
+    if (appearance.timetableBackdrop == BackdropKind.COLOR) {
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            TIMETABLE_BASE_PRESETS.forEach { preset ->
+                val selected = appearance.timetableColor == preset
+                Box(
+                    Modifier
+                        .size(34.dp)
+                        .clip(CircleShape)
+                        .background(Color(preset))
+                        .border(
+                            width = if (selected) 2.dp else 1.dp,
+                            color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
+                            shape = CircleShape
+                        )
+                        .clickable {
+                            onAppearanceChange(appearance.copy(timetableBackdrop = BackdropKind.COLOR, timetableColor = preset))
+                            onStatus(
+                                if (timetableBaseIsReadable(preset)) "课表底色已更新（格线和小字对比度达标）"
+                                else "这个底色偏深，课表格线可能看不清"
+                            )
+                        }
+                )
+            }
+        }
+        Text(
+            "只改课表/日程表的底板；课程块与日程块的颜色来自各自数据，不受影响。",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+
+    if (appearance.timetableBackdrop == BackdropKind.IMAGE) {
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            TextButton(onClick = { picker.launch(arrayOf("image/*")) }) {
+                Text(if (appearance.timetableImage.isBlank()) "选择图片" else "更换图片")
+            }
+            if (appearance.timetableImage.isNotBlank()) {
+                TextButton(onClick = {
+                    val old = appearance.timetableImage
+                    onAppearanceChange(appearance.copy(timetableImage = "", timetableBackdrop = BackdropKind.THEME))
+                    scope.launch { withContext(Dispatchers.IO) { AppearanceImages.delete(context, old) } }
+                    onStatus("课表底图已移除")
+                }) { Text("移除图片") }
+            }
+        }
+        Text("底图不透明度 ${appearance.timetableOpacity}%", style = MaterialTheme.typography.labelMedium)
+        Slider(
+            value = appearance.timetableOpacity.toFloat(),
+            onValueChange = {
+                onAppearanceChange(appearance.copy(timetableOpacity = it.toInt().coerceIn(0, 100)))
+            },
+            valueRange = 0f..100f,
+            modifier = Modifier.fillMaxWidth()
+        )
+        Text(
+            "底图上会压一层主题遮罩，保证格线与小字仍能看清。",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 
