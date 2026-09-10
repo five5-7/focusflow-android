@@ -1623,6 +1623,8 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             // 这样"底栏比页面暗一档"这个设计关系在**任何渐变、任何方向、任何明暗**下都成立。
             // 非渐变档（跟随主题/固定颜色）时 floatingSurfaceOverGradient 也退化回主题色。
             containerColor = navBarColourOverBackdrop(appearance, themeSpec),
+            // 用画刷传下去：单色表达不出左右渐变（维护者指出的架构问题）。
+            containerBrush = navBarBrushOverBackdrop(appearance, themeSpec),
             selectedTab = tab,
             hasSubpage = when (tab) {
                 0 -> todayInboxOpen

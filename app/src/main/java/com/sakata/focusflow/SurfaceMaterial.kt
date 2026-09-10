@@ -524,52 +524,84 @@ internal const val NAV_BAR_CENTRE_X = 0.5f
 internal const val FOLLOWS_CONTENT_SPAN = 3.2f
 
 /**
- * 页面背景此刻在**底栏那一点**的实际颜色。
+ * 页面背景此刻在**任意归一化位置** `(fx, fy)` 的颜色（非渐变档就是页面底色）。
  *
- * 非渐变档直接用页面底色（跟随主题 / 固定颜色都是纯色，底栏本来就压在同一个颜色上）；
- * 渐变档用 [gradientColourAt] 问出底栏背后的那一点。
- *
- * **「跟随内容」要单独折算**（维护者反馈："如果设置渐变跟随内容，则导航栏只呈现一个颜色
- * 而非因所处位置底色而变化"）：那个模式下渐变铺满整段内容（约 [FOLLOWS_CONTENT_SPAN] 屏），
- * 视口底部对应的归一化位置是 `0.93 / span` 而不是 `0.93`——按一屏算会取到渐变很靠后的位置，
- * 与真实底色差很远。
- *
- * 已知局限（如实记录）：这里只按"滚动到顶部"折算，**没有跟实际滚动量联动**。
- * 要做到"随滚动实时变化"，得把页面的滚动量接进来（各页各自持有 ScrollState），
- * 属于独立改动；当前至少保证取到的是"这一段跨度里的正确位置"，而不是错的位置。
+ * 这是"浮层取色"的唯一入口：把"该在哪取色"和"页面到底是什么背景"分开，
+ * 于是浮层不需要知道下面用的是渐变/图片/纯色，也不需要按方向写分支。
  */
-internal fun backdropColourBehindNavBar(
+internal fun backdropColourAt(
     appearance: AppearanceSpec,
-    scheme: ColorScheme
+    scheme: ColorScheme,
+    fx: Float,
+    fy: Float
 ): Color = when (appearance.effectivePageBackdrop) {
     BackdropKind.GRADIENT -> {
+        // 「跟随内容」时渐变铺在**滚动内容自己的高度**上（约 FOLLOWS_CONTENT_SPAN 屏），
+        // 视口里的 fy 要先折算到那条长渐变上的位置。
         val span = if (appearance.gradientFollowsContent) FOLLOWS_CONTENT_SPAN else 1f
         gradientColourAt(
             appearance.gradientDirection,
             ThemeGradient.pageStops(
                 scheme, appearance.gradientScale, appearance.gradientTop, appearance.gradientBottom
             ),
-            NAV_BAR_CENTRE_X,
-            NAV_BAR_CENTRE_Y / span
+            fx,
+            fy / span
         )
     }
     else -> scheme.background
 }
 
 /**
- * 底栏在**当前页面背景**下该用的颜色。
+ * 底栏该用的**画刷**（而不是一个颜色）。
  *
- * 这就是维护者要的"不要只针对一种情况打补丁"：不是判断"是不是顶亮底深"，
- * 而是**先问出底栏背后是什么颜色**，再把主题设计好的差值叠上去。
- * 于是 6 个方向 × 全部预制配色 × 明暗 × 渐变强度 都自动成立。
+ * 这是对维护者批评的直接回应：「你这个实现好像是针对单个情况逐一适配，成本高，效果差」。
+ * 之前的做法是在底栏中心**取一个点**得到一个颜色——这对竖直渐变勉强能用，
+ * 但底栏是横跨整屏的一条，遇到**左右渐变就完全表达不出来**（维护者：
+ * "导航栏不会相应左右渐变的底色"），于是每发现一种方向就补一个分支。
  *
- * [themeSpec] 提供主题的固定底栏色与页面底色——两者之差就是那层设计关系。
+ * 换成一构造通吃：底栏是一条**又宽又薄**的带子，所以取它**左右两端**的颜色做一条水平渐变。
+ * - 竖直渐变：左右两端同色 → 水平渐变自然退化成纯色（正确）；
+ * - 左右渐变：两端就是真实的两端（精确）；
+ * - 斜向：薄带内横向变化占主导，两端取色即为该带的一阶近似（够准）。
+ * 没有任何方向分支，也不会再有"某种方向没适配"。
+ *
+ * 主题那层"浮层相对页面底色"的差值按**每个端点**叠加，所以设计关系在任何背景下都守恒。
+ */
+internal fun navBarBrushOverBackdrop(
+    appearance: AppearanceSpec,
+    themeSpec: FocusFlowThemeSpec
+): Brush {
+    val scheme = themeSpec.colorScheme
+    // 底栏带的中心高度（视口归一化）
+    val bandY = NAV_BAR_CENTRE_Y
+    fun end(fx: Float) = floatingSurfaceOverGradient(
+        base = backdropColourAt(appearance, scheme, fx, bandY),
+        deltaFrom = scheme.background,
+        deltaTo = themeSpec.navigationBarColor
+    )
+    val left = end(0f)
+    val right = end(1f)
+    return if (left.argbInt() == right.argbInt()) {
+        // 两端同色（竖直渐变/纯色）→ 用纯色画刷，省掉一次 shader 求值
+        Brush.verticalGradient(listOf(left, left))
+    } else {
+        Brush.horizontalGradient(listOf(left, right))
+    }
+}
+
+/**
+ * 底栏带的**中心色**（供需要单一颜色的地方及单测使用）。
+ *
+ * 真正的绘制请用 [navBarBrushOverBackdrop]——它才表达得出左右渐变。
  */
 internal fun navBarColourOverBackdrop(
     appearance: AppearanceSpec,
     themeSpec: FocusFlowThemeSpec
 ): Color = floatingSurfaceOverGradient(
-    base = backdropColourBehindNavBar(appearance, themeSpec.colorScheme),
+    base = backdropColourAt(
+        appearance, themeSpec.colorScheme, NAV_BAR_CENTRE_X, NAV_BAR_CENTRE_Y /
+            (if (appearance.gradientFollowsContent) FOLLOWS_CONTENT_SPAN else 1f)
+    ),
     deltaFrom = themeSpec.colorScheme.background,
     deltaTo = themeSpec.navigationBarColor
 )

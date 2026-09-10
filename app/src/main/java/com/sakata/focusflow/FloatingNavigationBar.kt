@@ -36,6 +36,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.lerp
@@ -111,6 +112,8 @@ private class AsymmetricCapsuleShape(
 internal fun FloatingNavigationBar(
     safeInsets: WindowInsets,
     containerColor: Color,
+    /** 底栏底色画刷（表达得出左右渐变）。为 null 时退回 containerColor。 */
+    containerBrush: Brush? = null,
     selectedTab: Int,
     hasSubpage: Boolean,
     selectedPageDescription: String,
@@ -137,6 +140,8 @@ internal fun FloatingNavigationBar(
     // 8.2.0：卡片材质同样作用在底栏上（维护者口径「材质也影响导航栏」）。
     // 走与卡片同一份 surfaceMaterialFill，只是底色换成底栏自己的 navigationBarColor。
     val barMaterial = LocalAppearance.current.effectiveCardMaterial
+    // 局部 val：参数在 lambda 里做智能转换不可靠（编译器在 drawBehind 里判不出来）。
+    val barBrush: Brush? = containerBrush
     // 8.1.0 形变：每个顶角各自跟随自己的图标——有回退才伸出左角、有折返才伸出右角；图标消失即收回。
     val backProgress by animateFloatAsState(if (canGoBack && MotionSpec.morphEnabled) 1f else 0f, MotionSpec.morph(), label = "backCorner")
     val forwardProgress by animateFloatAsState(if (canGoForward && MotionSpec.morphEnabled) 1f else 0f, MotionSpec.morph(), label = "forwardCorner")
@@ -187,9 +192,22 @@ internal fun FloatingNavigationBar(
                 modifier = Modifier
                     .fillMaxWidth()
                     .graphicsLayer { alpha = 1f - barDim }
+                    // 底栏底色**用画刷而不是单色**：单色表达不出左右渐变
+                    // （维护者："导航栏不会相应左右渐变的底色"）。
+                    // clip(barShape) 是必须的——drawBehind 在 Surface 形状裁剪之外。
+                    .clip(barShape)
+                    .then(
+                        if (containerBrush != null) {
+                            Modifier.drawBehind { drawRect(containerBrush) }
+                        } else {
+                            Modifier
+                        }
+                    )
                     .surfaceMaterialFill(barMaterial, background, barShape),
                 shape = barShape,
-                color = background, tonalElevation = 0.dp,
+                // 有画刷时底色交给画刷画（透明），否则用动画后的主题色。
+                color = if (barBrush != null) Color.Transparent else background,
+                tonalElevation = 0.dp,
                 // 维护者口径：不要那条 2dp 的硬灰线，改成"靠里浅、靠边深"的过渡——
                 // 描边收成几乎看不见的发丝线，靠阴影把边缘柔化出去（3dp → 7dp）。
                 // 弹窗打开时收到 1dp：那圈投影正是"抢弹窗存在感"的来源。

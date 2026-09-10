@@ -69,7 +69,7 @@ class NavBarOverGradientTest {
                 )
                 for (spec in allSpecs()) {
                     val nav = navBarColourOverBackdrop(spec, spec0)
-                    val behind = backdropColourBehindNavBar(spec, scheme)
+                    val behind = backdropColourAt(spec, scheme, NAV_BAR_CENTRE_X, NAV_BAR_CENTRE_Y / (if (spec.gradientFollowsContent) FOLLOWS_CONTENT_SPAN else 1f))
                     val actual = ratio(nav, behind)
                     // 允许一点浮点/取整误差，但不允许"跑到另一头"（那正是"偏亮"的观感来源）
                     assertTrue(
@@ -93,7 +93,7 @@ class NavBarOverGradientTest {
                 val scheme = spec0.colorScheme
                 for (spec in allSpecs()) {
                     val nav = navBarColourOverBackdrop(spec, spec0)
-                    val behind = backdropColourBehindNavBar(spec, scheme)
+                    val behind = backdropColourAt(spec, scheme, NAV_BAR_CENTRE_X, NAV_BAR_CENTRE_Y / (if (spec.gradientFollowsContent) FOLLOWS_CONTENT_SPAN else 1f))
                     // 设计关系是"底栏比页面底色暗一档"；因为差值被原样搬过来，
                     // 所以只要基准是"底栏更暗"，任何渐变下都必须仍然更暗。
                     if (luminance(spec0.navigationBarColor) < luminance(scheme.background)) {
