@@ -268,6 +268,20 @@ class SurfaceMaterialTest {
     }
 
     @Test
+    fun scrollPhaseAccumulatesAndClamps() {
+        // 向上滚（内容上移，available.y 为负）→ 相位增加
+        val oneScreen = accumulateScrolledScreens(0f, -2400f, 2400f)
+        assertEquals(1f, oneScreen, 0.001f)
+        // 向下滚回去 → 相位减少，但不低于 0
+        assertEquals(0f, accumulateScrolledScreens(0.4f, 2400f, 2400f), 0.001f)
+        // 滚到跨度尽头就停住，不越出整条渐变
+        assertEquals(GRADIENT_SCROLL_SPAN, accumulateScrolledScreens(GRADIENT_SCROLL_SPAN - 0.1f, -2400f, 2400f), 0.001f)
+        // 越界读数与非法视口都不炸
+        assertEquals(0f, accumulateScrolledScreens(0f, -2400f, 0f), 0.001f)
+        assertEquals(2f, accumulateScrolledScreens(2f, 0f, 0f), 0.001f)
+    }
+
+    @Test
     fun defaultAppearanceChangesNothing() {
         val spec = AppearanceSpec.DEFAULT
         assertTrue(!spec.backsPageWithSomething())

@@ -94,6 +94,22 @@ internal fun windowStops(stops: List<Color>, from: Float, window: Float): List<C
 /** 跟随内容滚动时，渐变一共铺多少屏（越大越缓）。 */
 internal const val GRADIENT_SCROLL_SPAN = 3.2f
 
+/**
+ * 「渐变跟随内容」的相位累计（纯函数，便于单测）。
+ *
+ * [deltaY] 是本次滚动位移（向上滚为负），除以 [viewportPx] 换算成"屏"，再夹到 `[0, span]`：
+ * 滚到跨度尽头就停在最后一段，不会越出整条渐变。
+ */
+internal fun accumulateScrolledScreens(
+    current: Float,
+    deltaY: Float,
+    viewportPx: Float,
+    span: Float = GRADIENT_SCROLL_SPAN
+): Float {
+    if (viewportPx <= 0f) return current.coerceIn(0f, span)
+    return (current - deltaY / viewportPx).coerceIn(0f, span)
+}
+
 /** 页面容器色：跟随主题时就是原来的 background；选了渐变/图片就交给背景层去画（透明）。 */
 @Composable
 internal fun pageContainerColor(): Color =

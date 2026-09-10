@@ -48,11 +48,9 @@ internal fun PlanCoursesSection(
         color = MaterialTheme.colorScheme.onSurfaceVariant
     )
     courseImportMessage?.let { message ->
-        Card(
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f)
-            )
-        ) {
+FocusCard(
+    containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f)
+) {
             Text(message, Modifier.fillMaxWidth().padding(10.dp), style = MaterialTheme.typography.bodySmall)
         }
     }

@@ -112,11 +112,9 @@ internal fun ScheduleScreen(
         }
         if (scheduleMode == "日") {
             if (todayUnslotted.isNotEmpty()) {
-                Card(
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
-                    )
-                ) {
+FocusCard(
+    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
+) {
                     Column(
                         Modifier.padding(12.dp),
                         verticalArrangement = Arrangement.spacedBy(4.dp)

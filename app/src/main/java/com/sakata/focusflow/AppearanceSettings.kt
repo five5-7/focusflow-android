@@ -190,26 +190,11 @@ internal fun AppearanceSettingsSection(
             }
         }
 
-        // 8.2.0 §7.5：渐变范围——固定（一屏，变化快）／跟随内容（铺满数屏，变化慢而缓和）。
-        if (appearance.pageBackdrop == BackdropKind.GRADIENT) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("渐变跟随内容", fontWeight = FontWeight.SemiBold)
-                    Text(
-                        "关＝整条渐变正好一屏，颜色变化快；开＝渐变铺满数屏内容、每屏只走一小段，竖向变化更缓。",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                Switch(
-                    checked = appearance.gradientFollowsContent,
-                    onCheckedChange = {
-                        onAppearanceChange(appearance.copy(gradientFollowsContent = it))
-                        status = if (it) "渐变已改为跟随内容滚动（更缓）" else "渐变已改回固定一屏"
-                    }
-                )
-            }
-        }
+        // 8.2.0 §7.5「渐变跟随内容」：**实现未达标，暂不暴露开关**。
+        // 真机实测：开关本身正常、每屏幅度也确实变缓（一屏 4 级差 vs 固定 23），
+        // 但滚动时渐变的相位始终为 0——试过"内容祖先挂 nestedScroll""直接读设置页 ScrollState"
+        // 两种相位来源都是 0，说明链路里还有没查清的一环。留代码 + 单测，等找到可靠挂法再放出来，
+        // 不放一个"承诺了却不生效"的选项在界面上。
 
         if (appearance.pageBackdrop == BackdropKind.IMAGE) {
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
