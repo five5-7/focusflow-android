@@ -4,7 +4,6 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import kotlin.math.abs
@@ -170,52 +169,6 @@ class SurfaceMaterialTest {
     }
 
     @Test
-    fun gradientAtHitsTheStopsExactly() {
-        val stops = ThemeGradient.pageStops(apricot)
-        assertEquals(argb(stops[0]), argb(gradientAt(stops, 0f)))
-        assertEquals(argb(stops[1]), argb(gradientAt(stops, 0.5f)))
-        assertEquals(argb(stops[2]), argb(gradientAt(stops, 1f)))
-        // 越界读数夹回两端，不抛错
-        assertEquals(argb(stops[0]), argb(gradientAt(stops, -3f)))
-        assertEquals(argb(stops[2]), argb(gradientAt(stops, 9f)))
-    }
-
-    @Test
-    fun windowSamplingMakesTheGradientGentler() {
-        val stops = ThemeGradient.pageStops(apricot)
-        fun sweep(window: Float): Int {
-            val w = windowStops(stops, 0f, window)
-            return AppearanceContrast.channelDistance(argb(w.first()), argb(w.last()))
-        }
-        val full = sweep(1f)
-        val windowed = sweep(1f / GRADIENT_SCROLL_SPAN)
-        // 固定一屏时上下界差最大；跟随内容时同一屏只走一小段 → 变化明显更缓
-        assertTrue("跟随内容时每屏变化应显著更小（$windowed vs $full）", windowed < full / 2)
-        // 但方向不能反：窗口内仍然是"顶亮 → 底深"
-        val w = windowStops(stops, 0f, 1f / GRADIENT_SCROLL_SPAN)
-        assertTrue(AppearanceContrast.luminance(argb(w[0])) > AppearanceContrast.luminance(argb(w[2])))
-    }
-
-    @Test
-    fun windowNeverRunsPastTheRamp() {
-        val stops = ThemeGradient.pageStops(apricot)
-        val window = 1f / GRADIENT_SCROLL_SPAN
-        // 已经滚到底时，窗口起点被夹到 (1 - window)，不会越出整条渐变
-        val w = windowStops(stops, 0.95f, window)
-        assertEquals(argb(gradientAt(stops, 1f - window)), argb(w[0]))
-    }
-
-    @Test
-    fun windowScrollingShiftsTheColour() {
-        val stops = ThemeGradient.pageStops(apricot)
-        val window = 1f / GRADIENT_SCROLL_SPAN
-        val top = windowStops(stops, 0f, window)
-        val mid = windowStops(stops, window * 2f, window)
-        // 往下滚之后，同一位置的颜色应当变了（说明渐变确实跟着内容走）
-        assertNotEquals(argb(top[0]), argb(mid[0]))
-    }
-
-    @Test
     fun pageBasePresetsAreAllReadable() {
         assertEquals(8, PAGE_BASE_PRESETS.size)
         for (preset in PAGE_BASE_PRESETS) {
@@ -267,18 +220,32 @@ class SurfaceMaterialTest {
         assertEquals(preset, adaptBackdropColor(light, androidx.compose.ui.graphics.Color(preset)).argbInt())
     }
 
+    /**
+     * 替换被删掉的 windowStops 系列断言：`page()` 现在只负责"整条渐变正好一屏"，
+     * 颜色必须完全等于 `pageStops` —— 跟随内容那条路由滚动内容自己按内容高度铺
+     * （`ScrollableWithBar`），不经过这里。
+     *
+     * 不能去读 Brush 内部的 colorStops（`Brush.VerticalGradient.colorStops` 在这个
+     * Compose 版本里不可见），所以改成对 `pageStops` 本身做等价断言：站点数、
+     * 站点取值、以及强度/自选端色的传递。这正是 `page()` 的全部职责。
+     */
     @Test
-    fun scrollPhaseAccumulatesAndClamps() {
-        // 向上滚（内容上移，available.y 为负）→ 相位增加
-        val oneScreen = accumulateScrolledScreens(0f, -2400f, 2400f)
-        assertEquals(1f, oneScreen, 0.001f)
-        // 向下滚回去 → 相位减少，但不低于 0
-        assertEquals(0f, accumulateScrolledScreens(0.4f, 2400f, 2400f), 0.001f)
-        // 滚到跨度尽头就停住，不越出整条渐变
-        assertEquals(GRADIENT_SCROLL_SPAN, accumulateScrolledScreens(GRADIENT_SCROLL_SPAN - 0.1f, -2400f, 2400f), 0.001f)
-        // 越界读数与非法视口都不炸
-        assertEquals(0f, accumulateScrolledScreens(0f, -2400f, 0f), 0.001f)
-        assertEquals(2f, accumulateScrolledScreens(2f, 0f, 0f), 0.001f)
+    fun pageStopsAreTheWholePageGradient() {
+        val stops = ThemeGradient.pageStops(apricot)
+        assertEquals("页面渐变是三站（顶亮→底色→底深）", 3, stops.size)
+        // 方向：顶亮 → 中为底色 → 底深
+        assertTrue(
+            "顶端应比中点亮、中点应比底端亮",
+            stops[0].luminance() > stops[1].luminance() && stops[1].luminance() > stops[2].luminance()
+        )
+        // 强度 0 = 纯色（三站同色），这是"调到 0% 等于纯色"的实现依据
+        val flat = ThemeGradient.pageStops(apricot, strength = 0f)
+        assertEquals(argb(flat[0]), argb(flat[1]))
+        assertEquals(argb(flat[1]), argb(flat[2]))
+        // 自选端色必须原样落在首尾两站上
+        val custom = ThemeGradient.pageStops(apricot, 1f, top = 0xFF102030.toInt(), bottom = 0xFF405060.toInt())
+        assertEquals(0xFF102030.toInt(), argb(custom[0]))
+        assertEquals(0xFF405060.toInt(), argb(custom[2]))
     }
 
     @Test

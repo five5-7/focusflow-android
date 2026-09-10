@@ -41,8 +41,6 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -257,24 +255,6 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             null
         }
     }
-    // 「渐变跟随内容」用的滚动量（单位：屏）。各页面自己持有 ScrollState，
-    // 这里用页面级 nestedScroll 累计，避免去改每个页面的签名（SettingsScreen 之外都不接收外部 ScrollState）。
-    var scrolledScreens by remember { mutableFloatStateOf(0f) }
-    val scrollTracker = remember {
-        object : androidx.compose.ui.input.nestedscroll.NestedScrollConnection {
-            override fun onPreScroll(
-                available: Offset,
-                source: androidx.compose.ui.input.nestedscroll.NestedScrollSource
-            ): Offset {
-                if (appearance.gradientFollowsContent && source == androidx.compose.ui.input.nestedscroll.NestedScrollSource.UserInput) {
-                    // 一屏按 2400px 粗算（1440×3168 的竖屏内容区），只用于渐变相位，不需要精确。
-                    scrolledScreens = accumulateScrolledScreens(scrolledScreens, available.y, 2400f)
-                }
-                return Offset.Zero
-            }
-        }
-    }
-    // 换页时渐变相位归零：新页面从渐变顶部开始（放在页面状态声明之后，见 applySnapshot 附近）。
     // 8.1.0 动画速度（外观页）：全局时长倍率，写入 MotionSettings 供各动画换算。
     var animationSpeed by remember { mutableStateOf(store.loadAnimationSpeed()) }
     LaunchedEffect(animationSpeed) { MotionSettings.update(animationSpeed) }
@@ -399,8 +379,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     var planPage by remember { mutableStateOf<PlanPage?>(null) }
     var settingsSubPage by remember { mutableStateOf<SettingsSubPage?>(null) }
     var settingsBackStack by remember { mutableStateOf<List<SettingsSubPage>>(emptyList()) }
-    // 8.2.0：换页时把「渐变跟随内容」的相位归零——新页面从渐变顶部开始。
-    LaunchedEffect(tab, planPage, todayInboxOpen, settingsSubPage) { scrolledScreens = 0f }    // 8.1.0 课程编辑器挂起：从课程编辑器跳转「管理地点与出行参数」时暂存，回到课程页自动重开（草稿箱恢复内容）。
+    // 8.1.0 课程编辑器挂起：从课程编辑器跳转「管理地点与出行参数」时暂存，回到课程页自动重开（草稿箱恢复内容）。
     var suspendedCourseEditor by remember { mutableStateOf<SuspendedCourseEditor?>(null) }
     // 8.1.0 会话历史列表弹窗（长按底栏回退键打开）。
     var historyListOpen by remember { mutableStateOf(false) }
@@ -927,16 +906,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                 .appearanceBackdrop(
                     spec = appearance,
                     scheme = MaterialTheme.colorScheme,
-                    bitmap = pageBackdropBitmap,
-                    // 8.2.0「渐变跟随内容」的相位来源：
-                    // - 设置页由 MainActivity 自己持有 ScrollState，可以直接读，**可靠**；
-                    // - 其余页面暂时沿用 nestedScroll 累计——真机实测这条挂法收不到滚动事件
-                    //   （开关是开的、内容确实滚了、渐变却不动），待换成"每个页面暴露自己的滚动量"。
-                    scrolledScreens = if (tab == PageSnapshot.TAB_SETTINGS) {
-                        (settingsScrollState.value / 2400f).coerceIn(0f, GRADIENT_SCROLL_SPAN)
-                    } else {
-                        scrolledScreens
-                    }
+                    bitmap = pageBackdropBitmap
                 )
         )
         // 8.1.0 第三轮：弹窗浮层挂在应用根，所有页面的 AppDialog 都能注册进来。
@@ -984,9 +954,6 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             val pageModifier = Modifier.padding(padding).consumeWindowInsets(padding)
                 .padding(bottom = if (keyboardVisible) floatingBarHeight else 0.dp)
                 .then(if (dialogLayerVisible) Modifier.clearAndSetSemantics {} else Modifier)
-                // 8.2.0「渐变跟随内容」：必须挂在**页面内容自己的祖先**上。
-                // 挂在根 Box（Scaffold 之外）实测收不到滚动事件——真机验证时才发现。
-                .nestedScroll(scrollTracker)
             // 假期或校园生活关闭时，课程不参与今日、日程、空挡与目标建议；原数据仍保留。
             val scheduleCourses = activeCourses
             Box(pageModifier) {

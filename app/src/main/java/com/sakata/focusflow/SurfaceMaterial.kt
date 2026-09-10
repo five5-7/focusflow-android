@@ -65,57 +65,6 @@ internal fun Modifier.pageLayerBackground(flatColor: Color): Modifier {
     }
 }
 
-/**
- * 三站渐变在 [t]∈[0,1] 处的颜色（纯函数，分段线性）。
- *
- * 抽出来是为了实现"渐变跟随内容"：把一条**长**渐变按当前滚动位置截出一个窗口，
- * 窗口内只发生整条渐变的一小段颜色变化，所以每屏看起来更缓。
- */
-internal fun gradientAt(stops: List<Color>, t: Float): Color {
-    if (stops.isEmpty()) return Color.Unspecified
-    if (stops.size == 1) return stops[0]
-    val clamped = t.coerceIn(0f, 1f)
-    val scaled = clamped * (stops.size - 1)
-    val index = scaled.toInt().coerceIn(0, stops.size - 2)
-    val local = scaled - index
-    return blendSrgb(stops[index], stops[index + 1], local)
-}
-
-/**
- * 把基础渐变按窗口 `[from, from + window]` 截成三站颜色。
- *
- * [window] = 1 表示窗口正好等于整条渐变（= "固定在一屏"的现状）；
- * 窗口越小，窗口内首尾的颜色差越小 —— 即"颜色变化更慢更缓和"。
- */
-internal fun windowStops(stops: List<Color>, from: Float, window: Float): List<Color> {
-    val w = window.coerceIn(0f, 1f)
-    val start = from.coerceIn(0f, 1f - w)
-    return listOf(
-        gradientAt(stops, start),
-        gradientAt(stops, start + w / 2f),
-        gradientAt(stops, start + w)
-    )
-}
-
-/** 跟随内容滚动时，渐变一共铺多少屏（越大越缓）。 */
-internal const val GRADIENT_SCROLL_SPAN = 3.2f
-
-/**
- * 「渐变跟随内容」的相位累计（纯函数，便于单测）。
- *
- * [deltaY] 是本次滚动位移（向上滚为负），除以 [viewportPx] 换算成"屏"，再夹到 `[0, span]`：
- * 滚到跨度尽头就停在最后一段，不会越出整条渐变。
- */
-internal fun accumulateScrolledScreens(
-    current: Float,
-    deltaY: Float,
-    viewportPx: Float,
-    span: Float = GRADIENT_SCROLL_SPAN
-): Float {
-    if (viewportPx <= 0f) return current.coerceIn(0f, span)
-    return (current - deltaY / viewportPx).coerceIn(0f, span)
-}
-
 /** 页面容器色：跟随主题时就是原来的 background；选了渐变/图片就交给背景层去画（透明）。 */
 @Composable
 internal fun pageContainerColor(): Color =
@@ -167,21 +116,18 @@ internal object ThemeGradient {
      * 幅度也必须够大，否则会被看成"背景整体变深了一档"而不是渐变（维护者真机反馈过这一点）。
      *
      * [strength] 强度倍率：0 = 纯色，1 = 设计值，2 = 最深。
-     * [phase] 与 [window] 用于"渐变跟随内容"（维护者口径）：
-     * 基础渐变铺满 [GRADIENT_SCROLL_SPAN] 屏，[phase] 是已经滚过的比例、[window] 是当前一屏占整条的比例。
-     * 固定模式传 `phase = 0f, window = 1f`（即现状：整条渐变正好一屏）。
+     *
+     * 这里只负责"整条渐变正好一屏"。「渐变跟随内容」不经过本函数：那种模式下渐变由滚动
+     * 内容自己按**内容高度**铺（`ScrollableWithBar`），视口这层在 [appearanceBackdrop] 里
+     * 就提前返回了。早期那套"按累计滚动量截窗口"的实现（phase/window 两个参数）已经删除，
+     * 它在生产路径上永远不可达；历史在 git `cfbfaab` 之前。
      */
     fun page(
         scheme: ColorScheme,
         strength: Float = 1f,
-        phase: Float = 0f,
-        window: Float = 1f,
         top: Int = 0,
         bottom: Int = 0
-    ): Brush {
-        val stops = pageStops(scheme, strength, top, bottom)
-        return Brush.verticalGradient(if (window >= 1f) stops else windowStops(stops, phase, window))
-    }
+    ): Brush = Brush.verticalGradient(pageStops(scheme, strength, top, bottom))
 
     /** 卡片渐变：左上到右下，比页面更轻，保证卡片仍然"更亮一层"。 */
     fun card(scheme: ColorScheme): Brush = Brush.linearGradient(
@@ -302,12 +248,7 @@ internal fun Modifier.appearanceBackdrop(
     spec: AppearanceSpec,
     scheme: ColorScheme,
     bitmap: ImageBitmap?,
-    role: BackdropRole = BackdropRole.Page,
-    /**
-     * 已滚过多少屏（仅"渐变跟随内容"时生效）。固定模式传 0。
-     * 值由页面级 nestedScroll 累计，见 MainActivity 的 scrollTracker。
-     */
-    scrolledScreens: Float = 0f
+    role: BackdropRole = BackdropRole.Page
 ): Modifier {
     val backdrop = when (role) {
         BackdropRole.Page -> spec.pageBackdrop
@@ -326,18 +267,13 @@ internal fun Modifier.appearanceBackdrop(
         // 8.2.0 §7.5：页面也能选固定背景色了（0 = 未选时退回按主题派生的浅色）。
         BackdropRole.Page -> spec.pageColor
     }
-    // 渐变跟随内容：整条渐变铺 GRADIENT_SCROLL_SPAN 屏，当前一屏只截取其中 1/span 的一段，
-    // 于是每屏的颜色变化比"固定一屏"慢得多、缓和得多（维护者口径）。
-    val follows = role == BackdropRole.Page && spec.gradientFollowsContent
-    val window = if (follows) 1f / GRADIENT_SCROLL_SPAN else 1f
-    val phase = if (follows) scrolledScreens / GRADIENT_SCROLL_SPAN else 0f
     return drawBehind {
         when (backdrop) {
             BackdropKind.GRADIENT -> drawRect(
                 if (role == BackdropRole.Timetable) {
                     ThemeGradient.timetable(scheme)
                 } else {
-                    ThemeGradient.page(scheme, spec.gradientScale, phase, window, spec.gradientTop, spec.gradientBottom)
+                    ThemeGradient.page(scheme, spec.gradientScale, spec.gradientTop, spec.gradientBottom)
                 }
             )
 
