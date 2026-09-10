@@ -27,6 +27,10 @@ class AppearanceSpecTest {
             pageImage = null,
             backdropOpacity = 100,
             gradientStrength = 100,
+            pageColor = 0,
+            gradientFollowsContent = false,
+            gradientTop = 0,
+            gradientBottom = 0,
             cardMaterial = "unknown-material",
             timetableBackdrop = null,
             timetableColor = 0,
@@ -58,7 +62,7 @@ class AppearanceSpecTest {
         assertEquals(2f, AppearanceSpec(gradientStrength = 500).gradientScale, 0.0001f)
         assertEquals(0f, AppearanceSpec(gradientStrength = -20).gradientScale, 0.0001f)
         // 老装机（没有这个键）读出来必须是设计值，外观不变
-        assertEquals(100, AppearanceSpec.fromKeys(null, null, 100, 100, null, null, 0, null, 100, null).gradientStrength)
+        assertEquals(100, AppearanceSpec.fromKeys(null, null, 100, 100, 0, false, 0, 0, null, null, 0, null, 100, null).gradientStrength)
     }
 
     @Test

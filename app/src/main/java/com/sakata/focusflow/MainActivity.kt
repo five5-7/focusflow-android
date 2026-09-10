@@ -41,6 +41,8 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -255,6 +257,24 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             null
         }
     }
+    // 「渐变跟随内容」用的滚动量（单位：屏）。各页面自己持有 ScrollState，
+    // 这里用页面级 nestedScroll 累计，避免去改每个页面的签名（SettingsScreen 之外都不接收外部 ScrollState）。
+    var scrolledScreens by remember { mutableFloatStateOf(0f) }
+    val scrollTracker = remember {
+        object : androidx.compose.ui.input.nestedscroll.NestedScrollConnection {
+            override fun onPreScroll(
+                available: Offset,
+                source: androidx.compose.ui.input.nestedscroll.NestedScrollSource
+            ): Offset {
+                if (appearance.gradientFollowsContent && source == androidx.compose.ui.input.nestedscroll.NestedScrollSource.UserInput) {
+                    // 一屏按 2400px 粗算（1440×3168 的竖屏内容区），只用于渐变相位，不需要精确。
+                    scrolledScreens = (scrolledScreens - available.y / 2400f).coerceIn(0f, GRADIENT_SCROLL_SPAN)
+                }
+                return Offset.Zero
+            }
+        }
+    }
+    // 换页时渐变相位归零：新页面从渐变顶部开始（放在页面状态声明之后，见 applySnapshot 附近）。
     // 8.1.0 动画速度（外观页）：全局时长倍率，写入 MotionSettings 供各动画换算。
     var animationSpeed by remember { mutableStateOf(store.loadAnimationSpeed()) }
     LaunchedEffect(animationSpeed) { MotionSettings.update(animationSpeed) }
@@ -379,6 +399,8 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     var planPage by remember { mutableStateOf<PlanPage?>(null) }
     var settingsSubPage by remember { mutableStateOf<SettingsSubPage?>(null) }
     var settingsBackStack by remember { mutableStateOf<List<SettingsSubPage>>(emptyList()) }
+    // 8.2.0：换页时把「渐变跟随内容」的相位归零——新页面从渐变顶部开始。
+    LaunchedEffect(tab, planPage, todayInboxOpen, settingsSubPage) { scrolledScreens = 0f }
     // 8.1.0 课程编辑器挂起：从课程编辑器跳转「管理地点与出行参数」时暂存，回到课程页自动重开（草稿箱恢复内容）。
     var suspendedCourseEditor by remember { mutableStateOf<SuspendedCourseEditor?>(null) }
     // 8.1.0 会话历史列表弹窗（长按底栏回退键打开）。
@@ -898,15 +920,19 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
         val density = LocalDensity.current
         val keyboardVisible = WindowInsets.ime.getBottom(density) > 0
         var floatingBarHeight by remember { mutableStateOf(112.dp) }
-        Box(Modifier.fillMaxSize().imePadding()) {
+        // 注意：nestedScroll 必须挂在**内容祖先**上。挂在下面那个背景 Box 上不行——
+        // 它是内容的兄弟节点，页面的滚动事件根本不会经过它（8.2.0 真机验证时踩过）。
+        Box(Modifier.fillMaxSize().imePadding().nestedScroll(scrollTracker)) {
         // 8.2.0 外观系统：背景层画在最底下（页面渐变/图片）。默认外观下它不新增任何绘制，
         // 因此「默认与 8.1.1 逐像素一致」是结构上成立的，不靠调参。
         Box(
-            Modifier.fillMaxSize().appearanceBackdrop(
-                spec = appearance,
-                scheme = MaterialTheme.colorScheme,
-                bitmap = pageBackdropBitmap
-            )
+            Modifier.fillMaxSize()
+                .appearanceBackdrop(
+                    spec = appearance,
+                    scheme = MaterialTheme.colorScheme,
+                    bitmap = pageBackdropBitmap,
+                    scrolledScreens = scrolledScreens
+                )
         )
         // 8.1.0 第三轮：弹窗浮层挂在应用根，所有页面的 AppDialog 都能注册进来。
         CompositionLocalProvider(

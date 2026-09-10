@@ -7,14 +7,23 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.ImageShader
+import androidx.compose.ui.graphics.ShaderBrush
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.TileMode
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.dp
 import kotlin.math.max
 import kotlin.math.roundToInt
 
@@ -48,6 +57,41 @@ internal fun Modifier.pageLayerBackground(flatColor: Color): Modifier {
         appearanceBackdrop(appearance, MaterialTheme.colorScheme, LocalBackdropBitmap.current)
     }
 }
+
+/**
+ * 三站渐变在 [t]∈[0,1] 处的颜色（纯函数，分段线性）。
+ *
+ * 抽出来是为了实现"渐变跟随内容"：把一条**长**渐变按当前滚动位置截出一个窗口，
+ * 窗口内只发生整条渐变的一小段颜色变化，所以每屏看起来更缓。
+ */
+internal fun gradientAt(stops: List<Color>, t: Float): Color {
+    if (stops.isEmpty()) return Color.Unspecified
+    if (stops.size == 1) return stops[0]
+    val clamped = t.coerceIn(0f, 1f)
+    val scaled = clamped * (stops.size - 1)
+    val index = scaled.toInt().coerceIn(0, stops.size - 2)
+    val local = scaled - index
+    return blendSrgb(stops[index], stops[index + 1], local)
+}
+
+/**
+ * 把基础渐变按窗口 `[from, from + window]` 截成三站颜色。
+ *
+ * [window] = 1 表示窗口正好等于整条渐变（= "固定在一屏"的现状）；
+ * 窗口越小，窗口内首尾的颜色差越小 —— 即"颜色变化更慢更缓和"。
+ */
+internal fun windowStops(stops: List<Color>, from: Float, window: Float): List<Color> {
+    val w = window.coerceIn(0f, 1f)
+    val start = from.coerceIn(0f, 1f - w)
+    return listOf(
+        gradientAt(stops, start),
+        gradientAt(stops, start + w / 2f),
+        gradientAt(stops, start + w)
+    )
+}
+
+/** 跟随内容滚动时，渐变一共铺多少屏（越大越缓）。 */
+internal const val GRADIENT_SCROLL_SPAN = 3.2f
 
 /** 页面容器色：跟随主题时就是原来的 background；选了渐变/图片就交给背景层去画（透明）。 */
 @Composable
@@ -98,9 +142,23 @@ internal object ThemeGradient {
      * 方向是刻意的：深色文字在浅底上对比度最高，所以"变亮"放在上面、"变深"放在下面，
      * 整条渐变里正文对比度都不低于纯色页面（真机实测见 docs/8.2.0-appearance-plan.md）。
      * 幅度也必须够大，否则会被看成"背景整体变深了一档"而不是渐变（维护者真机反馈过这一点）。
-     * [strength] 是强度倍率：0 = 纯色，1 = 设计值（默认），2 = 最深；由「外观 → 页面背景 → 渐变强度」调。
+     *
+     * [strength] 强度倍率：0 = 纯色，1 = 设计值，2 = 最深。
+     * [phase] 与 [window] 用于"渐变跟随内容"（维护者口径）：
+     * 基础渐变铺满 [GRADIENT_SCROLL_SPAN] 屏，[phase] 是已经滚过的比例、[window] 是当前一屏占整条的比例。
+     * 固定模式传 `phase = 0f, window = 1f`（即现状：整条渐变正好一屏）。
      */
-    fun page(scheme: ColorScheme, strength: Float = 1f): Brush = Brush.verticalGradient(pageStops(scheme, strength))
+    fun page(
+        scheme: ColorScheme,
+        strength: Float = 1f,
+        phase: Float = 0f,
+        window: Float = 1f,
+        top: Int = 0,
+        bottom: Int = 0
+    ): Brush {
+        val stops = pageStops(scheme, strength, top, bottom)
+        return Brush.verticalGradient(if (window >= 1f) stops else windowStops(stops, phase, window))
+    }
 
     /** 卡片渐变：左上到右下，比页面更轻，保证卡片仍然"更亮一层"。 */
     fun card(scheme: ColorScheme): Brush = Brush.linearGradient(
@@ -115,14 +173,29 @@ internal object ThemeGradient {
         1f to blendSrgb(scheme.background, scheme.primary, 0.02f)
     )
 
-    fun pageStops(scheme: ColorScheme, strength: Float = 1f): List<Color> {
+    fun pageStops(scheme: ColorScheme, strength: Float = 1f, top: Int = 0, bottom: Int = 0): List<Color> {
         val s = strength.coerceIn(0f, 2f)
-        return listOf(
-            blendSrgb(scheme.background, Color.White, 0.85f * s),
-            scheme.background,
-            blendSrgb(scheme.background, Color.Black, 0.07f * s)
-        )
+        val autoTop = blendSrgb(scheme.background, Color.White, 0.85f * s)
+        val autoBottom = blendSrgb(scheme.background, Color.Black, 0.07f * s)
+        // 自选渐变色（维护者要求）：选了什么就用什么，强度继续作为"向页面底色回退"的倍率，
+        // 于是"强度 = 0"在自选配色下依然是纯色，两个控件不打架。
+        val chosenTop = if (top != 0) blendSrgb(scheme.background, Color(top), s.coerceAtMost(1f)) else autoTop
+        val chosenBottom = if (bottom != 0) blendSrgb(scheme.background, Color(bottom), s.coerceAtMost(1f)) else autoBottom
+        val middle = if (top != 0 || bottom != 0) blendSrgb(chosenTop, chosenBottom, 0.5f) else scheme.background
+        return listOf(chosenTop, middle, chosenBottom)
     }
+
+    /** 自选渐变配色（顶色 → 底色）；选了以后 [pageStops] 就用它，不再按主题派生。 */
+    internal val PAGE_GRADIENT_PAIRS: List<Pair<Int, Int>> = listOf(
+        0xFFFFFCF8.toInt() to 0xFFECE4DE.toInt(), // 暖白 → 暖灰
+        0xFFF5F9FC.toInt() to 0xFFDEE8F0.toInt(), // 雾蓝 → 浅蓝
+        0xFFF8FBF4.toInt() to 0xFFE2ECDC.toInt(), // 淡竹 → 浅竹
+        0xFFFDF7F9.toInt() to 0xFFF3E2E8.toInt(), // 藕粉 → 浅粉
+        0xFFFAF8FD.toInt() to 0xFFE8E3F2.toInt(), // 浅薰 → 淡紫
+        0xFFFCF9F2.toInt() to 0xFFEEE5D6.toInt(), // 亚麻 → 燕麦
+        0xFFF7FAFB.toInt() to 0xFFE2E7E9.toInt(), // 青灰 → 雾灰
+        0xFFFFFAF0.toInt() to 0xFFF2E2CE.toInt()  // 晨曦 → 暖沙
+    )
 
     fun cardStops(scheme: ColorScheme): List<Color> = listOf(
         blendSrgb(scheme.surfaceContainerLow, scheme.primary, 0.07f),
@@ -150,6 +223,23 @@ internal val TIMETABLE_BASE_PRESETS: List<Int> = listOf(
     0xFFF5F0EE.toInt()  // 玫瑰
 )
 
+/**
+ * 页面固定背景色预设（8.2.0 §7.5）。
+ *
+ * 比课表底色允许更有个性一点（页面不被格线压着），但仍然全部是浅色，
+ * 保证正文（深色）对比度达标——单测逐个校验。
+ */
+internal val PAGE_BASE_PRESETS: List<Int> = listOf(
+    0xFFF6F1EC.toInt(), // 米白
+    0xFFEFF3F6.toInt(), // 雾蓝
+    0xFFF2F5EF.toInt(), // 淡竹
+    0xFFF7F0F2.toInt(), // 藕粉
+    0xFFF1F0F6.toInt(), // 浅薰
+    0xFFF6F3EA.toInt(), // 亚麻
+    0xFFEDF2F3.toInt(), // 青灰
+    0xFFF4EFEA.toInt()  // 燕麦
+)
+
 /** 课表底色是否压得住格线与小字（浅色主题的副文本色为参照）。 */
 internal fun timetableBaseIsReadable(base: Int, textColor: Int = 0xFF44565B.toInt()): Boolean =
     AppearanceContrast.passes(textColor, base)
@@ -164,7 +254,12 @@ internal fun Modifier.appearanceBackdrop(
     spec: AppearanceSpec,
     scheme: ColorScheme,
     bitmap: ImageBitmap?,
-    role: BackdropRole = BackdropRole.Page
+    role: BackdropRole = BackdropRole.Page,
+    /**
+     * 已滚过多少屏（仅"渐变跟随内容"时生效）。固定模式传 0。
+     * 值由页面级 nestedScroll 累计，见 MainActivity 的 scrollTracker。
+     */
+    scrolledScreens: Float = 0f
 ): Modifier {
     val backdrop = when (role) {
         BackdropRole.Page -> spec.pageBackdrop
@@ -175,14 +270,23 @@ internal fun Modifier.appearanceBackdrop(
         BackdropRole.Page -> spec.imageAlpha
         BackdropRole.Timetable -> spec.timetableAlpha
     }
-    val picked = if (role == BackdropRole.Timetable) spec.timetableColor else 0
+    val picked = when (role) {
+        BackdropRole.Timetable -> spec.timetableColor
+        // 8.2.0 §7.5：页面也能选固定背景色了（0 = 未选时退回按主题派生的浅色）。
+        BackdropRole.Page -> spec.pageColor
+    }
+    // 渐变跟随内容：整条渐变铺 GRADIENT_SCROLL_SPAN 屏，当前一屏只截取其中 1/span 的一段，
+    // 于是每屏的颜色变化比"固定一屏"慢得多、缓和得多（维护者口径）。
+    val follows = role == BackdropRole.Page && spec.gradientFollowsContent
+    val window = if (follows) 1f / GRADIENT_SCROLL_SPAN else 1f
+    val phase = if (follows) scrolledScreens / GRADIENT_SCROLL_SPAN else 0f
     return drawBehind {
         when (backdrop) {
             BackdropKind.GRADIENT -> drawRect(
                 if (role == BackdropRole.Timetable) {
                     ThemeGradient.timetable(scheme)
                 } else {
-                    ThemeGradient.page(scheme, spec.gradientScale)
+                    ThemeGradient.page(scheme, spec.gradientScale, phase, window, spec.gradientTop, spec.gradientBottom)
                 }
             )
 

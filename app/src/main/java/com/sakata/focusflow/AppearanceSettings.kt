@@ -8,6 +8,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
@@ -16,6 +18,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -24,6 +27,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -42,6 +46,7 @@ import kotlinx.coroutines.withContext
  * 图片背景之上永远压一层主题遮罩（见 [scrimAlpha]），正文对比度靠它保住。
  */
 @Composable
+@OptIn(ExperimentalLayoutApi::class)
 internal fun AppearanceSettingsSection(
     appearance: AppearanceSpec,
     onAppearanceChange: (AppearanceSpec) -> Unit,
@@ -71,10 +76,16 @@ internal fun AppearanceSettingsSection(
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        // 用 FlowRow 而不是 Row：真机上四个标签排一行会把"图片"挤掉（8.2.0 真机发现），
+        // 窄屏/大字体下应该自动换行。
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
             listOf(
                 BackdropKind.THEME to "跟随主题",
                 BackdropKind.GRADIENT to "主题渐变",
+                BackdropKind.COLOR to "固定颜色",
                 BackdropKind.IMAGE to "图片"
             ).forEach { (kind, label) ->
                 FilterChip(
@@ -86,6 +97,57 @@ internal fun AppearanceSettingsSection(
         }
 
         if (appearance.pageBackdrop == BackdropKind.GRADIENT) {
+            // 自选渐变配色：每个色板就是"顶色 → 底色"一对；不选则跟随主题派生。
+            Text("渐变配色", style = MaterialTheme.typography.labelMedium)
+            // 9 个色板（8 组自选 + 跟随主题）一行放不下，用 FlowRow 自动换行。
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                ThemeGradient.PAGE_GRADIENT_PAIRS.forEach { (top, bottom) ->
+                    val selected = appearance.gradientTop == top && appearance.gradientBottom == bottom
+                    Box(
+                        Modifier
+                            .size(34.dp)
+                            .clip(CircleShape)
+                            .background(
+                                androidx.compose.ui.graphics.Brush.verticalGradient(
+                                    listOf(Color(top), Color(bottom))
+                                )
+                            )
+                            .border(
+                                width = if (selected) 2.dp else 1.dp,
+                                color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
+                                shape = CircleShape
+                            )
+                            .clickable {
+                                onAppearanceChange(appearance.copy(gradientTop = top, gradientBottom = bottom))
+                                status = "渐变配色已更换"
+                            }
+                    )
+                }
+                // "跟随主题"档：清掉自选色
+                Box(
+                    Modifier
+                        .size(34.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .border(
+                            width = if (appearance.gradientTop == 0 && appearance.gradientBottom == 0) 2.dp else 1.dp,
+                            color = if (appearance.gradientTop == 0 && appearance.gradientBottom == 0) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.outlineVariant
+                            },
+                            shape = CircleShape
+                        )
+                        .clickable {
+                            onAppearanceChange(appearance.copy(gradientTop = 0, gradientBottom = 0))
+                            status = "渐变配色已回到跟随主题"
+                        }
+                )
+            }
+
             Text("渐变强度 ${appearance.gradientStrength}%", style = MaterialTheme.typography.labelMedium)
             Slider(
                 value = appearance.gradientStrength.toFloat(),
@@ -98,6 +160,55 @@ internal fun AppearanceSettingsSection(
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+        }
+
+        // 8.2.0 §7.5：固定背景色（维护者要求"实现固定背景色"）。
+        if (appearance.pageBackdrop == BackdropKind.COLOR) {
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                PAGE_BASE_PRESETS.forEach { preset ->
+                    val selected = appearance.pageColor == preset
+                    Box(
+                        Modifier
+                            .size(34.dp)
+                            .clip(CircleShape)
+                            .background(Color(preset))
+                            .border(
+                                width = if (selected) 2.dp else 1.dp,
+                                color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
+                                shape = CircleShape
+                            )
+                            .clickable {
+                                onAppearanceChange(appearance.copy(pageBackdrop = BackdropKind.COLOR, pageColor = preset))
+                                status = if (timetableBaseIsReadable(preset)) {
+                                    "固定背景色已更新（正文对比度达标）"
+                                } else {
+                                    "这个底色偏深，正文可能读不清"
+                                }
+                            }
+                    )
+                }
+            }
+        }
+
+        // 8.2.0 §7.5：渐变范围——固定（一屏，变化快）／跟随内容（铺满数屏，变化慢而缓和）。
+        if (appearance.pageBackdrop == BackdropKind.GRADIENT) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("渐变跟随内容", fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "关＝整条渐变正好一屏，颜色变化快；开＝渐变铺满数屏内容、每屏只走一小段，竖向变化更缓。",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(
+                    checked = appearance.gradientFollowsContent,
+                    onCheckedChange = {
+                        onAppearanceChange(appearance.copy(gradientFollowsContent = it))
+                        status = if (it) "渐变已改为跟随内容滚动（更缓）" else "渐变已改回固定一屏"
+                    }
+                )
+            }
         }
 
         if (appearance.pageBackdrop == BackdropKind.IMAGE) {
@@ -156,7 +267,10 @@ internal fun AppearanceSettingsSection(
 
     HorizontalDivider()
     Text("卡片材质", fontWeight = FontWeight.SemiBold)
-    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
         CardMaterial.entries.forEach { material ->
             FilterChip(
                 selected = appearance.cardMaterial == material,

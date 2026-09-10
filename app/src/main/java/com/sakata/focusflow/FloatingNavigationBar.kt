@@ -262,7 +262,8 @@ internal fun FloatingNavigationBar(
                 onLongPress = onLongPressBack,
                 description = "回退到上一个页面；长按查看历史",
                 tint = navigationContentColor(background),
-                modifier = Modifier.align(Alignment.TopStart).offset(x = 6.dp, y = 14.dp)
+                // 维护者口径：再向边角靠一点（本次：横向收到 0dp、纵向 8dp → 4dp）。
+                modifier = Modifier.align(Alignment.TopStart).offset(x = 0.dp, y = 4.dp)
             )
             CornerSymbol(
                 visible = canGoForward,
@@ -272,7 +273,7 @@ internal fun FloatingNavigationBar(
                 onLongPress = null,
                 description = "折返到后一个页面",
                 tint = navigationContentColor(background),
-                modifier = Modifier.align(Alignment.TopEnd).offset(x = (-6).dp, y = 14.dp)
+                modifier = Modifier.align(Alignment.TopEnd).offset(x = 0.dp, y = 4.dp)
             )
         }
     }

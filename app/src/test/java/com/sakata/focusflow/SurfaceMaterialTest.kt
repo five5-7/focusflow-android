@@ -169,6 +169,61 @@ class SurfaceMaterialTest {
     }
 
     @Test
+    fun gradientAtHitsTheStopsExactly() {
+        val stops = ThemeGradient.pageStops(apricot)
+        assertEquals(argb(stops[0]), argb(gradientAt(stops, 0f)))
+        assertEquals(argb(stops[1]), argb(gradientAt(stops, 0.5f)))
+        assertEquals(argb(stops[2]), argb(gradientAt(stops, 1f)))
+        // 越界读数夹回两端，不抛错
+        assertEquals(argb(stops[0]), argb(gradientAt(stops, -3f)))
+        assertEquals(argb(stops[2]), argb(gradientAt(stops, 9f)))
+    }
+
+    @Test
+    fun windowSamplingMakesTheGradientGentler() {
+        val stops = ThemeGradient.pageStops(apricot)
+        fun sweep(window: Float): Int {
+            val w = windowStops(stops, 0f, window)
+            return AppearanceContrast.channelDistance(argb(w.first()), argb(w.last()))
+        }
+        val full = sweep(1f)
+        val windowed = sweep(1f / GRADIENT_SCROLL_SPAN)
+        // 固定一屏时上下界差最大；跟随内容时同一屏只走一小段 → 变化明显更缓
+        assertTrue("跟随内容时每屏变化应显著更小（$windowed vs $full）", windowed < full / 2)
+        // 但方向不能反：窗口内仍然是"顶亮 → 底深"
+        val w = windowStops(stops, 0f, 1f / GRADIENT_SCROLL_SPAN)
+        assertTrue(AppearanceContrast.luminance(argb(w[0])) > AppearanceContrast.luminance(argb(w[2])))
+    }
+
+    @Test
+    fun windowNeverRunsPastTheRamp() {
+        val stops = ThemeGradient.pageStops(apricot)
+        val window = 1f / GRADIENT_SCROLL_SPAN
+        // 已经滚到底时，窗口起点被夹到 (1 - window)，不会越出整条渐变
+        val w = windowStops(stops, 0.95f, window)
+        assertEquals(argb(gradientAt(stops, 1f - window)), argb(w[0]))
+    }
+
+    @Test
+    fun windowScrollingShiftsTheColour() {
+        val stops = ThemeGradient.pageStops(apricot)
+        val window = 1f / GRADIENT_SCROLL_SPAN
+        val top = windowStops(stops, 0f, window)
+        val mid = windowStops(stops, window * 2f, window)
+        // 往下滚之后，同一位置的颜色应当变了（说明渐变确实跟着内容走）
+        assertNotEquals(argb(top[0]), argb(mid[0]))
+    }
+
+    @Test
+    fun pageBasePresetsAreAllReadable() {
+        assertEquals(8, PAGE_BASE_PRESETS.size)
+        for (preset in PAGE_BASE_PRESETS) {
+            assertTrue("页面预设底色要压得住正文：$preset", timetableBaseIsReadable(preset))
+            assertTrue(AppearanceContrast.luminance(preset) > 0.7f)
+        }
+    }
+
+    @Test
     fun defaultAppearanceChangesNothing() {
         val spec = AppearanceSpec.DEFAULT
         assertTrue(!spec.backsPageWithSomething())

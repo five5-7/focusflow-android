@@ -59,6 +59,17 @@ internal data class AppearanceSpec(
     val backdropOpacity: Int = 100,
     /** 渐变强度百分比：100 = 设计值（默认，与首次实现逐像素一致），0 = 等于纯色，200 = 最深。 */
     val gradientStrength: Int = 100,
+    /** 页面固定背景色（[BackdropKind.COLOR] 用）；0 = 未选。 */
+    val pageColor: Int = 0,
+    /**
+     * 渐变跟随内容滚动（维护者口径 8.2.0 §7.5）：
+     * 关（默认）= 整条渐变正好一屏，颜色变化快；开 = 渐变铺满数屏内容，
+     * 每屏只截取一小段，于是颜色变化更慢更缓和。默认关 = 现状逐像素不变。
+     */
+    val gradientFollowsContent: Boolean = false,
+    /** 自选渐变配色（顶色 / 底色）；0 = 跟随主题派生。 */
+    val gradientTop: Int = 0,
+    val gradientBottom: Int = 0,
     val cardMaterial: CardMaterial = CardMaterial.TONAL,
     val timetableBackdrop: BackdropKind = BackdropKind.THEME,
     val timetableColor: Int = 0,
@@ -86,6 +97,10 @@ internal data class AppearanceSpec(
     val timetableUsesColor: Boolean
         get() = timetableBackdrop == BackdropKind.COLOR && timetableColor != 0
 
+    /** 页面选了固定背景色，且确实生效（选了色或非默认外观）。 */
+    val pageUsesColor: Boolean
+        get() = pageBackdrop == BackdropKind.COLOR
+
     companion object {
         val DEFAULT = AppearanceSpec()
 
@@ -107,6 +122,10 @@ internal data class AppearanceSpec(
             pageImage: String?,
             backdropOpacity: Int,
             gradientStrength: Int,
+            pageColor: Int,
+            gradientFollowsContent: Boolean,
+            gradientTop: Int,
+            gradientBottom: Int,
             cardMaterial: String?,
             timetableBackdrop: String?,
             timetableColor: Int,
@@ -118,6 +137,10 @@ internal data class AppearanceSpec(
             pageImage = pageImage.orEmpty(),
             backdropOpacity = backdropOpacity,
             gradientStrength = gradientStrength,
+            pageColor = pageColor,
+            gradientFollowsContent = gradientFollowsContent,
+            gradientTop = gradientTop,
+            gradientBottom = gradientBottom,
             cardMaterial = CardMaterial.fromKey(cardMaterial),
             timetableBackdrop = BackdropKind.fromKey(timetableBackdrop),
             timetableColor = timetableColor,
