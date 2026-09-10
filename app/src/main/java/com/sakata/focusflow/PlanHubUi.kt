@@ -1,5 +1,6 @@
 package com.sakata.focusflow
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.*
@@ -71,12 +72,14 @@ internal fun PlanHubScreen(
 
 @Composable
 internal fun PlanHubItem(title: String, summary: String, onClick: () -> Unit) {
-    Card(
-        onClick = onClick,
-        modifier = Modifier.fillMaxWidth(),
+    // 收编进 FocusCard：原来是原生 Card，**完全不读卡片材质**，所以选柔光/纸感时
+    // 「外观」「日程与活动提醒」这些行毫无反应（维护者反馈过三次）。
+    // 描边与 20dp 圆角原样保留（FocusCard 新增了 border 参数就是为了这个），
+    // 默认材质下渲染与原来的 Card 一致。
+    FocusCard(
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
         shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
     ) {
         Row(

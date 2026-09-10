@@ -1,6 +1,7 @@
 package com.sakata.focusflow
 
 import android.graphics.Bitmap
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -39,6 +40,13 @@ internal fun FocusCard(
     containerColor: Color,
     modifier: Modifier = Modifier,
     shape: Shape = CardDefaults.shape,
+    /**
+     * 可选描边。加这个参数是为了收编「设置」页那种**带描边的**卡片
+     * （PlanHubItem：外观／日程与活动提醒／提醒打扰控制…）——不收编它们的话，
+     * 选柔光/纸感时这些卡片毫无反应（维护者反馈过三次「像外观这样的卡片还是没有材质渲染」）。
+     * null（默认）= 不加描边，与原来的 FocusCard 完全一致。
+     */
+    border: BorderStroke? = null,
     content: @Composable ColumnScope.() -> Unit
 ) {
     // effectiveCardMaterial：关掉「丰富效果」时一律回落成原生纯色卡片。
@@ -48,6 +56,7 @@ internal fun FocusCard(
             modifier = modifier,
             shape = shape,
             colors = CardDefaults.cardColors(containerColor = containerColor),
+            border = border,
             content = content
         )
         return
@@ -62,7 +71,8 @@ internal fun FocusCard(
         // 材质的分层交给填充本身（柔光的顶亮底沉 / 纸感的纸纹），不要靠投影。
         modifier = modifier,
         shape = shape,
-        colors = CardDefaults.cardColors(containerColor = Color.Transparent)
+        colors = CardDefaults.cardColors(containerColor = Color.Transparent),
+        border = border
     ) {
         Box {
             Box(
