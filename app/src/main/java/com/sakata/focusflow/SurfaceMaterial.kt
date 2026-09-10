@@ -52,7 +52,13 @@ internal val LocalBackdropBitmap = staticCompositionLocalOf<ImageBitmap?> { null
 @Composable
 internal fun Modifier.pageLayerBackground(flatColor: Color): Modifier {
     val appearance = LocalAppearance.current
-    return if (appearance.pageBackdrop == BackdropKind.THEME) {
+    // 「渐变跟随内容」时渐变由滚动内容自己按内容高度铺（见 ScrollableWithBar），
+    // 但**层本身仍必须不透明**——否则会退回 8.1.1 修过的"转场时两层互相透出来"。
+    // 这里用主题页面底色兜底：内容会盖住它；内容比视口短时下方也是干净的页面底色，
+    // 不会露出对不上的渐变。
+    return if (appearance.pageBackdrop == BackdropKind.THEME ||
+        (appearance.pageBackdrop == BackdropKind.GRADIENT && appearance.gradientFollowsContent)
+    ) {
         background(flatColor)
     } else {
         appearanceBackdrop(appearance, MaterialTheme.colorScheme, LocalBackdropBitmap.current)
