@@ -40,17 +40,47 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * 8.2.0「设置 → 外观 → 页面背景」这一段。
+ * 8.2.0「设置 → 外观」这一段。
  *
  * 全部可选、默认跟随主题；导入的图片只写进应用私有目录，不出本机、不上传。
  * 图片背景之上永远压一层主题遮罩（见 [scrimAlpha]），正文对比度靠它保住。
+ *
+ * 结构说明（第 7 项起）：三段控件都做成了**可复用**的独立组件 ——
+ * [PageBackdropControls] / [CardMaterialControls] / [TimetableBaseSection]，
+ * 「设置 → 外观」按顺序摆一遍，「自定义主题 → 编辑」再摆一遍，
+ * 于是一处改动两处同时生效，不会出现两套长得不一样的控件。
  */
 @Composable
-@OptIn(ExperimentalLayoutApi::class)
 internal fun AppearanceSettingsSection(
     appearance: AppearanceSpec,
     onAppearanceChange: (AppearanceSpec) -> Unit,
     onApplyExtractedTheme: (FocusFlowThemeColors) -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        PageBackdropControls(
+            appearance = appearance,
+            onAppearanceChange = onAppearanceChange,
+            onApplyExtractedTheme = onApplyExtractedTheme
+        )
+        HorizontalDivider()
+        CardMaterialControls(appearance = appearance, onAppearanceChange = onAppearanceChange)
+        HorizontalDivider()
+        TimetableBaseControls(appearance = appearance, onAppearanceChange = onAppearanceChange)
+    }
+}
+
+/**
+ * 页面背景控件：跟随主题 / 主题渐变（停靠色 + 强度 + 跟随内容）/ 固定颜色 / 图片
+ * （导入、移除、不透明度、从图片抽主题色）。
+ */
+@Composable
+@OptIn(ExperimentalLayoutApi::class)
+internal fun PageBackdropControls(
+    appearance: AppearanceSpec,
+    onAppearanceChange: (AppearanceSpec) -> Unit,
+    onApplyExtractedTheme: (FocusFlowThemeColors) -> Unit,
+    /** 抽色成功后的提示词：外观页是"已应用"，主题编辑器里只更新草稿配色。 */
+    extractedAppliedNote: String = "已按图片抽色并应用"
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -97,69 +127,9 @@ internal fun AppearanceSettingsSection(
         }
 
         if (appearance.pageBackdrop == BackdropKind.GRADIENT) {
-            // 自选渐变配色：每个色板就是"顶色 → 底色"一对；不选则跟随主题派生。
-            Text("渐变配色", style = MaterialTheme.typography.labelMedium)
-            // 9 个色板（8 组自选 + 跟随主题）一行放不下，用 FlowRow 自动换行。
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                ThemeGradient.PAGE_GRADIENT_PAIRS.forEach { (top, bottom) ->
-                    val selected = appearance.gradientTop == top && appearance.gradientBottom == bottom
-                    Box(
-                        Modifier
-                            .size(34.dp)
-                            .clip(CircleShape)
-                            .background(
-                                androidx.compose.ui.graphics.Brush.verticalGradient(
-                                    listOf(Color(top), Color(bottom))
-                                )
-                            )
-                            .border(
-                                width = if (selected) 2.dp else 1.dp,
-                                color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
-                                shape = CircleShape
-                            )
-                            .clickable {
-                                onAppearanceChange(appearance.copy(gradientTop = top, gradientBottom = bottom))
-                                status = "渐变配色已更换"
-                            }
-                    )
-                }
-                // "跟随主题"档：清掉自选色
-                Box(
-                    Modifier
-                        .size(34.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.surfaceVariant)
-                        .border(
-                            width = if (appearance.gradientTop == 0 && appearance.gradientBottom == 0) 2.dp else 1.dp,
-                            color = if (appearance.gradientTop == 0 && appearance.gradientBottom == 0) {
-                                MaterialTheme.colorScheme.primary
-                            } else {
-                                MaterialTheme.colorScheme.outlineVariant
-                            },
-                            shape = CircleShape
-                        )
-                        .clickable {
-                            onAppearanceChange(appearance.copy(gradientTop = 0, gradientBottom = 0))
-                            status = "渐变配色已回到跟随主题"
-                        }
-                )
+            GradientStopsControls(appearance = appearance, onAppearanceChange = onAppearanceChange) {
+                status = it
             }
-
-            Text("渐变强度 ${appearance.gradientStrength}%", style = MaterialTheme.typography.labelMedium)
-            Slider(
-                value = appearance.gradientStrength.toFloat(),
-                onValueChange = { onAppearanceChange(appearance.copy(gradientStrength = it.toInt().coerceIn(0, 200))) },
-                valueRange = 0f..200f,
-                modifier = Modifier.fillMaxWidth()
-            )
-            Text(
-                "100% 是设计值（顶亮 → 底色 → 微深）；调到 0% 等于纯色，往右更明显。",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
         }
 
         // 8.2.0 §7.5：固定背景色（维护者要求"实现固定背景色"）。
@@ -187,28 +157,6 @@ internal fun AppearanceSettingsSection(
                             }
                     )
                 }
-            }
-        }
-
-        // 8.2.0 §7.5「渐变跟随内容」：开关回来了——这次渐变是画在**滚动内容自己的高度**上，
-        // 不依赖任何滚动事件（上一版靠滚动量算相位，真机上相位始终为 0）。
-        if (appearance.pageBackdrop == BackdropKind.GRADIENT) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("渐变跟随内容", fontWeight = FontWeight.SemiBold)
-                    Text(
-                        "关＝整条渐变正好一屏，颜色变化快；开＝渐变铺满整段内容，每屏只走一小段，竖向变化更慢更缓。",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                Switch(
-                    checked = appearance.gradientFollowsContent,
-                    onCheckedChange = {
-                        onAppearanceChange(appearance.copy(gradientFollowsContent = it))
-                        status = if (it) "渐变已改为跟随内容（更缓）" else "渐变已改回固定一屏"
-                    }
-                )
             }
         }
 
@@ -245,9 +193,9 @@ internal fun AppearanceSettingsSection(
                         val palette = withContext(Dispatchers.Default) {
                             extractPalette(context, appearance.pageImage)
                         }
-                        if (ExtractedTheme.worthApplying(palette) && palette != null) {
+                        if (palette != null && ExtractedTheme.worthApplying(palette)) {
                             onApplyExtractedTheme(ExtractedTheme.derive(palette))
-                            status = "已按图片抽色并应用（主色 #%06X）".format(palette.primary and 0xFFFFFF)
+                            status = "$extractedAppliedNote（主色 #%06X）".format(palette.primary and 0xFFFFFF)
                         } else {
                             status = "这张图没有足够明显的颜色，主题保持不变"
                         }
@@ -265,46 +213,145 @@ internal fun AppearanceSettingsSection(
             Text(it, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
         }
     }
+}
 
-    HorizontalDivider()
-    Text("卡片材质", fontWeight = FontWeight.SemiBold)
+/**
+ * 渐变停靠色与强度（只在"主题渐变"档下出现）。
+ *
+ * 八组"顶色 → 底色"色板 + 「跟随主题」档；强度 0–200%，100% 是设计值。
+ * 「渐变跟随内容」是维护者口径：关 = 整条渐变正好一屏，开 = 渐变铺满整段内容、每屏更缓。
+ */
+@Composable
+@OptIn(ExperimentalLayoutApi::class)
+internal fun GradientStopsControls(
+    appearance: AppearanceSpec,
+    onAppearanceChange: (AppearanceSpec) -> Unit,
+    onStatus: (String) -> Unit
+) {
+    Text("渐变配色", style = MaterialTheme.typography.labelMedium)
+    // 9 个色板（8 组自选 + 跟随主题）一行放不下，用 FlowRow 自动换行。
     FlowRow(
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp)
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        CardMaterial.entries.forEach { material ->
-            FilterChip(
-                selected = appearance.cardMaterial == material,
-                onClick = { onAppearanceChange(appearance.copy(cardMaterial = material)) },
-                label = { Text(material.label()) }
+        ThemeGradient.PAGE_GRADIENT_PAIRS.forEach { (top, bottom) ->
+            val selected = appearance.gradientTop == top && appearance.gradientBottom == bottom
+            Box(
+                Modifier
+                    .size(34.dp)
+                    .clip(CircleShape)
+                    .background(
+                        androidx.compose.ui.graphics.Brush.verticalGradient(
+                            listOf(Color(top), Color(bottom))
+                        )
+                    )
+                    .border(
+                        width = if (selected) 2.dp else 1.dp,
+                        color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
+                        shape = CircleShape
+                    )
+                    .clickable {
+                        onAppearanceChange(appearance.copy(gradientTop = top, gradientBottom = bottom))
+                        onStatus("渐变配色已更换")
+                    }
             )
         }
+        // "跟随主题"档：清掉自选色
+        Box(
+            Modifier
+                .size(34.dp)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+                .border(
+                    width = if (appearance.gradientTop == 0 && appearance.gradientBottom == 0) 2.dp else 1.dp,
+                    color = if (appearance.gradientTop == 0 && appearance.gradientBottom == 0) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.outlineVariant
+                    },
+                    shape = CircleShape
+                )
+                .clickable {
+                    onAppearanceChange(appearance.copy(gradientTop = 0, gradientBottom = 0))
+                    onStatus("渐变配色已回到跟随主题")
+                }
+        )
     }
+
+    Text("渐变强度 ${appearance.gradientStrength}%", style = MaterialTheme.typography.labelMedium)
+    Slider(
+        value = appearance.gradientStrength.toFloat(),
+        onValueChange = { onAppearanceChange(appearance.copy(gradientStrength = it.toInt().coerceIn(0, 200))) },
+        valueRange = 0f..200f,
+        modifier = Modifier.fillMaxWidth()
+    )
     Text(
-        "默认＝原来的纯色卡片（逐像素不变）；渐变按当前配色派生，柔光加顶面高光与主题阴影，纸感在柔光上再叠一层程序生成的淡噪点（不增加包体积）。",
+        "100% 是设计值（顶亮 → 底色 → 微深）；调到 0% 等于纯色，往右更明显。",
         style = MaterialTheme.typography.labelSmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant
     )
 
-    HorizontalDivider()
-    TimetableBaseSection(
-        appearance = appearance,
-        onAppearanceChange = onAppearanceChange,
-        onStatus = { status = it }
-    )
+    // 8.2.0 §7.5「渐变跟随内容」：渐变画在**滚动内容自己的高度**上，不依赖任何滚动事件
+    // （上一版靠滚动量算相位，真机上相位始终为 0）。
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text("渐变跟随内容", fontWeight = FontWeight.SemiBold)
+            Text(
+                "关＝整条渐变正好一屏，颜色变化快；开＝渐变铺满整段内容，每屏只走一小段，竖向变化更慢更缓。",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        Switch(
+            checked = appearance.gradientFollowsContent,
+            onCheckedChange = {
+                onAppearanceChange(appearance.copy(gradientFollowsContent = it))
+                onStatus(if (it) "渐变已改为跟随内容（更缓）" else "渐变已改回固定一屏")
+            }
+        )
+    }
+}
+
+/** 卡片材质四档（默认 = 原来的纯色卡片，逐像素不变）。 */
+@Composable
+@OptIn(ExperimentalLayoutApi::class)
+internal fun CardMaterialControls(
+    appearance: AppearanceSpec,
+    onAppearanceChange: (AppearanceSpec) -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("卡片材质", fontWeight = FontWeight.SemiBold)
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            CardMaterial.entries.forEach { material ->
+                FilterChip(
+                    selected = appearance.cardMaterial == material,
+                    onClick = { onAppearanceChange(appearance.copy(cardMaterial = material)) },
+                    label = { Text(material.label()) }
+                )
+            }
+        }
+        Text(
+            "默认＝原来的纯色卡片（逐像素不变）；渐变按当前配色派生，柔光加顶面高光与主题阴影，纸感在柔光上再叠一层程序生成的淡噪点（不增加包体积）。",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
 }
 
 /**
  * 「课表与日程表底色」：跟随主题 / 选色 / 图片，只影响底板，课程块与日程块的颜色来自数据、不动。
  */
 @Composable
-private fun TimetableBaseSection(
+internal fun TimetableBaseControls(
     appearance: AppearanceSpec,
-    onAppearanceChange: (AppearanceSpec) -> Unit,
-    onStatus: (String) -> Unit
+    onAppearanceChange: (AppearanceSpec) -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    var status by remember { mutableStateOf<String?>(null) }
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
@@ -317,92 +364,98 @@ private fun TimetableBaseSection(
             }
             if (stored) {
                 onAppearanceChange(appearance.copy(timetableBackdrop = BackdropKind.IMAGE, timetableImage = name))
-                onStatus("课表底色已换成这张图片")
+                status = "课表底色已换成这张图片"
             } else {
-                onStatus("这张图片读不出来，换一张试试")
+                status = "这张图片读不出来，换一张试试"
             }
         }
     }
 
-    Text("课表与日程表底色", fontWeight = FontWeight.SemiBold)
-    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        listOf(
-            BackdropKind.THEME to "跟随主题",
-            BackdropKind.COLOR to "选颜色",
-            BackdropKind.IMAGE to "图片"
-        ).forEach { (kind, label) ->
-            FilterChip(
-                selected = appearance.timetableBackdrop == kind,
-                onClick = { onAppearanceChange(appearance.copy(timetableBackdrop = kind)) },
-                label = { Text(label) }
-            )
-        }
-    }
-
-    if (appearance.timetableBackdrop == BackdropKind.COLOR) {
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            TIMETABLE_BASE_PRESETS.forEach { preset ->
-                val selected = appearance.timetableColor == preset
-                Box(
-                    Modifier
-                        .size(34.dp)
-                        .clip(CircleShape)
-                        .background(Color(preset))
-                        .border(
-                            width = if (selected) 2.dp else 1.dp,
-                            color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
-                            shape = CircleShape
-                        )
-                        .clickable {
-                            onAppearanceChange(appearance.copy(timetableBackdrop = BackdropKind.COLOR, timetableColor = preset))
-                            onStatus(
-                                if (timetableBaseIsReadable(preset)) "课表底色已更新（格线和小字对比度达标）"
-                                else "这个底色偏深，课表格线可能看不清"
-                            )
-                        }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("课表与日程表底色", fontWeight = FontWeight.SemiBold)
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            listOf(
+                BackdropKind.THEME to "跟随主题",
+                BackdropKind.COLOR to "选颜色",
+                BackdropKind.IMAGE to "图片"
+            ).forEach { (kind, label) ->
+                FilterChip(
+                    selected = appearance.timetableBackdrop == kind,
+                    onClick = { onAppearanceChange(appearance.copy(timetableBackdrop = kind)) },
+                    label = { Text(label) }
                 )
             }
         }
-        Text(
-            "只改课表/日程表的底板；课程块与日程块的颜色来自各自数据，不受影响。",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-    }
 
-    if (appearance.timetableBackdrop == BackdropKind.IMAGE) {
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            TextButton(onClick = { picker.launch(arrayOf("image/*")) }) {
-                Text(if (appearance.timetableImage.isBlank()) "选择图片" else "更换图片")
+        if (appearance.timetableBackdrop == BackdropKind.COLOR) {
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                TIMETABLE_BASE_PRESETS.forEach { preset ->
+                    val selected = appearance.timetableColor == preset
+                    Box(
+                        Modifier
+                            .size(34.dp)
+                            .clip(CircleShape)
+                            .background(Color(preset))
+                            .border(
+                                width = if (selected) 2.dp else 1.dp,
+                                color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
+                                shape = CircleShape
+                            )
+                            .clickable {
+                                onAppearanceChange(appearance.copy(timetableBackdrop = BackdropKind.COLOR, timetableColor = preset))
+                                status = if (timetableBaseIsReadable(preset)) {
+                                    "课表底色已更新（格线和小字对比度达标）"
+                                } else {
+                                    "这个底色偏深，课表格线可能看不清"
+                                }
+                            }
+                    )
+                }
             }
-            if (appearance.timetableImage.isNotBlank()) {
-                TextButton(onClick = {
-                    val old = appearance.timetableImage
-                    onAppearanceChange(appearance.copy(timetableImage = "", timetableBackdrop = BackdropKind.THEME))
-                    scope.launch { withContext(Dispatchers.IO) { AppearanceImages.delete(context, old) } }
-                    onStatus("课表底图已移除")
-                }) { Text("移除图片") }
-            }
+            Text(
+                "只改课表/日程表的底板；课程块与日程块的颜色来自各自数据，不受影响。",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
-        Text("底图不透明度 ${appearance.timetableOpacity}%", style = MaterialTheme.typography.labelMedium)
-        Slider(
-            value = appearance.timetableOpacity.toFloat(),
-            onValueChange = {
-                onAppearanceChange(appearance.copy(timetableOpacity = it.toInt().coerceIn(0, 100)))
-            },
-            valueRange = 0f..100f,
-            modifier = Modifier.fillMaxWidth()
-        )
-        Text(
-            "底图上会压一层主题遮罩，保证格线与小字仍能看清。",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
+
+        if (appearance.timetableBackdrop == BackdropKind.IMAGE) {
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                TextButton(onClick = { picker.launch(arrayOf("image/*")) }) {
+                    Text(if (appearance.timetableImage.isBlank()) "选择图片" else "更换图片")
+                }
+                if (appearance.timetableImage.isNotBlank()) {
+                    TextButton(onClick = {
+                        val old = appearance.timetableImage
+                        onAppearanceChange(appearance.copy(timetableImage = "", timetableBackdrop = BackdropKind.THEME))
+                        scope.launch { withContext(Dispatchers.IO) { AppearanceImages.delete(context, old) } }
+                        status = "课表底图已移除"
+                    }) { Text("移除图片") }
+                }
+            }
+            Text("底图不透明度 ${appearance.timetableOpacity}%", style = MaterialTheme.typography.labelMedium)
+            Slider(
+                value = appearance.timetableOpacity.toFloat(),
+                onValueChange = {
+                    onAppearanceChange(appearance.copy(timetableOpacity = it.toInt().coerceIn(0, 100)))
+                },
+                valueRange = 0f..100f,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Text(
+                "底图上会压一层主题遮罩，保证格线与小字仍能看清。",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        status?.let {
+            Text(it, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+        }
     }
 }
 
 /** 图上取色：只解到 64×64 再喂给抽取器（省内存、结果稳定）。 */
-private fun extractPalette(context: android.content.Context, name: String): ExtractedPalette? {
+internal fun extractPalette(context: android.content.Context, name: String): ExtractedPalette? {
     val bitmap = AppearanceImages.load(context, name, 64, 64) ?: return null
     val map = bitmap.toPixelMap()
     val pixels = IntArray(bitmap.width * bitmap.height)
@@ -413,6 +466,3 @@ private fun extractPalette(context: android.content.Context, name: String): Extr
     }
     return PaletteExtractor.extract(pixels)
 }
-
-/** 局部小工具：这里只需要 6dp / 8dp 两个间距，避免为了两个值引入额外 import。 */
-private fun Int.dp0() = androidx.compose.ui.unit.Dp(this.toFloat())

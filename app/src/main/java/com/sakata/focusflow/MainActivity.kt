@@ -1436,6 +1436,10 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                 }, onRestoreDefaultTheme = {
                     themeOption = lastBuiltInTheme
                     store.saveTheme(lastBuiltInTheme)
+                    // 8.2.0 第 7 项：这个按钮现在是"恢复默认主题配色与外观"——
+                    // 自定义工具里改过的背景、卡片材质、课表底色也一并回到默认（= 8.1.1 的样子）。
+                    appearance = AppearanceSpec.DEFAULT
+                    store.saveAppearance(AppearanceSpec.DEFAULT)
                 }, onCommuteChange = { updated ->
                     commuteProfile = updated
                     store.saveCommuteProfile(updated)
@@ -1614,6 +1618,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                         appearance = updated
                         store.saveAppearance(updated)
                     },
+                    pageBackdropBitmap = pageBackdropBitmap,
                     onApplyExtractedTheme = { extracted ->
                         // 「系统自抽主题色」的结果作为一套自定义主题落地：同时记住颜色与当前主题，
                         // 与自定义主题编辑器走同一条保存路径，用户之后随时能改回去。

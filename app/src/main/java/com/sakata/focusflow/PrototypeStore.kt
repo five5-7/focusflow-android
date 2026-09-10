@@ -5,8 +5,21 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 
-/** 自定义主题预设：命名配色存档，用于保存／切换多套自定义配色。 */
-data class ThemePreset(val name: String, val colors: FocusFlowThemeColors)
+/**
+ * 自定义主题预设：命名配色存档，用于保存／切换多套自定义配色。
+ *
+ * 8.2.0 第 7 项起可以**可选地**带上一整套外观（[appearance]）：
+ * - `appearance == null` = 老预设，只带配色，应用它不动用户当前的背景/卡片外观；
+ * - `appearance != null` = 新预设，"换主题"就是整套换（渐变停靠色、背景、材质、课表底色）。
+ *
+ * 可见性跟 [AppearanceSpec] 保持一致（internal）：预设只是设置页与主题工具之间的数据结构，
+ * 不是对外 API。
+ */
+internal data class ThemePreset(
+    val name: String,
+    val colors: FocusFlowThemeColors,
+    val appearance: AppearanceSpec? = null
+)
 
 private val taskHistoryLock = Any()
 
@@ -155,30 +168,14 @@ class PrototypeStore(context: Context) {
         preferences.edit().putString("custom_theme_colors", ThemeColorsCodec.encode(colors).toString()).apply()
     }
 
-    /** 自定义主题预设：多套命名配色存档。无预设时返回空列表。 */
-    fun loadThemePresets(): List<ThemePreset> =
+    /** 自定义主题预设：多套命名配色存档。无预设时返回空列表。老存档缺字段按"只有配色"读。 */
+    internal fun loadThemePresets(): List<ThemePreset> =
         decodeGuarded("theme_presets", emptyList(), { json ->
-            JSONArray(json).let { arr ->
-                (0 until arr.length()).map { i ->
-                    val item = arr.getJSONObject(i)
-                    val c = item.getJSONObject("colors")
-                    ThemePreset(
-                        name = item.getString("name"),
-                        colors = ThemeColorsCodec.decode(c)
-                    )
-                }
-            }
+            ThemePresetCodec.decode(json)
         }, { it.isEmpty() })
 
-    fun saveThemePresets(presets: List<ThemePreset>) {
-        preferences.edit().putString("theme_presets", JSONArray().apply {
-            presets.forEach { preset ->
-                put(JSONObject().apply {
-                    put("name", preset.name)
-                    put("colors", ThemeColorsCodec.encode(preset.colors))
-                })
-            }
-        }.toString()).apply()
+    internal fun saveThemePresets(presets: List<ThemePreset>) {
+        preferences.edit().putString("theme_presets", ThemePresetCodec.encode(presets)).apply()
     }
 
     fun loadEnergyLevel(): String = (preferences.getString("energy_level", "正常") ?: "正常").takeIf { it in setOf("偏低", "正常", "充足") } ?: "正常"

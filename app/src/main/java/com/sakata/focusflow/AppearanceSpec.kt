@@ -101,6 +101,43 @@ internal data class AppearanceSpec(
     val pageUsesColor: Boolean
         get() = pageBackdrop == BackdropKind.COLOR
 
+    /**
+     * 引用了已不存在的图片时降级为「跟随主题」（纯函数，[exists] 由调用方注入便于单测）。
+     *
+     * 用在"应用预设"这条路径上：预设里记着当时那张背景图，用户后来把图删了，
+     * 直接套用就会出现"模式是图片、文件却没了"的空窗。与「移除图片」按钮同口径，
+     * 统一退回跟随主题，不抛错、不清任何文件。
+     */
+    fun withExistingImages(exists: (String) -> Boolean): AppearanceSpec {
+        var result = this
+        if (pageBackdrop == BackdropKind.IMAGE && pageImage.isNotBlank() && !exists(pageImage)) {
+            result = result.copy(pageBackdrop = BackdropKind.THEME, pageImage = "")
+        }
+        if (timetableBackdrop == BackdropKind.IMAGE && timetableImage.isNotBlank() && !exists(timetableImage)) {
+            result = result.copy(timetableBackdrop = BackdropKind.THEME, timetableImage = "")
+        }
+        return result
+    }
+
+    /** 一句话概括这套外观（预设列表里显示"这套预设带了什么"）。 */
+    fun summary(): String {
+        val background = when (pageBackdrop) {
+            BackdropKind.THEME -> "标准底色"
+            BackdropKind.GRADIENT -> buildString {
+                append("渐变 ").append(gradientStrength).append('%')
+                if (gradientTop != 0 || gradientBottom != 0) append("·自选色")
+                if (gradientFollowsContent) append("·跟随内容")
+            }
+            BackdropKind.COLOR -> "固定底色"
+            BackdropKind.IMAGE -> "图片底 " + backdropOpacity + '%'
+        }
+        return buildList {
+            add(background)
+            if (cardMaterial != CardMaterial.TONAL) add("卡片" + cardMaterial.label())
+            if (timetableBackdrop != BackdropKind.THEME) add("课表底色")
+        }.joinToString("·")
+    }
+
     companion object {
         val DEFAULT = AppearanceSpec()
 
