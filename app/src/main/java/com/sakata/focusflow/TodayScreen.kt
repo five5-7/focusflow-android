@@ -565,7 +565,9 @@ private fun StatusChoiceRow(label: String, options: List<String>, selected: Stri
 }
 
 @Composable internal fun InboxItemCard(item: Item, onPickTime: (Item) -> Unit, onEdit: (Item) -> Unit, onOrganize: (Item) -> Unit, onShrink: (Item) -> Unit, onPause: (Item) -> Unit, onAbandon: (Item) -> Unit) {
-    ElevatedCard { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    // 收编进 FocusCard（维护者反馈"收集箱等没有渲染"）：ElevatedCard 不读卡片材质，
+    // 所以选柔光/纸感时收集箱卡片毫无反应。FocusCard 在默认材质下与原生 Card 渲染一致。
+    FocusCard(containerColor = MaterialTheme.colorScheme.surfaceContainerLow) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text(item.title, fontWeight = FontWeight.SemiBold)
         Text(item.detail)
         if (item.userNote != null && item.userNote.isNotBlank() && item.userNote != item.detail) {
@@ -594,7 +596,8 @@ private fun StatusChoiceRow(label: String, options: List<String>, selected: Stri
 }
 
 @Composable private fun ProgressCaptureCard(item: Item, activeChild: Item?, onOrganize: (Item) -> Unit, onCreateNextAction: (Item) -> Unit, onRestore: (Item) -> Unit, onDelete: (Item) -> Unit, onComplete: (Item) -> Unit) {
-    ElevatedCard { Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    // 同上：收编进 FocusCard，让"逐步推进"的卡片也吃材质。
+    FocusCard(containerColor = MaterialTheme.colorScheme.surfaceContainerLow) { Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(item.title, fontWeight = FontWeight.SemiBold)
         Text(item.editableNote(), style = MaterialTheme.typography.bodySmall)
         Text(activeChild?.let { "当前步骤：${it.title}" } ?: item.nextAction.takeIf { it.isNotBlank() }?.let { "下一步：$it" } ?: "等待补充下一步，不必立即安排。", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Medium)

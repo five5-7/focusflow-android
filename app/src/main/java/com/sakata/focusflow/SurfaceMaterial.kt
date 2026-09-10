@@ -533,7 +533,7 @@ internal fun Modifier.surfaceMaterialFill(
                 // 那层压深是"可量化的区别"：只靠噪点的话，两者在深色底上仍然很难分辨
                 // （维护者连续两轮反馈"柔光和纸感没区别"）。压深很淡，不会让正文变糊。
                 drawRect(scheme.onSurface.copy(alpha = PAPER_SHEEN_ALPHA))
-                drawRect(paperNoiseBrush())
+                drawPaperGrain()
             }
         }
 }

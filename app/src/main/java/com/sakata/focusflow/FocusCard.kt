@@ -11,6 +11,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageShader
@@ -18,6 +20,9 @@ import androidx.compose.ui.graphics.ShaderBrush
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.unit.dp
 import kotlin.math.abs
 
 /**
@@ -85,7 +90,7 @@ private fun Modifier.cardMaterialFill(
         if (material == CardMaterial.PAPER) {
             // 纸感 = 柔光 + 一点整体压深 + 纸纹；与 surfaceMaterialFill 同一套口径。
             drawRect(scheme.onSurface.copy(alpha = PAPER_SHEEN_ALPHA))
-            drawRect(paperNoiseBrush())
+            drawPaperGrain()
         }
     }
     // 两侧轻微内收：靠里的浅、靠边的略深，和底栏用同一套语言，避免"贴纸感"。
@@ -122,10 +127,23 @@ internal class SingleValueCache<T : Any> {
 private val paperNoiseCache = SingleValueCache<Brush>()
 
 /**
+ * 纸纹的**每格边长（dp）**。
+ *
+ * 这是"矩形色差"的根因所在：`ImageShader` 的平铺单位是**图像像素**，而 64×64 的贴图
+ * 在 4 倍密度屏上就是 16dp 一格 —— 于是卡面上出现一个约 16dp 的**可辨方形重复**，
+ * 看起来就是"中间有一块矩形色差"（维护者反馈）。
+ * 真正的纸纹颗粒应该在 1–2dp 量级，所以绘制时把噪点层缩放到 [PAPER_GRAIN_DP] 一格。
+ */
+internal const val PAPER_GRAIN_DP = 1.5f
+
+/**
  * 纸感噪点：**程序生成**的 64×64 贴图，不进资源、不增加包体积。
  *
  * 噪点只做"上一档/下一档"的微扰（不连续调暗），因此不会把卡片整体压暗。
  * 同一个 (seed, alpha) 只建一次（见 [SingleValueCache]）。
+ *
+ * 注意：直接用这个 brush 平铺会得到 16dp 一格的大方块（见 [PAPER_GRAIN_DP]）。
+ * 画到界面上请用 [DrawScope.drawPaperGrain]，它负责把缩放算对。
  */
 internal fun paperNoiseBrush(seed: Long = DEFAULT_NOISE_SEED, alpha: Float = DEFAULT_NOISE_ALPHA): Brush =
     paperNoiseCache.get(seed, alpha) {
@@ -139,6 +157,22 @@ internal fun paperNoiseBrush(seed: Long = DEFAULT_NOISE_SEED, alpha: Float = DEF
     }
 
 internal const val DEFAULT_NOISE_SEED = 0x5EEDL
+
+/**
+ * 在画布上铺纸纹：把 64×64 的噪点层缩放到"每格 [PAPER_GRAIN_DP] dp"。
+ *
+ * 必须走这里而不是直接 `drawRect(paperNoiseBrush())` —— 后者会得到 16dp 一格的
+ * 大方块重复（见 [PAPER_GRAIN_DP] 的说明）。用 `withTransform` 缩放画布，
+ * 让 shader 的平铺单位从"图像像素"变成"想要的 dp 尺寸"。
+ */
+internal fun DrawScope.drawPaperGrain() {
+    val grainPx = PAPER_GRAIN_DP.dp.toPx()
+    val scale = (grainPx / NOISE_SIZE).coerceAtLeast(0.0001f)
+    withTransform({ scale(scale, scale, pivot = Offset.Zero) }) {
+        // 缩放后画布坐标被压缩，所以画布要按 1/scale 放大才能盖满原区域。
+        drawRect(paperNoiseBrush(), topLeft = Offset.Zero, size = Size(size.width / scale, size.height / scale))
+    }
+}
 
 /**
  * 纸感噪点的不透明度上限。
