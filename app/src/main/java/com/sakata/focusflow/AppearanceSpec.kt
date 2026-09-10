@@ -119,6 +119,15 @@ internal data class AppearanceSpec(
         return result
     }
 
+    /**
+     * 「渐变跟随内容」当前到底怎么铺。
+     *
+     * 真机上光看开关的开关状态判断不出效果（dump 读 Switch 不稳、只能靠像素反推），
+     * 所以把结论做成一句可以直接截图的文字，放在开关下面。
+     */
+    fun gradientSpanLabel(): String =
+        if (gradientFollowsContent) "跟随内容（渐变铺满整段内容，每屏只走一小段）" else "固定一屏（整条渐变正好一屏）"
+
     /** 一句话概括这套外观（预设列表里显示"这套预设带了什么"）。 */
     fun summary(): String {
         val background = when (pageBackdrop) {

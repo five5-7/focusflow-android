@@ -133,4 +133,13 @@ class AppearanceSpecTest {
         assertEquals("图片底 40%", AppearanceSpec(pageBackdrop = BackdropKind.IMAGE, backdropOpacity = 40).summary())
         assertTrue(AppearanceSpec(gradientFollowsContent = true, pageBackdrop = BackdropKind.GRADIENT).summary().contains("跟随内容"))
     }
+
+    /** 真机上开关状态读不准，靠这行文字判定"当前到底怎么铺"。 */
+    @Test
+    fun gradientSpanLabelStatesTheActiveMode() {
+        assertTrue(AppearanceSpec.DEFAULT.gradientSpanLabel().startsWith("固定一屏"))
+        assertTrue(
+            AppearanceSpec(gradientFollowsContent = true).gradientSpanLabel().startsWith("跟随内容")
+        )
+    }
 }

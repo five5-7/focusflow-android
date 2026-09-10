@@ -310,6 +310,12 @@ internal fun GradientStopsControls(
             }
         )
     }
+    // 把"当前到底怎么铺"写成一句可截图的话：真机上开关状态读不准，靠这行文字 + 颜色采样判定。
+    Text(
+        "当前：" + appearance.gradientSpanLabel(),
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
 }
 
 /** 卡片材质四档（默认 = 原来的纯色卡片，逐像素不变）。 */
