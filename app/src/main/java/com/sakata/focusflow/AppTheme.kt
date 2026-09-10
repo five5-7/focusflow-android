@@ -393,9 +393,11 @@ private fun onContainerOf(color: Color): Color = lerp(color, Color.Black, 0.35f)
 private const val PAGE_DEPTH = 0.05f
 
 /**
- * 在 sRGB 分量上等比压深：保持色相、结果可预期。
- * 不用 `lerp(color, Black, f)` 是因为 Compose 的颜色插值走的是线性空间，
- * 同样一个 0.05 出来会浅一半，调参时对不上账。
+ * 在 sRGB 分量上等比压深：保持色相、结果可预期，并且能被单测直接覆盖。
+ *
+ * 不用 `lerp(color, Black, f)` 是为了让"压深 5%"这个参数在文档和测试里对得上账。
+ * （实测确认 Compose 的 `lerp` 在 sRGB 颜色上就是逐分量插值：本项目 surfaceContainerLow
+ *  的理论值 rgb(255,251,249) 与真机取样完全一致，两者结果相同。）
  */
 private fun deepen(color: Color, amount: Float): Color = Color(
     red = color.red * (1f - amount),

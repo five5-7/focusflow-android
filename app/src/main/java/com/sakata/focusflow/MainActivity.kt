@@ -29,6 +29,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.TransformOrigin
@@ -241,6 +242,19 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     var globalLoading by remember { mutableStateOf(false) }
     var themeOption by remember { mutableStateOf(store.loadTheme()) }
     var darkMode by remember { mutableStateOf(store.loadDarkMode()) }
+
+    // 8.2.0 外观系统：全部可选、默认等于现状（老装机升级后外观不变）。
+    var appearance by remember { mutableStateOf(store.loadAppearance()) }
+    // 背景图在后台线程按屏幕尺寸降采样解码；没设图或解码失败就是 null，页面退回主题底色。
+    var pageBackdropBitmap by remember { mutableStateOf<ImageBitmap?>(null) }
+    LaunchedEffect(appearance.pageImage, appearance.pageBackdrop) {
+        val name = appearance.pageImage
+        pageBackdropBitmap = if (appearance.hasPageImage && name.isNotBlank()) {
+            withContext(Dispatchers.IO) { AppearanceImages.load(context, name, 1440, 3168) }
+        } else {
+            null
+        }
+    }
     // 8.1.0 动画速度（外观页）：全局时长倍率，写入 MotionSettings 供各动画换算。
     var animationSpeed by remember { mutableStateOf(store.loadAnimationSpeed()) }
     LaunchedEffect(animationSpeed) { MotionSettings.update(animationSpeed) }
@@ -885,14 +899,26 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
         val keyboardVisible = WindowInsets.ime.getBottom(density) > 0
         var floatingBarHeight by remember { mutableStateOf(112.dp) }
         Box(Modifier.fillMaxSize().imePadding()) {
+        // 8.2.0 外观系统：背景层画在最底下（页面渐变/图片）。默认外观下它不新增任何绘制，
+        // 因此「默认与 8.1.1 逐像素一致」是结构上成立的，不靠调参。
+        Box(
+            Modifier.fillMaxSize().appearanceBackdrop(
+                spec = appearance,
+                scheme = MaterialTheme.colorScheme,
+                bitmap = pageBackdropBitmap
+            )
+        )
         // 8.1.0 第三轮：弹窗浮层挂在应用根，所有页面的 AppDialog 都能注册进来。
-        CompositionLocalProvider(LocalAppDialogHost provides dialogHost) {
+        CompositionLocalProvider(
+            LocalAppearance provides appearance,
+            LocalAppDialogHost provides dialogHost
+        ) {
         // Horizontal cutouts constrain the viewport. Top safety travels with scroll content.
         val safeContentInsets = WindowInsets.systemBars.union(WindowInsets.displayCutout)
         val topSafety = safeContentInsets.asPaddingValues().calculateTopPadding()
         val hasTopNotice = StorageProtection.readOnly || globalLoading
         Scaffold(
-            containerColor = MaterialTheme.colorScheme.background,
+            containerColor = pageContainerColor(),
             contentWindowInsets = safeContentInsets.only(WindowInsetsSides.Horizontal),
             snackbarHost = { SnackbarHost(snackbarHostState, Modifier.padding(bottom = floatingBarHeight)) },
             topBar = {
@@ -1544,6 +1570,11 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                     onAnimationSpeedChange = { scale ->
                         animationSpeed = scale
                         store.saveAnimationSpeed(scale)
+                    },
+                    appearance = appearance,
+                    onAppearanceChange = { updated ->
+                        appearance = updated
+                        store.saveAppearance(updated)
                     })
             }
             }

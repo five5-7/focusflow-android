@@ -13,7 +13,6 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
@@ -76,7 +75,7 @@ private fun enterSubpage(origin: TransformOrigin?): ContentTransform =
 internal fun <T : Any> SubpageMotion(
     page: T?,
     depth: (T) -> Int = { 1 },
-    containerColor: Color = MaterialTheme.colorScheme.background,
+    containerColor: Color = pageContainerColor(),
     content: @Composable (T) -> Unit
 ) {
     val states = rememberSaveableStateHolder()
