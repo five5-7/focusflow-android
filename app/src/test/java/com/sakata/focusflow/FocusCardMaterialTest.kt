@@ -21,30 +21,47 @@ class FocusCardMaterialTest {
         )
     }
 
+    /**
+     * 纸纹**必须是亮度中性的**——这是真机目视复核抓出来的缺陷：
+     * 旧实现用"纯黑/纯白像素 + 不同 alpha"，而 alpha 合成往下压是乘性、往上提是加性，
+     * 两者不对称，于是一半黑一半白平均下来仍然把卡片整体压暗。
+     * 实测纸感把绿卡压暗约 **26 灰阶**、白卡约 18 灰阶 —— 纸感变成了"换个更深的颜色"，
+     * 而不是"同一张纸上加纹理"。
+     *
+     * 现在像素围绕中性灰 128 生成、配合 `BlendMode.Overlay` 绘制（128 = 恒等），
+     * 所以平均灰阶必须非常接近 128。
+     */
     @Test
-    fun noiseNeverDarkensTheCard() {
+    fun paperGrainIsLuminanceNeutralSoItNeverDarkensTheCard() {
         val pixels = noisePixels(alpha = DEFAULT_NOISE_ALPHA)
-        val alphas = pixels.map { (it ushr 24) and 0xFF }
-        // 单像素最多允许 DEFAULT_NOISE_ALPHA；平均必须明显更低
-        assertTrue("单像素 alpha 不应超过设定值", alphas.max() <= (DEFAULT_NOISE_ALPHA * 255f).toInt() + 1)
-        val average = alphas.average()
-        assertTrue("平均 alpha 应远低于上限，实际 $average", average < DEFAULT_NOISE_ALPHA * 255 * 0.7)
+        val greys = pixels.map { it and 0xFF }
+        // 全部像素都不透明：强度由"离 128 多远"承载，而不是靠 alpha
+        assertTrue("纸纹像素应完全不透明", pixels.all { ((it ushr 24) and 0xFF) == 0xFF })
+        val average = greys.average()
+        assertTrue(
+            "平均灰阶必须贴近 128（Overlay 的恒等点），实际 $average —— 偏离就会整体压暗或提亮",
+            kotlin.math.abs(average - 128.0) < 2.0
+        )
     }
 
     @Test
     fun noiseIsRoughlyBalancedBetweenLightAndDark() {
         val pixels = noisePixels()
-        val bright = pixels.count { ((it shr 16) and 0xFF) > 127 }
+        val bright = pixels.count { (it and 0xFF) > 127 }
         val total = pixels.size
         assertTrue("亮暗像素应大致各半，实际 $bright / $total", bright > total / 3 && bright < total * 2 / 3)
     }
 
+    /** [alpha] 现在的含义是**纹理强度**：越大离中灰越远（纹理越粗），0 = 完全无纹理。 */
     @Test
-    fun noiseAlphaScalesWithTheParameter() {
-        fun averageAlpha(alpha: Float) = noisePixels(alpha = alpha).map { (it ushr 24) and 0xFF }.average()
-        assertTrue(averageAlpha(0.12f) > averageAlpha(0.04f))
-        // 0 透明度 = 完全不影响画面
-        assertEquals(0.0, averageAlpha(0f), 0.001)
+    fun textureStrengthScalesTheDeviationFromNeutralGrey() {
+        fun deviation(alpha: Float): Double {
+            val greys = noisePixels(alpha = alpha).map { it and 0xFF }
+            return greys.map { kotlin.math.abs(it - 128.0) }.average()
+        }
+        assertTrue("强度越大，偏离中灰越远", deviation(0.5f) > deviation(0.2f))
+        // 强度 0 = 整片都是中性灰 = Overlay 恒等 = 完全不影响画面
+        assertEquals("强度 0 应完全是中性灰", 0.0, deviation(0f), 0.001)
     }
 
     @Test

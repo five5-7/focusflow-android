@@ -436,6 +436,67 @@ internal fun pageBrushFor(
     )
 }
 
+/**
+ * 渐变在**归一化位置** `(fx, fy)` 处的颜色（左上为原点，两者都在 0..1）。
+ *
+ * 存在的理由：悬浮在页面之上的东西（底栏、以及以后别的浮层）不能拿"固定主题色"去配，
+ * 因为页面渐变让它背后的底色**随位置变化**——顶亮底深时底栏正好压在最暗的一段上，
+ * 于是固定色的底栏就显得偏亮（维护者反馈）。
+ *
+ * 这里按方向把 (fx, fy) 投影到渐变轴上，再在三站之间做与 Compose 一致的分段线性插值
+ * （sRGB 逐分量），于是**任何方向、任何配色**都能问出"这一点背后是什么颜色"，
+ * 不需要为某种方向单独写一套。
+ */
+internal fun gradientColourAt(
+    direction: GradientDirection,
+    stops: List<Color>,
+    fx: Float,
+    fy: Float
+): Color {
+    if (stops.isEmpty()) return Color.Unspecified
+    if (stops.size == 1) return stops[0]
+    val x = fx.coerceIn(0f, 1f)
+    val y = fy.coerceIn(0f, 1f)
+    // t 沿渐变轴：0 = 起点站，1 = 终点站
+    val t = when (direction) {
+        GradientDirection.TOP_DOWN -> y
+        GradientDirection.BOTTOM_UP -> 1f - y
+        GradientDirection.LEFT_RIGHT -> x
+        GradientDirection.RIGHT_LEFT -> 1f - x
+        // 轴 (0,0)→(1,1)：投影 = (x + y) / 2
+        GradientDirection.DIAGONAL_DOWN -> (x + y) / 2f
+        // 轴 (0,1)→(1,0)：投影 = (x - y + 1) / 2
+        GradientDirection.DIAGONAL_UP -> (x - y + 1f) / 2f
+    }.coerceIn(0f, 1f)
+    val scaled = t * (stops.size - 1)
+    val index = scaled.toInt().coerceIn(0, stops.size - 2)
+    return blendSrgb(stops[index], stops[index + 1], scaled - index)
+}
+
+/**
+ * 浮层（底栏）在页面渐变之下该用什么颜色。
+ *
+ * 做法：取浮层**背后那一点**的渐变色，再叠上主题原本设计好的"浮层相对页面底色"的差值。
+ * 这样"底栏比页面暗一档"这个设计关系**在任何渐变、任何方向、任何明暗下都保持不变**，
+ * 而不是只对"顶亮底深 + 底栏在底部"这一种情况打补丁。
+ *
+ * [flatNav] / [flatBackground] 是主题给的固定值，两者之差就是那层设计关系。
+ */
+internal fun floatingSurfaceOverGradient(
+    base: Color,
+    deltaFrom: Color,
+    deltaTo: Color
+): Color = Color(
+    red = (base.red + (deltaTo.red - deltaFrom.red)).coerceIn(0f, 1f),
+    green = (base.green + (deltaTo.green - deltaFrom.green)).coerceIn(0f, 1f),
+    blue = (base.blue + (deltaTo.blue - deltaFrom.blue)).coerceIn(0f, 1f),
+    alpha = base.alpha
+)
+
+/** 底栏在屏幕上的归一化中心（底部居中，取实测的 93% 高度处）。 */
+internal const val NAV_BAR_CENTRE_Y = 0.93f
+internal const val NAV_BAR_CENTRE_X = 0.5f
+
 /** 图片不透明度越高，遮罩越厚；0.34–0.78 之间，既有图感又保得住文字。 */internal fun scrimAlpha(imageAlpha: Float): Float = 0.34f + 0.44f * imageAlpha.coerceIn(0f, 1f)
 
 /**
@@ -609,12 +670,16 @@ internal fun Modifier.surfaceMaterialFill(
 /**
  * 柔光的顶面高光强度（白色混入比例）与底部压深强度（onSurface 混入比例）。
  *
- * 刻意保持很淡：卡片正文用的是 `onSurface`，顶面提亮会让深色文字对比度变好、
- * 底部压深会让它变差，所以底部权重必须更小。`FocusCardMaterialTest` 里有断言守着
- * "柔光/纸感在最不利的一站上，onSurface 正文对比度仍 ≥ 4.5:1"（7 套主题 × 明暗）。
+ * **2026-09-10 加大**：真机目视复核发现，原来 5.5% / 3.0% 时柔光的卡面与"默认"只差
+ * **2~3 灰阶**，肉眼几乎等于默认——当时柔光唯一看得出来的地方是卡片外那一圈投影，
+ * 而那圈投影恰恰是被误读成"矩形色差"的缺陷（已删除）。所以柔光必须**靠自己卡面**立住：
+ * 现在 9% / 5%，上下落差约 20 灰阶，一眼能看出"顶亮底沉"。
+ *
+ * 上限仍受可读性约束：底部压深会让深色正文对比度变差，所以底部权重始终小于顶部。
+ * `RichEffectsTest` 与对比度总账一起守着这条。
  */
-internal const val SOFT_TOP_LIGHT = 0.055f
-internal const val SOFT_BOTTOM_SHADE = 0.030f
+internal const val SOFT_TOP_LIGHT = 0.09f
+internal const val SOFT_BOTTOM_SHADE = 0.05f
 
 /**
  * 柔光的底色层：顶面微亮、底部微沉，像被上方的光轻轻照到。

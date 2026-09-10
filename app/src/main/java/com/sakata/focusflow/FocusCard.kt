@@ -13,6 +13,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageShader
@@ -23,7 +24,6 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.unit.dp
-import kotlin.math.abs
 
 /**
  * 8.2.0 的统一卡片：把「卡片材质」集中在一处实现（见 docs/8.2.0-appearance-plan.md）。
@@ -53,13 +53,14 @@ internal fun FocusCard(
         return
     }
     Card(
-        modifier = modifier.then(
-            if (material == CardMaterial.SOFT || material == CardMaterial.PAPER) {
-                Modifier.litShadow(SurfaceLighting.CARD_SHADOW, shape)
-            } else {
-                Modifier
-            }
-        ),
+        // **刻意不给页面卡片加投影。**
+        //
+        // 曾经给柔光/纸感挂过 litShadow(CARD_SHADOW = 6dp)，真机目视复核发现它在每张卡片
+        // 外围生成一圈约 20~25 灰阶、向外延伸 70~80px 的**矩形暗晕**，被读成"卡片周围一圈
+        // 矩形色差"（维护者连续两轮反馈的正是这个）。而且它与 SurfaceLighting 里原本的
+        // 设计口径相矛盾——那里写着"页面里的普通卡片不加阴影，靠表面色分层，避免整页发灰"。
+        // 材质的分层交给填充本身（柔光的顶亮底沉 / 纸感的纸纹），不要靠投影。
+        modifier = modifier,
         shape = shape,
         colors = CardDefaults.cardColors(containerColor = Color.Transparent)
     ) {
@@ -169,8 +170,14 @@ internal fun DrawScope.drawPaperGrain() {
     val grainPx = PAPER_GRAIN_DP.dp.toPx()
     val scale = (grainPx / NOISE_SIZE).coerceAtLeast(0.0001f)
     withTransform({ scale(scale, scale, pivot = Offset.Zero) }) {
-        // 缩放后画布坐标被压缩，所以画布要按 1/scale 放大才能盖满原区域。
-        drawRect(paperNoiseBrush(), topLeft = Offset.Zero, size = Size(size.width / scale, size.height / scale))
+        // Overlay：混合色 = 128 时恒等，比 128 亮则提亮、暗则压暗，**围绕中灰对称**。
+        // 所以纸纹只加纹理、不改变卡片整体亮度（用普通 SrcOver 会整体压暗，见 noisePixels 注释）。
+        drawRect(
+            paperNoiseBrush(),
+            topLeft = Offset.Zero,
+            size = Size(size.width / scale, size.height / scale),
+            blendMode = BlendMode.Overlay
+        )
     }
 }
 
@@ -196,10 +203,19 @@ internal const val PAPER_SHEEN_ALPHA = 0.05f
 internal const val NOISE_SIZE = 64
 
 /**
- * 纯函数：生成噪点像素（0xAARRGGBB）。
+ * 纯函数：生成纸纹像素（0xAARRGGBB），**以中性灰 128 为中心**。
  *
- * 用线性同余（LCG）而不是 `Random`：同一个种子永远得到同一张图，
- * 单测可以直接断言"两次调用完全一致""亮度分布不过分集中""不会把卡片压暗"。
+ * 为什么不再用"黑色/白色 + 不同 alpha"：
+ * 那种做法**不是亮度中性的**。alpha 合成往下压是乘性的（base×(1-a)）、往上提是加性的
+ * （base×(1-a)+255a），两者不对称，于是"一半黑一半白"平均下来仍然把卡片整体压暗。
+ * 真机目视复核实测：纸感把绿卡压暗了约 **26 灰阶**、白卡约 18 灰阶——纸感变成了"换个更深的颜色"，
+ * 而不是"同一张纸上加了纹理"。（代码注释里原本就写着"不会把卡片整体压暗"，是被这一步破坏的。）
+ *
+ * 现在：像素是围绕 128 的灰阶，配合 `BlendMode.Overlay` 绘制。
+ * Overlay 在混合色 = 128 时**恒等**，比 128 亮则提亮、暗则压暗，围绕中灰**对称**，
+ * 所以整卡平均亮度不变，只留下纹理。
+ *
+ * [alpha] 现在的含义是**纹理强度**（0 = 无纹理），不再是像素不透明度。
  */
 internal fun noisePixels(
     seed: Long = DEFAULT_NOISE_SEED,
@@ -208,14 +224,14 @@ internal fun noisePixels(
 ): IntArray {
     val pixels = IntArray(size * size)
     var state = seed and 0xFFFFFFFFL
-    val a = alpha.coerceIn(0f, 1f)
+    val strength = alpha.coerceIn(0f, 1f)
     for (i in pixels.indices) {
         state = (state * 1664525L + 1013904223L) and 0xFFFFFFFFL
         val v = ((state shr 16) and 0xFF).toInt()
-        val shade = if (v < 128) 0 else 255
-        val weight = abs(v - 128) / 128f
-        val a8 = (a * 255f * weight).toInt().coerceIn(0, 255)
-        pixels[i] = (a8 shl 24) or (shade shl 16) or (shade shl 8) or shade
+        // v ∈ 0..255 → delta ∈ -128..127，围绕 0 大致对称（LCG 的高字节分布均匀）
+        val delta = v - 128
+        val grey = (128 + (delta * strength).toInt()).coerceIn(0, 255)
+        pixels[i] = (0xFF shl 24) or (grey shl 16) or (grey shl 8) or grey
     }
     return pixels
 }
