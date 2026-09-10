@@ -70,8 +70,11 @@ internal fun navigationIndicatorColor(background: Color, primary: Color): Color 
 
 /**
  * 8.1.0 底栏形变形状：平时为完整胶囊（四角半径=高度一半）；
- * 每个上角独立按 progress 动画收缩为小圆角（10dp），对应各自图标的出现/消失。
+ * 每个上角独立按 progress 动画收缩为小圆角（16dp），对应各自图标的出现/消失。
  * 下两角始终为大圆角；左右竖直、上下平直。
+ *
+ * 小圆角 10dp → 16dp（维护者口径「稍微增大一点」）：底栏高 92dp，完整胶囊半径是
+ * 46dp，所以 16dp 仍与平时状态有明显形变对比，只是上角不再那么方。
  */
 private class AsymmetricCapsuleShape(
     private val progressL: Float,
@@ -124,7 +127,7 @@ internal fun FloatingNavigationBar(
     // 8.1.0 形变：每个顶角各自跟随自己的图标——有回退才伸出左角、有折返才伸出右角；图标消失即收回。
     val backProgress by animateFloatAsState(if (canGoBack) 1f else 0f, MotionSpec.morph(), label = "backCorner")
     val forwardProgress by animateFloatAsState(if (canGoForward) 1f else 0f, MotionSpec.morph(), label = "forwardCorner")
-    val barShape = AsymmetricCapsuleShape(progressL = backProgress, progressR = forwardProgress, smallRadiusDp = 10f)
+    val barShape = AsymmetricCapsuleShape(progressL = backProgress, progressR = forwardProgress, smallRadiusDp = 16f)
     val iconBoxPx = with(LocalDensity.current) { FloatingNavigationLayout.ICON_BOX_DP.dp.toPx() }
     // 8.1.0 第三轮：选中底色改为"一块会平移的底色"——从上一个页签滑到当前页签，而不是各自淡入淡出。
     // 槽位顺序：今日 / 日程 / [加号] / 计划 / 设置。
