@@ -134,7 +134,7 @@ internal fun CourseTimetable(
             }
         }
         if (courses.none { !it.needsConfirmation }) {
-            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))) {
+            FocusCard(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)) {
                 Text("还没有已确认课程。可到计划 → 课程手动新增或导入。", Modifier.fillMaxWidth().padding(14.dp))
             }
         } else {

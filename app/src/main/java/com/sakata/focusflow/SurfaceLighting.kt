@@ -25,6 +25,9 @@ internal object SurfaceLighting {
 
     /** 弹窗卡片阴影高度：足够把卡片从压暗的页面上"抬起来"，又不至于糊成一团。 */
     val DIALOG_SHADOW: Dp = 20.dp
+
+    /** 页面卡片在「柔光/纸感」材质下的阴影高度：比弹窗克制，只求"离开纸面一点"。 */
+    val CARD_SHADOW: Dp = 6.dp
 }
 
 /**

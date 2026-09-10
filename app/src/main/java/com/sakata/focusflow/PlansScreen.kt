@@ -226,7 +226,7 @@ import kotlinx.coroutines.launch
                         }
                     }) { Text(if (summarizing) "总结中…" else "生成本周 AI 总结") }
                     summaryError?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
-                    weeklySummary?.let { Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f))) { Text(it, Modifier.fillMaxWidth().padding(12.dp), style = MaterialTheme.typography.bodySmall) } }
+                    weeklySummary?.let { FocusCard(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)) { Text(it, Modifier.fillMaxWidth().padding(12.dp), style = MaterialTheme.typography.bodySmall) } }
                 }
                 goals.forEach { goal ->
                     val history = WeekReview.history(goal, feedback)

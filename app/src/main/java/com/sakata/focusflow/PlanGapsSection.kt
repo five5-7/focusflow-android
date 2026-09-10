@@ -40,7 +40,7 @@ internal fun PlanGapsSection(
     val recommendations = gapRecommendations(gaps, freeWindows, goals, items, store)
     val availability = availabilitySlots(gaps, freeWindows)
     var selectedView by remember { mutableStateOf(if (tableExpanded) "空挡图" else "建议") }
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
+    FocusCard(containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
         Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("查看空挡", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -128,7 +128,7 @@ private fun AvailabilityTimeline(slots: List<AvailabilitySlot>) {
     val chartHeight = 336.dp
     val colors = MaterialTheme.colorScheme
     val daily = slots.filter { it.weekday == selectedDay }
-    Card(colors = CardDefaults.cardColors(containerColor = colors.surfaceContainerLow)) {
+    FocusCard(containerColor = colors.surfaceContainerLow) {
         Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("一周空挡", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {

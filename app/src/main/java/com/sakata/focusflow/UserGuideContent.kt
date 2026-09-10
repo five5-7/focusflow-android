@@ -62,7 +62,7 @@ internal val userGuideChapters = listOf(
 @Composable
 internal fun UserGuideSubpageContent() {
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
+        FocusCard(containerColor = MaterialTheme.colorScheme.primaryContainer) {
             Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("使用说明书", fontWeight = FontWeight.Bold)
                 Text("完整说明只在你主动打开时展示；日常使用先看“快速入门”即可。", style = MaterialTheme.typography.bodySmall)

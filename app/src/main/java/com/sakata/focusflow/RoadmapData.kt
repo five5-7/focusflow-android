@@ -418,7 +418,7 @@ object RoadmapData {
 fun RoadmapSubpageContent() {
     // 滚动由外层 PlanSubpageFrame 的内容区负责，这里只输出内容。
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
+        FocusCard(containerColor = MaterialTheme.colorScheme.primaryContainer) {
             Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("当前版本 ${BuildConfig.VERSION_NAME}", fontWeight = FontWeight.Bold)
                 Text("每次功能更新递增 0.1；更新记录见版本演进。", style = MaterialTheme.typography.bodySmall)

@@ -64,7 +64,7 @@ private data class ImprovementDraft(val text: String)
             Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) { listOf("时长", "次数", "成果").forEach { type -> FilterChip(selected = metricType == type, onClick = { metricType = type; persist() }, label = { Text(type) }) } }
             OutlinedTextField(value = metricTarget, onValueChange = { metricTarget = it; persist() }, label = { Text("例如：20 道题／读完一节／30 分钟") }, singleLine = true)
             OutlinedTextField(value = firstAction, onValueChange = { firstAction = it; persist() }, label = { Text("第一步行动（例如：打开题库先做第 1 题）") }, minLines = 2)
-            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) { Column(Modifier.padding(12.dp)) {
+            FocusCard(containerColor = MaterialTheme.colorScheme.secondaryContainer) { Column(Modifier.padding(12.dp)) {
                 Text("建议最低版本", fontWeight = FontWeight.SemiBold)
                 Text(suggestedMinimum)
                 Text("这是应用按目标类型与预计时长给出的保守起点；之后会结合教程和你的反馈调整。", style = MaterialTheme.typography.bodySmall)

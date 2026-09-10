@@ -72,6 +72,40 @@ enum class FocusFlowThemeOption(
             text = Color(0xFF211E24)
         )
     ),
+    /**
+     * 8.2.0 新增：石墨。低饱和中性灰绿，适合长时间看表格类内容。
+     * 与原有四套一样只是**新增**，不改动任何既有主题的取值。
+     */
+    GRAPHITE(
+        "graphite", "石墨", "低饱和中性灰，安静、适合办公与表格",
+        FocusFlowThemeColors(
+            // 刻意比薄荷绿更冷更深：两者中性壳若太接近，导航栏色会几乎分不出来（被单测抓过一次）。
+            primaryAction = Color(0xFF3F4E56), secondary = Color(0xFF5F676C),
+            accent = Color(0xFF7A6A58), schedule = Color(0xFF54646D),
+            neutral = Color(0xFFF3F5F6), warning = DEFAULT_WARNING,
+            text = Color(0xFF191D1F)
+        )
+    ),
+    /** 8.2.0 新增：樱粉。暖玫瑰色，比暖杏更偏粉、更柔和。 */
+    SAKURA(
+        "sakura", "樱粉", "暖玫瑰色，柔和但不发灰",
+        FocusFlowThemeColors(
+            primaryAction = Color(0xFF9C4A63), secondary = Color(0xFF7A5B66),
+            accent = Color(0xFF9A6B4F), schedule = Color(0xFFA05A72),
+            neutral = Color(0xFFFDF7F8), warning = DEFAULT_WARNING,
+            text = Color(0xFF241A1D)
+        )
+    ),
+    /** 8.2.0 新增：青竹。偏黄的竹绿，与薄荷绿的青绿明显区分。 */
+    BAMBOO(
+        "bamboo", "青竹", "偏黄的竹绿，清爽而不冷",
+        FocusFlowThemeColors(
+            primaryAction = Color(0xFF4F6B33), secondary = Color(0xFF5E6B4A),
+            accent = Color(0xFF3F7A6E), schedule = Color(0xFF5C7A3A),
+            neutral = Color(0xFFF8FAF5), warning = DEFAULT_WARNING,
+            text = Color(0xFF1D2118)
+        )
+    ),
     // 自定义主题：种子色 = OCEAN，进入编辑后从预设色板调整。
     CUSTOM(
         "custom", "自定义", "从预设色板自由搭配",
@@ -115,10 +149,8 @@ val LocalFocusFlowSchedulePalette = staticCompositionLocalOf {
 
 fun focusFlowThemeSpec(option: FocusFlowThemeOption, customColors: FocusFlowThemeColors? = null, darkMode: Boolean = false): FocusFlowThemeSpec {
     val spec = when (option) {
-    FocusFlowThemeOption.OCEAN -> builtInSpec(FocusFlowThemeOption.OCEAN)
-    FocusFlowThemeOption.MINT -> builtInSpec(FocusFlowThemeOption.MINT)
-    FocusFlowThemeOption.APRICOT -> builtInSpec(FocusFlowThemeOption.APRICOT)
-    FocusFlowThemeOption.TWILIGHT -> builtInSpec(FocusFlowThemeOption.TWILIGHT)
+    // 除自定义主题外一律走 builtInSpec：新增主题只需在枚举与 builtInSpec 各加一处，
+    // 不会再撞上"when 必须穷尽"（8.2.0 加三套主题时这里曾漏改一次）。
     FocusFlowThemeOption.CUSTOM -> {
         val c = customColors ?: FocusFlowThemeOption.CUSTOM.colors
         val neutralBackground = lerp(c.neutral, Color.White, 0.85f)
@@ -165,6 +197,7 @@ fun focusFlowThemeSpec(option: FocusFlowThemeOption, customColors: FocusFlowThem
             )
         )
     }
+    else -> builtInSpec(option)
     }
     val colors = if (option == FocusFlowThemeOption.CUSTOM) customColors ?: option.colors else option.colors
     // Material defaults are purple unless every used surface role is explicitly themed.
@@ -331,9 +364,100 @@ private fun builtInSpec(option: FocusFlowThemeOption): FocusFlowThemeSpec {
             )
         )
 
+        FocusFlowThemeOption.GRAPHITE -> FocusFlowThemeSpec(
+            colorScheme = lightColorScheme(
+                primary = c.primaryAction,
+                onPrimary = Color.White,
+                primaryContainer = Color(0xFFDCE3E5),
+                onPrimaryContainer = Color(0xFF2C3639),
+                secondary = c.secondary,
+                onSecondary = onOf(c.secondary),
+                secondaryContainer = containerOf(c.secondary),
+                onSecondaryContainer = onContainerOf(c.secondary),
+                tertiary = c.accent,
+                onTertiary = onOf(c.accent),
+                tertiaryContainer = containerOf(c.accent),
+                onTertiaryContainer = onContainerOf(c.accent),
+                background = Color(0xFFF3F5F6),
+                onBackground = Color(0xFF191D1F),
+                surface = Color(0xFFFCFDFD),
+                onSurface = Color(0xFF191D1F),
+                surfaceVariant = Color(0xFFE4E9EB),
+                onSurfaceVariant = Color(0xFF475054),
+                outline = Color(0xFF8C9699)
+            ),
+            schedulePalette = sharedSchedulePalette(c.schedule)
+        )
+
+        FocusFlowThemeOption.SAKURA -> FocusFlowThemeSpec(
+            colorScheme = lightColorScheme(
+                primary = c.primaryAction,
+                onPrimary = Color.White,
+                primaryContainer = Color(0xFFF8DFE6),
+                onPrimaryContainer = Color(0xFF4A2431),
+                secondary = c.secondary,
+                onSecondary = onOf(c.secondary),
+                secondaryContainer = containerOf(c.secondary),
+                onSecondaryContainer = onContainerOf(c.secondary),
+                tertiary = c.accent,
+                onTertiary = onOf(c.accent),
+                tertiaryContainer = containerOf(c.accent),
+                onTertiaryContainer = onContainerOf(c.accent),
+                background = Color(0xFFFDF7F8),
+                onBackground = Color(0xFF241A1D),
+                surface = Color(0xFFFFFBFC),
+                onSurface = Color(0xFF241A1D),
+                surfaceVariant = Color(0xFFF2E4E8),
+                onSurfaceVariant = Color(0xFF57464B),
+                outline = Color(0xFF9E888F)
+            ),
+            schedulePalette = sharedSchedulePalette(c.schedule)
+        )
+
+        FocusFlowThemeOption.BAMBOO -> FocusFlowThemeSpec(
+            colorScheme = lightColorScheme(
+                primary = c.primaryAction,
+                onPrimary = Color.White,
+                primaryContainer = Color(0xFFE2EDD3),
+                onPrimaryContainer = Color(0xFF2C3A1B),
+                secondary = c.secondary,
+                onSecondary = onOf(c.secondary),
+                secondaryContainer = containerOf(c.secondary),
+                onSecondaryContainer = onContainerOf(c.secondary),
+                tertiary = c.accent,
+                onTertiary = onOf(c.accent),
+                tertiaryContainer = containerOf(c.accent),
+                onTertiaryContainer = onContainerOf(c.accent),
+                background = Color(0xFFF8FAF5),
+                onBackground = Color(0xFF1D2118),
+                surface = Color(0xFFFDFEFA),
+                onSurface = Color(0xFF1D2118),
+                surfaceVariant = Color(0xFFE7EDDD),
+                onSurfaceVariant = Color(0xFF4E5544),
+                outline = Color(0xFF8E9A82)
+            ),
+            schedulePalette = sharedSchedulePalette(c.schedule)
+        )
+
         FocusFlowThemeOption.CUSTOM -> throw IllegalStateException("CUSTOM 由 focusFlowThemeSpec 主分支处理")
     }
 }
+
+/**
+ * 新增主题共用的语义日程色：只把"课程"对齐各自的主色系，其余语义色保持既有取值，
+ * 保证课表块、日程块在换主题时不会突然换家族。
+ */
+private fun sharedSchedulePalette(schedule: Color) = FocusFlowSchedulePalette(
+    course = schedule,
+    learning = Color(0xFF7654A8),
+    exercise = Color(0xFF2F8F5B),
+    entertainment = Color(0xFFC95878),
+    activity = Color(0xFFBF4A38),
+    commute = Color(0xFF5B8CA8),
+    rest = Color(0xFF667885),
+    task = Color(0xFFB5661D),
+    completed = Color(0xFF94A3B8)
+)
 
 /** 深色模式：在当前浅色主题基础上调暗背景/表面、调亮文字，保留主/副/强调色并适度提亮。 */
 private fun darkenScheme(base: ColorScheme): ColorScheme {

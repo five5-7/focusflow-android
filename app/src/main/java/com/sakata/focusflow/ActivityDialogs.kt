@@ -218,7 +218,7 @@ internal fun activityTitleLabel(category: String): String = when (category) {
                     FilterChip(selected = timeMode == "截至", onClick = { timeMode = "截至"; persist() }, label = { Text("直到时间") })
                 }
                 if (timeMode == "时长") {
-                    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f))) {
+                    FocusCard(containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f)) {
                         Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                             Text("建议 ${timeSuggestion.minutes} 分钟 · 约 ${formatTime(System.currentTimeMillis() + timeSuggestion.minutes * 60_000L)} 结束", fontWeight = FontWeight.SemiBold)
                             Text(timeSuggestion.reason, style = MaterialTheme.typography.bodySmall)

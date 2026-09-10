@@ -317,7 +317,7 @@ internal fun DayGroupWizardDialog(existingGroups: List<DayGroup>, defaultWake: I
                     item { Text("还没有记录。完成引导、开始活动、签到或确认通勤后会自动出现在这里。") }
                 } else {
                     items(list.asReversed(), key = { it.id }) { event ->
-                        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))) {
+                        FocusCard(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)) {
                             Row(Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Text(BaselineRecorder.displayPayload(event), Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
                                 TextButton(onClick = { if (onDelete(event.id)) list = list.filterNot { it.id == event.id } }) { Text("删除", color = MaterialTheme.colorScheme.error) }
@@ -431,7 +431,7 @@ internal fun DayGroupWizardDialog(existingGroups: List<DayGroup>, defaultWake: I
                     Text("还没有记录。开始吃饭并确认吃完后会自动出现在这里。")
                 } else {
                     records.takeLast(50).reversed().forEach { record ->
-                        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))) {
+                        FocusCard(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)) {
                             Row(Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 val time = java.text.SimpleDateFormat("M月d日 HH:mm", java.util.Locale.CHINA)
                                 val detail = buildString {

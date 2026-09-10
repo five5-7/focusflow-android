@@ -50,7 +50,7 @@ import kotlinx.coroutines.withContext
                 Text("以下格式只用于迁移、备份或批量维护：", fontWeight = FontWeight.SemiBold)
                 Text("1. 用任意文本编辑器新建 UTF-8 文件，并保存为 .json。")
                 Text("2. 填写地点包名称和地点列表。每个地点需要名称、所属分区和类型。")
-                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))) {
+                FocusCard(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)) {
                     Text(
                         "{\n  \"name\": \"我的校园\",\n  \"version\": 1,\n  \"places\": [\n    { \"name\": \"西1教学楼\", \"zone\": \"WEST_TEACHING\", \"kind\": \"教学楼\" },\n    { \"name\": \"图书馆\", \"zone\": \"LIBRARY\", \"kind\": \"学习\" }\n  ]\n}",
                         Modifier.padding(12.dp),
@@ -1178,7 +1178,7 @@ private data class BaselineVariantDraft(val name: String)
                         )
                         if (gameDetectionEnabled) {
                             if (!usageGranted) {
-                                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f))) {
+                                FocusCard(containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f)) {
                                     Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                         Text("未授予“使用情况访问”", fontWeight = FontWeight.SemiBold)
                                         Text("到系统设置开启后，才能识别当前前台应用（判断只在本机完成，不上传）。", style = MaterialTheme.typography.bodySmall)
@@ -1317,7 +1317,7 @@ private data class BaselineVariantDraft(val name: String)
                                     crashText = CrashReporter.read(context)
                                 }) { Text("清空", color = MaterialTheme.colorScheme.error) }
                             }
-                            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))) {
+                            FocusCard(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)) {
                                 Text(crashText.takeLast(4000), Modifier.fillMaxWidth().padding(10.dp), style = MaterialTheme.typography.bodySmall)
                             }
                         }

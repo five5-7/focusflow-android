@@ -198,7 +198,7 @@ private fun FlexibleScheduleRow(
 ) {
     val type = item.scheduleType()
     val typeColor = scheduleColor(type)
-    Card(colors = CardDefaults.cardColors(containerColor = typeColor.copy(alpha = 0.10f))) {
+    FocusCard(containerColor = typeColor.copy(alpha = 0.10f)) {
         Row(
             Modifier.fillMaxWidth().padding(12.dp),
             verticalAlignment = Alignment.CenterVertically,

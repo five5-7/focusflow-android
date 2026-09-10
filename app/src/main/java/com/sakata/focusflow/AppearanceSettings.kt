@@ -155,6 +155,23 @@ internal fun AppearanceSettingsSection(
     }
 
     HorizontalDivider()
+    Text("卡片材质", fontWeight = FontWeight.SemiBold)
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        CardMaterial.entries.forEach { material ->
+            FilterChip(
+                selected = appearance.cardMaterial == material,
+                onClick = { onAppearanceChange(appearance.copy(cardMaterial = material)) },
+                label = { Text(material.label()) }
+            )
+        }
+    }
+    Text(
+        "默认＝原来的纯色卡片（逐像素不变）；渐变按当前配色派生，柔光加顶面高光与主题阴影，纸感在柔光上再叠一层程序生成的淡噪点（不增加包体积）。",
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+
+    HorizontalDivider()
     TimetableBaseSection(
         appearance = appearance,
         onAppearanceChange = onAppearanceChange,
