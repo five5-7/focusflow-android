@@ -462,25 +462,49 @@ private fun sharedSchedulePalette(schedule: Color) = FocusFlowSchedulePalette(
 /** 深色模式：在当前浅色主题基础上调暗背景/表面、调亮文字，保留主/副/强调色并适度提亮。 */
 private fun darkenScheme(base: ColorScheme): ColorScheme {
     fun brighten(c: Color) = lerp(c, Color.White, 0.20f)
-    fun darkContainer(c: Color) = lerp(c, Color.Black, 0.55f)
+    // 0.62（原先 0.55）：容器再压深一档，让"容器上的字"有足够的明暗落差。
+    fun darkContainer(c: Color) = lerp(c, Color.Black, 0.62f)
     val darkBackground = Color(0xFF121417)
     val darkSurface = Color(0xFF1A1E21)
     val darkSurfaceVariant = Color(0xFF24282D)
     val lightText = Color(0xFFE4E8EC)
     val lightTextVariant = Color(0xFFB4BEC6)
+    // 「容器上的字」按**容器自身的明暗**来定，而不是"把容器色提亮 20%"。
+    //
+    // 原先 onPrimaryContainer = brighten(base.primary) 而 primaryContainer = darkContainer(base.primary)：
+    // 同一个色相一头压深、另一头提亮，两端会**互相靠近**，深色下实测
+    // onPrimaryContainer 只有 3.54–4.48:1（暖杏/石墨最差），低于正文的 AA 4.5:1。
+    // 更糟的是 onErrorContainer **每套主题都恰好 4.16:1**（一个常数）——典型的"推导出来的
+    // 颜色撞在同一个亮度上"，不是巧合。
+    //
+    // 取色优先级：先试"该槽位自己的浅色调"（保住主题色相），不够再退到纯白/纯黑。
+    // 目标是正文 AA 4.5:1，不是 barely-pass 的 3:1。
+    fun onContainer(container: Color, tintSource: Color): Color {
+        for (candidate in listOf(lerp(tintSource, Color.White, 0.35f), Color.White, Color.Black)) {
+            if (AppearanceContrast.ratio(candidate.argbInt(), container.argbInt()) >= 4.5f) return candidate
+        }
+        return if (AppearanceContrast.ratio(Color.White.argbInt(), container.argbInt()) >=
+            AppearanceContrast.ratio(Color.Black.argbInt(), container.argbInt())
+        ) Color.White else Color.Black
+    }
+    val primaryContainer = darkContainer(base.primary)
+    val secondaryContainer = darkContainer(base.secondary)
+    val tertiaryContainer = darkContainer(base.tertiary)
+    val errorContainer = darkContainer(base.error)
+    val primaryBright = brighten(base.primary)
     return base.copy(
-        primary = brighten(base.primary),
-        onPrimary = onOf(brighten(base.primary)),
-        primaryContainer = darkContainer(base.primary),
-        onPrimaryContainer = brighten(base.primary),
+        primary = primaryBright,
+        onPrimary = onOf(primaryBright),
+        primaryContainer = primaryContainer,
+        onPrimaryContainer = onContainer(primaryContainer, base.primary),
         secondary = brighten(base.secondary),
         onSecondary = onOf(brighten(base.secondary)),
-        secondaryContainer = darkContainer(base.secondary),
-        onSecondaryContainer = brighten(base.secondary),
+        secondaryContainer = secondaryContainer,
+        onSecondaryContainer = onContainer(secondaryContainer, base.secondary),
         tertiary = brighten(base.tertiary),
         onTertiary = onOf(brighten(base.tertiary)),
-        tertiaryContainer = darkContainer(base.tertiary),
-        onTertiaryContainer = brighten(base.tertiary),
+        tertiaryContainer = tertiaryContainer,
+        onTertiaryContainer = onContainer(tertiaryContainer, base.tertiary),
         background = darkBackground,
         onBackground = lightText,
         surface = darkSurface,
@@ -489,27 +513,47 @@ private fun darkenScheme(base: ColorScheme): ColorScheme {
         onSurfaceVariant = lightTextVariant,
         outline = Color(0xFF6E7A82),
         outlineVariant = Color(0xFF3A4046),
-        // Material3 的 Card/ElevatedCard 默认用 surfaceContainer* 色调（不是 surface），需一并调暗，否则卡片仍发亮。
+        // Material3 的 Card/ElevatedCard 默认用 surfaceContainer* 色调（不是 surface）。
+        //
+        // 2026-09-10 调亮：原先 surfaceContainerLow = #15181B 与页面底色 #121417 只差
+        // 3/255，实测**卡片对页面的对比只有 1.035:1**，深色下卡片基本糊在背景里
+        // （维护者反馈"卡片颜色和背景对比度不够高"）。抬到 #24282D 后约 1.24:1，
+        // 卡片一眼能看出是浮在页面上的一层，同时各档仍保持"越低越暗"的 MaterialM3 关系。
         surfaceDim = Color(0xFF111417),
-        surfaceBright = Color(0xFF2A2F34),
+        surfaceBright = Color(0xFF41474D),
         surfaceContainerLowest = Color(0xFF0D0F11),
-        surfaceContainerLow = Color(0xFF15181B),
-        surfaceContainer = Color(0xFF1A1E21),
-        surfaceContainerHigh = Color(0xFF202428),
-        surfaceContainerHighest = Color(0xFF262A2F),
+        surfaceContainerLow = Color(0xFF24282D),
+        surfaceContainer = Color(0xFF2A2F34),
+        surfaceContainerHigh = Color(0xFF31373D),
+        surfaceContainerHighest = Color(0xFF383F45),
         inverseSurface = lightText,
         inverseOnSurface = Color(0xFF2A2F34),
         inversePrimary = darkContainer(base.primary),
         scrim = Color(0xFF000000),
         error = brighten(base.error),
         onError = onOf(brighten(base.error)),
-        errorContainer = darkContainer(base.error),
-        onErrorContainer = brighten(base.error)
+        errorContainer = errorContainer,
+        onErrorContainer = onContainer(errorContainer, base.error)
     )
 }
 
 // 派生辅助：由主色自动生成文字/容器色（自定义主题与内置 tertiary 共用）。
-internal fun onOf(color: Color): Color = if (color.luminance() > 0.5f) Color.Black else Color.White
+/**
+ * 某个底色上该配什么颜色才读得清。
+ *
+ * 原来写的是"亮度 > 0.5 就用黑、否则用白"——**这个阈值并不保证对比度**：
+ * 亮度刚到 0.5 附近的中调色，黑白两头都只有 4:1 左右。深色模式的主色经过
+ * `brighten(20%)` 之后正好落在这个区间，实测 onPrimary/primary 只有 3.75–4.18:1
+ * （暖杏最差），低于正文 AA。
+ *
+ * 现在改成**按对比度取优**：谁的对比度高用谁。这样即使底色卡在中调，
+ * 也至少拿到"这条底色能达到的最好结果"，不会因为阈值位置而白白变差。
+ */
+internal fun onOf(color: Color): Color {
+    val onWhite = AppearanceContrast.ratio(Color.White.argbInt(), color.argbInt())
+    val onBlack = AppearanceContrast.ratio(Color.Black.argbInt(), color.argbInt())
+    return if (onBlack >= onWhite) Color.Black else Color.White
+}
 private fun containerOf(color: Color): Color = lerp(color, Color.White, 0.82f)
 private fun onContainerOf(color: Color): Color = lerp(color, Color.Black, 0.35f)
 

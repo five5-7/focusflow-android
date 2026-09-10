@@ -25,14 +25,28 @@ class ThemeContrastAuditTest {
     }
 
     @Test
-    fun midGreyPrimaryIsFlagged() {
-        // 中灰主色 + 白字：按钮上的字会糊 → 必须报出来
+    fun midGreyPrimaryNowPicksReadableTextInsteadOfBeingFlagged() {
+        // 中灰主色（0xFF9E9E9E）过去配白字，按钮上的字会糊，所以这条曾经断言"必须报出来"。
+        //
+        // 2026-09-10 改了 onOf：从"亮度 > 0.5 用黑、否则用白"改成**按对比度取优**。
+        // 中灰正好落在那个阈值的坏区间里——按老规则选白字只有约 2.8:1，
+        // 按对比度取优则选黑字，实测 7.84:1，本来就清楚。
+        // 所以现在这条的正确期望是"**自动选到能读的那个颜色**"，
+        // 而不是"把它报成不达标"——报出来反而会误导用户去改一个本来没问题的颜色。
         val colors = FocusFlowThemeOption.CUSTOM.colors.copy(primaryAction = Color(0xFF9E9E9E))
         val finding = ThemeContrastAudit.audit(colors).first { it.label == "主色上的文字" }
-        assertTrue("中灰主色应被判为不达标，实际 ${finding.ratio}", !finding.ok)
-        val message = ThemeContrastAudit.warning(colors)
-        assertNotNull(message)
-        assertTrue("提示里要写明是哪一处", message!!.contains("主色上的文字"))
+        assertTrue(
+            "中灰主色应自动配到可读的文字色，实际 ${finding.ratio}",
+            finding.ok
+        )
+        assertTrue("应达到正文 AA", finding.ratio >= 4.5f)
+    }
+
+    /** 真正该被报出来的那种：中灰主色 + 白字（把文字色也钉死成白）。 */
+    @Test
+    fun unreadableTextOnMidGreyIsStillFlagged() {
+        val finding = ContrastFinding("主色上的文字", AppearanceContrast.ratio(Color.White.argbInt(), Color(0xFF9E9E9E).argbInt()), 4.5f)
+        assertTrue("白字压中灰确实读不清，应被判定不达标，实际 ${finding.ratio}", !finding.ok)
     }
 
     @Test
