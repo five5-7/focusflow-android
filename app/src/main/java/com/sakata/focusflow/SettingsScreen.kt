@@ -586,11 +586,9 @@ private data class BaselineVariantDraft(val name: String)
                         HorizontalDivider()
                         FocusFlowThemeOption.builtInEntries().forEach { option ->
                             val preview = focusFlowThemeSpec(option)
-                            Card(
-                                modifier = Modifier.fillMaxWidth().clickable { onThemeChange(option) },
-                                colors = CardDefaults.cardColors(
-                                    containerColor = if (themeOption == option) preview.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.38f)
-                                )
+                            FocusCard(
+                                containerColor = if (themeOption == option) preview.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.38f),
+                                modifier = Modifier.fillMaxWidth().clickable { onThemeChange(option) }
                             ) {
                                 Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                     ThemeSwatchPreview(previewColors(preview))
@@ -619,13 +617,11 @@ private data class BaselineVariantDraft(val name: String)
                         // 自定义主题：点卡只进入编辑器，不切主题；确认由编辑器内"应用此配色"完成，
                         // 与内置主题"以此改色"一致，避免点卡即应用造成违和。
                         val customPreview = focusFlowThemeSpec(FocusFlowThemeOption.CUSTOM, customThemeColors)
-                        Card(
+                        FocusCard(
+                            containerColor = if (themeOption == FocusFlowThemeOption.CUSTOM) customPreview.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.38f),
                             modifier = Modifier.fillMaxWidth().clickable {
                                 onSubPageChange(SettingsSubPage.CUSTOM_THEME)
-                            },
-                            colors = CardDefaults.cardColors(
-                                containerColor = if (themeOption == FocusFlowThemeOption.CUSTOM) customPreview.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.38f)
-                            )
+                            }
                         ) {
                             Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                 ThemeSwatchPreview(previewColors(customPreview))

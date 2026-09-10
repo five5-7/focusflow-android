@@ -136,10 +136,7 @@ import kotlinx.coroutines.launch
             PlanPage.HISTORY -> PlanHistorySection(taskEvents, onReplaceTaskEvents)
             PlanPage.REVIEW -> {
                 val executionSummary = RecoveryInsights.weeklySummary(items, System.currentTimeMillis(), taskEvents)
-                Card(
-                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
-                ) {
+                FocusCard(containerColor = MaterialTheme.colorScheme.primaryContainer) {
                     Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text("本周执行概览", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {

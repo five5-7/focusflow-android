@@ -26,8 +26,8 @@ import kotlin.math.abs
  * [containerColor] 传调用点原来的底色 —— 默认材质 [CardMaterial.TONAL] 下就是原来的
  * `Card(containerColor = …)`，**逐像素不变**；其余材质在这层底色之上叠加。
  *
- * 为什么要有这个组件：全应用有 48 处卡片调用点、各自写 `CardDefaults.cardColors`，
- * 想改"卡片长什么样"就得改 48 个地方。收编进来的调用点以后只描述"底色是什么"。
+ * 为什么要有这个组件：全应用有 51 处卡片容器、各自写 `CardDefaults.cardColors`，
+ * 想改"卡片长什么样"就得改 51 个地方。收编进来的调用点以后只描述"底色是什么"。
  */
 @Composable
 internal fun FocusCard(

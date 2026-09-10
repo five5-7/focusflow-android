@@ -211,7 +211,10 @@ import kotlinx.coroutines.delay
                 }
             }
         }
-        Card(Modifier.fillMaxWidth().clickable(onClick = onOpenSchedule), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))) {
+        FocusCard(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+            modifier = Modifier.fillMaxWidth().clickable(onClick = onOpenSchedule)
+        ) {
             Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                     Text("接下来", fontWeight = FontWeight.Bold)
@@ -299,10 +302,7 @@ import kotlinx.coroutines.delay
             }
         }
         // 与周回顾「本周执行概览」统一的摘要卡风格：实色 primaryContainer + 零 elevation。
-        Card(
-            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
-        ) {
+        FocusCard(containerColor = MaterialTheme.colorScheme.primaryContainer) {
             Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {

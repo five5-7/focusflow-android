@@ -140,14 +140,12 @@ private fun ResourceSetupHint(settings: TutorialSearchSettings) {
 
 @Composable
 private fun FavoriteResourceCard(favorite: LearningResource?) {
-    Card(
-        colors = CardDefaults.cardColors(
-            containerColor = if (favorite != null) {
-                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f)
-            } else {
-                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
-            }
-        )
+    FocusCard(
+        containerColor = if (favorite != null) {
+            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f)
+        } else {
+            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+        }
     ) {
         Column(
             Modifier.fillMaxWidth().padding(12.dp),
