@@ -730,7 +730,7 @@ internal fun materialBrush(
     when (material) {
         CardMaterial.TONAL -> null
         CardMaterial.GRADIENT -> Brush.verticalGradient(listOf(blendSrgb(base, scheme.primary, 0.07f), base))
-        CardMaterial.SOFT -> softLightBrush(base, scheme.onSurface, softReversed)
+        CardMaterial.SOFT -> softLightBrush(base, softReversed)
     }
 
 /**
@@ -739,6 +739,20 @@ internal fun materialBrush(
  * 必须用 `clip(shape)` 再 `drawBehind`：起初底栏是直接 `drawBehind { drawRect(brush) }` 的，
  * 而 `drawBehind` 画在 Surface 的形状裁剪**之外**，于是底栏上出现了一整块矩形底色
  * （维护者反馈："用材质时悬浮栏会出现一块矩形底"）。这里统一裁到形状内，杜绝同一类错误。
+ *
+ * **还有一个更隐蔽的坑：`drawBehind` 排在 Material3 `Surface` 内部 `.background(color)`
+ * 之前。** 所以把它挂在 `Surface(modifier = …)` 上时，画出来的材质层会被 Surface 自己的
+ * 不透明底色**整块盖住**——从外面看就是"这个控件没有材质渲染"。
+ * 维护者连续两轮报的「弹窗还是没有渲染」正是这个；底栏（"材质也影响导航栏"）同样中招。
+ * `FocusCard` 之所以一直正常，只是因为它恰好把 Surface 底色设成了 `Transparent`。
+ *
+ * 调用方二选一，两种都能修：
+ * 1. 让 Surface 的 `color = Color.Transparent`（[FloatingNavigationBar] 的做法）——
+ *    底栏 `tonalElevation` 本来就是 0，没有副作用；
+ * 2. 把材质层画进 Surface **内容**里的一个 `matchParentSize()` Box（[AppDialog] 的做法）——
+ *    连 tonalElevation 都不用动，底色一枚像素不变。
+ *
+ * 本函数自己会先铺一层 [base]，所以修法 1 不会在底下留个洞。
  */
 @Composable
 internal fun Modifier.surfaceMaterialFill(
@@ -747,53 +761,99 @@ internal fun Modifier.surfaceMaterialFill(
     shape: Shape
 ): Modifier {
     val scheme = MaterialTheme.colorScheme
-    val layer = materialBrush(material, base, scheme, LocalAppearance.current.cardGradientReversed)
+    val reversed = LocalAppearance.current.cardGradientReversed
+    // 与 FocusCard.cardMaterialFill 同一个理由：渐变画刷必须跨帧复用。
+    // 建在 drawBehind 里 = 每帧新建 Brush 并重编 shader（底栏与弹窗都是常驻/频繁重绘的）。
+    val layer = remember(material, base, scheme, reversed) {
+        materialBrush(material, base, scheme, reversed)
+    }
     if (layer == null) return this
     return this
         .clip(shape)
-        .drawBehind { drawRect(layer) }
+        .drawBehind {
+            // 底色先铺满：调用方把 Surface 让成透明时，这一层就是它的底色。
+            drawRect(base)
+            drawRect(layer)
+        }
 }
 
 /**
- * 柔光的顶面高光强度（白色混入比例）与底部压深强度（onSurface 混入比例）。
+ * 柔光的最大幅度：以底色为中心，上下各平移这么多 **sRGB 灰阶级**。
  *
- * **2026-09-10 加大**：真机目视复核发现，原来 5.5% / 3.0% 时柔光的卡面与"默认"只差
- * **2~3 灰阶**，肉眼几乎等于默认——当时柔光唯一看得出来的地方是卡片外那一圈投影，
- * 而那圈投影恰恰是被误读成"矩形色差"的缺陷（已删除）。所以柔光必须**靠自己卡面**立住：
- * 现在 9% / 5%，上下落差约 20 灰阶，一眼能看出"顶亮底沉"。
+ * 旧实现用的是两个**混色比例**（顶 9% 白 / 底 5% `onSurface`），它有两个病，同源——
+ * **拿比例当幅度**：
  *
- * 上限仍受可读性约束：底部压深会让深色正文对比度变差，所以底部权重始终小于顶部。
- * `RichEffectsTest` 与对比度总账一起守着这条。
+ * 1. **浅色底净暗**（维护者实测「看起来就是曲线反了」）：底 `250` 往白里混 9% 只涨
+ *    **0.45 级**（上方只剩 5 级就到纯白），往深里混 5% 却掉 **11.2 级**；
+ *    三站均值净暗约 4 级 → 柔光卡片看起来比默认卡片**更暗**，而不是"被光照到"。
+ * 2. **深色底净亮**：深色模式下 `onSurface` 是**浅色**，所谓"底部压深"那一站其实在
+ *    往亮里混，于是顶底两站都高于底色、整块反而变亮。方向名义上对，实际是反的。
+ *
+ * 所以幅度改由**底色自己**决定，并且**上下严格等量**——等量 ⇒ 三站关于底色对称
+ * ⇒ 均值恒等于底色 ⇒ **亮度中性**（这正是维护者 T-1 要的）。
+ * 近白卡片上方本来就只有几级余量，物理上就只能给到几级；
+ * 旧实现错在"下方不受这个约束"，把单方面的物理限制转嫁成了整块净暗。
  */
-internal const val SOFT_TOP_LIGHT = 0.09f
-internal const val SOFT_BOTTOM_SHADE = 0.05f
+internal const val SOFT_LIGHT_LEVELS = 10f
 
 /**
- * 柔光的底色层：顶面微亮、底部微沉，像被上方的光轻轻照到。
+ * 在 sRGB 分量上整体平移 [levels] 个灰阶（越界夹紧），alpha 不变。
  *
- * 深色模式下同样成立——提亮是"往白里混"、压深是"往文字色里混"，
- * 两者都朝各自明暗的反方向走，所以深色表面是"顶上稍亮、底下稍暗"，不会发灰。
+ * 用"平移级数"而不是"混色比例"表达幅度，是因为**可感知性按级数算**，
+ * 而"往白里混 x%"在亮底与暗底上换来的级数相差一个数量级（见 [SOFT_LIGHT_LEVELS]）。
  */
+internal fun shiftGreyLevels(color: Color, levels: Float): Color = Color(
+    red = ((color.red * 255f + levels) / 255f).coerceIn(0f, 1f),
+    green = ((color.green * 255f + levels) / 255f).coerceIn(0f, 1f),
+    blue = ((color.blue * 255f + levels) / 255f).coerceIn(0f, 1f),
+    alpha = color.alpha
+)
+
 /**
- * 柔光的三个站点（顶亮 → 底色 → 底沉）。
+ * 柔光在 [base] 上**打算**用的幅度（灰阶级数）。
  *
- * 单独抽出来是因为 `Brush.VerticalGradient.colorStops` 在当前 Compose 版本里
- * 对测试不可见——想断言"柔光到底画了什么"就只能从纯函数这一层拿。
+ * 只受两个约束：配置上限 [SOFT_LIGHT_LEVELS]，以及到纯黑的余量。
+ * **不**受"到纯白的余量"约束——顶站被纯白夹住是允许的（近白卡片必然如此），
+ * 夹住只会让实际幅度变小，不会破坏亮度中性（见 [softLightStops] 的镜像做法）。
+ * 早先按"最大通道到纯白的余量"卡过一次，结果暖杏浅色的底板红通道已经是 255，
+ * 幅度被算成 **0**，柔光整个消失——那是把"某个通道没空间"错当成了"整块没空间"。
+ */
+internal fun softLightAmplitude(base: Color): Float {
+    val lo = minOf(base.red, base.green, base.blue) * 255f
+    return minOf(SOFT_LIGHT_LEVELS, lo)
+}
+
+/**
+ * 柔光的三个站点（顶亮 → 底色 → 底沉），像被上方的光轻轻照到。
+ *
+ * 做法是**镜像**而不是"上下各平移固定级数"：
+ * 先算出顶站，再看它**实际**涨了几级（被纯白夹住时会小于 [softLightAmplitude]），
+ * 底站就落几级。于是逐通道严格等量 ⇒ 三站等距铺开时均值恒等于底色 ⇒ **亮度中性**。
+ *
+ * 这样夹紧永远不会破坏中性：它只是把幅度自动收窄，而不会像旧实现那样
+ * 让"提亮"单方面失效、"压深"照常生效——那正是"净暗 4 灰阶 / 曲线反了"的成因。
+ *
+ * 单独抽成纯函数是因为 `Brush.VerticalGradient.colorStops` 在当前 Compose 版本里
+ * 对测试不可见——想断言"柔光到底画了什么"就只能从这一层拿。
  * 画刷与测试都从这一个地方取，不会出现"文档/测试与实现漂移"。
  */
-internal fun softLightStops(base: Color, shade: Color, reversed: Boolean = false): List<Color> {
-    val stops = listOf(
-        blendSrgb(base, Color.White, SOFT_TOP_LIGHT),
-        base,
-        blendSrgb(base, shade, SOFT_BOTTOM_SHADE)
+internal fun softLightStops(base: Color, reversed: Boolean = false): List<Color> {
+    val top = shiftGreyLevels(base, softLightAmplitude(base))
+    // 逐通道镜像。底站因此永远不会被夹死：实际涨幅 ≤ 到纯黑的余量 ≤ 每个通道的值。
+    val bottom = Color(
+        red = base.red - (top.red - base.red),
+        green = base.green - (top.green - base.green),
+        blue = base.blue - (top.blue - base.blue),
+        alpha = base.alpha
     )
+    val stops = listOf(top, base, bottom)
     // 反向 = 把三站倒过来铺（底下变亮、顶上微沉），而不是换一组新颜色——
     // 这样"换了方向"不会引入没被对比度总账覆盖过的颜色。
     return if (reversed) stops.reversed() else stops
 }
 
-internal fun softLightBrush(base: Color, shade: Color, reversed: Boolean = false): Brush =
-    Brush.verticalGradient(softLightStops(base, shade, reversed))
+internal fun softLightBrush(base: Color, reversed: Boolean = false): Brush =
+    Brush.verticalGradient(softLightStops(base, reversed))
 
 /** 供测试：Crop 铺满时源图应取的矩形（与 [drawImageCover] 同一套算法）。 */
 internal fun coverSourceRect(srcW: Int, srcH: Int, dstW: Float, dstH: Float): IntArray {

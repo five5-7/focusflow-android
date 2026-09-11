@@ -137,10 +137,17 @@ internal fun FloatingNavigationBar(
     // 收阴影则去掉了那圈"浮在最上层"的观感。用 MotionSpec.move() 与弹窗遮罩同节奏。
     val barDim by animateFloatAsState(if (dialogOpen) MotionSpec.SCRIM_ALPHA else 0f, MotionSpec.move(), label = "barDim")
     val barShadow by animateDpAsState(if (dialogOpen) 1.dp else 7.dp, MotionSpec.move(), label = "barShadow")
-    // 8.2.0：卡片材质同样作用在底栏上（维护者口径「材质也影响导航栏」）。
-    // 走与卡片同一份 surfaceMaterialFill，只是底色换成底栏自己的 navigationBarColor。
-    val barMaterial = LocalAppearance.current.effectiveCardMaterial
-    // 局部 val：参数在 lambda 里做智能转换不可靠（编译器在 drawBehind 里判不出来）。
+    // 8.2.0：卡片材质**暂时不作用在底栏上**（维护者口径本来是「材质也影响导航栏」）。
+    //
+    // 试过两种接法，都不行，先撤回，等有稳妥方案再上：
+    // 1. 把 surfaceMaterialFill 挂在 Surface 的 modifier 上 —— 它内部的 drawBehind 排在
+    //    Surface 自己的 `.background(color)` **之前**，材质被底色整块盖住，等于没渲染；
+    // 2. 把 Surface 的 color 让成 Transparent 让材质露出来 —— 底色没了之后，
+    //    Surface 自己的 **shadowElevation 阴影**就画到材质层上面（阴影内部原本靠不透明底色遮着），
+    //    维护者立刻复现了"胶囊要么没渲染、要么就有问题"的老毛病。
+    // 正解应是"把材质画在 Surface 内容里的最底层"（弹窗 AppDialog 就是这么修好并实测通过的），
+    // 但底栏的内容是 BoxWithConstraints + 横向滚动 + 形变胶囊，插一层 Box 会影响
+    // 最小约束传播（Box 默认不传播 min 约束，底栏会缩成内容宽度），必须单独验证，不能顺手改。
     val barBrush: Brush? = containerBrush
     // 8.1.0 形变：每个顶角各自跟随自己的图标——有回退才伸出左角、有折返才伸出右角；图标消失即收回。
     val backProgress by animateFloatAsState(if (canGoBack && MotionSpec.morphEnabled) 1f else 0f, MotionSpec.morph(), label = "backCorner")
@@ -195,6 +202,8 @@ internal fun FloatingNavigationBar(
                     // 底栏底色**用画刷而不是单色**：单色表达不出左右渐变
                     // （维护者："导航栏不会相应左右渐变的底色"）。
                     // clip(barShape) 是必须的——drawBehind 在 Surface 形状裁剪之外。
+                    //
+                    // 注意：这条画刷路径当前恒为 null（T-4 因"渲染成三层"被回退）。
                     .clip(barShape)
                     .then(
                         if (containerBrush != null) {
@@ -202,10 +211,9 @@ internal fun FloatingNavigationBar(
                         } else {
                             Modifier
                         }
-                    )
-                    .surfaceMaterialFill(barMaterial, background, barShape),
+                    ),
                 shape = barShape,
-                // 有画刷时底色交给画刷画（透明），否则用动画后的主题色。
+                // 底色仍然是 Surface 自己的不透明色（原本的行为）。
                 color = if (barBrush != null) Color.Transparent else background,
                 tonalElevation = 0.dp,
                 // 维护者口径：不要那条 2dp 的硬灰线，改成"靠里浅、靠边深"的过渡——

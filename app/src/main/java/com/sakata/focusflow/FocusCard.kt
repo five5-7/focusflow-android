@@ -3,13 +3,13 @@ package com.sakata.focusflow
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
@@ -76,38 +76,50 @@ internal fun FocusCard(
     }
 }
 
-/** 卡片材质的底色层：**调用方给的底色** → 材质层（渐变/柔光）→ 纸感纸纹 → 两侧内收。 */
+/** 卡片材质的底色层：**调用方给的底色** → 材质层（渐变/柔光）→ 两侧内收。 */
+@Composable
 private fun Modifier.cardMaterialFill(
     containerColor: Color,
     material: CardMaterial,
     scheme: ColorScheme,
     softReversed: Boolean
-): Modifier = drawBehind {
-    // 先把卡片做成**不透明**：不少调用点用的是半透明底色
-    // （例如「接下来」卡 = surfaceVariant.copy(alpha = 0.45f)）。
-    // 半透明意味着**页面渐变会从卡片底下透出来**，于是同一张卡片在不同滚动位置颜色不同，
-    // 往上滑就变暗/变亮（维护者反馈："卡片处于下方时没有材质渲染，而在上方才有渲染"）。
-    // 材质必须只由卡片自己的底色决定，所以先铺一层固定的页面底色，再叠调用方的底色——
-    // 等价于"这张卡放在一块平整的页面底色上"，与它此刻落在渐变哪一段无关。
-    drawRect(scheme.background)
-    // 调用方指定的底色。**这一句不能省**：材质层是"以底色为基色"的渐变，
-    // 直接拿它当底色会把调用方的底色（例如"已选择"用的 primaryContainer）整个换掉。
-    drawRect(containerColor)
-    // 材质叠层与底栏/弹窗共用同一份实现（materialBrush），只是底色不同。
-    val layer = materialBrush(material, containerColor, scheme, softReversed)
-    if (layer != null) {
-        drawRect(layer)
+): Modifier {
+    // **画刷必须在这里 remember，绝不能建在 drawBehind 的 lambda 里。**
+    //
+    // 材质画刷是渐变。每次新建一个 Brush 实例，Compose 就要重新编译一份 shader
+    // （shader 缓存在 Brush 实例内部、按尺寸缓存），而 drawBehind 的 lambda
+    // **每一帧都会执行**。原先 `materialBrush(...)` 就写在 lambda 里，等于
+    // **每帧、每张卡片**都新建一次渐变画刷并重编 shader——卡片一多就持续掉帧
+    // （维护者反馈"这几个版本流畅度似乎有问题"）。
+    // 改成按 (材质, 底色, 方向, 配色) remember，跨帧复用同一份画刷与 shader。
+    val layer = remember(material, containerColor, scheme, softReversed) {
+        materialBrush(material, containerColor, scheme, softReversed)
     }
-    // 两侧轻微内收：靠里的浅、靠边的略深，和底栏用同一套语言，避免"贴纸感"。
-    val edge = scheme.onSurface.copy(alpha = 0.03f)
-    drawRect(
+    val edge = remember(scheme) { scheme.onSurface.copy(alpha = 0.03f) }
+    val edgeBrush = remember(edge) {
         Brush.horizontalGradient(
             0f to edge,
             0.06f to Color.Transparent,
             0.94f to Color.Transparent,
             1f to edge
         )
-    )
+    }
+    return drawBehind {
+        // 先把卡片做成**不透明**：不少调用点用的是半透明底色
+        // （例如「接下来」卡 = surfaceVariant.copy(alpha = 0.45f)）。
+        // 半透明意味着**页面渐变会从卡片底下透出来**，于是同一张卡片在不同滚动位置颜色不同，
+        // 往上滑就变暗/变亮（维护者反馈："卡片处于下方时没有材质渲染，而在上方才有渲染"）。
+        // 材质必须只由卡片自己的底色决定，所以先铺一层固定的页面底色，再叠调用方的底色——
+        // 等价于"这张卡放在一块平整的页面底色上"，与它此刻落在渐变哪一段无关。
+        drawRect(scheme.background)
+        // 调用方指定的底色。**这一句不能省**：材质层是"以底色为基色"的渐变，
+        // 直接拿它当底色会把调用方的底色（例如"已选择"用的 primaryContainer）整个换掉。
+        drawRect(containerColor)
+        // 材质叠层与底栏/弹窗共用同一份实现（materialBrush），只是底色不同。
+        if (layer != null) drawRect(layer)
+        // 两侧轻微内收：靠里的浅、靠边的略深，和底栏用同一套语言，避免"贴纸感"。
+        drawRect(edgeBrush)
+    }
 }
 
 /** 卡片材质的展示名（设置页与测试共用，避免两处文案漂移）。 */

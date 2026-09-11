@@ -104,7 +104,7 @@ class RichEffectsTest {
         val base = scheme.surfaceContainerLow
         // 柔光必须与"默认材质"真的不同 —— 这正是原先柔光完全看不出来的原因
         // （那时 SOFT 与 PAPER 都 `-> null`，只挂了一份同样的阴影，两者渲染完全相同）。
-        val stops = softLightStops(base, scheme.onSurface)
+        val stops = softLightStops(base)
         assertEquals("柔光是三站：顶亮 → 底色 → 底沉", 3, stops.size)
         assertTrue("顶站要比中间亮", stops[0].luminance() > stops[1].luminance())
         assertTrue("底站要比中间沉", stops[2].luminance() < stops[1].luminance())
