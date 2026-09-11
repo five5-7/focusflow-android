@@ -19,7 +19,7 @@ class RichEffectsTest {
 
     @Test
     fun defaultsToOnSoExistingInstallsDoNotChange() {
-        assertTrue("默认必须是开，否则老装机升级后外观会被悄悄改掉", AppearanceSpec.DEFAULT.richEffects)
+        assertFalse("8.2.0 起丰富外观默认必须关闭", AppearanceSpec.DEFAULT.richEffects)
         // 读不到这个键（老装机）也必须等于"开"
         val legacy = AppearanceSpec.fromKeys(
             null, null, 100, 100, 0, false, 0, 0, null, null, 0, null, 100, null
@@ -89,8 +89,8 @@ class RichEffectsTest {
         val scheme = lightColorScheme()
         val base = scheme.surfaceContainerLow
         assertNull("默认材质不叠任何东西", materialBrush(CardMaterial.TONAL, base, scheme))
-        // 另外三档都必须真的产出一层，否则就是"设置了却没变化"的假开关
-        for (material in listOf(CardMaterial.GRADIENT, CardMaterial.SOFT, CardMaterial.SOFT)) {
+        // 所有非默认材质都必须真的产出一层，否则就是"设置了却没变化"的假开关
+        for (material in listOf(CardMaterial.GRADIENT, CardMaterial.SOFT, CardMaterial.ACRYLIC)) {
             assertTrue(
                 "$material 必须产出可见的一层",
                 materialBrush(material, base, scheme) != null
