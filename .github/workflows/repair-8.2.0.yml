@@ -1,0 +1,24 @@
+name: Repair 8.2.0 source
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Restore PrototypeStore
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin 0104ac0d4ed0a5bf1b4557a33418dd595231f70e
+          git checkout 0104ac0d4ed0a5bf1b4557a33418dd595231f70e -- app/src/main/java/com/sakata/focusflow/PrototypeStore.kt
+          sed -i 's/getBoolean("appearance_rich_effects", true)/getBoolean("appearance_rich_effects", false)/' app/src/main/java/com/sakata/focusflow/PrototypeStore.kt
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add app/src/main/java/com/sakata/focusflow/PrototypeStore.kt
+          git commit -m "fix: restore 8.2.0 source and disable rich effects by default"
+          git push origin HEAD:main
