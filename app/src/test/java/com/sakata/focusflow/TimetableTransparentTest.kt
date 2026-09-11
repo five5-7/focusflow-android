@@ -42,7 +42,7 @@ class TimetableTransparentTest {
 
     @Test
     fun timetableCanBeTransparent() {
-        val spec = AppearanceSpec(timetableBackdrop = BackdropKind.TRANSPARENT)
+        val spec = AppearanceSpec(timetableBackdrop = BackdropKind.TRANSPARENT, richEffects = true)
         assertEquals(BackdropKind.TRANSPARENT, spec.effectiveTimetableBackdrop)
         // 透明不是"用了自选颜色"，也不是"有底图"——这两条会去画东西，必须保持 false
         assertFalse(spec.timetableUsesColor)
