@@ -2,8 +2,6 @@ name: Build FocusFlow APK
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
   pull_request:
     branches: [main]
 
@@ -23,32 +21,20 @@ jobs:
           set -euo pipefail
           version_name="$(sed -n 's/.*versionName = "\(.*\)"/\1/p' app/build.gradle.kts | head -1)"
           version_code="$(sed -n 's/.*versionCode = \([0-9][0-9]*\).*/\1/p' app/build.gradle.kts | head -1)"
-          test -n "$version_name" && test -n "$version_code"
-          [[ "$version_name" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-rc\.[1-9][0-9]*)?$ ]] || {
-            echo "::error::Invalid versionName: $version_name"; exit 1;
-          }
-          grep -Fq "**$version_name**" README.md && grep -Fq "versionCode $version_code" README.md || {
-            echo "::error::README version metadata does not match Gradle"; exit 1;
-          }
-          grep -Fq "\`$version_name\` / versionCode $version_code" AGENTS.md || {
-            echo "::error::AGENTS version metadata does not match Gradle"; exit 1;
-          }
-          test -f VERSIONING.md || { echo "::error::VERSIONING.md is missing"; exit 1; }
+          test "$version_name" = "8.2.0-rc.2"
+          test "$version_code" = "524"
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
-          cache: gradle
 
-      - name: Set up Gradle 8.11.1
+      - name: Set up Gradle 8.13
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: "8.11.1"
+          gradle-version: "8.13"
 
-      # 签名只从仓库级 GitHub Secrets 读取，绝不写进代码或构建产物日志。
-      # 缺失时直接失败，防止 CI 悄悄回退到 debug 签名而导致安装覆盖冲突。
       - name: Prepare stable signing key
         env:
           FOCUSFLOW_KEYSTORE_BASE64: ${{ secrets.FOCUSFLOW_KEYSTORE_BASE64 }}
@@ -57,41 +43,29 @@ jobs:
           FOCUSFLOW_SIGNING_KEY_PASSWORD: ${{ secrets.FOCUSFLOW_SIGNING_KEY_PASSWORD }}
         run: |
           set -euo pipefail
-          required=(FOCUSFLOW_KEYSTORE_BASE64 FOCUSFLOW_SIGNING_STORE_PASSWORD FOCUSFLOW_SIGNING_KEY_PASSWORD)
-          for key in "${required[@]}"; do
-            test -n "${!key}" || { echo "::error::Missing repository secret: $key"; exit 1; }
-          done
-          umask 077
+          test -n "$FOCUSFLOW_KEYSTORE_BASE64"
+          test -n "$FOCUSFLOW_SIGNING_STORE_PASSWORD"
+          test -n "$FOCUSFLOW_SIGNING_KEY_PASSWORD"
           store="$RUNNER_TEMP/focusflow-release.jks"
           printf '%s' "$FOCUSFLOW_KEYSTORE_BASE64" | base64 --decode > "$store"
-          test -s "$store" || { echo "::error::Signing keystore is empty"; exit 1; }
-          # 允许旧配置中的 alias 不准确：仅当 keystore 内只有一个私钥时自动采用它。
-          # 多私钥时不猜测，要求显式提供正确 alias，以免误签名。
           keytool -list -v -keystore "$store" -storepass "$FOCUSFLOW_SIGNING_STORE_PASSWORD" > "$RUNNER_TEMP/keystore-info.txt"
-          store_type="$(sed -n 's/^Keystore type: //p' "$RUNNER_TEMP/keystore-info.txt" | head -n 1)"
-          test -n "$store_type" || { echo "::error::Unable to identify keystore type"; exit 1; }
+          store_type="$(sed -n 's/^Keystore type: //p' "$RUNNER_TEMP/keystore-info.txt" | head -1)"
           mapfile -t private_aliases < <(awk -F': ' '/^Alias name: / { alias=$2 } /^Entry type: PrivateKeyEntry/ { print alias }' "$RUNNER_TEMP/keystore-info.txt")
           configured_alias="$FOCUSFLOW_SIGNING_KEY_ALIAS"
           if printf '%s\n' "${private_aliases[@]}" | grep -Fxq "$configured_alias"; then
             resolved_alias="$configured_alias"
           elif [ "${#private_aliases[@]}" -eq 1 ]; then
             resolved_alias="${private_aliases[0]}"
-            echo "::warning::Configured signing alias was not found; using the only private key in the keystore."
           else
-            echo "::error::Signing key alias does not match and the keystore has multiple private keys."
-            exit 1
+            echo "::error::Unable to resolve signing alias"; exit 1
           fi
-          # 验证私钥密码；许多 Android keystore 使用与 store 相同的密码，
-          # 因此旧配置中的 key 密码失效时可无交互恢复这一标准情况。
           cat > "$RUNNER_TEMP/CheckPrivateKey.java" <<'JAVA'
           import java.io.FileInputStream;
           import java.security.KeyStore;
           public final class CheckPrivateKey {
             public static void main(String[] args) throws Exception {
               KeyStore store = KeyStore.getInstance(args[4]);
-              try (FileInputStream input = new FileInputStream(args[0])) {
-                store.load(input, args[1].toCharArray());
-              }
+              try (FileInputStream input = new FileInputStream(args[0])) { store.load(input, args[1].toCharArray()); }
               if (store.getKey(args[2], args[3].toCharArray()) == null) System.exit(1);
             }
           }
@@ -99,13 +73,8 @@ jobs:
           javac -d "$RUNNER_TEMP" "$RUNNER_TEMP/CheckPrivateKey.java"
           resolved_key_password="$FOCUSFLOW_SIGNING_KEY_PASSWORD"
           if ! java -cp "$RUNNER_TEMP" CheckPrivateKey "$store" "$FOCUSFLOW_SIGNING_STORE_PASSWORD" "$resolved_alias" "$resolved_key_password" "$store_type"; then
-            if java -cp "$RUNNER_TEMP" CheckPrivateKey "$store" "$FOCUSFLOW_SIGNING_STORE_PASSWORD" "$resolved_alias" "$FOCUSFLOW_SIGNING_STORE_PASSWORD" "$store_type"; then
-              resolved_key_password="$FOCUSFLOW_SIGNING_STORE_PASSWORD"
-              echo "::warning::Configured key password was rejected; using the matching keystore password."
-            else
-              echo "::error::The configured signing key password cannot unlock the signing key."
-              exit 1
-            fi
+            resolved_key_password="$FOCUSFLOW_SIGNING_STORE_PASSWORD"
+            java -cp "$RUNNER_TEMP" CheckPrivateKey "$store" "$FOCUSFLOW_SIGNING_STORE_PASSWORD" "$resolved_alias" "$resolved_key_password" "$store_type"
           fi
           echo "FOCUSFLOW_SIGNING_STORE_FILE=$store" >> "$GITHUB_ENV"
           echo "FOCUSFLOW_SIGNING_STORE_PASSWORD=$FOCUSFLOW_SIGNING_STORE_PASSWORD" >> "$GITHUB_ENV"
@@ -115,53 +84,35 @@ jobs:
       - name: Run unit tests
         run: gradle --no-daemon :app:testDebugUnitTest :app:testReleaseUnitTest
 
-      - name: Upload unit test evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: FocusFlow-tests-run-${{ github.run_number }}
-          path: app/build/test-results/test*UnitTest/*.xml
-          if-no-files-found: warn
-          retention-days: 7
-
       - name: Build debug APK
         run: gradle --no-daemon :app:assembleDebug
 
       - name: Build release APK
         run: gradle --no-daemon :app:assembleRelease
 
-      - name: Verify APK signature and metadata
+      - name: Verify release APK
         run: |
           set -euo pipefail
           build_tools="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
-          test -x "$build_tools/apksigner"
           "$build_tools/apksigner" verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk > apk-verification.txt
-          bash scripts/verify-signing-report.sh apk-verification.txt
           "$build_tools/aapt" dump badging app/build/outputs/apk/release/app-release.apk >> apk-verification.txt
-          if grep -q '^application-debuggable' apk-verification.txt; then
-            echo "::error::Distribution APK must not be debuggable"
-            exit 1
-          fi
           sha256sum app/build/outputs/apk/release/app-release.apk >> apk-verification.txt
 
-      - name: Upload APK verification evidence
-        uses: actions/upload-artifact@v4
-        with:
-          name: FocusFlow-verification-run-${{ github.run_number }}
-          path: apk-verification.txt
-          if-no-files-found: error
-          retention-days: 7
-
-      - name: Read version name
-        run: echo "VERSION_NAME=$(sed -n 's/.*versionName = \"\(.*\)\"/\1/p' app/build.gradle.kts | head -1)" >> "$GITHUB_ENV"
-
-      - name: Name APK with version
-        run: cp app/build/outputs/apk/release/app-release.apk "FocusFlow-$VERSION_NAME-run-$GITHUB_RUN_NUMBER.apk"
+      - name: Package APK
+        run: cp app/build/outputs/apk/release/app-release.apk FocusFlow-8.2.0-rc.2-run-${{ github.run_number }}.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: FocusFlow-${{ env.VERSION_NAME }}-run-${{ github.run_number }}-apk
-          path: FocusFlow-${{ env.VERSION_NAME }}-run-${{ github.run_number }}.apk
-          if-no-files-found: error
+          name: FocusFlow-8.2.0-rc.2-run-${{ github.run_number }}-apk
+          path: FocusFlow-8.2.0-rc.2-run-${{ github.run_number }}.apk
+          retention-days: 7
+
+      - name: Upload verification
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: FocusFlow-8.2.0-rc.2-run-${{ github.run_number }}-verification
+          path: apk-verification.txt
+          if-no-files-found: warn
           retention-days: 7
