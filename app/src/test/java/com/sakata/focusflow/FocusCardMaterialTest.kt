@@ -157,51 +157,18 @@ class FocusCardMaterialTest {
     }
 
     /**
-     * 毛玻璃的剖面是"**窄而亮的高光 + 宽而浅的压深**"，并且**面积守恒**（亮度中性）。
-     *
-     * 这是它与柔光的唯一区别：柔光是上下对称的均匀斜坡，毛玻璃把亮度集中在顶部边缘。
-     * 守恒条件 `peak · band = dip · (1 - band)` 一旦被破坏，整块就会净暗或净亮——
-     * T-1 就是这么翻的车，所以这里把面积直接钉住。
+     * 毛玻璃与亚克力已于 2026-09-11 按维护者口径删除，
+     * 它们各自的回归（毛玻璃的面积守恒 / 亚克力的染色）随之移除 ——
+     * 留着就是测一个不存在的材质。删除原因见 `AppearanceSpec.CardMaterial` 的注释。
      */
     @Test
-    fun frostedKeepsItsAreaBalancedAndIsTopLit() {
-        for (theme in FocusFlowThemeOption.builtInEntries()) {
-            for (dark in listOf(false, true)) {
-                val scheme = focusFlowThemeSpec(theme, darkMode = dark).colorScheme
-                val base = scheme.surfaceContainerLow
-                val stops = frostedStops(base)
-                val label = "${theme.label}（${if (dark) "深色" else "浅色"}）"
-                assertEquals("$label 毛玻璃是三个带位置的站点", 3, stops.size)
-                assertEquals("$label 高光带必须从最顶上开始", 0f, stops[0].first)
-                // 毛玻璃是**半透明**的（底下页面要透上来），所以中间站的 alpha < 1，但色值仍等于底色。
-                assertEquals("$label 中间站色值就是底色本身", base, stops[1].second.copy(alpha = base.alpha))
-                assertTrue(
-                    "$label 毛玻璃必须半透明，否则底下页面透不上来、只是另一种渐变",
-                    stops[1].second.alpha < 1f
-                )
-                val band = stops[1].first
-                // **逐通道**查：近白底的某个通道会被纯白夹住（暖杏浅色的红通道本来就是 255），
-                // 只看单个通道会把"这个通道没空间"误判成"高光不明显"。
-                val bases = listOf(base.red, base.green, base.blue)
-                val tops = listOf(stops[0].second.red, stops[0].second.green, stops[0].second.blue)
-                val bottoms = listOf(stops[2].second.red, stops[2].second.green, stops[2].second.blue)
-                var maxPeak = 0f
-                for (i in 0..2) {
-                    val peak = tops[i] - bases[i]
-                    val dip = bases[i] - bottoms[i]
-                    assertTrue("$label 通道 $i 高光幅度不能为负", peak >= 0f)
-                    assertEquals(
-                        "$label 通道 $i 毛玻璃面积不守恒，整块会净暗/净亮",
-                        0f,
-                        peak * band / 2f - dip * (1f - band) / 2f,
-                        0.4f / 255f
-                    )
-                    if (peak > maxPeak) maxPeak = peak
-                }
-                assertTrue("$label 高光整体幅度为 0，等于没有材质", maxPeak > 0f)
-                assertTrue("$label 高光带应当明显窄于压深带（窄而亮 vs 宽而浅）", band < 0.5f)
-            }
-        }
+    fun removedMaterialsAreGoneFromTheEnum() {
+        val keys = CardMaterial.entries.map { it.storageKey }
+        assertTrue("毛玻璃已删除", !keys.contains("frosted"))
+        assertTrue("亚克力已删除", !keys.contains("acrylic"))
+        // 老装机/老预设里存过这两个值，必须优雅降级成默认，不抛错、不清数据。
+        assertEquals(CardMaterial.TONAL, CardMaterial.fromKey("frosted"))
+        assertEquals(CardMaterial.TONAL, CardMaterial.fromKey("acrylic"))
     }
 
     /** 柔光要真的看得出来：顶底落差不能小到不可感知。 */
