@@ -762,6 +762,27 @@ internal fun materialBrush(
     }
 
 /**
+ * 材质的内描边（"玻璃的边"）。
+ *
+ * **这是毛玻璃能不能读出"玻璃"的关键。** 维护者反馈「毛玻璃没有玻璃效果」——
+ * 原因不是不透明度，而是：页面底色是**平滑渐变**时，半透明本身**看不出来**
+ * （背后是平滑的，透过去还是那片平滑）。真正让人读出玻璃的，是那**一圈被光照亮的边**
+ * —— 玻璃的截面把光折过来，边总是比面亮。
+ *
+ * 返回 0 = 该材质不画边（默认/渐变/柔光/亚克力都不画，各靠自己的形态立住）。
+ */
+internal fun materialRimWidthDp(material: CardMaterial): Float = when (material) {
+    CardMaterial.FROSTED -> 1.5f
+    else -> 0f
+}
+
+/** 内描边的颜色；null = 不画。见 [materialRimWidthDp]。 */
+internal fun materialRimColor(material: CardMaterial, base: Color): Color? = when (material) {
+    CardMaterial.FROSTED -> shiftGreyLevels(base, 14f).copy(alpha = 0.9f)
+    else -> null
+}
+
+/**
  * 毛玻璃的高光带宽（占卡面高度的比例）。
  *
  * 毛玻璃与柔光的区别**不在幅度、在剖面**：柔光是上下对称的均匀斜坡，
@@ -829,10 +850,13 @@ internal fun acrylicStops(
     // 渐变没有任何硬边，亚克力有一条锐利的玻璃边线（Fluent 亚克力的观感）。
     // 0.012 × 卡高 ≈ 9px（density 4），是一条看得清的发丝高光。
     val edge = shiftGreyLevels(tinted, 9f)
+    // 亚克力也要**真的透光**（维护者：「亚克力不透光」）：0.78 的不透明度，
+    // 比毛玻璃的 0.55 厚一些，读起来是"致密的塑料板"而不是"薄纱"。
+    val veil = 0.78f
     val stops = listOf(
-        0f to edge,
-        0.012f to tinted,
-        1f to tinted
+        0f to edge.copy(alpha = veil),
+        0.012f to tinted.copy(alpha = veil),
+        1f to tinted.copy(alpha = veil)
     )
     return if (reversed) stops.map { (f, c) -> (1f - f) to c }.reversed() else stops
 }
@@ -967,7 +991,12 @@ internal fun softLightStops(base: Color, reversed: Boolean = false): List<Color>
 }
 
 internal fun softLightBrush(base: Color, reversed: Boolean = false): Brush =
-    Brush.verticalGradient(softLightStops(base, reversed))
+    // **径向**而不是竖直：维护者反馈「柔光挺亮但和渐变没有本质差距」——
+    // 因为两者原来都是线性竖直斜坡，只是"打光"与"变色"的区别，形态上是同一类。
+    // 真正的柔光是从**中心散开**的光晕（柔光箱/无影灯），所以改成径向：
+    // 中心最亮、向四周柔和衰减。默认的 center/radius（Unspecified/无限大）
+    // 会让 Compose 按绘制区中心与尺寸解析，所以这个画刷仍然与尺寸无关、可以 remember 复用。
+    Brush.radialGradient(softLightStops(base, reversed))
 
 /** 供测试：Crop 铺满时源图应取的矩形（与 [drawImageCover] 同一套算法）。 */
 internal fun coverSourceRect(srcW: Int, srcH: Int, dstW: Float, dstH: Float): IntArray {

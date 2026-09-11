@@ -96,6 +96,9 @@ private fun Modifier.cardMaterialFill(
         materialBrush(material, containerColor, scheme, softReversed)
     }
     val edge = remember(scheme) { scheme.onSurface.copy(alpha = 0.03f) }
+    // 「玻璃的边」：毛玻璃靠它才读得出是玻璃（平滑背景下半透明本身看不出来）。
+    val rim = remember(material, containerColor) { materialRimColor(material, containerColor) }
+    val rimWidthDp = remember(material) { materialRimWidthDp(material) }
     val edgeBrush = remember(edge) {
         Brush.horizontalGradient(
             0f to edge,
@@ -108,7 +111,7 @@ private fun Modifier.cardMaterialFill(
         // **毛玻璃不铺不透明底**：它要的就是"底下的页面真的透上来"。
         // 其余材质必须铺（半透明底色的调用点会让页面渐变从卡片底下透出来，
         // 于是同一张卡在不同滚动位置颜色不同——维护者反馈过那个问题）。
-        if (material != CardMaterial.FROSTED) {
+        if (material != CardMaterial.FROSTED && material != CardMaterial.ACRYLIC) {
             // 先把卡片做成**不透明**：不少调用点用的是半透明底色
             // （例如「接下来」卡 = surfaceVariant.copy(alpha = 0.45f)）。
             // 半透明意味着**页面渐变会从卡片底下透出来**，于是同一张卡片在不同滚动位置颜色不同，
@@ -124,6 +127,16 @@ private fun Modifier.cardMaterialFill(
         if (layer != null) drawRect(layer)
         // 两侧轻微内收：靠里的浅、靠边的略深，和底栏用同一套语言，避免"贴纸感"。
         drawRect(edgeBrush)
+        // 内描边（"玻璃的边"）：贴着形状内侧画一圈亮线，毛玻璃的关键观感。
+        if (rim != null) {
+            val w = androidx.compose.ui.unit.Dp(rimWidthDp).toPx()
+            drawRect(
+                color = rim,
+                topLeft = Offset(w / 2f, w / 2f),
+                size = androidx.compose.ui.geometry.Size(size.width - w, size.height - w),
+                style = androidx.compose.ui.graphics.drawscope.Stroke(w)
+            )
+        }
     }
 }
 
