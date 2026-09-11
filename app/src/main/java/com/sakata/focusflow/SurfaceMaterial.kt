@@ -933,7 +933,7 @@ internal fun Modifier.surfaceMaterialFill(
  * 近白卡片上方本来就只有几级余量，物理上就只能给到几级；
  * 旧实现错在"下方不受这个约束"，把单方面的物理限制转嫁成了整块净暗。
  */
-internal const val SOFT_LIGHT_LEVELS = 10f
+internal const val SOFT_LIGHT_LEVELS = 7f
 
 /**
  * 在 sRGB 分量上整体平移 [levels] 个灰阶（越界夹紧），alpha 不变。
@@ -992,12 +992,11 @@ internal fun softLightStops(base: Color, reversed: Boolean = false): List<Color>
 }
 
 internal fun softLightBrush(base: Color, reversed: Boolean = false): Brush =
-    // **径向**而不是竖直：维护者反馈「柔光挺亮但和渐变没有本质差距」——
-    // 因为两者原来都是线性竖直斜坡，只是"打光"与"变色"的区别，形态上是同一类。
-    // 真正的柔光是从**中心散开**的光晕（柔光箱/无影灯），所以改成径向：
-    // 中心最亮、向四周柔和衰减。默认的 center/radius（Unspecified/无限大）
-    // 会让 Compose 按绘制区中心与尺寸解析，所以这个画刷仍然与尺寸无关、可以 remember 复用。
-    Brush.radialGradient(softLightStops(base, reversed))
+    // **改回竖直线性。** 径向那版在真机上"中间会出现一个圆点"（维护者反馈）——
+    // radialGradient 的中心必然形成一个可见的聚光核，而柔光要的是"均匀的柔光"，
+    // 不该有光源核。与渐变的区别改为靠**色相**：渐变是往主题主色偏（变色），
+    // 柔光只动亮度、色相不变（打光）。
+    Brush.verticalGradient(softLightStops(base, reversed))
 
 /** 供测试：Crop 铺满时源图应取的矩形（与 [drawImageCover] 同一套算法）。 */
 internal fun coverSourceRect(srcW: Int, srcH: Int, dstW: Float, dstH: Float): IntArray {
