@@ -764,6 +764,7 @@ internal fun materialBrush(
             Brush.verticalGradient(if (softReversed) listOf(base, tinted) else listOf(tinted, base))
         }
         CardMaterial.SOFT -> softLightBrush(base, softReversed)
+        CardMaterial.ACRYLIC -> acrylicBrush(base, scheme, softReversed)
     }
 
 /**
@@ -776,6 +777,88 @@ internal fun materialRimWidthDp(material: CardMaterial): Float = 0f
 
 /** 内描边的颜色；null = 不画。见 [materialRimWidthDp]。 */
 internal fun materialRimColor(material: CardMaterial, base: Color): Color? = null
+
+/**
+ * 毛玻璃的高光带宽（占卡面高度的比例）。
+ *
+ * 毛玻璃与柔光的区别**不在幅度、在剖面**：柔光是上下对称的均匀斜坡，
+ * 毛玻璃是"高光集中在顶部边缘、其余部分平缓回落"——真实的玻璃边正是这样。
+ * 见 [frostedStops]。
+ */
+internal const val FROSTED_BAND = 0.18f
+
+/**
+ * 毛玻璃的三个站点（带**位置**，因为它不是等距铺的）。
+ *
+ * 亮度中性仍然要守（T-1 的教训：整块净暗会看起来"曲线反了"）：
+ * 高光带只占 [FROSTED_BAND] 的高度，剩下 `1 - FROSTED_BAND` 的高度用一点点压深
+ * 把面积补回来，即 `a · band / 2 = b · (1 - band) / 2` ⇒ `b = a · band / (1 - band)`。
+ * 于是高光是窄而亮的、压深是宽而浅的——这正是"光泽面"与"整体变暗"的区别。
+ */
+internal fun frostedStops(base: Color, reversed: Boolean = false): List<Pair<Float, Color>> {
+    val top = shiftGreyLevels(base, softLightAmplitude(base))
+    // **按实际涨幅镜像**（与 softLightStops 同一个道理）：
+    // 近白底片的顶站会被纯白夹住，实际涨幅小于 softLightAmplitude；
+    // 压深必须照着"实际涨了多少"按面积守恒补回来，否则夹紧就会变成整块净暗。
+    val k = FROSTED_BAND / (1f - FROSTED_BAND)
+    val bottom = Color(
+        red = base.red - (top.red - base.red) * k,
+        green = base.green - (top.green - base.green) * k,
+        blue = base.blue - (top.blue - base.blue) * k,
+        alpha = base.alpha
+    )
+    // **半透明才是毛玻璃的本体**：不透明的话底下页面根本透不上来，
+    // 那它只是"另一种渐变"，跟柔光分不开（维护者："可以强化一下亚克力和柔光的不同"，毛玻璃同理）。
+    // 0.55 的白纱：背后看得见，正文对比度又不会被吃掉。
+    // 配套：`FocusCard.cardMaterialFill` 对毛玻璃**不铺不透明底**，
+    // 否则这层纱下面仍然是卡片自己的底色，等于没透。
+    val veil = 0.55f
+    val stops = listOf(
+        0f to top.copy(alpha = veil),
+        FROSTED_BAND to base.copy(alpha = veil),
+        1f to bottom.copy(alpha = veil)
+    )
+    // 反向 = 把位置镜像过来（高光跑到下边缘），而不是换一组颜色。
+    return if (reversed) stops.map { (f, c) -> (1f - f) to c }.reversed() else stops
+}
+
+internal fun frostedBrush(base: Color, reversed: Boolean = false): Brush =
+    Brush.verticalGradient(*frostedStops(base, reversed).toTypedArray())
+
+/**
+ * 亚克力：一整块**平**的哑光板 + 顶部极窄的一条环境光，并带一点主题染色。
+ *
+ * 与毛玻璃的区别是"平"：毛玻璃靠顶部高光做出光泽与厚度，亚克力几乎不做起伏，
+ * 靠**染色**（往主题主色混 6%）与那道窄高光与默认材质区分开。
+ * 染色会跟着主题走，这是亚克力的特征，也是它肉眼可辨的地方。
+ */
+internal fun acrylicStops(
+    base: Color,
+    scheme: ColorScheme,
+    reversed: Boolean = false
+): List<Pair<Float, Color>> {
+    // 染色 6% → 10% → **16%**：维护者口径是「亚克力和**渐变**的差别有点小了」。
+    // 渐变材质是"7% 主题色 → 底色"的平滑斜坡，平均浓度只有 3.5%；
+    // 亚克力要读起来是"一整块亚克力板"而不是"另一种渐变"，所以浓度必须明显高出一档，
+    // 而且是**平的**（不随高度衰减）——"板"与"晕染"的区别就在这里。
+    val tinted = blendSrgb(base, scheme.primary, 0.16f)
+    // 顶部那条**很窄**的亮线是与渐变最直观的第二个区别：
+    // 渐变没有任何硬边，亚克力有一条锐利的玻璃边线（Fluent 亚克力的观感）。
+    // 0.012 × 卡高 ≈ 9px（density 4），是一条看得清的发丝高光。
+    val edge = shiftGreyLevels(tinted, 9f)
+    // 亚克力**再透一点**（0.78 → 0.60）：维护者口径「把亚克力材质加一点透明加模糊的效果」。
+    // 毛玻璃已于 2026-09-11 删除，所以这档同时承担"透光"的角色，不透明度必须更低。
+    val veil = 0.60f
+    val stops = listOf(
+        0f to edge.copy(alpha = veil),
+        0.012f to tinted.copy(alpha = veil),
+        1f to tinted.copy(alpha = veil)
+    )
+    return if (reversed) stops.map { (f, c) -> (1f - f) to c }.reversed() else stops
+}
+
+internal fun acrylicBrush(base: Color, scheme: ColorScheme, reversed: Boolean = false): Brush =
+    Brush.verticalGradient(*acrylicStops(base, scheme, reversed).toTypedArray())
 
 /**
  * 把材质叠层画在**调用方自己的形状里**。

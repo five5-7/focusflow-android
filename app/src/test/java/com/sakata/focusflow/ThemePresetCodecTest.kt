@@ -34,7 +34,10 @@ class ThemePresetCodecTest {
         gradientFollowsContent = true,
         cardMaterial = CardMaterial.SOFT,
         timetableBackdrop = BackdropKind.COLOR,
-        timetableColor = 0xFFF2ECE8.toInt()
+        timetableColor = 0xFFF2ECE8.toInt(),
+        richEffects = false,
+        gradientDirection = GradientDirection.DIAGONAL_UP,
+        cardGradientReversed = true
     )
 
     @Test
