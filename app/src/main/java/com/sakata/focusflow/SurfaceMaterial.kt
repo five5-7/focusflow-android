@@ -571,7 +571,29 @@ internal fun backdropColourAt(
 internal fun navBarBrushOverBackdrop(
     appearance: AppearanceSpec,
     themeSpec: FocusFlowThemeSpec
-): Brush? = null
+): Brush? {
+    // 只有页面**真的是渐变**时才有"左右"可言。跟随主题／固定颜色／图片都没有横向色程，
+    // 返回 null 让底栏走原来的纯色路径 —— 那几个档位因此逐像素不变。
+    if (appearance.effectivePageBackdrop != BackdropKind.GRADIENT) return null
+    val scheme = themeSpec.colorScheme
+    val span = if (appearance.gradientFollowsContent) FOLLOWS_CONTENT_SPAN else 1f
+    val fy = NAV_BAR_CENTRE_Y / span
+    // 沿底栏横向等距采 9 个点，每点取"页面在该点的颜色，再叠加导航栏色系相对页面底色的偏移"，
+    // 与 navBarColourOverBackdrop 同一套口径（中心点 fx = NAV_BAR_CENTRE_X 处两者必然相等，
+    // 所以换成画刷不会在中间接出一道缝）。
+    //
+    // 维护者口径：「不要只针对这一种情况打补丁」——所以这里是**逐点采样**，
+    // 六个方向（含斜向）全都自动跟着走，不需要按方向写分支。
+    val segments = 8
+    val stops = (0..segments).map { i ->
+        floatingSurfaceOverGradient(
+            base = backdropColourAt(appearance, scheme, i.toFloat() / segments, fy),
+            deltaFrom = scheme.background,
+            deltaTo = themeSpec.navigationBarColor
+        )
+    }
+    return Brush.horizontalGradient(stops)
+}
 
 /**
  * 底栏带的**中心色**（供需要单一颜色的地方及单测使用）。
@@ -771,8 +793,10 @@ internal fun Modifier.surfaceMaterialFill(
     return this
         .clip(shape)
         .drawBehind {
-            // 底色先铺满：调用方把 Surface 让成透明时，这一层就是它的底色。
-            drawRect(base)
+            // **只画材质，不铺底色。** 这一层总是叠在调用方自己的底色之上：
+            // 弹窗靠 Surface 自己的 `color`，底栏靠下面那层渐变画刷或 Surface 的纯色。
+            // 早先这里还画过一层 `drawRect(base)`（为了让"把 Surface 让成透明"那种接法不留洞），
+            // 那条接法已经废弃，留着它反而会把底栏的渐变画刷盖掉。
             drawRect(layer)
         }
 }

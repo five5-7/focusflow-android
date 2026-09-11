@@ -138,17 +138,17 @@ internal fun FloatingNavigationBar(
     // 收阴影则去掉了那圈"浮在最上层"的观感。用 MotionSpec.move() 与弹窗遮罩同节奏。
     val barDim by animateFloatAsState(if (dialogOpen) MotionSpec.SCRIM_ALPHA else 0f, MotionSpec.move(), label = "barDim")
     val barShadow by animateDpAsState(if (dialogOpen) 1.dp else 7.dp, MotionSpec.move(), label = "barShadow")
-    // 8.2.0：卡片材质**暂时不作用在底栏上**（维护者口径本来是「材质也影响导航栏」）。
+    // 8.2.0：卡片材质同样作用在底栏上（维护者口径：「材质应该包括底栏才对」）。
     //
-    // 试过两种接法，都不行，先撤回，等有稳妥方案再上：
-    // 1. 把 surfaceMaterialFill 挂在 Surface 的 modifier 上 —— 它内部的 drawBehind 排在
-    //    Surface 自己的 `.background(color)` **之前**，材质被底色整块盖住，等于没渲染；
+    // 接法：**画在 Surface 内容的最底层**，而不是挂在 Surface 的 modifier 上。
+    // 试过并否决的两种：
+    // 1. 挂在 Surface 的 modifier 上 —— 里面的 drawBehind 排在 Surface 自己的
+    //    `.background(color)` **之前**，材质被底色整块盖住，等于没渲染；
     // 2. 把 Surface 的 color 让成 Transparent 让材质露出来 —— 底色没了之后，
     //    Surface 自己的 **shadowElevation 阴影**就画到材质层上面（阴影内部原本靠不透明底色遮着），
     //    维护者立刻复现了"胶囊要么没渲染、要么就有问题"的老毛病。
-    // 正解应是"把材质画在 Surface 内容里的最底层"（弹窗 AppDialog 就是这么修好并实测通过的），
-    // 但底栏的内容是 BoxWithConstraints + 横向滚动 + 形变胶囊，插一层 Box 会影响
-    // 最小约束传播（Box 默认不传播 min 约束，底栏会缩成内容宽度），必须单独验证，不能顺手改。
+    // 现在 Surface 底色保持不透明（投影照旧被遮住），材质与渐变画在内容最底层，层级自然正确。
+    val barMaterial = LocalAppearance.current.effectiveCardMaterial
     val barBrush: Brush? = containerBrush
     // 8.1.0 形变：每个顶角各自跟随自己的图标——有回退才伸出左角、有折返才伸出右角；图标消失即收回。
     val backProgress by animateFloatAsState(if (canGoBack && MotionSpec.morphEnabled) 1f else 0f, MotionSpec.morph(), label = "backCorner")
@@ -230,8 +230,10 @@ internal fun FloatingNavigationBar(
                         }
                     ),
                 shape = barShape,
-                // 底色仍然是 Surface 自己的不透明色（原本的行为）。
-                color = if (barBrush != null) Color.Transparent else background,
+                // 底色恒为 Surface 自己的不透明色：它同时负责遮住 Surface 投影的内部，
+                // 所以**不能**为了露出材质而把它让成透明。
+                // 渐变（barBrush）与材质都画在内容最底层、盖在它上面。
+                color = background,
                 tonalElevation = 0.dp,
                 // 维护者口径：不要那条 2dp 的硬灰线，改成"靠里浅、靠边深"的过渡——
                 // 描边收成几乎看不见的发丝线，靠阴影把边缘柔化出去（3dp → 7dp）。
@@ -239,6 +241,23 @@ internal fun FloatingNavigationBar(
                 shadowElevation = barShadow,
                 border = BorderStroke(0.6.dp, navigationContentColor(background).copy(alpha = 0.12f))
             ) {
+                // 底栏自己的两层底**必须画在 Surface 内容里**：
+                // Surface 的 `color` 会盖住挂在它 modifier 上的 drawBehind（见 surfaceMaterialFill 的说明），
+                // 而把 Surface 底色让成透明又会让它自己的投影浮上来（维护者当场复现"胶囊有问题"）。
+                // 所以：Surface 底色保持不透明（投影照旧被它遮住），底色与材质都画在内容最底层。
+                //
+                // `propagateMinConstraints = true` 是必须的：Surface 内部那个 Box 就是开着它的，
+                // 少了这一句，下面的 BoxWithConstraints 会拿不到最小宽度、底栏缩成内容宽度。
+                Box(propagateMinConstraints = true) {
+                    // ① 底色层：页面是渐变时按点取色铺一条横向画刷
+                    //    （维护者："导航栏不会相应左右渐变的底色"）。
+                    //    非渐变档 barBrush 为 null，交给 Surface 的纯色，那些档位逐像素不变。
+                    if (barBrush != null) {
+                        Box(Modifier.matchParentSize().drawBehind { drawRect(barBrush) })
+                    }
+                    // ② 材质层：与卡片、弹窗共用同一份实现
+                    //    （维护者："材质应该包括底栏才对"）。
+                    Box(Modifier.matchParentSize().surfaceMaterialFill(barMaterial, background, barShape))
                 // Internal padding contains BOTH selected background and ripple within the outer corners.
                 BoxWithConstraints(Modifier.padding(FloatingNavigationLayout.INNER_PADDING_DP.dp)) {
                     val contentWidth = maxWidth.coerceAtLeast(FloatingNavigationLayout.MIN_CONTENT_WIDTH_DP.dp)
@@ -321,6 +340,7 @@ internal fun FloatingNavigationBar(
                         }
                     }
                 }
+                } // 底栏自己的底色 + 材质层（见上面的 Box）
             }
             // 8.1.0 顶角符号：无柄箭头（chevron），位于两顶角内侧，各自随自己的角伸缩。
             CornerSymbol(
