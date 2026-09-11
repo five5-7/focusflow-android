@@ -599,7 +599,11 @@ private data class BaselineVariantDraft(val name: String)
                             // 而且卡上的「已选择」用的是浅色方案的 primary（也是浅色），
                             // 浅字压浅底基本看不清（维护者反馈"选中的颜色对应的卡片过亮，
                             // 导致上面的字不清晰"，已用截图确认）。
-                            val preview = focusFlowThemeSpec(option, darkMode = darkMode)
+                            // **必须 remember**：`focusFlowThemeSpec` 会现场合成整套 colorScheme，
+                            // 而 `darkenScheme` 内部逐个颜色算对比度（每次都要线性化求亮度）。
+                            // 原先这里每重组一次就把这一行重建一遍 —— 七行就是七套 scheme，
+                            // 这正是"打开 设置 → 外观"那个 200ms 长帧的主因（实测 5.66% 超预算）。
+                            val preview = remember(option, darkMode) { focusFlowThemeSpec(option, darkMode = darkMode) }
                             FocusCard(
                                 containerColor = if (themeOption == option) preview.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.38f),
                                 modifier = Modifier.fillMaxWidth().clickable { onThemeChange(option) }
@@ -630,7 +634,9 @@ private data class BaselineVariantDraft(val name: String)
                         }
                         // 自定义主题：点卡只进入编辑器，不切主题；确认由编辑器内"应用此配色"完成，
                         // 与内置主题"以此改色"一致，避免点卡即应用造成违和。
-                        val customPreview = focusFlowThemeSpec(FocusFlowThemeOption.CUSTOM, customThemeColors, darkMode = darkMode)
+                        val customPreview = remember(customThemeColors, darkMode) {
+                            focusFlowThemeSpec(FocusFlowThemeOption.CUSTOM, customThemeColors, darkMode = darkMode)
+                        }
                         FocusCard(
                             containerColor = if (themeOption == FocusFlowThemeOption.CUSTOM) customPreview.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.38f),
                             modifier = Modifier.fillMaxWidth().clickable {

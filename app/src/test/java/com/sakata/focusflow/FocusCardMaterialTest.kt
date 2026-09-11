@@ -175,7 +175,12 @@ class FocusCardMaterialTest {
                 val label = "${theme.label}（${if (dark) "深色" else "浅色"}）"
                 assertEquals("$label 毛玻璃是三个带位置的站点", 3, stops.size)
                 assertEquals("$label 高光带必须从最顶上开始", 0f, stops[0].first)
-                assertEquals("$label 中间站就是底色本身", base, stops[1].second)
+                // 毛玻璃是**半透明**的（底下页面要透上来），所以中间站的 alpha < 1，但色值仍等于底色。
+                assertEquals("$label 中间站色值就是底色本身", base, stops[1].second.copy(alpha = base.alpha))
+                assertTrue(
+                    "$label 毛玻璃必须半透明，否则底下页面透不上来、只是另一种渐变",
+                    stops[1].second.alpha < 1f
+                )
                 val band = stops[1].first
                 // **逐通道**查：近白底的某个通道会被纯白夹住（暖杏浅色的红通道本来就是 255），
                 // 只看单个通道会把"这个通道没空间"误判成"高光不明显"。

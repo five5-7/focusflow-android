@@ -786,10 +786,16 @@ internal fun frostedStops(base: Color, reversed: Boolean = false): List<Pair<Flo
         blue = base.blue - (top.blue - base.blue) * k,
         alpha = base.alpha
     )
+    // **半透明才是毛玻璃的本体**：不透明的话底下页面根本透不上来，
+    // 那它只是"另一种渐变"，跟柔光分不开（维护者："可以强化一下亚克力和柔光的不同"，毛玻璃同理）。
+    // 0.55 的白纱：背后看得见，正文对比度又不会被吃掉。
+    // 配套：`FocusCard.cardMaterialFill` 对毛玻璃**不铺不透明底**，
+    // 否则这层纱下面仍然是卡片自己的底色，等于没透。
+    val veil = 0.55f
     val stops = listOf(
-        0f to top,
-        FROSTED_BAND to base,
-        1f to bottom
+        0f to top.copy(alpha = veil),
+        FROSTED_BAND to base.copy(alpha = veil),
+        1f to bottom.copy(alpha = veil)
     )
     // 反向 = 把位置镜像过来（高光跑到下边缘），而不是换一组颜色。
     return if (reversed) stops.map { (f, c) -> (1f - f) to c }.reversed() else stops
@@ -810,11 +816,18 @@ internal fun acrylicStops(
     scheme: ColorScheme,
     reversed: Boolean = false
 ): List<Pair<Float, Color>> {
-    val tinted = blendSrgb(base, scheme.primary, 0.06f)
-    val gloss = shiftGreyLevels(tinted, 4f)
+    // 染色 6% → 10% → **16%**：维护者口径是「亚克力和**渐变**的差别有点小了」。
+    // 渐变材质是"7% 主题色 → 底色"的平滑斜坡，平均浓度只有 3.5%；
+    // 亚克力要读起来是"一整块亚克力板"而不是"另一种渐变"，所以浓度必须明显高出一档，
+    // 而且是**平的**（不随高度衰减）——"板"与"晕染"的区别就在这里。
+    val tinted = blendSrgb(base, scheme.primary, 0.16f)
+    // 顶部那条**很窄**的亮线是与渐变最直观的第二个区别：
+    // 渐变没有任何硬边，亚克力有一条锐利的玻璃边线（Fluent 亚克力的观感）。
+    // 0.012 × 卡高 ≈ 9px（density 4），是一条看得清的发丝高光。
+    val edge = shiftGreyLevels(tinted, 9f)
     val stops = listOf(
-        0f to gloss,
-        0.07f to tinted,
+        0f to edge,
+        0.012f to tinted,
         1f to tinted
     )
     return if (reversed) stops.map { (f, c) -> (1f - f) to c }.reversed() else stops
