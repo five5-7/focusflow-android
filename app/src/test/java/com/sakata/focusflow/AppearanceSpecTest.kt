@@ -45,11 +45,11 @@ class AppearanceSpecTest {
 
     @Test
     fun opacityIsClampedAndGatesTheImage() {
-        assertTrue(AppearanceSpec(pageBackdrop = BackdropKind.IMAGE, pageImage = "a.png", backdropOpacity = 60).hasPageImage)
+        assertTrue(AppearanceSpec(pageBackdrop = BackdropKind.IMAGE, pageImage = "a.png", backdropOpacity = 60, richEffects = true).hasPageImage)
         // 透明度拉到 0 等于"只用主题底色"，不再算有背景图
-        assertFalse(AppearanceSpec(pageBackdrop = BackdropKind.IMAGE, pageImage = "a.png", backdropOpacity = 0).hasPageImage)
+        assertFalse(AppearanceSpec(pageBackdrop = BackdropKind.IMAGE, pageImage = "a.png", backdropOpacity = 0, richEffects = true).hasPageImage)
         // 选了图片但没导入：不算
-        assertFalse(AppearanceSpec(pageBackdrop = BackdropKind.IMAGE, pageImage = "  ", backdropOpacity = 100).hasPageImage)
+        assertFalse(AppearanceSpec(pageBackdrop = BackdropKind.IMAGE, pageImage = "  ", backdropOpacity = 100, richEffects = true).hasPageImage)
         // 越界读数夹回合法区间
         assertEquals(1f, AppearanceSpec(backdropOpacity = 250).imageAlpha, 0.0001f)
         assertEquals(0f, AppearanceSpec(backdropOpacity = -8).imageAlpha, 0.0001f)
