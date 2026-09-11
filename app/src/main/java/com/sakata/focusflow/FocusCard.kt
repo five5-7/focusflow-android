@@ -73,31 +73,6 @@ internal fun FocusCard(
             Column(content = content)
         } else {
             Box {
-                if (material == CardMaterial.ACRYLIC) {
-                    // 亚克力的「透明 + 模糊晕散」作用在**页面底色**上（维护者口径：
-                    // 「这些卡片应该作用于底色上」「透明模糊要作用于有字的地方」）。
-                    //
-                    // 做法：把页面底色按**同一套渲染**（appearanceBackdrop）再画一份进来，
-                    // 并**大幅模糊**（40dp）。两个好处：
-                    //  1. 卡片透出的一律是**底色** —— 与它嵌在谁里面无关。之前只"不铺不透明底"，
-                    //     嵌在收集箱里的卡片透出来的是**外层卡片**而不是底色（维护者一眼看出）。
-                    //  2. 模糊半径远大于卡片尺寸，"这一份底色没按卡片位置对齐"在视觉上不可辨 ——
-                    //     于是**不需要**位置追踪，也不需要页面级 GraphicsLayer 捕获
-                    //     （那是逐帧 RenderEffect + 组合树拆分，成本高得多）。
-                    //
-                    // 边界（必须说准）：糊的是**底色**；页面上的文字本身不在底色层里。
-                    // 要连页面文字一起糊，必须录"除卡片外的全部内容"，属结构性改动。
-                    Box(
-                        Modifier
-                            .matchParentSize()
-                            .blur(androidx.compose.ui.unit.Dp(40f))
-                            .appearanceBackdrop(
-                                LocalAppearance.current,
-                                MaterialTheme.colorScheme,
-                                LocalBackdropBitmap.current
-                            )
-                    )
-                }
                 Box(
                     Modifier
                         .matchParentSize()
@@ -162,7 +137,10 @@ private fun Modifier.cardMaterialFill(
         // **毛玻璃不铺不透明底**：它要的就是"底下的页面真的透上来"。
         // 其余材质必须铺（半透明底色的调用点会让页面渐变从卡片底下透出来，
         // 于是同一张卡在不同滚动位置颜色不同——维护者反馈过那个问题）。
-        if (material != CardMaterial.ACRYLIC) {
+        // **全部材质都要铺不透明底。** 曾经为亚克力开过例外（"不铺底好让页面透上来"），
+        // 但那条路真机验证不通过（独立视觉复核判定卡片仍不透明、且比底色更饱和），
+        // 亚克力已删除，例外随之取消。
+        if (true) {
             // 先把卡片做成**不透明**：不少调用点用的是半透明底色
             // （例如「接下来」卡 = surfaceVariant.copy(alpha = 0.45f)）。
             // 半透明意味着**页面渐变会从卡片底下透出来**，于是同一张卡片在不同滚动位置颜色不同，
@@ -196,5 +174,4 @@ internal fun CardMaterial.label(): String = when (this) {
     CardMaterial.TONAL -> "默认"
     CardMaterial.GRADIENT -> "渐变"
     CardMaterial.SOFT -> "柔光"
-    CardMaterial.ACRYLIC -> "亚克力"
 }

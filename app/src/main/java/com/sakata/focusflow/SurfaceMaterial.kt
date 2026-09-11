@@ -764,7 +764,6 @@ internal fun materialBrush(
             Brush.verticalGradient(if (softReversed) listOf(base, tinted) else listOf(tinted, base))
         }
         CardMaterial.SOFT -> softLightBrush(base, softReversed)
-        CardMaterial.ACRYLIC -> acrylicBrush(base, scheme, softReversed)
     }
 
 /**

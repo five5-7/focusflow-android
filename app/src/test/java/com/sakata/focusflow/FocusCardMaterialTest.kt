@@ -29,7 +29,6 @@ class FocusCardMaterialTest {
         assertEquals("默认", CardMaterial.TONAL.label())
         assertEquals("渐变", CardMaterial.GRADIENT.label())
         assertEquals("柔光", CardMaterial.SOFT.label())
-        assertEquals("亚克力", CardMaterial.ACRYLIC.label())
     }
 
     /** 纸感已删：老装机/老预设里存的 `"paper"` 必须**优雅降级**，不抛错、不清数据。 */
@@ -54,7 +53,7 @@ class FocusCardMaterialTest {
         val scheme = lightColorScheme()
         val base = scheme.surfaceContainerLow
         assertNull("默认材质不叠任何东西（走原生 Card）", materialBrush(CardMaterial.TONAL, base, scheme))
-        for (material in listOf(CardMaterial.GRADIENT, CardMaterial.SOFT, CardMaterial.ACRYLIC)) {
+        for (material in listOf(CardMaterial.GRADIENT, CardMaterial.SOFT)) {
             assertTrue("$material 必须产出可见的一层", materialBrush(material, base, scheme) != null)
         }
     }

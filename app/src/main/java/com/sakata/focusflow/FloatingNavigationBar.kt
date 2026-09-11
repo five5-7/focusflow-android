@@ -275,7 +275,7 @@ internal fun FloatingNavigationBar(
                             // 维护者就是因此报"导航栏没有渲染上"（真机实测：亚克力档底栏
                             // 比默认只深 9 级且完全平，看着像没生效）。
                             // 半透明材质本来就透，所以它走全强度。
-                            alpha = if (barBrush != null && barMaterial != CardMaterial.ACRYLIC) 0.6f else 1f
+                            alpha = if (barBrush != null) 0.6f else 1f
                         )
                     )
                 // Internal padding contains BOTH selected background and ripple within the outer corners.
