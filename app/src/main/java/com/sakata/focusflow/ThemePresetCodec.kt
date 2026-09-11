@@ -61,6 +61,11 @@ internal object ThemePresetCodec {
         put("timetableColor", spec.timetableColor)
         put("timetableImage", spec.timetableImage)
         put("timetableOpacity", spec.timetableOpacity)
+        // rc.1 recovery: these three appearance switches were present in AppearanceSpec but
+        // omitted by the original preset codec, so a round-trip silently changed the look.
+        put("richEffects", spec.richEffects)
+        put("gradientDirection", spec.gradientDirection.storageKey)
+        put("cardGradientReversed", spec.cardGradientReversed)
     }
 
     /**
@@ -84,7 +89,12 @@ internal object ThemePresetCodec {
             ),
             timetableColor = value.optInt("timetableColor", fallback.timetableColor),
             timetableImage = value.optString("timetableImage", fallback.timetableImage),
-            timetableOpacity = value.optInt("timetableOpacity", fallback.timetableOpacity)
+            timetableOpacity = value.optInt("timetableOpacity", fallback.timetableOpacity),
+            richEffects = value.optBoolean("richEffects", fallback.richEffects),
+            gradientDirection = GradientDirection.fromKey(
+                value.optString("gradientDirection", fallback.gradientDirection.storageKey)
+            ),
+            cardGradientReversed = value.optBoolean("cardGradientReversed", fallback.cardGradientReversed)
         )
     }
 }
