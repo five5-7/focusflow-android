@@ -90,7 +90,7 @@ internal enum class CardMaterial(val storageKey: String) {
     GRADIENT("gradient"),
 
     /** 柔光：顶面高光 + 底部微沉，上下对称、亮度中性。 */
-    SOFT("soft");
+    SOFT("soft"),
 
     /**
      * 亚克力：一整块**平**的哑光板 + 顶部极窄的一条环境光，并带一点主题染色，
@@ -101,11 +101,7 @@ internal enum class CardMaterial(val storageKey: String) {
      * （背后是平滑的，透过去还是那片平滑），而能救它的那圈"玻璃边"又太依赖具体背景，
      * 真机上两种做法都读不出玻璃感。留个坑位说明，避免以后又加回来。
      */
-    // 「亚克力」已于 2026-09-11 删除（维护者口径：「罢了，知道你做不好了。删掉吧」）。
-    // 试过透明、透明+模糊、以及与页面底色同源重绘+模糊几版，
-    // 独立视觉复核（不知预期答案的像素采样）仍判定为"不透明平面卡片"，
-    // 判据是**卡片比它所覆盖的页面底色更饱和** —— 半透明不可能更饱和。
-    // 保留这段说明，避免以后又加回来。
+    ACRYLIC("acrylic");
 
     companion object {
         fun fromKey(key: String?): CardMaterial =
