@@ -3,7 +3,6 @@ package com.sakata.focusflow
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
 import android.content.Context
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
@@ -176,7 +175,15 @@ internal fun scheduleWindowOptions(now: Long = System.currentTimeMillis()): List
                 if (suggestions.isEmpty()) {
                     Text("未来七天暂时没有足够连续的空档。任务会继续保留为弹性安排。")
                 } else suggestions.forEach { suggestion ->
-                    ElevatedCard(Modifier.fillMaxWidth().clickable { vault.clear(draftKey); onSelect(suggestion) }) {
+                    // 收编：ElevatedCard + Modifier.clickable → FocusCard(onClick)。
+                    // 底色 surfaceContainerLow 与 1dp 默认阴影保留；点击交回 Material 的可点击重载
+                    // （水波纹按卡片圆角裁剪，且带回点击语义），不再在外面套 clickable。
+                    FocusCard(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                        modifier = Modifier.fillMaxWidth(),
+                        elevation = 1.dp,
+                        onClick = { vault.clear(draftKey); onSelect(suggestion) }
+                    ) {
                         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                             Text(formatDateTime(suggestion.startsAt), fontWeight = FontWeight.Bold)
                             Text(suggestion.reason, style = MaterialTheme.typography.bodySmall)
@@ -281,32 +288,24 @@ internal fun DurationPicker(initialMinutes: Int, onChange: (Int?) -> Unit) {
                         )
                     }
                 }
-                Text("预计用时", fontWeight = FontWeight.SemiBold)
-                key(item.id) {
-                    DurationPicker(
-                        initialMinutes = saved?.duration ?: item.durationMinutes.coerceIn(5, 360),
-                        onChange = { parsed ->
-                            if (parsed != null) { duration = parsed; durationValid = true } else durationValid = false
-                            persist()
-                        }
-                    )
-                }
-                Text("优先级", fontWeight = FontWeight.SemiBold)
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    ItemPriority.entries.forEach { entry ->
-                        FilterChip(
-                            selected = priority == entry.storageKey,
-                            onClick = { priority = entry.storageKey; persist() },
-                            label = { Text(entry.label) }
-                        )
-                    }
-                }
+                // **用时/优先级排在模式内容之后**：弹窗从系统窗口改成页内浮层（8.1.0 `e66b6c5`）之后，
+                // 正文可视高度只剩约 480dp（要扣掉底栏高度与卡片内边距），
+                // 而「预计用时 + 优先级」这两段固定内容约 230dp。它们原来排在模式内容**前面**，
+                // 于是「精确时间 → 自选日期与时间」被挤到折叠线以下 ——
+                // 维护者反馈「为收集箱任务安排时间时不能选择具体时间了」。
+                // 模式内容是这个弹窗的正事，必须一进来就看得见；用时/优先级往后放。
                 when (mode) {
                     "推荐空档" -> {
                         Text("参考已确认课程、未完成的定时任务和当前精力，并保留 15 分钟缓冲。", style = MaterialTheme.typography.bodySmall)
                         if (suggestions.isEmpty()) Text("未来七天没有足够连续的空档；可以改用大致时间继续保持弹性。")
                         suggestions.forEach { suggestion ->
-                            ElevatedCard(Modifier.fillMaxWidth().clickable { vault.clear(draftKey); onSchedule(suggestion.startsAt, duration, formatDateTime(suggestion.startsAt), priority) }) {
+                            // 收编：ElevatedCard + Modifier.clickable → FocusCard(onClick)，同上一处。
+                            FocusCard(
+                                containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                                modifier = Modifier.fillMaxWidth(),
+                                elevation = 1.dp,
+                                onClick = { vault.clear(draftKey); onSchedule(suggestion.startsAt, duration, formatDateTime(suggestion.startsAt), priority) }
+                            ) {
                                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                                     Text(formatDateTime(suggestion.startsAt), fontWeight = FontWeight.Bold)
                                     Text(suggestion.reason, style = MaterialTheme.typography.bodySmall)
@@ -352,6 +351,27 @@ internal fun DurationPicker(initialMinutes: Int, onChange: (Int?) -> Unit) {
                                 Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                             }
                         }
+                    }
+                }
+                // 次要设置放在模式内容之后（见上面的说明）：这里滚到看不到也不影响主流程。
+                Text("预计用时", fontWeight = FontWeight.SemiBold)
+                key(item.id) {
+                    DurationPicker(
+                        initialMinutes = saved?.duration ?: item.durationMinutes.coerceIn(5, 360),
+                        onChange = { parsed ->
+                            if (parsed != null) { duration = parsed; durationValid = true } else durationValid = false
+                            persist()
+                        }
+                    )
+                }
+                Text("优先级", fontWeight = FontWeight.SemiBold)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    ItemPriority.entries.forEach { entry ->
+                        FilterChip(
+                            selected = priority == entry.storageKey,
+                            onClick = { priority = entry.storageKey; persist() },
+                            label = { Text(entry.label) }
+                        )
                     }
                 }
             }

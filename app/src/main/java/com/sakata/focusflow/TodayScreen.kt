@@ -158,7 +158,7 @@ import kotlinx.coroutines.delay
         val personalEnergyNotes = remember(now / 60_000L, checkIns) {
             PersonalEnergyModel.display(PersonalEnergyModel.analyze(now, checkIns))
         }
-        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
+        FocusCard(containerColor = MaterialTheme.colorScheme.primaryContainer) {
             Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (activeSession != null) {
                     val due = now >= activeSession.endsAt || activeSession.status == ActivitySession.STATUS_AWAITING_CONFIRMATION
@@ -211,7 +211,10 @@ import kotlinx.coroutines.delay
                 }
             }
         }
-        Card(Modifier.fillMaxWidth().clickable(onClick = onOpenSchedule), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))) {
+        FocusCard(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+            modifier = Modifier.fillMaxWidth().clickable(onClick = onOpenSchedule)
+        ) {
             Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                     Text("接下来", fontWeight = FontWeight.Bold)
@@ -223,7 +226,11 @@ import kotlinx.coroutines.delay
             }
         }
         if (recoveryCandidates.isNotEmpty()) {
-            ElevatedCard(colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+            // 收编：ElevatedCard(colors = surfaceVariant) → FocusCard，底色与 1dp 默认阴影逐项保留。
+            FocusCard(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                elevation = 1.dp
+            ) {
                 Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("需要恢复的安排", fontWeight = FontWeight.Bold)
                     Text("选择一个更容易继续的下一步。", style = MaterialTheme.typography.bodySmall)
@@ -274,7 +281,11 @@ import kotlinx.coroutines.delay
         }
         val goalsRemaining = goals.count { it.weeklyTarget > GoalPlanner.completedThisWeek(it) }
         if (visibility.goals && (todayGoalTasks.isNotEmpty() || goalsRemaining > 0)) {
-            ElevatedCard {
+            // 收编：ElevatedCard → FocusCard，显式保留 surfaceContainerLow 底色与 1dp 默认阴影。
+            FocusCard(
+                containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                elevation = 1.dp
+            ) {
                 Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                         Text("今天的目标", fontWeight = FontWeight.Bold)
@@ -299,10 +310,7 @@ import kotlinx.coroutines.delay
             }
         }
         // 与周回顾「本周执行概览」统一的摘要卡风格：实色 primaryContainer + 零 elevation。
-        Card(
-            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
-        ) {
+        FocusCard(containerColor = MaterialTheme.colorScheme.primaryContainer) {
             Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -327,7 +335,11 @@ import kotlinx.coroutines.delay
             }
         }
         if (completedTodayItems.isNotEmpty()) {
-            ElevatedCard {
+            // 收编：ElevatedCard → FocusCard，显式保留 surfaceContainerLow 底色与 1dp 默认阴影。
+            FocusCard(
+                containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                elevation = 1.dp
+            ) {
                 Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                     Text("今日完成记录", fontWeight = FontWeight.Bold)
                     completedTodayItems.take(4).forEach { event ->
@@ -345,7 +357,11 @@ import kotlinx.coroutines.delay
         if (visibility.meals) MealTodayCard(records = mealRecords, profile = baselineProfile, skipDays = mealSkipDays, now = now, onPrompt = onMealPrompt, onFinish = onMealFinish)
         val completedActivities = activityHistory.filter { it.actualEndAt?.let(::isToday) == true }
         if (completedActivities.isNotEmpty()) {
-            ElevatedCard {
+            // 收编：ElevatedCard → FocusCard，显式保留 surfaceContainerLow 底色与 1dp 默认阴影。
+            FocusCard(
+                containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                elevation = 1.dp
+            ) {
                 Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                     Text("今日活动记录 · ${completedActivities.size} 次", fontWeight = FontWeight.Bold)
                     completedActivities.take(3).forEach { session ->
@@ -356,7 +372,7 @@ import kotlinx.coroutines.delay
             }
         }
         if (visibility.windDown) WindDownInsights.advice(baselineProfile, courses, items, checkIns, activityHistory, now)?.let { advice ->
-            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f))) {
+            FocusCard(containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f)) {
                 Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text("睡前减速", fontWeight = FontWeight.Bold)
                     Text(advice.message, style = MaterialTheme.typography.bodySmall)
@@ -393,7 +409,7 @@ import kotlinx.coroutines.delay
                     }
                 }
                 if (inboxItems.isEmpty()) {
-                    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))) {
+                    FocusCard(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)) {
                         Text("暂时没有新想法，点底部 ＋ 随手记录。", Modifier.fillMaxWidth().padding(16.dp))
                     }
                 } else {
@@ -452,7 +468,12 @@ private fun TodayStatusPanel(
             else commuteProfile.campusMode
         )
     }.joinToString(" · ")
-    OutlinedCard {
+    // 收编：OutlinedCard → FocusCard。显式保留 Material3 OutlinedCard 的默认底色
+    // （OutlinedCardTokens.ContainerColor = surface）与默认描边（1dp outlineVariant）。
+    FocusCard(
+        containerColor = MaterialTheme.colorScheme.surface,
+        border = CardDefaults.outlinedCardBorder()
+    ) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp)) {
             Row(
                 Modifier.fillMaxWidth().clickable { onExpandedChange(!expanded) },
@@ -520,7 +541,11 @@ private fun StatusChoiceRow(label: String, options: List<String>, selected: Stri
     val todayKey = MealLearning.dayKey(now)
     val weekday = java.util.Calendar.getInstance().apply { timeInMillis = now }.get(java.util.Calendar.DAY_OF_WEEK)
     val nowMinute = java.util.Calendar.getInstance().apply { timeInMillis = now }.let { it.get(java.util.Calendar.HOUR_OF_DAY) * 60 + it.get(java.util.Calendar.MINUTE) }
-    ElevatedCard {
+    // 收编：ElevatedCard → FocusCard，显式保留 surfaceContainerLow 底色与 1dp 默认阴影。
+    FocusCard(
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        elevation = 1.dp
+    ) {
         Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("今日餐点", fontWeight = FontWeight.Bold)
             if (profile.lifeStage == null) {
@@ -565,7 +590,9 @@ private fun StatusChoiceRow(label: String, options: List<String>, selected: Stri
 }
 
 @Composable internal fun InboxItemCard(item: Item, onPickTime: (Item) -> Unit, onEdit: (Item) -> Unit, onOrganize: (Item) -> Unit, onShrink: (Item) -> Unit, onPause: (Item) -> Unit, onAbandon: (Item) -> Unit) {
-    ElevatedCard { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    // 收编进 FocusCard（维护者反馈"收集箱等没有渲染"）：ElevatedCard 不读卡片材质，
+    // 所以选柔光/纸感时收集箱卡片毫无反应。FocusCard 在默认材质下与原生 Card 渲染一致。
+    FocusCard(containerColor = MaterialTheme.colorScheme.surfaceContainerLow) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text(item.title, fontWeight = FontWeight.SemiBold)
         Text(item.detail)
         if (item.userNote != null && item.userNote.isNotBlank() && item.userNote != item.detail) {
@@ -594,7 +621,8 @@ private fun StatusChoiceRow(label: String, options: List<String>, selected: Stri
 }
 
 @Composable private fun ProgressCaptureCard(item: Item, activeChild: Item?, onOrganize: (Item) -> Unit, onCreateNextAction: (Item) -> Unit, onRestore: (Item) -> Unit, onDelete: (Item) -> Unit, onComplete: (Item) -> Unit) {
-    ElevatedCard { Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    // 同上：收编进 FocusCard，让"逐步推进"的卡片也吃材质。
+    FocusCard(containerColor = MaterialTheme.colorScheme.surfaceContainerLow) { Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(item.title, fontWeight = FontWeight.SemiBold)
         Text(item.editableNote(), style = MaterialTheme.typography.bodySmall)
         Text(activeChild?.let { "当前步骤：${it.title}" } ?: item.nextAction.takeIf { it.isNotBlank() }?.let { "下一步：$it" } ?: "等待补充下一步，不必立即安排。", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Medium)
@@ -621,7 +649,7 @@ private fun StatusChoiceRow(label: String, options: List<String>, selected: Stri
 }
 
 @Composable private fun ReferenceCaptureCard(item: Item, onRestore: (Item) -> Unit, onDelete: (Item) -> Unit) {
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))) {
+    FocusCard(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)) {
         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(item.title, fontWeight = FontWeight.SemiBold)
             Text(item.editableNote())

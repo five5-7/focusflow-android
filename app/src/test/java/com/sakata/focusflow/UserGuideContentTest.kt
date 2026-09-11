@@ -5,7 +5,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class UserGuideContentTest {
-    @Test fun `manual guide preserves the intended seven blocks`() {
+    @Test fun `manual guide preserves the intended blocks`() {
         assertEquals(
             listOf(
                 "一、五分钟开始使用",
@@ -14,10 +14,47 @@ class UserGuideContentTest {
                 "四、默认设置与可选能力",
                 "五、课程、地点、通勤与目标",
                 "六、数据、隐私、更新与常见问题",
-                "七、导航、返回与动效"
+                "七、导航、返回与动效",
+                "八、外观与主题"
             ),
             userGuideChapters.map { it.title }
         )
+    }
+
+    /** 8.2.0：外观系统的可选能力必须写进说明书（用户要求「做完改动要记得改文本」）。 */
+    @Test fun `manual guide documents the appearance system`() {
+        val guide = userGuideChapters.flatMap { it.lines }.joinToString("\n")
+        for (keyword in listOf(
+            "跟随主题", "主题渐变", "固定颜色", "自选图片",
+            "渐变跟随内容", "不透明度", "从图片抽取主题色",
+            "卡片材质", "只改底板", "对比度体检", "深色模式",
+            // 第 7 项（自定义主题工具升级）新增的能力，同样必须写进说明书
+            "实时预览", "保存预设", "同时记住当前外观", "恢复默认主题配色与外观"
+        )) {
+            assertTrue("说明书第八章应写明「$keyword」", guide.contains(keyword))
+        }
+    }
+
+    /**
+     * 仓库规矩（AGENTS.md）：每个新版本都必须在 `updateHighlightsFor` 写 2–3 条**用户可感知**的变化，
+     * 禁止落入兜底文案，且与 CHANGELOG / 路线图同步。
+     */
+    @Test fun `update highlights never fall back for known versions`() {
+        val fallback = updateHighlightsFor("0.0.1").single()
+        for (version in listOf("8.2.0", "8.1.1", "8.1.0", "7.12.0", "7.9.0-rc.2", "7.9.0")) {
+            val highlights = updateHighlightsFor(version)
+            assertTrue("$version 的更新说明不该是兜底文案", highlights.none { it == fallback })
+            assertTrue("$version 应有 2–3 条更新说明，实际 ${highlights.size} 条", highlights.size in 2..3)
+            assertTrue("$version 的更新说明不该提到别的版本", highlights.none { it.contains("版本路线图") })
+        }
+    }
+
+    /** 8.2.0 的更新说明要覆盖到七个特性里用户真正能感知的那几个。 */
+    @Test fun `8_2_0 highlights cover the appearance system`() {
+        val copy = updateHighlightsFor("8.2.0").joinToString("\n")
+        for (keyword in listOf("七套", "主题渐变", "跟随内容", "卡片材质", "底板", "深色模式", "实时预览", "预设")) {
+            assertTrue("8.2.0 更新说明应提到「$keyword」", copy.contains(keyword))
+        }
     }
 
     /** 8.1.0：上一步／下一步（回退／折返）与弹窗期间底栏行为必须写进说明书。 */

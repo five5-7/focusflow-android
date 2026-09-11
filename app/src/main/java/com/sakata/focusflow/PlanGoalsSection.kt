@@ -77,7 +77,8 @@ internal fun ResourcesPanel(
 ) {
     val favorite = resources.firstOrNull { it.selected }
     var expanded by remember { mutableStateOf(false) }
-    Card {
+    // 收编：无显式底色的 Card → FocusCard，显式保留 Card 默认底色 surfaceContainerHighest。
+    FocusCard(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest) {
         Column(
             Modifier.fillMaxWidth().clickable { expanded = !expanded }
                 .padding(horizontal = 12.dp, vertical = 10.dp),
@@ -140,14 +141,12 @@ private fun ResourceSetupHint(settings: TutorialSearchSettings) {
 
 @Composable
 private fun FavoriteResourceCard(favorite: LearningResource?) {
-    Card(
-        colors = CardDefaults.cardColors(
-            containerColor = if (favorite != null) {
-                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f)
-            } else {
-                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
-            }
-        )
+    FocusCard(
+        containerColor = if (favorite != null) {
+            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f)
+        } else {
+            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+        }
     ) {
         Column(
             Modifier.fillMaxWidth().padding(12.dp),
@@ -174,7 +173,11 @@ private fun ResourceCard(
     onDelete: (LearningResource) -> Unit,
     onSummarize: (LearningResource) -> Unit
 ) {
-    ElevatedCard {
+    // 收编：ElevatedCard → FocusCard，显式保留 surfaceContainerLow 底色与 1dp 默认阴影。
+    FocusCard(
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        elevation = 1.dp
+    ) {
         Column(
             Modifier.fillMaxWidth().padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp)
@@ -224,7 +227,11 @@ private fun GoalExecutionCard(
     onChooseTime: (Goal) -> Unit
 ) {
     val suggestions = GoalPlanner.suggestions(goal, planningCourses, profile, items)
-    ElevatedCard {
+    // 收编：ElevatedCard → FocusCard，显式保留 surfaceContainerLow 底色与 1dp 默认阴影。
+    FocusCard(
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        elevation = 1.dp
+    ) {
         Column(
             Modifier.fillMaxWidth().padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(5.dp)

@@ -29,6 +29,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.TransformOrigin
@@ -241,9 +242,30 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     var globalLoading by remember { mutableStateOf(false) }
     var themeOption by remember { mutableStateOf(store.loadTheme()) }
     var darkMode by remember { mutableStateOf(store.loadDarkMode()) }
+
+    // 8.2.0 外观系统：全部可选、默认等于现状（老装机升级后外观不变）。
+    var appearance by remember { mutableStateOf(store.loadAppearance()) }
+    // 背景图在后台线程按屏幕尺寸降采样解码；没设图或解码失败就是 null，页面退回主题底色。
+    var pageBackdropBitmap by remember { mutableStateOf<ImageBitmap?>(null) }
+    LaunchedEffect(appearance.pageImage, appearance.pageBackdrop) {
+        val name = appearance.pageImage
+        pageBackdropBitmap = if (appearance.hasPageImage && name.isNotBlank()) {
+            withContext(Dispatchers.IO) { AppearanceImages.load(context, name, 1440, 3168) }
+        } else {
+            null
+        }
+    }
     // 8.1.0 动画速度（外观页）：全局时长倍率，写入 MotionSettings 供各动画换算。
     var animationSpeed by remember { mutableStateOf(store.loadAnimationSpeed()) }
-    LaunchedEffect(animationSpeed) { MotionSettings.update(animationSpeed) }
+    // 8.2.0「丰富的动画与外观效果」对动画的影响有**两条**，缺一不可：
+    //   ① 时长收紧到 0.6 倍。注意不是 0——置 0 会让 MotionSpec 全部退化成 snap，
+    //      连"最基本的淡入淡出"都没了，与这个开关的承诺不符。
+    //   ② **形态**收成恒等（位移 0、缩放 1、底栏不形变）——这条是维护者两次追问的重点：
+    //      只改时长的话，"开启/关闭丰富效果"在动画上等于没用。
+    //      MotionSpec 的 tabSlideDp / collapseScale / hubRecedeScale / morphEnabled 都读 richForms。
+    val effectiveMotionScale = if (appearance.richEffects) animationSpeed else animationSpeed * 0.6f
+    LaunchedEffect(effectiveMotionScale) { MotionSettings.update(effectiveMotionScale) }
+    LaunchedEffect(appearance.richEffects) { MotionSettings.updateRichForms(appearance.richEffects) }
     var customThemeColors by remember { mutableStateOf(store.loadCustomThemeColors() ?: FocusFlowThemeOption.CUSTOM.colors) }
     var themePresets by remember { mutableStateOf(store.loadThemePresets()) }
     // 自定义主题的"恢复默认"目标：最近一次选过的内置主题。
@@ -885,14 +907,30 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
         val keyboardVisible = WindowInsets.ime.getBottom(density) > 0
         var floatingBarHeight by remember { mutableStateOf(112.dp) }
         Box(Modifier.fillMaxSize().imePadding()) {
+        // 8.2.0 外观系统：背景层画在最底下（页面渐变/图片）。默认外观下它不新增任何绘制，
+        // 因此「默认与 8.1.1 逐像素一致」是结构上成立的，不靠调参。
+        Box(
+            Modifier.fillMaxSize()
+                .appearanceBackdrop(
+                    spec = appearance,
+                    scheme = MaterialTheme.colorScheme,
+                    bitmap = pageBackdropBitmap,
+                    // 按图片真实亮度决定遮罩厚度（浅图 + 低不透明度会把正文洗没）。
+                    imageLuminance = rememberImageLuminance(pageBackdropBitmap)
+                )
+        )
         // 8.1.0 第三轮：弹窗浮层挂在应用根，所有页面的 AppDialog 都能注册进来。
-        CompositionLocalProvider(LocalAppDialogHost provides dialogHost) {
+        CompositionLocalProvider(
+            LocalAppearance provides appearance,
+            LocalBackdropBitmap provides pageBackdropBitmap,
+            LocalAppDialogHost provides dialogHost
+        ) {
         // Horizontal cutouts constrain the viewport. Top safety travels with scroll content.
         val safeContentInsets = WindowInsets.systemBars.union(WindowInsets.displayCutout)
         val topSafety = safeContentInsets.asPaddingValues().calculateTopPadding()
         val hasTopNotice = StorageProtection.readOnly || globalLoading
         Scaffold(
-            containerColor = MaterialTheme.colorScheme.background,
+            containerColor = pageContainerColor(),
             contentWindowInsets = safeContentInsets.only(WindowInsetsSides.Horizontal),
             snackbarHost = { SnackbarHost(snackbarHostState, Modifier.padding(bottom = floatingBarHeight)) },
             topBar = {
@@ -960,7 +998,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             val collapseLeaving = !isVisibleTab && visibleTab == leavingSubpageTab
             // 8.1.0 第三轮：页签平动幅度加大，切换方向更易读（原 48/64dp 太含蓄）。
             val slidePx = with(LocalDensity.current) {
-                (if (lastNavWasJump) MotionSpec.JUMP_SLIDE_DP.dp else MotionSpec.TAB_SLIDE_DP.dp).toPx()
+                (if (lastNavWasJump) MotionSpec.jumpSlideDp.dp else MotionSpec.tabSlideDp.dp).toPx()
             }
             // 隐藏页签的静止缩放：仍开着子页 → 停在图标大小，回来时从图标放大；否则 1.0，只平移。
             val hiddenScale = TabMotionRules.restingScale(hasSubpageNow, lastNavWasJump)
@@ -1018,6 +1056,9 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                     }
                     // 8.1.0 第三轮：完全淡出的页签跳过绘制，只保留组合（切换仍是零重组），省掉不可见的合成开销。
                     .drawWithContent { if (tabAlpha.value > 0.004f) drawContent() }
+                    // 8.2.0：每个页签层自带不透明背景。动画期间两层同时在场（平动、收起），
+                    // 透明层会互相透出来；默认外观下这里画的就是原来的页面底色，逐像素不变。
+                    .pageLayerBackground(MaterialTheme.colorScheme.background)
                     .then(
                         // 收起中的页签也不拦截输入：它只是画在上层，点击应落到可见页签。
                         if (isVisibleTab || collapseLeaving) Modifier
@@ -1372,6 +1413,10 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                 }, onRestoreDefaultTheme = {
                     themeOption = lastBuiltInTheme
                     store.saveTheme(lastBuiltInTheme)
+                    // 8.2.0 第 7 项：这个按钮现在是"恢复默认主题配色与外观"——
+                    // 自定义工具里改过的背景、卡片材质、课表底色也一并回到默认（= 8.1.1 的样子）。
+                    appearance = AppearanceSpec.DEFAULT
+                    store.saveAppearance(AppearanceSpec.DEFAULT)
                 }, onCommuteChange = { updated ->
                     commuteProfile = updated
                     store.saveCommuteProfile(updated)
@@ -1544,6 +1589,20 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                     onAnimationSpeedChange = { scale ->
                         animationSpeed = scale
                         store.saveAnimationSpeed(scale)
+                    },
+                    appearance = appearance,
+                    onAppearanceChange = { updated ->
+                        appearance = updated
+                        store.saveAppearance(updated)
+                    },
+                    pageBackdropBitmap = pageBackdropBitmap,
+                    onApplyExtractedTheme = { extracted ->
+                        // 「系统自抽主题色」的结果作为一套自定义主题落地：同时记住颜色与当前主题，
+                        // 与自定义主题编辑器走同一条保存路径，用户之后随时能改回去。
+                        customThemeColors = extracted
+                        store.saveCustomThemeColors(extracted)
+                        themeOption = FocusFlowThemeOption.CUSTOM
+                        store.saveTheme(FocusFlowThemeOption.CUSTOM)
                     })
             }
             }
@@ -1557,7 +1616,15 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
         AppDialogHost(dialogHost, bottomInset = floatingBarHeight, visible = dialogLayerVisible)
         FloatingNavigationBar(
             safeInsets = safeContentInsets,
-            containerColor = themeSpec.navigationBarColor,
+            // 底栏颜色跟随**它背后那一点**的页面渐变。
+            // 维护者口径：默认渐变是上亮下暗，底栏固定用主题色就会显得偏亮；
+            // 而且明确要求"不要只针对这一种情况打补丁"——所以做法不是"顶亮底深时把底栏压暗"，
+            // 而是：取底栏背后的渐变色，再叠上主题原本设计好的"浮层相对页面底色"的差值。
+            // 这样"底栏比页面暗一档"这个设计关系在**任何渐变、任何方向、任何明暗**下都成立。
+            // 非渐变档（跟随主题/固定颜色）时 floatingSurfaceOverGradient 也退化回主题色。
+            containerColor = navBarColourOverBackdrop(appearance, themeSpec),
+            // 用画刷传下去：单色表达不出左右渐变（维护者指出的架构问题）。
+            containerBrush = navBarBrushOverBackdrop(appearance, themeSpec),
             selectedTab = tab,
             hasSubpage = when (tab) {
                 0 -> todayInboxOpen
@@ -1576,6 +1643,8 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             onAdd = { dialogHost.dismissCurrent(); addMenuOpen = true },
             canGoBack = navHistory.canGoBack(),
             canGoForward = navHistory.canGoForward(),
+            // 弹窗打开时让底栏退后（压暗 + 收阴影）：它的 zIndex 比弹窗层高，遮罩盖不到它。
+            dialogOpen = dialogLayerVisible,
             onBackHistory = { goBackHistory() },
             onForwardHistory = { goForwardHistory() },
             onLongPressBack = { historyListOpen = true },

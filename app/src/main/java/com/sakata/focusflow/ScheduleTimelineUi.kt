@@ -115,7 +115,24 @@ internal fun DailyScheduleTimeline(
             )
         }
     var selected by remember { mutableStateOf<TimelineEvent?>(null) }
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+    // 8.2.0「课表/日程表底色」：与课表同一套底板（只动底板，日程块颜色不变）。
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .appearanceBackdrop(
+                spec = LocalAppearance.current,
+                scheme = MaterialTheme.colorScheme,
+                bitmap = LocalBackdropBitmap.current,
+                role = BackdropRole.Timetable
+            ),
+        colors = CardDefaults.cardColors(
+            containerColor = timetableContainerColor(),
+            // 底板让成透明时 contentColorFor(Transparent) 会给 Color.Unspecified，
+            // 深色模式下正文会因此掉回黑色，所以正文色一律显式给。
+            contentColor = MaterialTheme.colorScheme.onSurface
+        )
+    ) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 10.dp)) {
             TimelineTimeAxis()
             TimelineDayLane(
@@ -186,7 +203,23 @@ internal fun WeeklyScheduleTimeline(
         }
         Switch(checked = showCourseInfo, onCheckedChange = { showCourseInfo = it })
     }
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .appearanceBackdrop(
+                spec = LocalAppearance.current,
+                scheme = MaterialTheme.colorScheme,
+                bitmap = LocalBackdropBitmap.current,
+                role = BackdropRole.Timetable
+            ),
+        colors = CardDefaults.cardColors(
+            containerColor = timetableContainerColor(),
+            // 底板让成透明时 contentColorFor(Transparent) 会给 Color.Unspecified，
+            // 深色模式下正文会因此掉回黑色，所以正文色一律显式给。
+            contentColor = MaterialTheme.colorScheme.onSurface
+        )
+    ) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 2.dp, vertical = 10.dp)) {
             Row(Modifier.fillMaxWidth()) {
                 Spacer(Modifier.width(40.dp))
@@ -231,7 +264,13 @@ internal fun WeeklyScheduleTimeline(
     }
     TimelineLegend()
     if (showCourseInfo) {
-        ElevatedCard {
+        // 收编：ElevatedCard → FocusCard，显式保留 surfaceContainerLow 底色与 1dp 默认阴影。
+        // 注意：本节上面那两块**课表/日程表底板**（appearanceBackdrop + BackdropRole.Timetable）
+        // 仍是有意不收编的，底色归「课表与日程表底色」设置管。
+        FocusCard(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+            elevation = 1.dp
+        ) {
             Column(
                 Modifier.fillMaxWidth().padding(12.dp),
                 verticalArrangement = Arrangement.spacedBy(7.dp)

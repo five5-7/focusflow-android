@@ -58,7 +58,7 @@ fun CampusPlacesEditorContent(
     val scope = rememberCoroutineScope()
 
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
+        FocusCard(containerColor = MaterialTheme.colorScheme.primaryContainer) {
             Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("校园地点", fontWeight = FontWeight.Bold)
                 Text(
@@ -69,7 +69,8 @@ fun CampusPlacesEditorContent(
             }
         }
 
-        Card {
+        // 收编：无显式底色的 Card → FocusCard，显式保留 Card 默认底色 surfaceContainerHighest。
+        FocusCard(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest) {
             Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text("高德 API 优化（可选）", fontWeight = FontWeight.SemiBold)
                 Text("填写高德 Web 服务 key 后，可搜索校园 POI 并一键加入地点列表。key 只保存在本机，只发往 restapi.amap.com。", style = MaterialTheme.typography.bodySmall)
@@ -236,7 +237,8 @@ fun CampusPlacesEditorContent(
                     isCustom -> "自定义"
                     else -> "地点包"
                 }
-                Card {
+                // 收编：无显式底色的 Card → FocusCard，显式保留 Card 默认底色 surfaceContainerHighest。
+                FocusCard(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest) {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Column(Modifier.weight(1f)) {
                             Text(place.name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
@@ -265,7 +267,8 @@ fun CampusPlacesEditorContent(
         if (hiddenBuiltIn.isNotEmpty()) {
             Text("已隐藏的默认地点（可恢复）", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
             hiddenBuiltIn.forEach { place ->
-                Card {
+                // 收编：无显式底色的 Card → FocusCard，显式保留 Card 默认底色 surfaceContainerHighest。
+                FocusCard(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest) {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Column(Modifier.weight(1f)) {
                             Text(place.name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)

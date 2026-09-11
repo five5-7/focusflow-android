@@ -264,7 +264,11 @@ internal fun DayGroupWizardDialog(existingGroups: List<DayGroup>, defaultWake: I
                     2 -> {
                         Text("每餐大约什么时候开始、通常吃多久？只记大致时间，之后会按你的实际确认自动调整。", style = MaterialTheme.typography.bodySmall)
                         meals.forEach { meal ->
-                            ElevatedCard {
+                            // 收编：ElevatedCard → FocusCard，显式保留 surfaceContainerLow 底色与 1dp 默认阴影。
+                            FocusCard(
+                                containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                                elevation = 1.dp
+                            ) {
                                 Column(Modifier.fillMaxWidth().padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                     Text(meal.type.label, fontWeight = FontWeight.SemiBold)
                                     BaselineTimePickButton("开始", meal.typicalStartMinute) { minute ->
@@ -317,7 +321,7 @@ internal fun DayGroupWizardDialog(existingGroups: List<DayGroup>, defaultWake: I
                     item { Text("还没有记录。完成引导、开始活动、签到或确认通勤后会自动出现在这里。") }
                 } else {
                     items(list.asReversed(), key = { it.id }) { event ->
-                        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))) {
+                        FocusCard(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)) {
                             Row(Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Text(BaselineRecorder.displayPayload(event), Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
                                 TextButton(onClick = { if (onDelete(event.id)) list = list.filterNot { it.id == event.id } }) { Text("删除", color = MaterialTheme.colorScheme.error) }
@@ -431,7 +435,7 @@ internal fun DayGroupWizardDialog(existingGroups: List<DayGroup>, defaultWake: I
                     Text("还没有记录。开始吃饭并确认吃完后会自动出现在这里。")
                 } else {
                     records.takeLast(50).reversed().forEach { record ->
-                        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))) {
+                        FocusCard(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)) {
                             Row(Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 val time = java.text.SimpleDateFormat("M月d日 HH:mm", java.util.Locale.CHINA)
                                 val detail = buildString {

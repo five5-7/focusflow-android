@@ -13,7 +13,6 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
@@ -59,7 +58,7 @@ internal val LocalPageSnapConsumed = staticCompositionLocalOf<() -> Unit> { {} }
 internal fun hubEnter(): EnterTransition = EnterTransition.None
 
 internal fun hubExit(): ExitTransition =
-    scaleOut(MotionSpec.move(), targetScale = MotionSpec.HUB_RECEDE_SCALE)
+    scaleOut(MotionSpec.move(), targetScale = MotionSpec.hubRecedeScale)
 
 /**
  * 进入子页（前进）：副页从底栏图标处放大展开，上一页退到 0.96 当底层。
@@ -68,15 +67,15 @@ internal fun hubExit(): ExitTransition =
  * 子页之间的父进子退（origin 传 Center）同样只放大不淡入。
  */
 private fun enterSubpage(origin: TransformOrigin?): ContentTransform =
-    scaleIn(MotionSpec.grow(), initialScale = MotionSpec.COLLAPSE_SCALE, transformOrigin = origin ?: TransformOrigin.Center) togetherWith
-        scaleOut(MotionSpec.move(), targetScale = MotionSpec.HUB_RECEDE_SCALE)
+    scaleIn(MotionSpec.grow(), initialScale = MotionSpec.collapseScale, transformOrigin = origin ?: TransformOrigin.Center) togetherWith
+        scaleOut(MotionSpec.move(), targetScale = MotionSpec.hubRecedeScale)
 
 /** Keep the outgoing destination alive until exit completes; don't read live page inside it. */
 @Composable
 internal fun <T : Any> SubpageMotion(
     page: T?,
     depth: (T) -> Int = { 1 },
-    containerColor: Color = MaterialTheme.colorScheme.background,
+    containerColor: Color = pageContainerColor(),
     content: @Composable (T) -> Unit
 ) {
     val states = rememberSaveableStateHolder()
@@ -107,14 +106,14 @@ internal fun <T : Any> SubpageMotion(
                 // 返回主页：副页缩回底栏图标并同步淡出；主页直接出现在下层（hubEnter = None）。
                 direction < 0 && targetState == null ->
                     EnterTransition.None togetherWith
-                        (scaleOut(MotionSpec.collapseHome(), targetScale = MotionSpec.COLLAPSE_SCALE, transformOrigin = origin) +
+                        (scaleOut(MotionSpec.collapseHome(), targetScale = MotionSpec.collapseScale, transformOrigin = origin) +
                             fadeOut(MotionSpec.collapseHome()))
                 // 子页之间的父子上退：父页从 0.96 放大回来、子页缩小淡出。
                 // 原点用**中心**：它回到的是上一层子页，不是页签主页，不该收敛到底栏图标。
                 direction < 0 ->
-                    (scaleIn(MotionSpec.move(), initialScale = MotionSpec.HUB_RECEDE_SCALE, transformOrigin = TransformOrigin.Center) +
+                    (scaleIn(MotionSpec.move(), initialScale = MotionSpec.hubRecedeScale, transformOrigin = TransformOrigin.Center) +
                         fadeIn(MotionSpec.move())) togetherWith
-                        (scaleOut(MotionSpec.collapseHome(), targetScale = MotionSpec.COLLAPSE_SCALE, transformOrigin = TransformOrigin.Center) +
+                        (scaleOut(MotionSpec.collapseHome(), targetScale = MotionSpec.collapseScale, transformOrigin = TransformOrigin.Center) +
                             fadeOut(MotionSpec.collapseHome()))
                 else -> fadeIn(MotionSpec.enter()) togetherWith fadeOut(MotionSpec.exit())
             }.using(null)
@@ -128,7 +127,9 @@ internal fun <T : Any> SubpageMotion(
                 }
             } else Modifier
             states.SaveableStateProvider(destination.toString()) {
-                Box(Modifier.fillMaxSize().background(containerColor).then(input)) {
+                // 每层自带不透明背景：非默认外观（渐变/图片）下各画一遍同一个背景，
+                // 否则放大/缩小时两层会互相透出来（真机复现：副页放大期间画面变成透明）。
+                Box(Modifier.fillMaxSize().pageLayerBackground(containerColor).then(input)) {
                     content(destination)
                 }
             }

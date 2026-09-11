@@ -15,6 +15,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
@@ -26,6 +27,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.toArgb
@@ -128,19 +130,66 @@ internal fun CustomThemeEditorContent(
     onPresetsChange: (List<ThemePreset>) -> Unit,
     onRestoreDefault: () -> Unit,
     customActive: Boolean,
-    onApplyCustom: () -> Unit
+    onApplyCustom: () -> Unit,
+    appearance: AppearanceSpec,
+    onAppearanceChange: (AppearanceSpec) -> Unit,
+    pageBackdropBitmap: ImageBitmap?,
+    darkMode: Boolean
 ) {
+    val context = LocalContext.current
     var editingSlot by remember { mutableStateOf<ThemeSlot?>(null) }
     var namingPresetOpen by remember { mutableStateOf(false) }
     var editingPreset by remember { mutableStateOf<ThemePreset?>(null) }
+    // 8.2.0 第 7 项：预览——用真实渲染路径（背景层 + FocusCard）搭一个迷你页面，
+    // 候选配色与当前外观改一下就能当场看到，不必先应用再退出设置页。
+    // 收编：ElevatedCard → FocusCard，显式保留 ElevatedCard 的默认底色
+    // （Material3 ElevatedCardTokens.ContainerColor = surfaceContainerLow）与默认阴影 1dp。
+    FocusCard(
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        modifier = Modifier.fillMaxWidth(),
+        elevation = 1.dp
+    ) {
+        Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("预览", fontWeight = FontWeight.SemiBold)
+            AppearancePreview(
+                colors = colors,
+                appearance = appearance,
+                darkMode = darkMode,
+                bitmap = pageBackdropBitmap
+            )
+            Text(
+                "预览走的是应用里同一套渲染；背景与卡片外观的改动会立即生效（配色点「应用此配色」后生效）。",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
     Text(
         "主题使用六个全局色：主色、副色、强调色、中性色、文字色、导航栏色。导航栏背景可独立调整，图标和文字自动保持对比；课程色块与提醒警示保留原有语义。",
         style = MaterialTheme.typography.bodySmall
     )
+    // 8.2.0 第 7 项：当场给出对比度体检——自由改色最容易踩的坑是"读不清"，不是"不好看"。
+    val worstFinding = ThemeContrastAudit.worst(colors)
+    val contrastWarning = ThemeContrastAudit.warning(colors)
+    Text(
+        if (contrastWarning == null) {
+            "对比度体检：全部达标（最紧的一处是${worstFinding.label} ${"%.1f".format(worstFinding.ratio)}:1）"
+        } else {
+            "对比度体检：$contrastWarning"
+        },
+        style = MaterialTheme.typography.bodySmall,
+        color = if (contrastWarning == null) {
+            MaterialTheme.colorScheme.onSurfaceVariant
+        } else {
+            MaterialTheme.colorScheme.error
+        }
+    )
     // 尚未启用自定义主题时（如从"以此改色"进入）：配色只作为工作副本，确认后才切换全局主题。
     if (!customActive) {
-        ElevatedCard(
-            colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+        // 收编：ElevatedCard(colors = primaryContainer) → FocusCard，底色与 1dp 默认阴影逐项保留。
+        FocusCard(
+            containerColor = MaterialTheme.colorScheme.primaryContainer,
+            elevation = 1.dp
         ) {
             Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("配色调整尚未生效：确认满意后点「应用此配色」启用自定义主题。", style = MaterialTheme.typography.bodySmall)
@@ -152,7 +201,12 @@ internal fun CustomThemeEditorContent(
         Text("正在编辑预设「${preset.name}」——改动会更新到该预设。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
     }
     ThemeSlot.entries.forEach { slot ->
-        ElevatedCard(Modifier.fillMaxWidth()) {
+        // 收编：ElevatedCard → FocusCard，显式保留 surfaceContainerLow 底色与 1dp 默认阴影。
+        FocusCard(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+            modifier = Modifier.fillMaxWidth(),
+            elevation = 1.dp
+        ) {
             Row(Modifier.fillMaxWidth().clickable { editingSlot = slot }.padding(14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Box(Modifier.size(28.dp).clip(RoundedCornerShape(14.dp)).background(slot.pick(colors)))
                 Column(Modifier.weight(1f)) {
@@ -163,13 +217,49 @@ internal fun CustomThemeEditorContent(
             }
         }
     }
+    // 8.2.0 第 7 项：整套外观也在这个工具里调（与「设置 → 外观」共用同一批控件，
+    // 不会出现两处长得不一样的开关）。背景与卡片材质是全局偏好，改动立即生效。
+    HorizontalDivider()
+    Text("背景与卡片外观", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+    Text(
+        "与「设置 → 外观」是同一套控件、同一份设置，改动立即生效；保存预设时可以一并记录，之后一键换整套。",
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+    PageBackdropControls(
+        appearance = appearance,
+        onAppearanceChange = onAppearanceChange,
+        // 在编辑器里抽色只改工作副本，不直接换掉全局主题（与「应用此配色」同一口径）。
+        onApplyExtractedTheme = { extracted -> onColorsChange(extracted) },
+        extractedAppliedNote = "已按图片抽色，点「应用此配色」启用"
+    )
+    // 与「设置 → 外观」同一口径：关掉丰富效果时材质与课表底色不参与渲染，控件一并收起，
+    // 避免同一个开关在另一处留下"点了没反应"的控件。
+    if (appearance.richEffects) {
+        HorizontalDivider()
+        CardMaterialControls(appearance = appearance, onAppearanceChange = onAppearanceChange)
+        HorizontalDivider()
+        TimetableBaseControls(appearance = appearance, onAppearanceChange = onAppearanceChange)
+    }
+    HorizontalDivider()
     if (editingPreset == null) {
-        TextButton(onClick = onRestoreDefault) { Text("恢复默认主题配色") }
+        TextButton(onClick = onRestoreDefault) { Text("恢复默认主题配色与外观") }
     } else {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = { editingPreset = null }) { Text("取消编辑") }
             Button(onClick = {
-                onPresetsChange(presets.map { if (it == editingPreset) it.copy(colors = colors) else it })
+                onPresetsChange(presets.map { current ->
+                    // 老预设（appearance == null）保持"只管配色"，编辑它不会悄悄变成整套外观。
+                    if (current == editingPreset) {
+                        current.copy(
+                            colors = colors,
+                            appearance = if (current.appearance == null) null else appearance
+                        )
+                    } else {
+                        current
+                    }
+                })
+                editingPreset = null
                 editingPreset = null
             }) { Text("更新此预设") }
         }
@@ -190,17 +280,42 @@ internal fun CustomThemeEditorContent(
     } else {
         presets.forEach { preset ->
             val active = preset.colors == colors
-            ElevatedCard(Modifier.fillMaxWidth()) {
+            // 收编：ElevatedCard → FocusCard，显式保留 surfaceContainerLow 底色与 1dp 默认阴影。
+            FocusCard(
+                containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                modifier = Modifier.fillMaxWidth(),
+                elevation = 1.dp
+            ) {
                 Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     ThemeSwatchPreview(listOf(preset.colors.primaryAction, preset.colors.secondary,
                         preset.colors.accent, preset.colors.neutral, preset.colors.text, preset.colors.navigationBar))
                     Column(Modifier.weight(1f)) {
                         Text(preset.name, fontWeight = FontWeight.SemiBold)
+                        // 说清这套预设到底带走了什么：老预设只带配色，新预设可以带整套外观。
+                        Text(
+                            preset.appearance?.let { "含外观 · " + it.summary() } ?: "仅配色（不动背景与卡片）",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                         if (active) Text("当前配色", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                     }
-                    // 应用预设 = 明确确认：载入配色并启用自定义主题。
-                    TextButton(onClick = { onColorsChange(preset.colors); onApplyCustom(); editingPreset = null }, enabled = !active) { Text("应用") }
-                    IconButton(onClick = { editingPreset = preset; onColorsChange(preset.colors) }) {
+                    // 应用预设 = 明确确认：载入配色（若预设带外观则连外观一起）并启用自定义主题。
+                    TextButton(onClick = {
+                        onColorsChange(preset.colors)
+                        preset.appearance?.let { saved ->
+                            // 预设里记的图片可能已被删除：降级为跟随主题，不套用一个画不出来的模式。
+                            onAppearanceChange(saved.withExistingImages { AppearanceImages.exists(context, it) })
+                        }
+                        onApplyCustom()
+                        editingPreset = null
+                    }, enabled = !active) { Text("应用") }
+                    IconButton(onClick = {
+                        editingPreset = preset
+                        onColorsChange(preset.colors)
+                        preset.appearance?.let { saved ->
+                            onAppearanceChange(saved.withExistingImages { AppearanceImages.exists(context, it) })
+                        }
+                    }) {
                         Icon(Icons.Filled.Edit, contentDescription = "编辑预设", modifier = Modifier.size(18.dp))
                     }
                     IconButton(onClick = {
@@ -218,24 +333,45 @@ internal fun CustomThemeEditorContent(
         val draftKey = "themePresetName"
         val saved = vault.load<PresetNameDraft>(draftKey)
         var presetName by remember { mutableStateOf(saved?.name ?: "预设 ${presets.size + 1}") }
+        // 默认连外观一起存：第 7 项的口径是"换主题 = 换整套"，但只想要配色的人可以取消勾选。
+        var alsoAppearance by remember { mutableStateOf(true) }
         fun persist() = vault.save(draftKey, PresetNameDraft(presetName))
         AppDialog(
             onDismissRequest = { namingPresetOpen = false },
             title = { Text("保存当前配色为预设") },
             text = {
-                OutlinedTextField(
-                    value = presetName,
-                    onValueChange = { presetName = it; persist() },
-                    label = { Text("预设名称") },
-                    singleLine = true
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedTextField(
+                        value = presetName,
+                        onValueChange = { presetName = it; persist() },
+                        label = { Text("预设名称") },
+                        singleLine = true
+                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(checked = alsoAppearance, onCheckedChange = { alsoAppearance = it })
+                        Column(Modifier.weight(1f)) {
+                            Text("同时记住当前外观", style = MaterialTheme.typography.bodyMedium)
+                            Text(
+                                "当前：" + appearance.summary(),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
             },
             confirmButton = {
                 TextButton(
                     enabled = presetName.isNotBlank(),
                     onClick = {
                         vault.clear(draftKey)
-                        onPresetsChange(presets + ThemePreset(presetName.trim(), colors))
+                        onPresetsChange(
+                            presets + ThemePreset(
+                                name = presetName.trim(),
+                                colors = colors,
+                                appearance = if (alsoAppearance) appearance else null
+                            )
+                        )
                         editingPreset = null
                         namingPresetOpen = false
                     }

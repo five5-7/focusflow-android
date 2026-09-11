@@ -5,8 +5,21 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 
-/** 自定义主题预设：命名配色存档，用于保存／切换多套自定义配色。 */
-data class ThemePreset(val name: String, val colors: FocusFlowThemeColors)
+/**
+ * 自定义主题预设：命名配色存档，用于保存／切换多套自定义配色。
+ *
+ * 8.2.0 第 7 项起可以**可选地**带上一整套外观（[appearance]）：
+ * - `appearance == null` = 老预设，只带配色，应用它不动用户当前的背景/卡片外观；
+ * - `appearance != null` = 新预设，"换主题"就是整套换（渐变停靠色、背景、材质、课表底色）。
+ *
+ * 可见性跟 [AppearanceSpec] 保持一致（internal）：预设只是设置页与主题工具之间的数据结构，
+ * 不是对外 API。
+ */
+internal data class ThemePreset(
+    val name: String,
+    val colors: FocusFlowThemeColors,
+    val appearance: AppearanceSpec? = null
+)
 
 private val taskHistoryLock = Any()
 
@@ -93,12 +106,21 @@ class PrototypeStore(context: Context) {
         pageBackdrop = preferences.getString("appearance_page_backdrop", null),
         pageImage = preferences.getString("appearance_page_image", null),
         backdropOpacity = preferences.getInt("appearance_backdrop_opacity", 100),
+        gradientStrength = preferences.getInt("appearance_gradient_strength", 100),
+        pageColor = preferences.getInt("appearance_page_color", 0),
+        gradientFollowsContent = preferences.getBoolean("appearance_gradient_follows", false),
+        gradientTop = preferences.getInt("appearance_gradient_top", 0),
+        gradientBottom = preferences.getInt("appearance_gradient_bottom", 0),
         cardMaterial = preferences.getString("appearance_card_material", null),
         timetableBackdrop = preferences.getString("appearance_timetable_backdrop", null),
         timetableColor = preferences.getInt("appearance_timetable_color", 0),
         timetableImage = preferences.getString("appearance_timetable_image", null),
         timetableOpacity = preferences.getInt("appearance_timetable_opacity", 100),
-        extracted = preferences.getString("appearance_extracted_colors", null)
+        extracted = preferences.getString("appearance_extracted_colors", null),
+        // 读不到 = true（保持现状）：老装机升级后行为不变。
+        richEffects = preferences.getBoolean("appearance_rich_effects", true),
+        gradientDirection = preferences.getString("appearance_gradient_direction", null),
+        cardGradientReversed = preferences.getBoolean("appearance_card_gradient_reversed", false)
     )
 
     internal fun saveAppearance(spec: AppearanceSpec) {
@@ -106,12 +128,20 @@ class PrototypeStore(context: Context) {
             .putString("appearance_page_backdrop", spec.pageBackdrop.storageKey)
             .putString("appearance_page_image", spec.pageImage)
             .putInt("appearance_backdrop_opacity", spec.backdropOpacity.coerceIn(0, 100))
+            .putInt("appearance_gradient_strength", spec.gradientStrength.coerceIn(0, GRADIENT_STRENGTH_MAX))
+            .putInt("appearance_page_color", spec.pageColor)
+            .putBoolean("appearance_gradient_follows", spec.gradientFollowsContent)
+            .putInt("appearance_gradient_top", spec.gradientTop)
+            .putInt("appearance_gradient_bottom", spec.gradientBottom)
             .putString("appearance_card_material", spec.cardMaterial.storageKey)
             .putString("appearance_timetable_backdrop", spec.timetableBackdrop.storageKey)
             .putInt("appearance_timetable_color", spec.timetableColor)
             .putString("appearance_timetable_image", spec.timetableImage)
             .putInt("appearance_timetable_opacity", spec.timetableOpacity.coerceIn(0, 100))
             .putString("appearance_extracted_colors", AppearanceSpec.encodeExtracted(spec.extractedColors))
+            .putBoolean("appearance_rich_effects", spec.richEffects)
+            .putString("appearance_gradient_direction", spec.gradientDirection.storageKey)
+            .putBoolean("appearance_card_gradient_reversed", spec.cardGradientReversed)
             .apply()
     }
 
@@ -145,30 +175,14 @@ class PrototypeStore(context: Context) {
         preferences.edit().putString("custom_theme_colors", ThemeColorsCodec.encode(colors).toString()).apply()
     }
 
-    /** 自定义主题预设：多套命名配色存档。无预设时返回空列表。 */
-    fun loadThemePresets(): List<ThemePreset> =
+    /** 自定义主题预设：多套命名配色存档。无预设时返回空列表。老存档缺字段按"只有配色"读。 */
+    internal fun loadThemePresets(): List<ThemePreset> =
         decodeGuarded("theme_presets", emptyList(), { json ->
-            JSONArray(json).let { arr ->
-                (0 until arr.length()).map { i ->
-                    val item = arr.getJSONObject(i)
-                    val c = item.getJSONObject("colors")
-                    ThemePreset(
-                        name = item.getString("name"),
-                        colors = ThemeColorsCodec.decode(c)
-                    )
-                }
-            }
+            ThemePresetCodec.decode(json)
         }, { it.isEmpty() })
 
-    fun saveThemePresets(presets: List<ThemePreset>) {
-        preferences.edit().putString("theme_presets", JSONArray().apply {
-            presets.forEach { preset ->
-                put(JSONObject().apply {
-                    put("name", preset.name)
-                    put("colors", ThemeColorsCodec.encode(preset.colors))
-                })
-            }
-        }.toString()).apply()
+    internal fun saveThemePresets(presets: List<ThemePreset>) {
+        preferences.edit().putString("theme_presets", ThemePresetCodec.encode(presets)).apply()
     }
 
     fun loadEnergyLevel(): String = (preferences.getString("energy_level", "正常") ?: "正常").takeIf { it in setOf("偏低", "正常", "充足") } ?: "正常"

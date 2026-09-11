@@ -1,7 +1,9 @@
 package com.sakata.focusflow
 
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -49,11 +51,42 @@ internal fun ScrollableWithBar(
     content: @Composable ColumnScope.() -> Unit
 ) {
     Box(modifier.fillMaxSize()) {
+        // 8.2.0「渐变跟随内容」的**正解**：把渐变画在滚动内容自己的高度上。
+        // 之前试过"背景固定在视口 + 用滚动量算相位"，真机上相位始终为 0（试了两种来源），
+        // 而这里不需要任何滚动事件：brush 会铺满内容高度，内容有多长渐变就有多长，
+        // 于是每屏只走一小段、竖向变化更缓——正是维护者要的效果。
+        val appearance = LocalAppearance.current
+        val contentBackdrop = appearance.effectivePageBackdrop == BackdropKind.GRADIENT &&
+            appearance.gradientFollowsContent
+        // 站点色必须在组合期算好：drawBehind 的 lambda 不是 @Composable，里面读不到 MaterialTheme。
+        val schemeForBackdrop = MaterialTheme.colorScheme
+        val contentStops = if (contentBackdrop) {
+            ThemeGradient.pageStops(
+                schemeForBackdrop,
+                appearance.gradientScale,
+                appearance.gradientTop,
+                appearance.gradientBottom
+            )
+        } else {
+            emptyList()
+        }
         Column(
-            Modifier.fillMaxSize().verticalScroll(scrollState).padding(
-                start = padding, end = padding, top = padding + LocalScrollingTopPadding.current,
-                bottom = padding + LocalFloatingBottomPadding.current
-            ),
+            Modifier.fillMaxSize().verticalScroll(scrollState)
+                .then(
+                    if (contentBackdrop) {
+                        // 跟随内容时渐变画在滚动 Column 自己的高度上；斜向同样需要尺寸，
+                        // 所以从 background(brush) 改成 drawBehind（那里有 size）。
+                        Modifier.drawBehind {
+                            drawRect(pageBrushFor(appearance.gradientDirection, contentStops, size))
+                        }
+                    } else {
+                        Modifier
+                    }
+                )
+                .padding(
+                    start = padding, end = padding, top = padding + LocalScrollingTopPadding.current,
+                    bottom = padding + LocalFloatingBottomPadding.current
+                ),
             verticalArrangement = Arrangement.spacedBy(spacing),
             content = content
         )

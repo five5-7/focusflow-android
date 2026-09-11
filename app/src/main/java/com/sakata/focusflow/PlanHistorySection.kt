@@ -25,7 +25,11 @@ internal fun PlanHistorySection(events: List<TaskEvent>, onReplaceEvents: (List<
     val now = System.currentTimeMillis()
     val todayStart = TaskHistory.dayStartOf(now)
     val days = TaskHistory.lastDays(events, 7, now)
-    ElevatedCard {
+    // 收编：ElevatedCard → FocusCard，显式保留 surfaceContainerLow 底色与 1dp 默认阴影。
+    FocusCard(
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        elevation = 1.dp
+    ) {
         Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("近 7 天完成情况", fontWeight = FontWeight.SemiBold)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -83,7 +87,11 @@ internal fun PlanHistorySection(events: List<TaskEvent>, onReplaceEvents: (List<
         )
     } else {
         recent.forEach { event ->
-            ElevatedCard {
+            // 收编：ElevatedCard → FocusCard，显式保留 surfaceContainerLow 底色与 1dp 默认阴影。
+            FocusCard(
+                containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                elevation = 1.dp
+            ) {
                 Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                     if (selecting) Checkbox(
                         checked = event.id in selectedIds,

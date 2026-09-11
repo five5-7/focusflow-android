@@ -40,7 +40,7 @@ internal fun PlanGapsSection(
     val recommendations = gapRecommendations(gaps, freeWindows, goals, items, store)
     val availability = availabilitySlots(gaps, freeWindows)
     var selectedView by remember { mutableStateOf(if (tableExpanded) "空挡图" else "建议") }
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
+    FocusCard(containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
         Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("查看空挡", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -128,7 +128,7 @@ private fun AvailabilityTimeline(slots: List<AvailabilitySlot>) {
     val chartHeight = 336.dp
     val colors = MaterialTheme.colorScheme
     val daily = slots.filter { it.weekday == selectedDay }
-    Card(colors = CardDefaults.cardColors(containerColor = colors.surfaceContainerLow)) {
+    FocusCard(containerColor = colors.surfaceContainerLow) {
         Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("一周空挡", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -231,11 +231,9 @@ private fun ChargingGapNotice(profile: CommuteProfile, gaps: List<CourseGap>) {
         )
         return
     }
-    Card(
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f)
-        )
-    ) {
+FocusCard(
+    containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f)
+) {
         Column(
             Modifier.fillMaxWidth().padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)
@@ -300,11 +298,9 @@ private fun GapRecommendations(
 ) {
     Text("空挡适合做什么（内容建议）", fontWeight = FontWeight.SemiBold)
     plans.forEach { plan ->
-        Card(
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
-            )
-        ) {
+FocusCard(
+    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
+) {
             Column(
                 Modifier.fillMaxWidth().padding(12.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
@@ -373,11 +369,9 @@ private fun CourseGaps(gaps: List<CourseGap>, confirmedCourseCount: Int) {
     if (fragments.isNotEmpty()) {
         Text("碎片时间（不足 10 分钟，仅够通行与缓冲）", fontWeight = FontWeight.SemiBold)
         fragments.forEach { gap ->
-            Card(
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                )
-            ) {
+FocusCard(
+    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+) {
                 Text(
                     "${weekdayName(gap.from.weekday)} " +
                         "${formatMinute(CourseGapPlanner.periodStart(gap.from.endPeriod) + 45)}–" +
@@ -395,7 +389,11 @@ private fun CourseGaps(gaps: List<CourseGap>, confirmedCourseCount: Int) {
 private fun GapCard(gap: CourseGap) {
     val fromEnd = CourseGapPlanner.periodStart(gap.from.endPeriod) + 45
     val toStart = CourseGapPlanner.periodStart(gap.to.startPeriod)
-    ElevatedCard {
+    // 收编：ElevatedCard → FocusCard，显式保留 surfaceContainerLow 底色与 1dp 默认阴影。
+    FocusCard(
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        elevation = 1.dp
+    ) {
         Column(
             Modifier.fillMaxWidth().padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(5.dp)
@@ -426,11 +424,9 @@ private fun FreeWindows(windows: List<FreeWindow>) {
     if (windows.isEmpty()) return
     Text("自由时段（非课间空挡，也可安排）", fontWeight = FontWeight.SemiBold)
     windows.forEach { window ->
-        Card(
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.35f)
-            )
-        ) {
+FocusCard(
+    containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.35f)
+) {
             Text(
                 "${weekdayName(window.weekday)} ${formatMinute(window.startMinute)}–" +
                     "${formatMinute(window.endMinute)} · ${window.kind} · 净 ${window.minutes} 分钟",

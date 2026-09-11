@@ -205,9 +205,11 @@ internal fun AppDialogHost(
                         .then(if (open) Modifier.pointerInput(Unit) { detectTapGestures { } } else Modifier)
                 ) {
                     val shape = RoundedCornerShape(28.dp)
+                    val dialogBase = MaterialTheme.colorScheme.surfaceContainerHigh
+                    val dialogMaterial = LocalAppearance.current.effectiveCardMaterial
                     Surface(
                         shape = shape,
-                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        color = dialogBase,
                         tonalElevation = 6.dp,
                         // 阴影自己画：Material 默认是纯黑直角阴影，这里换成主题染色的软阴影，
                         // 并把卡片抬得更高，让它明显浮在压暗的页面之上（分层）。
@@ -220,6 +222,23 @@ internal fun AppDialogHost(
                             .litShadow(SurfaceLighting.DIALOG_SHADOW, shape)
                     ) {
                         Box {
+                            // 维护者口径「弹窗也没有材质渲染」：弹窗卡片同样吃当前材质，
+                            // 与页面卡片/底栏共用同一份实现（materialBrush）。
+                            //
+                            // **材质层必须画在 Surface 自己的底色之上。**
+                            // 原先这里是把它挂在 Surface 的 modifier 上，而 Modifier 链里
+                            // `drawBehind` 排在 Surface 内部 `.background(color)` 之前 ——
+                            // 画出来的材质被底色整块盖住，这就是「弹窗还是没有渲染」的成因。
+                            // （FocusCard 一直正常，只是因为它把 Surface 底色设成了 Transparent。）
+                            // 用一个 matchParentSize 的 Box 放在内容最底层修掉它，
+                            // 这样连 tonalElevation 都不用动，落在这条路径上的像素与原来一致。
+                            Box(
+                                Modifier.matchParentSize().surfaceMaterialFill(
+                                    dialogMaterial,
+                                    dialogBase,
+                                    shape
+                                )
+                            )
                             // 顶部高光：光源在上方，卡片顶面微亮、往下回落，避免"贴纸感"。
                             Box(
                                 Modifier.matchParentSize().background(

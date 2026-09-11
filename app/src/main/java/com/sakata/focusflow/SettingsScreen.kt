@@ -28,6 +28,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -50,7 +51,7 @@ import kotlinx.coroutines.withContext
                 Text("以下格式只用于迁移、备份或批量维护：", fontWeight = FontWeight.SemiBold)
                 Text("1. 用任意文本编辑器新建 UTF-8 文件，并保存为 .json。")
                 Text("2. 填写地点包名称和地点列表。每个地点需要名称、所属分区和类型。")
-                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))) {
+                FocusCard(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)) {
                     Text(
                         "{\n  \"name\": \"我的校园\",\n  \"version\": 1,\n  \"places\": [\n    { \"name\": \"西1教学楼\", \"zone\": \"WEST_TEACHING\", \"kind\": \"教学楼\" },\n    { \"name\": \"图书馆\", \"zone\": \"LIBRARY\", \"kind\": \"学习\" }\n  ]\n}",
                         Modifier.padding(12.dp),
@@ -157,7 +158,14 @@ private data class AddInstalledAppDraft(val query: String, val selectedPkg: Stri
                 if (selected == null) {
                     Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         filtered.take(80).forEach { (pkg, label) ->
-                            Card(modifier = Modifier.fillMaxWidth().clickable { selectedPkg = pkg; persist() }) {
+                            // 收编：无显式底色的 Card → FocusCard。底色显式给出 Material3 Card 的默认值
+                            // （FilledCardTokens.ContainerColor = surfaceContainerHighest）；
+                            // 点击改用可点击重载（保留水波纹与点击语义），不再在外面套 Modifier.clickable。
+                            FocusCard(
+                                containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                                modifier = Modifier.fillMaxWidth(),
+                                onClick = { selectedPkg = pkg; persist() }
+                            ) {
                                 Column(Modifier.fillMaxWidth().padding(10.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                     Text(label, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodySmall)
                                     Text(pkg, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -205,7 +213,7 @@ internal fun categorizedInstalledApps(context: Context, userCategories: Map<Stri
 private data class BaselineVariantDraft(val name: String)
 
 @OptIn(ExperimentalLayoutApi::class)
-@Composable internal fun SettingsScreen(modifier: Modifier, settingsScrollState: ScrollState, themeOption: FocusFlowThemeOption, commuteProfile: CommuteProfile, campusLifeEnabled: Boolean, campusMapPackage: CampusMapPackage?, currentCampusPlace: String?, improvementNotes: List<ImprovementNote>, activitySettings: ActivityReminderSettings, statusCheckInSettings: StatusCheckInSettings, statusPromptTrace: StatusPromptTrace, nextStatusPromptAt: Long, onStatusPromptTest: () -> Unit, windDownEnabled: Boolean, checkIns: List<StatusCheckIn>, baselineProfile: BaselineProfile, mealRecords: List<MealRecord>, mealReminderEnabled: Boolean, mealDurationTrackingEnabled: Boolean, onMealDurationTrackingEnabledChange: (Boolean) -> Unit, foregroundDetectionTrace: ForegroundDetectionTrace, subPage: SettingsSubPage?, onSubPageChange: (SettingsSubPage?) -> Unit, onThemeChange: (FocusFlowThemeOption) -> Unit, customThemeColors: FocusFlowThemeColors, onCustomThemeColorsChange: (FocusFlowThemeColors) -> Unit, themePresets: List<ThemePreset>, onThemePresetsChange: (List<ThemePreset>) -> Unit, onRestoreDefaultTheme: () -> Unit, onCommuteChange: (CommuteProfile) -> Unit, onCampusLifeEnabledChange: (Boolean) -> Unit, onCampusLifeRequired: () -> Unit, onCampusMapPackageChange: (CampusMapPackage?) -> Unit, onCurrentCampusPlaceChange: (String?) -> Unit, allPlaces: List<CampusPlace>, customPlaces: List<CampusPlace>, onCustomPlacesChange: (List<CampusPlace>) -> Unit, hiddenPlaces: Set<String>, onToggleHiddenPlace: (String) -> Unit, amapKey: String, onAmapKeyChange: (String) -> Unit, campusCenter: CampusCenter, onCampusCenterChange: (CampusCenter) -> Unit, tutorialSearch: TutorialSearchSettings, onTutorialSearchSettingsChange: (TutorialSearchSettings) -> Unit, aiWeeklySummary: AiWeeklySummarySettings, onAiWeeklySummarySettingsChange: (AiWeeklySummarySettings) -> Unit, courseVision: CourseVisionSettings, onCourseVisionSettingsChange: (CourseVisionSettings) -> Unit, courseVisionGuideOpen: Boolean, onCourseVisionGuideOpenChange: (Boolean) -> Unit, pendingPlaces: List<String>, onAddPendingPlace: (String) -> Unit, onRemovePendingPlace: (String) -> Unit, onActivitySettingsChange: (ActivityReminderSettings) -> Unit, quietHours: QuietHoursSettings, onQuietHoursChange: (QuietHoursSettings) -> Unit, quickCaptureEnabled: Boolean, onQuickCaptureEnabledChange: (Boolean) -> Unit, onStatusCheckInSettingsChange: (StatusCheckInSettings) -> Unit, onWindDownEnabledChange: (Boolean) -> Unit, onAddImprovement: () -> Unit, onOpenBaselineEditor: () -> Unit, onOpenBaselineEvents: () -> Unit, onResetBaseline: () -> Unit, onOpenFeatureIntro: () -> Unit, baselineVariants: List<BaselineProfile>, onSaveBaselineVariant: (String) -> Unit, onSwitchBaselineVariant: (BaselineProfile) -> Unit, onDeleteBaselineVariant: (BaselineProfile) -> Unit, onDayGroupsChange: (List<DayGroup>) -> Unit, baselineVariantNameOpen: Boolean, onBaselineVariantNameOpenChange: (Boolean) -> Unit, onMealReminderEnabledChange: (Boolean) -> Unit, onOpenMealRecords: () -> Unit, recordBaselineEvent: (BaselineEventType, String) -> Unit, gameDetectionEnabled: Boolean, onGameDetectionEnabledChange: (Boolean) -> Unit, appCategories: Map<String, String>, onAppCategoriesChange: (Map<String, String>) -> Unit, hiddenApps: Set<String>, onToggleHiddenApp: (String) -> Unit, videoAnalysisModel: String, onVideoAnalysisModelChange: (String) -> Unit, darkMode: Boolean, onDarkModeChange: (Boolean) -> Unit, onGlobalLoadingChange: (Boolean) -> Unit, exitConfirmDisabled: Boolean, onExitConfirmEnabledChange: (Boolean) -> Unit, autoCheckUpdates: Boolean, onAutoCheckUpdatesChange: (Boolean) -> Unit, acceptRcUpdates: Boolean, onAcceptRcUpdatesChange: (Boolean) -> Unit, updateCheckState: UpdateCheckState, onCheckUpdate: () -> Unit, animationSpeed: Float, onAnimationSpeedChange: (Float) -> Unit) {
+@Composable internal fun SettingsScreen(modifier: Modifier, settingsScrollState: ScrollState, themeOption: FocusFlowThemeOption, commuteProfile: CommuteProfile, campusLifeEnabled: Boolean, campusMapPackage: CampusMapPackage?, currentCampusPlace: String?, improvementNotes: List<ImprovementNote>, activitySettings: ActivityReminderSettings, statusCheckInSettings: StatusCheckInSettings, statusPromptTrace: StatusPromptTrace, nextStatusPromptAt: Long, onStatusPromptTest: () -> Unit, windDownEnabled: Boolean, checkIns: List<StatusCheckIn>, baselineProfile: BaselineProfile, mealRecords: List<MealRecord>, mealReminderEnabled: Boolean, mealDurationTrackingEnabled: Boolean, onMealDurationTrackingEnabledChange: (Boolean) -> Unit, foregroundDetectionTrace: ForegroundDetectionTrace, subPage: SettingsSubPage?, onSubPageChange: (SettingsSubPage?) -> Unit, onThemeChange: (FocusFlowThemeOption) -> Unit, customThemeColors: FocusFlowThemeColors, onCustomThemeColorsChange: (FocusFlowThemeColors) -> Unit, themePresets: List<ThemePreset>, onThemePresetsChange: (List<ThemePreset>) -> Unit, onRestoreDefaultTheme: () -> Unit, onCommuteChange: (CommuteProfile) -> Unit, onCampusLifeEnabledChange: (Boolean) -> Unit, onCampusLifeRequired: () -> Unit, onCampusMapPackageChange: (CampusMapPackage?) -> Unit, onCurrentCampusPlaceChange: (String?) -> Unit, allPlaces: List<CampusPlace>, customPlaces: List<CampusPlace>, onCustomPlacesChange: (List<CampusPlace>) -> Unit, hiddenPlaces: Set<String>, onToggleHiddenPlace: (String) -> Unit, amapKey: String, onAmapKeyChange: (String) -> Unit, campusCenter: CampusCenter, onCampusCenterChange: (CampusCenter) -> Unit, tutorialSearch: TutorialSearchSettings, onTutorialSearchSettingsChange: (TutorialSearchSettings) -> Unit, aiWeeklySummary: AiWeeklySummarySettings, onAiWeeklySummarySettingsChange: (AiWeeklySummarySettings) -> Unit, courseVision: CourseVisionSettings, onCourseVisionSettingsChange: (CourseVisionSettings) -> Unit, courseVisionGuideOpen: Boolean, onCourseVisionGuideOpenChange: (Boolean) -> Unit, pendingPlaces: List<String>, onAddPendingPlace: (String) -> Unit, onRemovePendingPlace: (String) -> Unit, onActivitySettingsChange: (ActivityReminderSettings) -> Unit, quietHours: QuietHoursSettings, onQuietHoursChange: (QuietHoursSettings) -> Unit, quickCaptureEnabled: Boolean, onQuickCaptureEnabledChange: (Boolean) -> Unit, onStatusCheckInSettingsChange: (StatusCheckInSettings) -> Unit, onWindDownEnabledChange: (Boolean) -> Unit, onAddImprovement: () -> Unit, onOpenBaselineEditor: () -> Unit, onOpenBaselineEvents: () -> Unit, onResetBaseline: () -> Unit, onOpenFeatureIntro: () -> Unit, baselineVariants: List<BaselineProfile>, onSaveBaselineVariant: (String) -> Unit, onSwitchBaselineVariant: (BaselineProfile) -> Unit, onDeleteBaselineVariant: (BaselineProfile) -> Unit, onDayGroupsChange: (List<DayGroup>) -> Unit, baselineVariantNameOpen: Boolean, onBaselineVariantNameOpenChange: (Boolean) -> Unit, onMealReminderEnabledChange: (Boolean) -> Unit, onOpenMealRecords: () -> Unit, recordBaselineEvent: (BaselineEventType, String) -> Unit, gameDetectionEnabled: Boolean, onGameDetectionEnabledChange: (Boolean) -> Unit, appCategories: Map<String, String>, onAppCategoriesChange: (Map<String, String>) -> Unit, hiddenApps: Set<String>, onToggleHiddenApp: (String) -> Unit, videoAnalysisModel: String, onVideoAnalysisModelChange: (String) -> Unit, darkMode: Boolean, onDarkModeChange: (Boolean) -> Unit, onGlobalLoadingChange: (Boolean) -> Unit, exitConfirmDisabled: Boolean, onExitConfirmEnabledChange: (Boolean) -> Unit, autoCheckUpdates: Boolean, onAutoCheckUpdatesChange: (Boolean) -> Unit, acceptRcUpdates: Boolean, onAcceptRcUpdatesChange: (Boolean) -> Unit, updateCheckState: UpdateCheckState, onCheckUpdate: () -> Unit, animationSpeed: Float, onAnimationSpeedChange: (Float) -> Unit, appearance: AppearanceSpec, onAppearanceChange: (AppearanceSpec) -> Unit, pageBackdropBitmap: ImageBitmap?, onApplyExtractedTheme: (FocusFlowThemeColors) -> Unit) {
     val context = LocalContext.current
     val settingsStore = remember(context) { PrototypeStore(context) }
     val settingsLifecycleOwner = LocalLifecycleOwner.current
@@ -254,7 +262,13 @@ private data class BaselineVariantDraft(val name: String)
     ScrollableWithBar(scrollState = settingsScrollState) {
         Text("设置", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
         var defaultHelpExpanded by remember { mutableStateOf(false) }
-        ElevatedCard(onClick = { defaultHelpExpanded = !defaultHelpExpanded }) {
+        // 收编：ElevatedCard(onClick) → FocusCard(onClick)。显式保留 surfaceContainerLow 底色与
+        // 1dp 默认阴影，点击仍走 Material 的可点击重载（水波纹 + 点击语义）。
+        FocusCard(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+            elevation = 1.dp,
+            onClick = { defaultHelpExpanded = !defaultHelpExpanded }
+        ) {
             Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
@@ -379,7 +393,11 @@ private data class BaselineVariantDraft(val name: String)
         }
         HorizontalDivider()
         SettingsSectionHeader("习惯基线", onHelp = { helpBlock = SettingsBlock.BASELINE })
-        ElevatedCard {
+        // 收编：ElevatedCard → FocusCard，显式保留 surfaceContainerLow 底色与 1dp 默认阴影。
+        FocusCard(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+            elevation = 1.dp
+        ) {
             Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 if (baselineProfile.isComplete) {
                     Text("当前生活阶段：${baselineProfile.lifeStage?.label}", fontWeight = FontWeight.SemiBold)
@@ -510,7 +528,11 @@ private data class BaselineVariantDraft(val name: String)
                         PlanHubItem("习惯原始事件", "查看用于形成作息建议的本地记录") { onOpenBaselineEvents() }
                         if (!EXPENSE_HIDDEN) {
                             val expense = ExpenseInsights.summarize(mealRecords)
-                            ElevatedCard {
+                            // 收编：ElevatedCard → FocusCard，显式保留 surfaceContainerLow 底色与 1dp 默认阴影。
+                            FocusCard(
+                                containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                                elevation = 1.dp
+                            ) {
                                 Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                     Text("可选消费记录", fontWeight = FontWeight.Bold)
                                     if (expense.withAmountCount == 0) {
@@ -563,6 +585,15 @@ private data class BaselineVariantDraft(val name: String)
                             onDarkModeChange
                         )
                         HorizontalDivider()
+                        // 维护者口径：这些效果都是逐帧的绘制成本，低端机会吃掉流畅度，
+                        // 需要一个"要流畅、不要花哨"的总开关，而不是让用户去猜某个具体档位。
+                        SettingSwitch(
+                            "丰富的动画与外观效果",
+                            "开启：多个渐变、卡片材质（渐变/柔光）、页面与课表底图，以及底栏形变与转场动画。" +
+                                "关闭：只留最基本的淡入淡出与纯色配色，低端机上更流畅（背景选过的图片与渐变色都保留，随时可再开回来）。",
+                            appearance.richEffects
+                        ) { onAppearanceChange(appearance.copy(richEffects = it)) }
+                        HorizontalDivider()
                         Text("动画速度", fontWeight = FontWeight.SemiBold)
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             listOf(0f to "关闭", 0.5f to "较快", 1f to "标准", 1.5f to "较慢").forEach { (scale, label) ->
@@ -575,13 +606,41 @@ private data class BaselineVariantDraft(val name: String)
                         }
                         Text("影响页面转场与底部导航动画；系统「移除动画」设置仍然生效。", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         HorizontalDivider()
-                        FocusFlowThemeOption.builtInEntries().forEach { option ->
-                            val preview = focusFlowThemeSpec(option)
-                            Card(
-                                modifier = Modifier.fillMaxWidth().clickable { onThemeChange(option) },
-                                colors = CardDefaults.cardColors(
-                                    containerColor = if (themeOption == option) preview.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.38f)
-                                )
+                        // 8.2.0 外观系统：页面背景（跟随主题／主题渐变／图片 + 不透明度 + 从图片抽色）。
+                        Text("页面背景", fontWeight = FontWeight.SemiBold)
+                        AppearanceSettingsSection(
+                            appearance = appearance,
+                            onAppearanceChange = onAppearanceChange,
+                            onApplyExtractedTheme = onApplyExtractedTheme
+                        )
+                        HorizontalDivider()
+                        // **渐进组合**：这七行是整页最贵的一段（每行都要合成一整套 colorScheme，
+                        // 再画一个带材质的 FocusCard）。实测"打开 设置 → 外观"那一帧 200ms、
+                        // 重帧率 5.66% 超预算，而记账的 `remember` 只省重组、省不了首次组合。
+                        // 所以把它们摊到几帧里逐行组合：每帧只多一行，视觉上仍是"瞬间填满"，
+                        // 但不再有单个长帧。后面若还嫌慢，再考虑把设置页整列换成 LazyColumn。
+                        var revealedPresets by remember { mutableStateOf(0) }
+                        LaunchedEffect(Unit) {
+                            val total = FocusFlowThemeOption.builtInEntries().size
+                            while (revealedPresets < total) {
+                                androidx.compose.runtime.withFrameNanos { }
+                                revealedPresets += 1
+                            }
+                        }
+                        FocusFlowThemeOption.builtInEntries().take(revealedPresets).forEach { option ->
+                            // 必须传 darkMode：不传就会拿到**浅色**方案的 primaryContainer，
+                            // 深色模式下那是一块接近白的卡片，压在一整页深色上极其刺眼，
+                            // 而且卡上的「已选择」用的是浅色方案的 primary（也是浅色），
+                            // 浅字压浅底基本看不清（维护者反馈"选中的颜色对应的卡片过亮，
+                            // 导致上面的字不清晰"，已用截图确认）。
+                            // **必须 remember**：`focusFlowThemeSpec` 会现场合成整套 colorScheme，
+                            // 而 `darkenScheme` 内部逐个颜色算对比度（每次都要线性化求亮度）。
+                            // 原先这里每重组一次就把这一行重建一遍 —— 七行就是七套 scheme，
+                            // 这正是"打开 设置 → 外观"那个 200ms 长帧的主因（实测 5.66% 超预算）。
+                            val preview = remember(option, darkMode) { focusFlowThemeSpec(option, darkMode = darkMode) }
+                            FocusCard(
+                                containerColor = if (themeOption == option) preview.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.38f),
+                                modifier = Modifier.fillMaxWidth().clickable { onThemeChange(option) }
                             ) {
                                 Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                     ThemeSwatchPreview(previewColors(preview))
@@ -609,14 +668,14 @@ private data class BaselineVariantDraft(val name: String)
                         }
                         // 自定义主题：点卡只进入编辑器，不切主题；确认由编辑器内"应用此配色"完成，
                         // 与内置主题"以此改色"一致，避免点卡即应用造成违和。
-                        val customPreview = focusFlowThemeSpec(FocusFlowThemeOption.CUSTOM, customThemeColors)
-                        Card(
+                        val customPreview = remember(customThemeColors, darkMode) {
+                            focusFlowThemeSpec(FocusFlowThemeOption.CUSTOM, customThemeColors, darkMode = darkMode)
+                        }
+                        FocusCard(
+                            containerColor = if (themeOption == FocusFlowThemeOption.CUSTOM) customPreview.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.38f),
                             modifier = Modifier.fillMaxWidth().clickable {
                                 onSubPageChange(SettingsSubPage.CUSTOM_THEME)
-                            },
-                            colors = CardDefaults.cardColors(
-                                containerColor = if (themeOption == FocusFlowThemeOption.CUSTOM) customPreview.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.38f)
-                            )
+                            }
                         ) {
                             Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                 ThemeSwatchPreview(previewColors(customPreview))
@@ -636,7 +695,11 @@ private data class BaselineVariantDraft(val name: String)
                             onPresetsChange = onThemePresetsChange,
                             onRestoreDefault = onRestoreDefaultTheme,
                             customActive = themeOption == FocusFlowThemeOption.CUSTOM,
-                            onApplyCustom = { onThemeChange(FocusFlowThemeOption.CUSTOM) }
+                            onApplyCustom = { onThemeChange(FocusFlowThemeOption.CUSTOM) },
+                            appearance = appearance,
+                            onAppearanceChange = onAppearanceChange,
+                            pageBackdropBitmap = pageBackdropBitmap,
+                            darkMode = darkMode
                         )
                     }
                     SettingsSubPage.ACTIVITY_REMINDERS -> {
@@ -864,7 +927,12 @@ private data class BaselineVariantDraft(val name: String)
                         }
                         SettingSwitch("校园生活", "控制校内出行、地点包和手动位置工具；关闭不会删除已有数据", campusLifeEnabled, onCampusLifeEnabledChange)
                         if (campusLifeEnabled) {
-                            ElevatedCard(Modifier.fillMaxWidth()) {
+                            // 收编：ElevatedCard → FocusCard，显式保留 surfaceContainerLow 底色与 1dp 默认阴影。
+                            FocusCard(
+                                containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                                modifier = Modifier.fillMaxWidth(),
+                                elevation = 1.dp
+                            ) {
                                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                     Text("出行参数", fontWeight = FontWeight.SemiBold)
                                     SettingSwitch("为通勤预留时间", "只保存大致时长，不读取定位", commuteProfile.enabled) { onCommuteChange(commuteProfile.copy(enabled = it)) }
@@ -933,7 +1001,12 @@ private data class BaselineVariantDraft(val name: String)
                                     }
                                 }
                             }
-                            ElevatedCard(Modifier.fillMaxWidth()) {
+                            // 收编：ElevatedCard → FocusCard，显式保留 surfaceContainerLow 底色与 1dp 默认阴影。
+                            FocusCard(
+                                containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                                modifier = Modifier.fillMaxWidth(),
+                                elevation = 1.dp
+                            ) {
                                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                                         Text("校园地点来源", fontWeight = FontWeight.SemiBold)
@@ -962,7 +1035,12 @@ private data class BaselineVariantDraft(val name: String)
                                 }
                             }
                             if (pendingPlaces.isNotEmpty()) {
-                                ElevatedCard(Modifier.fillMaxWidth()) {
+                                // 收编：ElevatedCard → FocusCard，显式保留 surfaceContainerLow 底色与 1dp 默认阴影。
+                                FocusCard(
+                                    containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    elevation = 1.dp
+                                ) {
                                     Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                         Text("课表识别发现的新地点", fontWeight = FontWeight.SemiBold)
                                         Text("识别结果中出现、还没加入地点目录的教室/楼名；加入后可用于课程空档与路程估算，也可在“管理校园地点”里改分区。", style = MaterialTheme.typography.bodySmall)
@@ -976,7 +1054,12 @@ private data class BaselineVariantDraft(val name: String)
                                     }
                                 }
                             }
-                            ElevatedCard(Modifier.fillMaxWidth()) {
+                            // 收编：ElevatedCard → FocusCard，显式保留 surfaceContainerLow 底色与 1dp 默认阴影。
+                            FocusCard(
+                                containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                                modifier = Modifier.fillMaxWidth(),
+                                elevation = 1.dp
+                            ) {
                                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                     Text("校区中心与手动位置", fontWeight = FontWeight.SemiBold)
                                     Text("校区中心（POI 搜索范围）", fontWeight = FontWeight.SemiBold)
@@ -1170,7 +1253,7 @@ private data class BaselineVariantDraft(val name: String)
                         )
                         if (gameDetectionEnabled) {
                             if (!usageGranted) {
-                                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f))) {
+                                FocusCard(containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f)) {
                                     Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                         Text("未授予“使用情况访问”", fontWeight = FontWeight.SemiBold)
                                         Text("到系统设置开启后，才能识别当前前台应用（判断只在本机完成，不上传）。", style = MaterialTheme.typography.bodySmall)
@@ -1219,7 +1302,8 @@ private data class BaselineVariantDraft(val name: String)
                                 if (apps.isNotEmpty()) {
                                     Text("${category.label}（${apps.size}）", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
                                     apps.forEach { (pkg, label, _) ->
-                                        Card {
+                                        // 收编：无显式底色的 Card → FocusCard，显式保留 Card 默认底色 surfaceContainerHighest。
+                                        FocusCard(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest) {
                                             Column(Modifier.fillMaxWidth().padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                                                     Column(Modifier.weight(1f)) {
@@ -1253,7 +1337,8 @@ private data class BaselineVariantDraft(val name: String)
                             if (uncategorizedExpanded) {
                                 Text("没有自动识别出分类；给它们归类后，到点检测才会把它们算作游戏/视频等。", style = MaterialTheme.typography.bodySmall)
                                 unknownApps.forEach { (pkg, label, _) ->
-                                    Card {
+                                    // 收编：无显式底色的 Card → FocusCard，显式保留 Card 默认底色 surfaceContainerHighest。
+                                    FocusCard(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest) {
                                         Column(Modifier.fillMaxWidth().padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                                                 Column(Modifier.weight(1f)) {
@@ -1309,7 +1394,7 @@ private data class BaselineVariantDraft(val name: String)
                                     crashText = CrashReporter.read(context)
                                 }) { Text("清空", color = MaterialTheme.colorScheme.error) }
                             }
-                            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))) {
+                            FocusCard(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)) {
                                 Text(crashText.takeLast(4000), Modifier.fillMaxWidth().padding(10.dp), style = MaterialTheme.typography.bodySmall)
                             }
                         }
@@ -1435,7 +1520,14 @@ internal fun CollapsibleSettingsDetails(
     content: @Composable ColumnScope.() -> Unit
 ) {
     var expanded by remember { mutableStateOf(false) }
-    OutlinedCard(Modifier.fillMaxWidth()) {
+    // 收编：OutlinedCard → FocusCard。显式保留 Material3 OutlinedCard 的默认底色
+    // （OutlinedCardTokens.ContainerColor = surface）与默认描边（1dp outlineVariant），
+    // 默认阴影 Level0 = 0dp，与 FocusCard 默认一致。
+    FocusCard(
+        containerColor = MaterialTheme.colorScheme.surface,
+        modifier = Modifier.fillMaxWidth(),
+        border = CardDefaults.outlinedCardBorder()
+    ) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(summary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
