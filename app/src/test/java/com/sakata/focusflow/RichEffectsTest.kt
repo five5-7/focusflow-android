@@ -33,7 +33,8 @@ class RichEffectsTest {
             pageBackdrop = BackdropKind.GRADIENT,
             cardMaterial = CardMaterial.SOFT,
             timetableBackdrop = BackdropKind.IMAGE,
-            timetableImage = "t.png"
+            timetableImage = "t.png",
+            richEffects = true
         )
         // 开着：原样
         assertEquals(BackdropKind.GRADIENT, rich.effectivePageBackdrop)
