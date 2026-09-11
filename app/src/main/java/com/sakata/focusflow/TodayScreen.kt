@@ -226,7 +226,11 @@ import kotlinx.coroutines.delay
             }
         }
         if (recoveryCandidates.isNotEmpty()) {
-            ElevatedCard(colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+            // 收编：ElevatedCard(colors = surfaceVariant) → FocusCard，底色与 1dp 默认阴影逐项保留。
+            FocusCard(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                elevation = 1.dp
+            ) {
                 Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("需要恢复的安排", fontWeight = FontWeight.Bold)
                     Text("选择一个更容易继续的下一步。", style = MaterialTheme.typography.bodySmall)
@@ -277,7 +281,11 @@ import kotlinx.coroutines.delay
         }
         val goalsRemaining = goals.count { it.weeklyTarget > GoalPlanner.completedThisWeek(it) }
         if (visibility.goals && (todayGoalTasks.isNotEmpty() || goalsRemaining > 0)) {
-            ElevatedCard {
+            // 收编：ElevatedCard → FocusCard，显式保留 surfaceContainerLow 底色与 1dp 默认阴影。
+            FocusCard(
+                containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                elevation = 1.dp
+            ) {
                 Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                         Text("今天的目标", fontWeight = FontWeight.Bold)
@@ -327,7 +335,11 @@ import kotlinx.coroutines.delay
             }
         }
         if (completedTodayItems.isNotEmpty()) {
-            ElevatedCard {
+            // 收编：ElevatedCard → FocusCard，显式保留 surfaceContainerLow 底色与 1dp 默认阴影。
+            FocusCard(
+                containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                elevation = 1.dp
+            ) {
                 Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                     Text("今日完成记录", fontWeight = FontWeight.Bold)
                     completedTodayItems.take(4).forEach { event ->
@@ -345,7 +357,11 @@ import kotlinx.coroutines.delay
         if (visibility.meals) MealTodayCard(records = mealRecords, profile = baselineProfile, skipDays = mealSkipDays, now = now, onPrompt = onMealPrompt, onFinish = onMealFinish)
         val completedActivities = activityHistory.filter { it.actualEndAt?.let(::isToday) == true }
         if (completedActivities.isNotEmpty()) {
-            ElevatedCard {
+            // 收编：ElevatedCard → FocusCard，显式保留 surfaceContainerLow 底色与 1dp 默认阴影。
+            FocusCard(
+                containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                elevation = 1.dp
+            ) {
                 Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                     Text("今日活动记录 · ${completedActivities.size} 次", fontWeight = FontWeight.Bold)
                     completedActivities.take(3).forEach { session ->
@@ -452,7 +468,12 @@ private fun TodayStatusPanel(
             else commuteProfile.campusMode
         )
     }.joinToString(" · ")
-    OutlinedCard {
+    // 收编：OutlinedCard → FocusCard。显式保留 Material3 OutlinedCard 的默认底色
+    // （OutlinedCardTokens.ContainerColor = surface）与默认描边（1dp outlineVariant）。
+    FocusCard(
+        containerColor = MaterialTheme.colorScheme.surface,
+        border = CardDefaults.outlinedCardBorder()
+    ) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp)) {
             Row(
                 Modifier.fillMaxWidth().clickable { onExpandedChange(!expanded) },
@@ -520,7 +541,11 @@ private fun StatusChoiceRow(label: String, options: List<String>, selected: Stri
     val todayKey = MealLearning.dayKey(now)
     val weekday = java.util.Calendar.getInstance().apply { timeInMillis = now }.get(java.util.Calendar.DAY_OF_WEEK)
     val nowMinute = java.util.Calendar.getInstance().apply { timeInMillis = now }.let { it.get(java.util.Calendar.HOUR_OF_DAY) * 60 + it.get(java.util.Calendar.MINUTE) }
-    ElevatedCard {
+    // 收编：ElevatedCard → FocusCard，显式保留 surfaceContainerLow 底色与 1dp 默认阴影。
+    FocusCard(
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        elevation = 1.dp
+    ) {
         Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("今日餐点", fontWeight = FontWeight.Bold)
             if (profile.lifeStage == null) {

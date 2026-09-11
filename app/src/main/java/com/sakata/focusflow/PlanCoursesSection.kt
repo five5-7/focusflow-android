@@ -90,10 +90,10 @@ private fun PendingCourses(
     }
     awaiting.forEach { course ->
         val conflictWith = confirmed.firstOrNull { coursesOverlap(course, it) }
-        Card(
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
-            ),
+        // 收编：带冲突描边的 Card → FocusCard。border 原样传入（null 时与原来一样不描边）；
+        // 底色不变；Card 默认阴影 Level0 = 0dp，与 FocusCard 默认一致。
+        FocusCard(
+            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f),
             border = conflictWith?.let { BorderStroke(1.dp, CONFLICT_TEXT_COLOR) }
         ) {
             Column(
@@ -198,7 +198,11 @@ private fun ConfirmedCourses(confirmed: List<Course>, onEdit: (Course) -> Unit, 
         }
     }
     confirmed.filterNot { it in conflicting }.sortedWith(courseOrder).forEach { course ->
-        ElevatedCard {
+        // 收编：ElevatedCard → FocusCard，显式保留 surfaceContainerLow 底色与 1dp 默认阴影。
+        FocusCard(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+            elevation = 1.dp
+        ) {
             Column(
                 Modifier.fillMaxWidth().padding(12.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp)

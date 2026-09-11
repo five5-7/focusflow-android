@@ -264,7 +264,11 @@ internal fun DayGroupWizardDialog(existingGroups: List<DayGroup>, defaultWake: I
                     2 -> {
                         Text("每餐大约什么时候开始、通常吃多久？只记大致时间，之后会按你的实际确认自动调整。", style = MaterialTheme.typography.bodySmall)
                         meals.forEach { meal ->
-                            ElevatedCard {
+                            // 收编：ElevatedCard → FocusCard，显式保留 surfaceContainerLow 底色与 1dp 默认阴影。
+                            FocusCard(
+                                containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                                elevation = 1.dp
+                            ) {
                                 Column(Modifier.fillMaxWidth().padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                     Text(meal.type.label, fontWeight = FontWeight.SemiBold)
                                     BaselineTimePickButton("开始", meal.typicalStartMinute) { minute ->

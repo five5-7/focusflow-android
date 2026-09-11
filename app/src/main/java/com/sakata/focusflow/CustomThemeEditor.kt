@@ -142,7 +142,13 @@ internal fun CustomThemeEditorContent(
     var editingPreset by remember { mutableStateOf<ThemePreset?>(null) }
     // 8.2.0 第 7 项：预览——用真实渲染路径（背景层 + FocusCard）搭一个迷你页面，
     // 候选配色与当前外观改一下就能当场看到，不必先应用再退出设置页。
-    ElevatedCard(Modifier.fillMaxWidth()) {
+    // 收编：ElevatedCard → FocusCard，显式保留 ElevatedCard 的默认底色
+    // （Material3 ElevatedCardTokens.ContainerColor = surfaceContainerLow）与默认阴影 1dp。
+    FocusCard(
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        modifier = Modifier.fillMaxWidth(),
+        elevation = 1.dp
+    ) {
         Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("预览", fontWeight = FontWeight.SemiBold)
             AppearancePreview(
@@ -180,8 +186,10 @@ internal fun CustomThemeEditorContent(
     )
     // 尚未启用自定义主题时（如从"以此改色"进入）：配色只作为工作副本，确认后才切换全局主题。
     if (!customActive) {
-        ElevatedCard(
-            colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+        // 收编：ElevatedCard(colors = primaryContainer) → FocusCard，底色与 1dp 默认阴影逐项保留。
+        FocusCard(
+            containerColor = MaterialTheme.colorScheme.primaryContainer,
+            elevation = 1.dp
         ) {
             Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("配色调整尚未生效：确认满意后点「应用此配色」启用自定义主题。", style = MaterialTheme.typography.bodySmall)
@@ -193,7 +201,12 @@ internal fun CustomThemeEditorContent(
         Text("正在编辑预设「${preset.name}」——改动会更新到该预设。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
     }
     ThemeSlot.entries.forEach { slot ->
-        ElevatedCard(Modifier.fillMaxWidth()) {
+        // 收编：ElevatedCard → FocusCard，显式保留 surfaceContainerLow 底色与 1dp 默认阴影。
+        FocusCard(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+            modifier = Modifier.fillMaxWidth(),
+            elevation = 1.dp
+        ) {
             Row(Modifier.fillMaxWidth().clickable { editingSlot = slot }.padding(14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Box(Modifier.size(28.dp).clip(RoundedCornerShape(14.dp)).background(slot.pick(colors)))
                 Column(Modifier.weight(1f)) {
@@ -267,7 +280,12 @@ internal fun CustomThemeEditorContent(
     } else {
         presets.forEach { preset ->
             val active = preset.colors == colors
-            ElevatedCard(Modifier.fillMaxWidth()) {
+            // 收编：ElevatedCard → FocusCard，显式保留 surfaceContainerLow 底色与 1dp 默认阴影。
+            FocusCard(
+                containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                modifier = Modifier.fillMaxWidth(),
+                elevation = 1.dp
+            ) {
                 Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     ThemeSwatchPreview(listOf(preset.colors.primaryAction, preset.colors.secondary,
                         preset.colors.accent, preset.colors.neutral, preset.colors.text, preset.colors.navigationBar))

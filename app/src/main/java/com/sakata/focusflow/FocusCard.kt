@@ -11,6 +11,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
@@ -38,41 +39,73 @@ internal fun FocusCard(
      * null（默认）= 不加描边，与原来的 FocusCard 完全一致。
      */
     border: BorderStroke? = null,
+    /**
+     * 卡片阴影。默认 0 = 与原来的 `Card` 完全一致（逐像素不变）。
+     * 加这个参数是为了收编那 13 处 `ElevatedCard` —— 材质是全局的，
+     * 不收编它们就等于"有些卡片不响应材质"（维护者：「我要看见所有卡片变化」）。
+     */
+    elevation: androidx.compose.ui.unit.Dp = androidx.compose.ui.unit.Dp(0f),
+    /**
+     * 点击。传了就用 Material3 的可点击 `Card`（保留水波纹与点击语义），
+     * 而不是在外面套一个 `clickable` —— 后者会丢掉默认的点击重载。
+     * 用于收编 `Card(onClick = …)` 那一类。
+     */
+    onClick: (() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit
 ) {
     // effectiveCardMaterial：关掉「丰富效果」时一律回落成原生纯色卡片。
     val material = LocalAppearance.current.effectiveCardMaterial
-    if (material == CardMaterial.TONAL) {
+    val colors = CardDefaults.cardColors(
+        containerColor = if (material == CardMaterial.TONAL) containerColor else Color.Transparent
+    )
+    val elevationSpec = CardDefaults.cardElevation(defaultElevation = elevation)
+    // TONAL 时内容原样交给 Card 的 ColumnScope；其余材质在底下垫一层材质与内描边。
+    // 两条路径的排版都是"一个 Column 依次摆放"，所以收编前后布局一致。
+    fun body(): @Composable () -> Unit = {
+        if (material == CardMaterial.TONAL) {
+            Column(content = content)
+        } else {
+            Box {
+                Box(
+                    Modifier
+                        .matchParentSize()
+                        // 亚克力：**一点透明 + 一层模糊**（维护者口径「把亚克力材质加一点透明加模糊的效果」）。
+                        // 透明由材质自身的 alpha 给（见 acrylicStops）；
+                        // 模糊加在**材质层**上，把那条锐利的边线和染色柔化成"透过一块塑料板看"的观感。
+                        //
+                        // 为什么不是"背景模糊"：per-card 的背景模糊在 Compose 公开 API 里做不到
+                        // （需要按卡片位置采样背景，没有 backdrop 捕获）；而且页面底色是平滑渐变时，
+                        // 模糊它等于没糊。材质层的模糊在任何背景下都看得见。
+                        .then(
+                            if (material == CardMaterial.ACRYLIC) {
+                                Modifier.blur(androidx.compose.ui.unit.Dp(6f))
+                            } else {
+                                Modifier
+                            }
+                        )
+                        .cardMaterialFill(containerColor, material, MaterialTheme.colorScheme, LocalAppearance.current.cardGradientReversed)
+                )
+                Column(content = content)
+            }
+        }
+    }
+    if (onClick != null) {
+        Card(
+            onClick = onClick,
+            modifier = modifier,
+            shape = shape,
+            colors = colors,
+            elevation = elevationSpec,
+            border = border
+        ) { body()() }
+    } else {
         Card(
             modifier = modifier,
             shape = shape,
-            colors = CardDefaults.cardColors(containerColor = containerColor),
-            border = border,
-            content = content
-        )
-        return
-    }
-    Card(
-        // **刻意不给页面卡片加投影。**
-        //
-        // 曾经给柔光/纸感挂过 litShadow(CARD_SHADOW = 6dp)，真机目视复核发现它在每张卡片
-        // 外围生成一圈约 20~25 灰阶、向外延伸 70~80px 的**矩形暗晕**，被读成"卡片周围一圈
-        // 矩形色差"（维护者连续两轮反馈的正是这个）。而且它与 SurfaceLighting 里原本的
-        // 设计口径相矛盾——那里写着"页面里的普通卡片不加阴影，靠表面色分层，避免整页发灰"。
-        // 材质的分层交给填充本身（柔光的顶亮底沉 / 纸感的纸纹），不要靠投影。
-        modifier = modifier,
-        shape = shape,
-        colors = CardDefaults.cardColors(containerColor = Color.Transparent),
-        border = border
-    ) {
-        Box {
-            Box(
-                Modifier
-                    .matchParentSize()
-                    .cardMaterialFill(containerColor, material, MaterialTheme.colorScheme, LocalAppearance.current.cardGradientReversed)
-            )
-            Column(content = content)
-        }
+            colors = colors,
+            elevation = elevationSpec,
+            border = border
+        ) { body()() }
     }
 }
 
@@ -111,7 +144,7 @@ private fun Modifier.cardMaterialFill(
         // **毛玻璃不铺不透明底**：它要的就是"底下的页面真的透上来"。
         // 其余材质必须铺（半透明底色的调用点会让页面渐变从卡片底下透出来，
         // 于是同一张卡在不同滚动位置颜色不同——维护者反馈过那个问题）。
-        if (material != CardMaterial.FROSTED && material != CardMaterial.ACRYLIC) {
+        if (material != CardMaterial.ACRYLIC) {
             // 先把卡片做成**不透明**：不少调用点用的是半透明底色
             // （例如「接下来」卡 = surfaceVariant.copy(alpha = 0.45f)）。
             // 半透明意味着**页面渐变会从卡片底下透出来**，于是同一张卡片在不同滚动位置颜色不同，
@@ -145,6 +178,5 @@ internal fun CardMaterial.label(): String = when (this) {
     CardMaterial.TONAL -> "默认"
     CardMaterial.GRADIENT -> "渐变"
     CardMaterial.SOFT -> "柔光"
-    CardMaterial.FROSTED -> "毛玻璃"
     CardMaterial.ACRYLIC -> "亚克力"
 }

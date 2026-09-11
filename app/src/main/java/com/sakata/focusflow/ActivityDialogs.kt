@@ -27,13 +27,15 @@ private data class ActivityTransitionDraft(val extensionMinutes: Int, val reason
         onDismissRequest = onDismiss,
         title = { Text("添加") },
         text = { Column(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-            Card {
+            // 收编：无显式底色的 Card → FocusCard，显式保留 Card 默认底色 surfaceContainerHighest。
+            FocusCard(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest) {
                 Column(Modifier.fillMaxWidth().clickable(onClick = onQuickCapture).padding(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text("快速记录", fontWeight = FontWeight.SemiBold)
                     Text("记一个想法，稍后再安排。", style = MaterialTheme.typography.bodySmall)
                 }
             }
-            Card {
+            // 收编：无显式底色的 Card → FocusCard，显式保留 Card 默认底色 surfaceContainerHighest。
+            FocusCard(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest) {
                 Column(Modifier.fillMaxWidth().clickable(onClick = onGamePlan).padding(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text("安排空闲活动（时间）", fontWeight = FontWeight.SemiBold)
                     Text("游戏/视频/学习/休息/运动，按空闲安排时间，到点提醒开始与收尾（游戏/视频可检测前台）。", style = MaterialTheme.typography.bodySmall)

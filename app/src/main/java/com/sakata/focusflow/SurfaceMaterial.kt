@@ -757,30 +757,19 @@ internal fun materialBrush(
         // 而柔光是**亮度斜坡、色相不变**——"变色"与"打光"的区别，两档不会再混。
         CardMaterial.GRADIENT -> Brush.verticalGradient(listOf(blendSrgb(base, scheme.primary, 0.14f), base))
         CardMaterial.SOFT -> softLightBrush(base, softReversed)
-        CardMaterial.FROSTED -> frostedBrush(base, softReversed)
         CardMaterial.ACRYLIC -> acrylicBrush(base, scheme, softReversed)
     }
 
 /**
- * 材质的内描边（"玻璃的边"）。
- *
- * **这是毛玻璃能不能读出"玻璃"的关键。** 维护者反馈「毛玻璃没有玻璃效果」——
- * 原因不是不透明度，而是：页面底色是**平滑渐变**时，半透明本身**看不出来**
- * （背后是平滑的，透过去还是那片平滑）。真正让人读出玻璃的，是那**一圈被光照亮的边**
- * —— 玻璃的截面把光折过来，边总是比面亮。
- *
- * 返回 0 = 该材质不画边（默认/渐变/柔光/亚克力都不画，各靠自己的形态立住）。
+ * 材质的内描边宽度（dp）。**目前没有任何材质使用**（毛玻璃 2026-09-11 已删）。
+ * 保留这对函数的定义与调用点，是因为卡片/底栏/弹窗三处绘制点都已接好 ——
+ * 以后若再做出真正需要的"边"（例如金属或描边类材质），只改这里的返回值即可，
+ * 不必再动三处绘制代码。返回 0 = 不画。
  */
-internal fun materialRimWidthDp(material: CardMaterial): Float = when (material) {
-    CardMaterial.FROSTED -> 1.5f
-    else -> 0f
-}
+internal fun materialRimWidthDp(material: CardMaterial): Float = 0f
 
 /** 内描边的颜色；null = 不画。见 [materialRimWidthDp]。 */
-internal fun materialRimColor(material: CardMaterial, base: Color): Color? = when (material) {
-    CardMaterial.FROSTED -> shiftGreyLevels(base, 14f).copy(alpha = 0.9f)
-    else -> null
-}
+internal fun materialRimColor(material: CardMaterial, base: Color): Color? = null
 
 /**
  * 毛玻璃的高光带宽（占卡面高度的比例）。
@@ -850,9 +839,9 @@ internal fun acrylicStops(
     // 渐变没有任何硬边，亚克力有一条锐利的玻璃边线（Fluent 亚克力的观感）。
     // 0.012 × 卡高 ≈ 9px（density 4），是一条看得清的发丝高光。
     val edge = shiftGreyLevels(tinted, 9f)
-    // 亚克力也要**真的透光**（维护者：「亚克力不透光」）：0.78 的不透明度，
-    // 比毛玻璃的 0.55 厚一些，读起来是"致密的塑料板"而不是"薄纱"。
-    val veil = 0.78f
+    // 亚克力**再透一点**（0.78 → 0.60）：维护者口径「把亚克力材质加一点透明加模糊的效果」。
+    // 毛玻璃已于 2026-09-11 删除，所以这档同时承担"透光"的角色，不透明度必须更低。
+    val veil = 0.60f
     val stops = listOf(
         0f to edge.copy(alpha = veil),
         0.012f to tinted.copy(alpha = veil),
@@ -903,6 +892,9 @@ internal fun Modifier.surfaceMaterialFill(
     val layer = remember(material, base, scheme, reversed) {
         materialBrush(material, base, scheme, reversed)
     }
+    // 「玻璃的边」与卡片共用同一份判定：材质是全局的，底栏/弹窗也要有。
+    val rim = remember(material, base) { materialRimColor(material, base) }
+    val rimWidthDp = remember(material) { materialRimWidthDp(material) }
     if (layer == null) return this
     return this
         .clip(shape)
@@ -912,6 +904,15 @@ internal fun Modifier.surfaceMaterialFill(
             // 早先这里还画过一层 `drawRect(base)`（为了让"把 Surface 让成透明"那种接法不留洞），
             // 那条接法已经废弃，留着它反而会把底栏的渐变画刷盖掉。
             drawRect(layer, alpha = alpha)
+            if (rim != null) {
+                val w = androidx.compose.ui.unit.Dp(rimWidthDp).toPx()
+                drawRect(
+                    color = rim,
+                    topLeft = Offset(w / 2f, w / 2f),
+                    size = androidx.compose.ui.geometry.Size(size.width - w, size.height - w),
+                    style = androidx.compose.ui.graphics.drawscope.Stroke(w)
+                )
+            }
         }
 }
 

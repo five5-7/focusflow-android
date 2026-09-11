@@ -170,7 +170,11 @@ import kotlinx.coroutines.launch
                     val totalTarget = goals.sumOf { it.weeklyTarget }
                     Text(if (totalFull >= totalTarget) "本周累计 $totalFull / $totalTarget 次，目标全部达成。" else "本周累计 $totalFull / $totalTarget 次。", fontWeight = FontWeight.Bold)
                     FeedbackInsights.analyze(feedback)?.let { insight ->
-                        ElevatedCard {
+                        // 收编：ElevatedCard → FocusCard，显式保留 surfaceContainerLow 底色与 1dp 默认阴影。
+                        FocusCard(
+                            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                            elevation = 1.dp
+                        ) {
                             Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                 Text("完成反馈趋势", fontWeight = FontWeight.Bold)
                                 Text("${insight.totalCount} 次完成反馈 · 最常见阻碍：${insight.topBarriers.joinToString(" · ") { "${it.first}（${it.second} 次）" }}", style = MaterialTheme.typography.bodySmall)
@@ -184,7 +188,11 @@ import kotlinx.coroutines.launch
                     Text("再积累 ${FeedbackInsights.MIN_FEEDBACK - feedback.size} 次完成反馈后给出长期建议。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 GameStats.summary(gameSessions)?.let { summary ->
-                    ElevatedCard {
+                    // 收编：ElevatedCard → FocusCard，显式保留 surfaceContainerLow 底色与 1dp 默认阴影。
+                    FocusCard(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                        elevation = 1.dp
+                    ) {
                         Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Text("活动自律", fontWeight = FontWeight.Bold)
                             Text(summary, style = MaterialTheme.typography.bodySmall)
@@ -227,7 +235,11 @@ import kotlinx.coroutines.launch
                 }
                 goals.forEach { goal ->
                     val history = WeekReview.history(goal, feedback)
-                    ElevatedCard { Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                    // 收编：ElevatedCard → FocusCard，显式保留 surfaceContainerLow 底色与 1dp 默认阴影。
+                    FocusCard(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                        elevation = 1.dp
+                    ) { Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                         Text(goal.title, fontWeight = FontWeight.SemiBold)
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                             val full = GoalPlanner.completedThisWeek(goal)
@@ -249,7 +261,11 @@ import kotlinx.coroutines.launch
             PlanPage.PAUSED -> {
                 if (paused.isEmpty()) Text("暂停的任务会集中放在这里，不占用日程。", style = MaterialTheme.typography.bodySmall)
                 paused.forEach { item ->
-                    ElevatedCard {
+                    // 收编：ElevatedCard → FocusCard，显式保留 surfaceContainerLow 底色与 1dp 默认阴影。
+                    FocusCard(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                        elevation = 1.dp
+                    ) {
                         Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) { Text(item.title.removePrefix("重新安排："), fontWeight = FontWeight.SemiBold); Text(item.detail, style = MaterialTheme.typography.bodySmall) }
                             TextButton(onClick = { onResume(item) }) { Text("恢复") }

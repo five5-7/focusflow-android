@@ -604,7 +604,8 @@ fun TutorialSearchDialog(
                     }
                     is SiliconFlowClient.SearchResult.Steps -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         result.items.forEachIndexed { index, step ->
-                            Card {
+                            // 收编：无显式底色的 Card → FocusCard，显式保留 Card 默认底色 surfaceContainerHighest。
+                            FocusCard(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest) {
                                 Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                                         Text("${index + 1}. ${step.topic}", fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
@@ -699,7 +700,8 @@ fun TutorialFinderDialog(
                     is SiliconFlowClient.SearchResult.Steps -> Text("返回了学习路径而非搜索建议，请重新生成。", style = MaterialTheme.typography.bodySmall)
                     is SiliconFlowClient.SearchResult.Suggestions -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         result.items.forEach { suggestion ->
-                            Card {
+                            // 收编：无显式底色的 Card → FocusCard，显式保留 Card 默认底色 surfaceContainerHighest。
+                            FocusCard(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest) {
                                 Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                                         Text("去${suggestion.platform}搜「${suggestion.keyword}」", fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))

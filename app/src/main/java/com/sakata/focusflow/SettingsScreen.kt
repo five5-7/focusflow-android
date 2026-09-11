@@ -158,7 +158,14 @@ private data class AddInstalledAppDraft(val query: String, val selectedPkg: Stri
                 if (selected == null) {
                     Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         filtered.take(80).forEach { (pkg, label) ->
-                            Card(modifier = Modifier.fillMaxWidth().clickable { selectedPkg = pkg; persist() }) {
+                            // 收编：无显式底色的 Card → FocusCard。底色显式给出 Material3 Card 的默认值
+                            // （FilledCardTokens.ContainerColor = surfaceContainerHighest）；
+                            // 点击改用可点击重载（保留水波纹与点击语义），不再在外面套 Modifier.clickable。
+                            FocusCard(
+                                containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                                modifier = Modifier.fillMaxWidth(),
+                                onClick = { selectedPkg = pkg; persist() }
+                            ) {
                                 Column(Modifier.fillMaxWidth().padding(10.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                     Text(label, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodySmall)
                                     Text(pkg, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -255,7 +262,13 @@ private data class BaselineVariantDraft(val name: String)
     ScrollableWithBar(scrollState = settingsScrollState) {
         Text("设置", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
         var defaultHelpExpanded by remember { mutableStateOf(false) }
-        ElevatedCard(onClick = { defaultHelpExpanded = !defaultHelpExpanded }) {
+        // 收编：ElevatedCard(onClick) → FocusCard(onClick)。显式保留 surfaceContainerLow 底色与
+        // 1dp 默认阴影，点击仍走 Material 的可点击重载（水波纹 + 点击语义）。
+        FocusCard(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+            elevation = 1.dp,
+            onClick = { defaultHelpExpanded = !defaultHelpExpanded }
+        ) {
             Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
@@ -380,7 +393,11 @@ private data class BaselineVariantDraft(val name: String)
         }
         HorizontalDivider()
         SettingsSectionHeader("习惯基线", onHelp = { helpBlock = SettingsBlock.BASELINE })
-        ElevatedCard {
+        // 收编：ElevatedCard → FocusCard，显式保留 surfaceContainerLow 底色与 1dp 默认阴影。
+        FocusCard(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+            elevation = 1.dp
+        ) {
             Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 if (baselineProfile.isComplete) {
                     Text("当前生活阶段：${baselineProfile.lifeStage?.label}", fontWeight = FontWeight.SemiBold)
@@ -511,7 +528,11 @@ private data class BaselineVariantDraft(val name: String)
                         PlanHubItem("习惯原始事件", "查看用于形成作息建议的本地记录") { onOpenBaselineEvents() }
                         if (!EXPENSE_HIDDEN) {
                             val expense = ExpenseInsights.summarize(mealRecords)
-                            ElevatedCard {
+                            // 收编：ElevatedCard → FocusCard，显式保留 surfaceContainerLow 底色与 1dp 默认阴影。
+                            FocusCard(
+                                containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                                elevation = 1.dp
+                            ) {
                                 Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                     Text("可选消费记录", fontWeight = FontWeight.Bold)
                                     if (expense.withAmountCount == 0) {
@@ -906,7 +927,12 @@ private data class BaselineVariantDraft(val name: String)
                         }
                         SettingSwitch("校园生活", "控制校内出行、地点包和手动位置工具；关闭不会删除已有数据", campusLifeEnabled, onCampusLifeEnabledChange)
                         if (campusLifeEnabled) {
-                            ElevatedCard(Modifier.fillMaxWidth()) {
+                            // 收编：ElevatedCard → FocusCard，显式保留 surfaceContainerLow 底色与 1dp 默认阴影。
+                            FocusCard(
+                                containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                                modifier = Modifier.fillMaxWidth(),
+                                elevation = 1.dp
+                            ) {
                                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                     Text("出行参数", fontWeight = FontWeight.SemiBold)
                                     SettingSwitch("为通勤预留时间", "只保存大致时长，不读取定位", commuteProfile.enabled) { onCommuteChange(commuteProfile.copy(enabled = it)) }
@@ -975,7 +1001,12 @@ private data class BaselineVariantDraft(val name: String)
                                     }
                                 }
                             }
-                            ElevatedCard(Modifier.fillMaxWidth()) {
+                            // 收编：ElevatedCard → FocusCard，显式保留 surfaceContainerLow 底色与 1dp 默认阴影。
+                            FocusCard(
+                                containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                                modifier = Modifier.fillMaxWidth(),
+                                elevation = 1.dp
+                            ) {
                                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                                         Text("校园地点来源", fontWeight = FontWeight.SemiBold)
@@ -1004,7 +1035,12 @@ private data class BaselineVariantDraft(val name: String)
                                 }
                             }
                             if (pendingPlaces.isNotEmpty()) {
-                                ElevatedCard(Modifier.fillMaxWidth()) {
+                                // 收编：ElevatedCard → FocusCard，显式保留 surfaceContainerLow 底色与 1dp 默认阴影。
+                                FocusCard(
+                                    containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    elevation = 1.dp
+                                ) {
                                     Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                         Text("课表识别发现的新地点", fontWeight = FontWeight.SemiBold)
                                         Text("识别结果中出现、还没加入地点目录的教室/楼名；加入后可用于课程空档与路程估算，也可在“管理校园地点”里改分区。", style = MaterialTheme.typography.bodySmall)
@@ -1018,7 +1054,12 @@ private data class BaselineVariantDraft(val name: String)
                                     }
                                 }
                             }
-                            ElevatedCard(Modifier.fillMaxWidth()) {
+                            // 收编：ElevatedCard → FocusCard，显式保留 surfaceContainerLow 底色与 1dp 默认阴影。
+                            FocusCard(
+                                containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                                modifier = Modifier.fillMaxWidth(),
+                                elevation = 1.dp
+                            ) {
                                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                     Text("校区中心与手动位置", fontWeight = FontWeight.SemiBold)
                                     Text("校区中心（POI 搜索范围）", fontWeight = FontWeight.SemiBold)
@@ -1261,7 +1302,8 @@ private data class BaselineVariantDraft(val name: String)
                                 if (apps.isNotEmpty()) {
                                     Text("${category.label}（${apps.size}）", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
                                     apps.forEach { (pkg, label, _) ->
-                                        Card {
+                                        // 收编：无显式底色的 Card → FocusCard，显式保留 Card 默认底色 surfaceContainerHighest。
+                                        FocusCard(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest) {
                                             Column(Modifier.fillMaxWidth().padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                                                     Column(Modifier.weight(1f)) {
@@ -1295,7 +1337,8 @@ private data class BaselineVariantDraft(val name: String)
                             if (uncategorizedExpanded) {
                                 Text("没有自动识别出分类；给它们归类后，到点检测才会把它们算作游戏/视频等。", style = MaterialTheme.typography.bodySmall)
                                 unknownApps.forEach { (pkg, label, _) ->
-                                    Card {
+                                    // 收编：无显式底色的 Card → FocusCard，显式保留 Card 默认底色 surfaceContainerHighest。
+                                    FocusCard(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest) {
                                         Column(Modifier.fillMaxWidth().padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                                                 Column(Modifier.weight(1f)) {
@@ -1477,7 +1520,14 @@ internal fun CollapsibleSettingsDetails(
     content: @Composable ColumnScope.() -> Unit
 ) {
     var expanded by remember { mutableStateOf(false) }
-    OutlinedCard(Modifier.fillMaxWidth()) {
+    // 收编：OutlinedCard → FocusCard。显式保留 Material3 OutlinedCard 的默认底色
+    // （OutlinedCardTokens.ContainerColor = surface）与默认描边（1dp outlineVariant），
+    // 默认阴影 Level0 = 0dp，与 FocusCard 默认一致。
+    FocusCard(
+        containerColor = MaterialTheme.colorScheme.surface,
+        modifier = Modifier.fillMaxWidth(),
+        border = CardDefaults.outlinedCardBorder()
+    ) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(summary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))

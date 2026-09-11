@@ -3,7 +3,6 @@ package com.sakata.focusflow
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
 import android.content.Context
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
@@ -176,7 +175,15 @@ internal fun scheduleWindowOptions(now: Long = System.currentTimeMillis()): List
                 if (suggestions.isEmpty()) {
                     Text("未来七天暂时没有足够连续的空档。任务会继续保留为弹性安排。")
                 } else suggestions.forEach { suggestion ->
-                    ElevatedCard(Modifier.fillMaxWidth().clickable { vault.clear(draftKey); onSelect(suggestion) }) {
+                    // 收编：ElevatedCard + Modifier.clickable → FocusCard(onClick)。
+                    // 底色 surfaceContainerLow 与 1dp 默认阴影保留；点击交回 Material 的可点击重载
+                    // （水波纹按卡片圆角裁剪，且带回点击语义），不再在外面套 clickable。
+                    FocusCard(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                        modifier = Modifier.fillMaxWidth(),
+                        elevation = 1.dp,
+                        onClick = { vault.clear(draftKey); onSelect(suggestion) }
+                    ) {
                         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                             Text(formatDateTime(suggestion.startsAt), fontWeight = FontWeight.Bold)
                             Text(suggestion.reason, style = MaterialTheme.typography.bodySmall)
@@ -292,7 +299,13 @@ internal fun DurationPicker(initialMinutes: Int, onChange: (Int?) -> Unit) {
                         Text("参考已确认课程、未完成的定时任务和当前精力，并保留 15 分钟缓冲。", style = MaterialTheme.typography.bodySmall)
                         if (suggestions.isEmpty()) Text("未来七天没有足够连续的空档；可以改用大致时间继续保持弹性。")
                         suggestions.forEach { suggestion ->
-                            ElevatedCard(Modifier.fillMaxWidth().clickable { vault.clear(draftKey); onSchedule(suggestion.startsAt, duration, formatDateTime(suggestion.startsAt), priority) }) {
+                            // 收编：ElevatedCard + Modifier.clickable → FocusCard(onClick)，同上一处。
+                            FocusCard(
+                                containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                                modifier = Modifier.fillMaxWidth(),
+                                elevation = 1.dp,
+                                onClick = { vault.clear(draftKey); onSchedule(suggestion.startsAt, duration, formatDateTime(suggestion.startsAt), priority) }
+                            ) {
                                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                                     Text(formatDateTime(suggestion.startsAt), fontWeight = FontWeight.Bold)
                                     Text(suggestion.reason, style = MaterialTheme.typography.bodySmall)

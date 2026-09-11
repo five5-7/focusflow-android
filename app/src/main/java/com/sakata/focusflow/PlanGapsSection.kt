@@ -389,7 +389,11 @@ FocusCard(
 private fun GapCard(gap: CourseGap) {
     val fromEnd = CourseGapPlanner.periodStart(gap.from.endPeriod) + 45
     val toStart = CourseGapPlanner.periodStart(gap.to.startPeriod)
-    ElevatedCard {
+    // 收编：ElevatedCard → FocusCard，显式保留 surfaceContainerLow 底色与 1dp 默认阴影。
+    FocusCard(
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        elevation = 1.dp
+    ) {
         Column(
             Modifier.fillMaxWidth().padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(5.dp)

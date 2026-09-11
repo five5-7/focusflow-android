@@ -264,7 +264,13 @@ internal fun WeeklyScheduleTimeline(
     }
     TimelineLegend()
     if (showCourseInfo) {
-        ElevatedCard {
+        // 收编：ElevatedCard → FocusCard，显式保留 surfaceContainerLow 底色与 1dp 默认阴影。
+        // 注意：本节上面那两块**课表/日程表底板**（appearanceBackdrop + BackdropRole.Timetable）
+        // 仍是有意不收编的，底色归「课表与日程表底色」设置管。
+        FocusCard(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+            elevation = 1.dp
+        ) {
             Column(
                 Modifier.fillMaxWidth().padding(12.dp),
                 verticalArrangement = Arrangement.spacedBy(7.dp)
