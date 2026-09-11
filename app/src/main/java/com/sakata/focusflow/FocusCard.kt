@@ -24,8 +24,13 @@ import androidx.compose.ui.graphics.Shape
  * [containerColor] 传调用点原来的底色 —— 默认材质 [CardMaterial.TONAL] 下就是原来的
  * `Card(containerColor = …)`，**逐像素不变**；其余材质在这层底色之上叠加。
  *
- * 为什么要有这个组件：全应用有 51 处卡片容器、各自写 `CardDefaults.cardColors`，
- * 想改"卡片长什么样"就得改 51 个地方。收编进来的调用点以后只描述"底色是什么"。
+ * 为什么要有这个组件：全应用有 80 处卡片容器、各自写 `CardDefaults.cardColors`，
+ * 想改"卡片长什么样"就得改 80 个地方。收编进来的调用点以后只描述"底色是什么"。
+ *
+ * **2026-09-11 起全部收编完毕**（`FocusCard` 调用点 35 → 80），只剩课表/日程表 2 处底板
+ * 有意不收编（底色归「课表与日程表底色」设置管）。每处都带 `// 收编：` 注释，可按需回退子集。
+ * 那次之所以要补收 45 处，是因为早先的盘点用带括号的 `Card(` grep，
+ * **漏掉了尾随 lambda 写法** `ElevatedCard {` / `Card {`。
  */
 @Composable
 internal fun FocusCard(
@@ -41,7 +46,9 @@ internal fun FocusCard(
     border: BorderStroke? = null,
     /**
      * 卡片阴影。默认 0 = 与原来的 `Card` 完全一致（逐像素不变）。
-     * 加这个参数是为了收编那 13 处 `ElevatedCard` —— 材质是全局的，
+     * 加这个参数是为了收编那 31 处 `ElevatedCard` —— `ElevatedCard` 的默认阴影是 `1.dp`
+ * （`ElevationTokens.Level1`）、默认底色是 `surfaceContainerLow`，所以收编时必须把
+ * 这两个值显式带上，否则会丢阴影或变色。材质是全局的，
      * 不收编它们就等于"有些卡片不响应材质"（维护者：「我要看见所有卡片变化」）。
      */
     elevation: androidx.compose.ui.unit.Dp = androidx.compose.ui.unit.Dp(0f),

@@ -78,7 +78,11 @@ internal fun PlanHubItem(title: String, summary: String, onClick: () -> Unit) {
     // 默认材质下渲染与原来的 Card 一致。
     FocusCard(
         containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
+        modifier = Modifier.fillMaxWidth(),
+        // 点击交给 FocusCard(onClick = …)，不再用卡片级 `Modifier.clickable`：
+        // 后者的水波纹是**直角**（没按 20dp 圆角裁剪），也缺 Surface 的点击语义
+        // （role = Button、48dp 最小触摸区）。2026-09-11 收编复查时发现，改掉。
+        onClick = onClick,
         shape = RoundedCornerShape(20.dp),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
     ) {
