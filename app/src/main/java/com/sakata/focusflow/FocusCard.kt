@@ -76,9 +76,11 @@ internal fun FocusCard(
                         // 为什么不是"背景模糊"：per-card 的背景模糊在 Compose 公开 API 里做不到
                         // （需要按卡片位置采样背景，没有 backdrop 捕获）；而且页面底色是平滑渐变时，
                         // 模糊它等于没糊。材质层的模糊在任何背景下都看得见。
+                        // 半径 6dp -> 14dp：维护者要的是"透明加**模糊晕散**的感觉"——
+                        // 6dp 只够把边线柔化一点，14dp 才能让那圈边线摊开成一片晕开的亮晕。
                         .then(
                             if (material == CardMaterial.ACRYLIC) {
-                                Modifier.blur(androidx.compose.ui.unit.Dp(6f))
+                                Modifier.blur(androidx.compose.ui.unit.Dp(14f))
                             } else {
                                 Modifier
                             }

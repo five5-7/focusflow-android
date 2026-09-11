@@ -268,7 +268,14 @@ internal fun FloatingNavigationBar(
                             barMaterial,
                             background,
                             barShape,
-                            alpha = if (barBrush != null) 0.6f else 1f
+                            // **不要对已经半透明的材质再乘一次 alpha。**
+                            // 这层 0.6 原本是为了让下面那条"跟随页面左右渐变"的画刷透上来；
+                            // 而亚克力自身 alpha 就是 0.60，再乘 0.6 只剩 0.36 ——
+                            // 叠在底栏这种不透明底色上几乎看不出层次，
+                            // 维护者就是因此报"导航栏没有渲染上"（真机实测：亚克力档底栏
+                            // 比默认只深 9 级且完全平，看着像没生效）。
+                            // 半透明材质本来就透，所以它走全强度。
+                            alpha = if (barBrush != null && barMaterial != CardMaterial.ACRYLIC) 0.6f else 1f
                         )
                     )
                 // Internal padding contains BOTH selected background and ripple within the outer corners.
