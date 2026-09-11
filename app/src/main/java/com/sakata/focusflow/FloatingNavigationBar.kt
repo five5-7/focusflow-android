@@ -35,6 +35,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -198,13 +199,29 @@ internal fun FloatingNavigationBar(
                 // 于是底栏上冒出一整块矩形底色（维护者反馈"像一块矩形底"）。
                 modifier = Modifier
                     .fillMaxWidth()
-                    .graphicsLayer { alpha = 1f - barDim }
+                    // 弹窗打开时**降低胶囊亮度**（维护者口径：「如果有弹窗，你降一下胶囊亮度就行了」）。
+                    //
+                    // 早先这里是 `graphicsLayer { alpha = 1f - barDim }` —— 把整条底栏变**半透明**。
+                    // 半透明的效果是"底下的页面文字透上来"，看着发白/发灰，而不是沉下去
+                    // （维护者：「弹窗出现时半透明的变化过于简化了，如果底下有字怎么办」）。
+                    // 改成在整条底栏（底色 + 图标 + 文字）之上压一层黑：亮度真的降下来，
+                    // 又不会透出底下的内容。barDim 没有弹窗时恒为 0，默认外观不受影响。
+                    //
+                    // 注：**不要**用 `Modifier.blur` 去糊弹窗背后的页面——那是「毛玻璃材质」的事
+                    // （维护者：「背景模糊不是毛玻璃材质的事情吗」），别给它做一次性特例。
+                    .clip(barShape)
+                    .drawWithContent {
+                        drawContent()
+                        // 0.6 = 压暗系数：barDim 最大是 SCRIM_ALPHA(0.32)，乘完约 0.19 的黑，
+                        // 底栏（浅色主题下约 rgb(225,235,230)）会降到约 rgb(182,190,186)——
+                        // 明显沉下去，但图标与文字仍然清楚。
+                        if (barDim > 0f) drawRect(Color.Black.copy(alpha = barDim * 0.6f))
+                    }
                     // 底栏底色**用画刷而不是单色**：单色表达不出左右渐变
                     // （维护者："导航栏不会相应左右渐变的底色"）。
                     // clip(barShape) 是必须的——drawBehind 在 Surface 形状裁剪之外。
                     //
                     // 注意：这条画刷路径当前恒为 null（T-4 因"渲染成三层"被回退）。
-                    .clip(barShape)
                     .then(
                         if (containerBrush != null) {
                             Modifier.drawBehind { drawRect(containerBrush) }
