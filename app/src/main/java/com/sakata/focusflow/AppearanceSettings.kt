@@ -457,7 +457,7 @@ internal fun GradientStopsControls(
     )
 }
 
-/** 卡片材质四档（默认 = 原来的纯色卡片，逐像素不变）。 */
+/** 卡片材质六档（默认 = 原来的纯色卡片，逐像素不变）。 */
 @Composable
 @OptIn(ExperimentalLayoutApi::class)
 internal fun CardMaterialControls(
@@ -485,7 +485,7 @@ internal fun CardMaterialControls(
         )
         // 卡片渐变方向（维护者口径：卡片的渐变要能选上→下 / 下→上）。
         // 只在柔光下有意义——渐变材质的走向是主题派生的，不跟这个开关。
-        if (appearance.cardMaterial == CardMaterial.SOFT) {
+        if (appearance.cardMaterial != CardMaterial.TONAL && appearance.cardMaterial != CardMaterial.GRADIENT) {
             Text("卡面渐变方向", style = MaterialTheme.typography.labelMedium)
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 listOf(false to "上→下", true to "下→上").forEach { (reversed, label) ->

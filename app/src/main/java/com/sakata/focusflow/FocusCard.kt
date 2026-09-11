@@ -127,4 +127,6 @@ internal fun CardMaterial.label(): String = when (this) {
     CardMaterial.TONAL -> "默认"
     CardMaterial.GRADIENT -> "渐变"
     CardMaterial.SOFT -> "柔光"
+    CardMaterial.FROSTED -> "毛玻璃"
+    CardMaterial.ACRYLIC -> "亚克力"
 }

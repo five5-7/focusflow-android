@@ -89,8 +89,28 @@ internal enum class CardMaterial(val storageKey: String) {
     /** 主题渐变卡面。 */
     GRADIENT("gradient"),
 
-    /** 柔光：顶面高光 + 底部微沉。 */
-    SOFT("soft");
+    /** 柔光：顶面高光 + 底部微沉，上下对称、亮度中性。 */
+    SOFT("soft"),
+
+    /**
+     * 毛玻璃：**高光集中在顶部边缘**的光泽面（真实的玻璃边就是这样）。
+     *
+     * 与柔光的区别不在幅度、在**剖面**：柔光是上下对称的均匀斜坡，
+     * 毛玻璃是"顶部一条窄高光 + 其余部分平缓回落"。亮度中性照样守——
+     * 高光带只占顶部约 18%，剩下的高度用一点点压深把面积补回来（见 `frostedStops`）。
+     *
+     * 说明：这里**不做真正的背景模糊**。背景模糊是逐帧 RenderEffect，
+     * 按既定口径要先出帧时间数字再决定，见 `docs/8.2.0-checklist.md` §四。
+     */
+    FROSTED("frosted"),
+
+    /**
+     * 亚克力：一整块**平**的哑光板 + 顶部极窄的一条环境光，并带一点主题染色。
+     *
+     * 与毛玻璃的区别是"平"：毛玻璃靠顶部高光做出光泽与厚度，
+     * 亚克力几乎不做出起伏，靠染色与那道窄高光区分开（Fluent 亚克力的观感）。
+     */
+    ACRYLIC("acrylic");
 
     companion object {
         fun fromKey(key: String?): CardMaterial =

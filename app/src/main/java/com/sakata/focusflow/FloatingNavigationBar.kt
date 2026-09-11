@@ -257,7 +257,20 @@ internal fun FloatingNavigationBar(
                     }
                     // ② 材质层：与卡片、弹窗共用同一份实现
                     //    （维护者："材质应该包括底栏才对"）。
-                    Box(Modifier.matchParentSize().surfaceMaterialFill(barMaterial, background, barShape))
+                    //
+                    // 跟随页面渐变时（barBrush != null）只画 0.6：材质画刷是**不透明**的，
+                    // 全强度会把下面那条横向渐变整块盖住，"底栏跟随左右渐变"就看不见了
+                    // （真机实测过：页面渐变方向是 rightleft，而底栏那一行是平的）。
+                    // 半强度让两者叠加——横向是页面渐变、纵向是材质剖面。
+                    // 非渐变档没有画刷要透，保持全强度，与卡片一致。
+                    Box(
+                        Modifier.matchParentSize().surfaceMaterialFill(
+                            barMaterial,
+                            background,
+                            barShape,
+                            alpha = if (barBrush != null) 0.6f else 1f
+                        )
+                    )
                 // Internal padding contains BOTH selected background and ripple within the outer corners.
                 BoxWithConstraints(Modifier.padding(FloatingNavigationLayout.INNER_PADDING_DP.dp)) {
                     val contentWidth = maxWidth.coerceAtLeast(FloatingNavigationLayout.MIN_CONTENT_WIDTH_DP.dp)

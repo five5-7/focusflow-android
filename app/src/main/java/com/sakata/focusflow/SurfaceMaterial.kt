@@ -753,7 +753,75 @@ internal fun materialBrush(
         CardMaterial.TONAL -> null
         CardMaterial.GRADIENT -> Brush.verticalGradient(listOf(blendSrgb(base, scheme.primary, 0.07f), base))
         CardMaterial.SOFT -> softLightBrush(base, softReversed)
+        CardMaterial.FROSTED -> frostedBrush(base, softReversed)
+        CardMaterial.ACRYLIC -> acrylicBrush(base, scheme, softReversed)
     }
+
+/**
+ * 毛玻璃的高光带宽（占卡面高度的比例）。
+ *
+ * 毛玻璃与柔光的区别**不在幅度、在剖面**：柔光是上下对称的均匀斜坡，
+ * 毛玻璃是"高光集中在顶部边缘、其余部分平缓回落"——真实的玻璃边正是这样。
+ * 见 [frostedStops]。
+ */
+internal const val FROSTED_BAND = 0.18f
+
+/**
+ * 毛玻璃的三个站点（带**位置**，因为它不是等距铺的）。
+ *
+ * 亮度中性仍然要守（T-1 的教训：整块净暗会看起来"曲线反了"）：
+ * 高光带只占 [FROSTED_BAND] 的高度，剩下 `1 - FROSTED_BAND` 的高度用一点点压深
+ * 把面积补回来，即 `a · band / 2 = b · (1 - band) / 2` ⇒ `b = a · band / (1 - band)`。
+ * 于是高光是窄而亮的、压深是宽而浅的——这正是"光泽面"与"整体变暗"的区别。
+ */
+internal fun frostedStops(base: Color, reversed: Boolean = false): List<Pair<Float, Color>> {
+    val top = shiftGreyLevels(base, softLightAmplitude(base))
+    // **按实际涨幅镜像**（与 softLightStops 同一个道理）：
+    // 近白底片的顶站会被纯白夹住，实际涨幅小于 softLightAmplitude；
+    // 压深必须照着"实际涨了多少"按面积守恒补回来，否则夹紧就会变成整块净暗。
+    val k = FROSTED_BAND / (1f - FROSTED_BAND)
+    val bottom = Color(
+        red = base.red - (top.red - base.red) * k,
+        green = base.green - (top.green - base.green) * k,
+        blue = base.blue - (top.blue - base.blue) * k,
+        alpha = base.alpha
+    )
+    val stops = listOf(
+        0f to top,
+        FROSTED_BAND to base,
+        1f to bottom
+    )
+    // 反向 = 把位置镜像过来（高光跑到下边缘），而不是换一组颜色。
+    return if (reversed) stops.map { (f, c) -> (1f - f) to c }.reversed() else stops
+}
+
+internal fun frostedBrush(base: Color, reversed: Boolean = false): Brush =
+    Brush.verticalGradient(*frostedStops(base, reversed).toTypedArray())
+
+/**
+ * 亚克力：一整块**平**的哑光板 + 顶部极窄的一条环境光，并带一点主题染色。
+ *
+ * 与毛玻璃的区别是"平"：毛玻璃靠顶部高光做出光泽与厚度，亚克力几乎不做起伏，
+ * 靠**染色**（往主题主色混 6%）与那道窄高光与默认材质区分开。
+ * 染色会跟着主题走，这是亚克力的特征，也是它肉眼可辨的地方。
+ */
+internal fun acrylicStops(
+    base: Color,
+    scheme: ColorScheme,
+    reversed: Boolean = false
+): List<Pair<Float, Color>> {
+    val tinted = blendSrgb(base, scheme.primary, 0.06f)
+    val gloss = shiftGreyLevels(tinted, 4f)
+    val stops = listOf(
+        0f to gloss,
+        0.07f to tinted,
+        1f to tinted
+    )
+    return if (reversed) stops.map { (f, c) -> (1f - f) to c }.reversed() else stops
+}
+
+internal fun acrylicBrush(base: Color, scheme: ColorScheme, reversed: Boolean = false): Brush =
+    Brush.verticalGradient(*acrylicStops(base, scheme, reversed).toTypedArray())
 
 /**
  * 把材质叠层画在**调用方自己的形状里**。
@@ -780,7 +848,12 @@ internal fun materialBrush(
 internal fun Modifier.surfaceMaterialFill(
     material: CardMaterial,
     base: Color,
-    shape: Shape
+    shape: Shape,
+    /**
+     * 材质层的不透明度。底栏在"跟随页面渐变"时传 < 1：
+     * 材质画刷是不透明的，全强度会把底下的渐变画刷整块盖住。
+     */
+    alpha: Float = 1f
 ): Modifier {
     val scheme = MaterialTheme.colorScheme
     val reversed = LocalAppearance.current.cardGradientReversed
@@ -797,7 +870,7 @@ internal fun Modifier.surfaceMaterialFill(
             // 弹窗靠 Surface 自己的 `color`，底栏靠下面那层渐变画刷或 Surface 的纯色。
             // 早先这里还画过一层 `drawRect(base)`（为了让"把 Surface 让成透明"那种接法不留洞），
             // 那条接法已经废弃，留着它反而会把底栏的渐变画刷盖掉。
-            drawRect(layer)
+            drawRect(layer, alpha = alpha)
         }
 }
 
