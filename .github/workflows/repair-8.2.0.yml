@@ -14,8 +14,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git fetch origin fc41d6c9cdb1890a11a7ce578305bef1869d47d9
-          git checkout fc41d6c9cdb1890a11a7ce578305bef1869d47d9^ -- app/src/main/java/com/sakata/focusflow/PrototypeStore.kt
+          git fetch origin experiment/focusflow-8.2-acrylic
+          git checkout origin/experiment/focusflow-8.2-acrylic -- app/src/main/java/com/sakata/focusflow/PrototypeStore.kt
           sed -i 's/getBoolean("appearance_rich_effects", true)/getBoolean("appearance_rich_effects", false)/' app/src/main/java/com/sakata/focusflow/PrototypeStore.kt
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
