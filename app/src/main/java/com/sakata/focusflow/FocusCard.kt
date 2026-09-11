@@ -73,21 +73,34 @@ internal fun FocusCard(
             Column(content = content)
         } else {
             Box {
+                if (material == CardMaterial.ACRYLIC) {
+                    // 亚克力的「透明 + 模糊晕散」作用在**页面底色**上（维护者口径：
+                    // 「这些卡片应该作用于底色上」「透明模糊要作用于有字的地方」）。
+                    //
+                    // 做法：把页面底色按**同一套渲染**（appearanceBackdrop）再画一份进来，
+                    // 并**大幅模糊**（40dp）。两个好处：
+                    //  1. 卡片透出的一律是**底色** —— 与它嵌在谁里面无关。之前只"不铺不透明底"，
+                    //     嵌在收集箱里的卡片透出来的是**外层卡片**而不是底色（维护者一眼看出）。
+                    //  2. 模糊半径远大于卡片尺寸，"这一份底色没按卡片位置对齐"在视觉上不可辨 ——
+                    //     于是**不需要**位置追踪，也不需要页面级 GraphicsLayer 捕获
+                    //     （那是逐帧 RenderEffect + 组合树拆分，成本高得多）。
+                    //
+                    // 边界（必须说准）：糊的是**底色**；页面上的文字本身不在底色层里。
+                    // 要连页面文字一起糊，必须录"除卡片外的全部内容"，属结构性改动。
+                    Box(
+                        Modifier
+                            .matchParentSize()
+                            .blur(androidx.compose.ui.unit.Dp(40f))
+                            .appearanceBackdrop(
+                                LocalAppearance.current,
+                                MaterialTheme.colorScheme,
+                                LocalBackdropBitmap.current
+                            )
+                    )
+                }
                 Box(
                     Modifier
                         .matchParentSize()
-                        // 亚克力：**一点透明 + 一层模糊**（维护者口径「把亚克力材质加一点透明加模糊的效果」）。
-                        // 透明由材质自身的 alpha 给（见 acrylicStops）；
-                        // 模糊加在**材质层**上，把那条锐利的边线和染色柔化成"透过一块塑料板看"的观感。
-                        //
-                        // 为什么不是"背景模糊"：per-card 的背景模糊在 Compose 公开 API 里做不到
-                        // （需要按卡片位置采样背景，没有 backdrop 捕获）；而且页面底色是平滑渐变时，
-                        // 模糊它等于没糊。材质层的模糊在任何背景下都看得见。
-                        // **不加模糊。** 试过 Modifier.blur（6dp / 14dp）：真机实测它把亚克力
-                        // 压成了"平的"（今日大卡片横向只剩 3 级变化，加之前是 37 级），
-                        // 也就是说上了模糊之后**反而更不透**了。而且维护者要的"晕散"是
-                        // 糊**背后**的内容，糊材质自己那一层根本做不出那个效果 ——
-                        // 真背景模糊要页面级 GraphicsLayer 捕获，属独立改动。
                         .cardMaterialFill(containerColor, material, MaterialTheme.colorScheme, LocalAppearance.current.cardGradientReversed)
                 )
                 Column(content = content)
