@@ -92,15 +92,7 @@ internal enum class CardMaterial(val storageKey: String) {
     /** 柔光：顶面高光 + 底部微沉，上下对称、亮度中性。 */
     SOFT("soft"),
 
-    /**
-     * 亚克力：一整块**平**的哑光板 + 顶部极窄的一条环境光，并带一点主题染色，
-     * 整体**半透明**（维护者：「把亚克力材质加一点透明加模糊的效果」）。
-     *
-     * 毛玻璃已于 2026-09-11 按维护者口径删除（「毛玻璃效果太差，删掉」）——
-     * 原因记录在此：底色是**平滑渐变**的页面上，"半透明"本身看不出来
-     * （背后是平滑的，透过去还是那片平滑），而能救它的那圈"玻璃边"又太依赖具体背景，
-     * 真机上两种做法都读不出玻璃感。留个坑位说明，避免以后又加回来。
-     */
+    /** 亚克力实验：坐标对齐的页面背景采样 + 模糊 + 半透明染色。 */
     ACRYLIC("acrylic");
 
     companion object {
@@ -141,13 +133,13 @@ internal data class AppearanceSpec(
     /**
      * 丰富的动画与外观效果（维护者口径 8.2.0）。
      *
-     * 默认 **true = 保持现状**，老装机读不到这个键就等于现在的样子。
+     * 默认 **false = 关闭丰富效果**；用户可在设置中主动打开。
      * 关掉之后只保留最基本的渲染：背景退成纯色（渐变/图片/课表底图都不画）、
      * 卡片材质回落成默认纯色卡片、各种装饰性动画与底栏形变走最简形态。
      * 存在的理由：这些效果是逐帧的绘制/动画成本，低端机上会吃掉流畅度，
      * 需要一个"我要流畅，不要花哨"的开关——而不是逼用户去猜某个具体档位。
      */
-    val richEffects: Boolean = true,
+    val richEffects: Boolean = false,
     /** 页面渐变方向；默认上→下（与首次实现逐像素一致）。 */
     val gradientDirection: GradientDirection = GradientDirection.TOP_DOWN,
     /**
@@ -306,7 +298,7 @@ internal data class AppearanceSpec(
             timetableImage: String?,
             timetableOpacity: Int,
             extracted: String?,
-            richEffects: Boolean = true,
+            richEffects: Boolean = false,
             gradientDirection: String? = null,
             cardGradientReversed: Boolean = false
         ): AppearanceSpec = AppearanceSpec(
