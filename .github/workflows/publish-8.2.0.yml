@@ -1,0 +1,97 @@
+name: Publish FocusFlow 8.2.0
+
+on:
+  workflow_run:
+    workflows: ["Build FocusFlow APK"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: release-v8.2.0
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: >-
+      github.repository == 'five5-7/focusflow-android' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.head_branch == 'main'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SOURCE_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+      RUN_ID: ${{ github.event.workflow_run.id }}
+      RUN_NUMBER: ${{ github.event.workflow_run.run_number }}
+      APK_FILE_NAME: FocusFlow-8.2.0-run-${{ github.event.workflow_run.run_number }}.apk
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Download verified build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: FocusFlow-8.2.0-run-${{ env.RUN_NUMBER }}-apk
+          run-id: ${{ env.RUN_ID }}
+          github-token: ${{ github.token }}
+          path: release-artifact
+
+      - name: Verify APK metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk="release-artifact/$APK_FILE_NAME"
+          test -f "$apk"
+          build_tools="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          "$build_tools/aapt" dump badging "$apk" > metadata.txt
+          grep -Fq "package: name='com.sakata.focusflow' versionCode='525' versionName='8.2.0'" metadata.txt
+          if grep -q '^application-debuggable' metadata.txt; then exit 1; fi
+
+      - name: Publish stable GitHub Release
+        uses: actions/github-script@v7
+        env:
+          APK_FILE_NAME: ${{ env.APK_FILE_NAME }}
+        with:
+          script: |
+            const fs = require('fs');
+            const crypto = require('crypto');
+            const tag = 'v8.2.0';
+            const name = process.env.APK_FILE_NAME;
+            const bytes = fs.readFileSync('release-artifact/' + name);
+            const digest = 'sha256:' + crypto.createHash('sha256').update(bytes).digest('hex');
+            let release;
+            try { release = (await github.rest.repos.getReleaseByTag({...context.repo, tag})).data; }
+            catch (e) { if (e.status !== 404) throw e; }
+            if (release && release.target_commitish !== process.env.SOURCE_SHA) {
+              throw new Error('Existing release belongs to another commit');
+            }
+            if (!release) release = (await github.rest.repos.createRelease({...context.repo,
+              tag_name: tag, target_commitish: process.env.SOURCE_SHA,
+              name: 'FocusFlow 8.2.0 · 第四个正式版',
+              body: fs.readFileSync('docs/8.2.0-release-notes.md', 'utf8'),
+              draft: true, prerelease: false})).data;
+            const assets = await github.paginate(github.rest.repos.listReleaseAssets,
+              {...context.repo, release_id: release.id});
+            let asset = assets.find(a => a.name === name);
+            if (!asset) asset = (await github.rest.repos.uploadReleaseAsset({...context.repo,
+              release_id: release.id, name, data: bytes,
+              headers: {'content-type': 'application/vnd.android.package-archive', 'content-length': bytes.length}
+            })).data;
+            if (asset.state !== 'uploaded' || asset.size !== bytes.length || asset.digest !== digest) {
+              throw new Error('Remote APK verification failed');
+            }
+            if (release.draft) release = (await github.rest.repos.updateRelease({...context.repo,
+              release_id: release.id, draft: false, prerelease: false, make_latest: 'true'})).data;
+            if (release.draft || release.prerelease || !release.published_at) throw new Error('Release is not stable/public');
+            await core.summary.addHeading('FocusFlow 8.2.0 published')
+              .addLink('Release', release.html_url).addBreak()
+              .addLink(name, asset.browser_download_url).addBreak()
+              .addRaw(digest).write();
