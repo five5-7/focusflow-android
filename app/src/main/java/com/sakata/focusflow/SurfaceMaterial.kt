@@ -751,7 +751,11 @@ internal fun materialBrush(
 ): Brush? =
     when (material) {
         CardMaterial.TONAL -> null
-        CardMaterial.GRADIENT -> Brush.verticalGradient(listOf(blendSrgb(base, scheme.primary, 0.07f), base))
+        // 7% → 14%：维护者口径「材质都没做好（做出区别）」。
+        // 原来 7% 与柔光放在一起都是"平滑竖渐变"，一眼分不出；
+        // 现在渐变是**明显的颜色晕染**（顶端比底色偏 23 级、一路衰减到底），
+        // 而柔光是**亮度斜坡、色相不变**——"变色"与"打光"的区别，两档不会再混。
+        CardMaterial.GRADIENT -> Brush.verticalGradient(listOf(blendSrgb(base, scheme.primary, 0.14f), base))
         CardMaterial.SOFT -> softLightBrush(base, softReversed)
         CardMaterial.FROSTED -> frostedBrush(base, softReversed)
         CardMaterial.ACRYLIC -> acrylicBrush(base, scheme, softReversed)

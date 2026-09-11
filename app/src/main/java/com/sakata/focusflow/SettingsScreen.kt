@@ -593,7 +593,20 @@ private data class BaselineVariantDraft(val name: String)
                             onApplyExtractedTheme = onApplyExtractedTheme
                         )
                         HorizontalDivider()
-                        FocusFlowThemeOption.builtInEntries().forEach { option ->
+                        // **渐进组合**：这七行是整页最贵的一段（每行都要合成一整套 colorScheme，
+                        // 再画一个带材质的 FocusCard）。实测"打开 设置 → 外观"那一帧 200ms、
+                        // 重帧率 5.66% 超预算，而记账的 `remember` 只省重组、省不了首次组合。
+                        // 所以把它们摊到几帧里逐行组合：每帧只多一行，视觉上仍是"瞬间填满"，
+                        // 但不再有单个长帧。后面若还嫌慢，再考虑把设置页整列换成 LazyColumn。
+                        var revealedPresets by remember { mutableStateOf(0) }
+                        LaunchedEffect(Unit) {
+                            val total = FocusFlowThemeOption.builtInEntries().size
+                            while (revealedPresets < total) {
+                                androidx.compose.runtime.withFrameNanos { }
+                                revealedPresets += 1
+                            }
+                        }
+                        FocusFlowThemeOption.builtInEntries().take(revealedPresets).forEach { option ->
                             // 必须传 darkMode：不传就会拿到**浅色**方案的 primaryContainer，
                             // 深色模式下那是一块接近白的卡片，压在一整页深色上极其刺眼，
                             // 而且卡上的「已选择」用的是浅色方案的 primary（也是浅色），
