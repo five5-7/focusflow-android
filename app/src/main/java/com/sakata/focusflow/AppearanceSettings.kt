@@ -485,7 +485,11 @@ internal fun CardMaterialControls(
         )
         // 卡片渐变方向（维护者口径：卡片的渐变要能选上→下 / 下→上）。
         // 只在柔光下有意义——渐变材质的走向是主题派生的，不跟这个开关。
-        if (appearance.cardMaterial != CardMaterial.TONAL && appearance.cardMaterial != CardMaterial.GRADIENT) {
+        // 「卡面渐变方向」只对**真正有方向**的两档显示：渐变（上/下染色）与柔光（顶亮底沉）。
+        // 之前写成"除默认与渐变之外都显示"，结果**亚克力**（平板，本来没有方向）显示了、
+        // 而**渐变**（真正有方向的那一档）反而没有 —— 维护者指出：
+        // 「亚克力应该没有渐变方向吧，为什么渐变反而没有渐变方向？」
+        if (appearance.cardMaterial == CardMaterial.GRADIENT || appearance.cardMaterial == CardMaterial.SOFT) {
             Text("卡面渐变方向", style = MaterialTheme.typography.labelMedium)
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 listOf(false to "上→下", true to "下→上").forEach { (reversed, label) ->

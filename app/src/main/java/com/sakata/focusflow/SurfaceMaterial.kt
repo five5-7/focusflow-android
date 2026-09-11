@@ -755,7 +755,14 @@ internal fun materialBrush(
         // 原来 7% 与柔光放在一起都是"平滑竖渐变"，一眼分不出；
         // 现在渐变是**明显的颜色晕染**（顶端比底色偏 23 级、一路衰减到底），
         // 而柔光是**亮度斜坡、色相不变**——"变色"与"打光"的区别，两档不会再混。
-        CardMaterial.GRADIENT -> Brush.verticalGradient(listOf(blendSrgb(base, scheme.primary, 0.14f), base))
+        // **渐变档必须吃 softReversed**（维护者口径：「亚克力应该没有渐变方向吧，
+        // 为什么渐变反而没有渐变方向？」）——
+        // 真正有方向的就是这一档；之前这个分支忽略了方向开关，
+        // 于是 chip 摆在那里、点了却一点反应都没有。
+        CardMaterial.GRADIENT -> {
+            val tinted = blendSrgb(base, scheme.primary, 0.14f)
+            Brush.verticalGradient(if (softReversed) listOf(base, tinted) else listOf(tinted, base))
+        }
         CardMaterial.SOFT -> softLightBrush(base, softReversed)
         CardMaterial.ACRYLIC -> acrylicBrush(base, scheme, softReversed)
     }
