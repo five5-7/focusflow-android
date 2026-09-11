@@ -20,11 +20,11 @@ class RichEffectsTest {
     @Test
     fun defaultsToOnSoExistingInstallsDoNotChange() {
         assertFalse("8.2.0 起丰富外观默认必须关闭", AppearanceSpec.DEFAULT.richEffects)
-        // 读不到这个键（老装机）也必须等于"开"
+        // 读不到这个键时也沿用 8.2.0 的默认关闭策略
         val legacy = AppearanceSpec.fromKeys(
             null, null, 100, 100, 0, false, 0, 0, null, null, 0, null, 100, null
         )
-        assertTrue(legacy.richEffects)
+        assertFalse(legacy.richEffects)
     }
 
     @Test
@@ -120,7 +120,7 @@ class RichEffectsTest {
      */
     @Test
     fun controlsThatNoLongerDoAnythingAreNotOffered() {
-        val rich = AppearanceSpec.DEFAULT
+        val rich = AppearanceSpec.DEFAULT.copy(richEffects = true)
         assertTrue("开着时应提供四档背景", rich.offeredPageBackdrops.size == 4)
         assertTrue(rich.offeredPageBackdrops.contains(BackdropKind.GRADIENT))
         assertTrue(rich.offeredPageBackdrops.contains(BackdropKind.IMAGE))
