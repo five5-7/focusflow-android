@@ -219,8 +219,11 @@ internal fun AppDialogHost(
                         // 阴影自己画：Material 默认是纯黑直角阴影，这里换成主题染色的软阴影，
                         // 并把卡片抬得更高，让它明显浮在压暗的页面之上（分层）。
                         shadowElevation = 0.dp,
-                        // 极细描边：花哨度很低，但在深色遮罩上能把卡片边缘勾清楚。
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+                        // 非玻璃档保留通用边框；玻璃档交给材质层，避免亚克力出现边线、
+                        // 也避免毛玻璃的圆角亮边与通用边框重叠。
+                        border = if (dialogMaterial.samplesPageBackdrop) null else {
+                            BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                        },
                         // 调用方传的 modifier 作用在卡片上（与 AlertDialog 语义一致）。
                         modifier = modifier
                             .widthIn(min = 280.dp, max = 560.dp)

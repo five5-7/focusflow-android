@@ -18,8 +18,12 @@ import org.junit.Test
 class RichEffectsTest {
 
     @Test
-    fun defaultsToOnSoExistingInstallsDoNotChange() {
+    fun defaultsToOffAndDoesNotCaptureGlassBackdrop() {
         assertFalse("8.2.0 起丰富外观默认必须关闭", AppearanceSpec.DEFAULT.richEffects)
+        assertFalse(
+            "默认关闭时不能建立玻璃背景捕获",
+            AppearanceSpec.DEFAULT.effectiveCardMaterial.samplesPageBackdrop
+        )
         // 读不到这个键时也沿用 8.2.0 的默认关闭策略
         val legacy = AppearanceSpec.fromKeys(
             null, null, 100, 100, 0, false, 0, 0, null, null, 0, null, 100, null

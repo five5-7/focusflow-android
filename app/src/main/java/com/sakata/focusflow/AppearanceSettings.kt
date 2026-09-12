@@ -74,8 +74,7 @@ internal fun AppearanceSettingsSection(
         } else {
             HorizontalDivider()
             Text(
-                "卡片材质与课表底色已随「丰富的动画与外观效果」一起暂停——" +
-                    "之前选过的设置都还留着，重新打开开关就会恢复。",
+                "丰富外观已关闭：卡片材质和课表底色暂不生效，已选内容会保留，重新开启即可恢复。",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -479,8 +478,8 @@ internal fun CardMaterialControls(
             }
         }
         Text(
-            "默认＝原来的纯色卡片；渐变与柔光是轻量效果；亚克力保留背景轮廓并带主题染色；" +
-                "毛玻璃扩散更强、颜色更中性。玻璃类只模糊卡片底层，不会模糊卡片文字。",
+            "亚克力会轻度模糊底层并加入主题色，不加描边；毛玻璃模糊更强，并有一圈完整的圆角亮边。" +
+                "两者都不会模糊文字。",
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )

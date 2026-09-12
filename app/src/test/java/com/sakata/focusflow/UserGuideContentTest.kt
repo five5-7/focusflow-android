@@ -50,10 +50,12 @@ class UserGuideContentTest {
     }
 
     @Test fun `8_2_1 highlights distinguish acrylic and frosted glass`() {
-        val copy = updateHighlightsFor("8.2.1-rc.1").joinToString("\n")
+        val copy = updateHighlightsFor("8.2.1-rc.2").joinToString("\n")
         for (keyword in listOf("亚克力", "毛玻璃", "丰富外观", "默认关闭")) {
             assertTrue("8.2.1 更新说明应提到「$keyword」", copy.contains(keyword))
         }
+        assertTrue("亚克力更新说明应明确无描边", copy.contains("不加描边"))
+        assertTrue("毛玻璃更新说明应明确圆角亮边完整", copy.contains("完整的圆角亮边"))
     }
 
     /** 8.2.0 的更新说明要覆盖到七个特性里用户真正能感知的那几个。 */

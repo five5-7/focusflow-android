@@ -242,7 +242,11 @@ internal fun FloatingNavigationBar(
                 // 描边收成几乎看不见的发丝线，靠阴影把边缘柔化出去（3dp → 7dp）。
                 // 弹窗打开时收到 1dp：那圈投影正是"抢弹窗存在感"的来源。
                 shadowElevation = barShadow,
-                border = BorderStroke(0.6.dp, navigationContentColor(background).copy(alpha = 0.12f))
+                // 玻璃档由材质层自己决定边缘：亚克力无描边，毛玻璃沿真实圆角画 1dp 亮边。
+                // 保留这里的通用边框会让亚克力仍像有边、毛玻璃叠成双边。
+                border = if (barMaterial.samplesPageBackdrop) null else {
+                    BorderStroke(0.6.dp, navigationContentColor(background).copy(alpha = 0.12f))
+                }
             ) {
                 // 底栏自己的两层底**必须画在 Surface 内容里**：
                 // Surface 的 `color` 会盖住挂在它 modifier 上的 drawBehind（见 surfaceMaterialFill 的说明）。
