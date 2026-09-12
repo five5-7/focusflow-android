@@ -17,13 +17,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.ImageShader
+import androidx.compose.ui.graphics.Outline
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.ShaderBrush
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.drawOutline
 import androidx.compose.ui.graphics.drawscope.inset
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalDensity
@@ -809,8 +810,13 @@ internal fun DrawScope.drawMaterialRim(shape: Shape, color: Color, widthDp: Floa
     val widthPx = androidx.compose.ui.unit.Dp(widthDp).toPx()
     if (widthPx <= 0f || size.width <= widthPx || size.height <= widthPx) return
     inset(widthPx / 2f) {
-        drawOutline(
-            outline = shape.createOutline(size, layoutDirection, this),
+        val path = when (val outline = shape.createOutline(size, layoutDirection, this)) {
+            is Outline.Rectangle -> Path().apply { addRect(outline.rect) }
+            is Outline.Rounded -> Path().apply { addRoundRect(outline.roundRect) }
+            is Outline.Generic -> outline.path
+        }
+        drawPath(
+            path = path,
             color = color,
             style = Stroke(widthPx)
         )
