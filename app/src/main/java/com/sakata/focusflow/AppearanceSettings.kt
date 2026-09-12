@@ -457,7 +457,7 @@ internal fun GradientStopsControls(
     )
 }
 
-/** 卡片材质六档（默认 = 原来的纯色卡片，逐像素不变）。 */
+/** 卡片材质五档（默认 = 原来的纯色卡片，逐像素不变）。 */
 @Composable
 @OptIn(ExperimentalLayoutApi::class)
 internal fun CardMaterialControls(
@@ -479,7 +479,8 @@ internal fun CardMaterialControls(
             }
         }
         Text(
-            "默认＝原来的纯色卡片（逐像素不变）；渐变按当前配色派生；柔光给卡面一层很淡的顶亮底沉。",
+            "默认＝原来的纯色卡片；渐变与柔光是轻量效果；亚克力保留背景轮廓并带主题染色；" +
+                "毛玻璃扩散更强、颜色更中性。玻璃类只模糊卡片底层，不会模糊卡片文字。",
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )

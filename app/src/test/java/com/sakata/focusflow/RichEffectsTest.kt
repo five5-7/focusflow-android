@@ -91,7 +91,7 @@ class RichEffectsTest {
         val base = scheme.surfaceContainerLow
         assertNull("默认材质不叠任何东西", materialBrush(CardMaterial.TONAL, base, scheme))
         // 所有非默认材质都必须真的产出一层，否则就是"设置了却没变化"的假开关
-        for (material in listOf(CardMaterial.GRADIENT, CardMaterial.SOFT, CardMaterial.ACRYLIC)) {
+        for (material in CardMaterial.entries.filterNot { it == CardMaterial.TONAL }) {
             assertTrue(
                 "$material 必须产出可见的一层",
                 materialBrush(material, base, scheme) != null

@@ -764,7 +764,9 @@ internal fun materialBrush(
             Brush.verticalGradient(if (softReversed) listOf(base, tinted) else listOf(tinted, base))
         }
         CardMaterial.SOFT -> softLightBrush(base, softReversed)
-        CardMaterial.ACRYLIC -> acrylicBrush(base, scheme, softReversed)
+        // 玻璃类材质的高光固定来自顶部；隐藏的「卡面渐变方向」旧值不能影响它们。
+        CardMaterial.ACRYLIC -> acrylicBrush(base, scheme)
+        CardMaterial.FROSTED -> frostedBrush(base)
     }
 
 /**
@@ -773,10 +775,18 @@ internal fun materialBrush(
  * 以后若再做出真正需要的"边"（例如金属或描边类材质），只改这里的返回值即可，
  * 不必再动三处绘制代码。返回 0 = 不画。
  */
-internal fun materialRimWidthDp(material: CardMaterial): Float = 0f
+internal fun materialRimWidthDp(material: CardMaterial): Float = when (material) {
+    CardMaterial.ACRYLIC -> 0.6f
+    CardMaterial.FROSTED -> 1f
+    else -> 0f
+}
 
 /** 内描边的颜色；null = 不画。见 [materialRimWidthDp]。 */
-internal fun materialRimColor(material: CardMaterial, base: Color): Color? = null
+internal fun materialRimColor(material: CardMaterial, base: Color): Color? = when (material) {
+    CardMaterial.ACRYLIC -> shiftGreyLevels(base, 12f).copy(alpha = 0.58f)
+    CardMaterial.FROSTED -> Color.White.copy(alpha = 0.34f)
+    else -> null
+}
 
 /**
  * 毛玻璃的高光带宽（占卡面高度的比例）。
@@ -807,12 +817,9 @@ internal fun frostedStops(base: Color, reversed: Boolean = false): List<Pair<Flo
         blue = base.blue - (top.blue - base.blue) * k,
         alpha = base.alpha
     )
-    // **半透明才是毛玻璃的本体**：不透明的话底下页面根本透不上来，
-    // 那它只是"另一种渐变"，跟柔光分不开（维护者："可以强化一下亚克力和柔光的不同"，毛玻璃同理）。
-    // 0.55 的白纱：背后看得见，正文对比度又不会被吃掉。
-    // 配套：`FocusCard.cardMaterialFill` 对毛玻璃**不铺不透明底**，
-    // 否则这层纱下面仍然是卡片自己的底色，等于没透。
-    val veil = 0.55f
+    // 毛玻璃使用低染色的白纱：背景结构由 30dp 扩散负责，面层只负责压住杂色与保正文。
+    // 透明度刻意低于亚克力，让玻璃更通透；顶部高光和 1dp 内描边负责读出玻璃边缘。
+    val veil = 0.48f
     val stops = listOf(
         0f to top.copy(alpha = veil),
         FROSTED_BAND to base.copy(alpha = veil),
@@ -846,8 +853,8 @@ internal fun acrylicStops(
     // 渐变没有任何硬边，亚克力有一条锐利的玻璃边线（Fluent 亚克力的观感）。
     // 0.012 × 卡高 ≈ 9px（density 4），是一条看得清的发丝高光。
     val edge = shiftGreyLevels(tinted, 9f)
-    // 亚克力**再透一点**（0.78 → 0.60）：维护者口径「把亚克力材质加一点透明加模糊的效果」。
-    // 毛玻璃已于 2026-09-11 删除，所以这档同时承担"透光"的角色，不透明度必须更低。
+    // 亚克力使用较厚的有色塑料板：比毛玻璃染色更强、不透明度更高，同时只做 18dp 模糊，
+    // 因而能保留更多背景轮廓，避免两档只换了名字。
     val veil = 0.60f
     val stops = listOf(
         0f to edge.copy(alpha = veil),

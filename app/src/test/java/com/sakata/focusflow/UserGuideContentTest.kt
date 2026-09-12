@@ -41,11 +41,18 @@ class UserGuideContentTest {
      */
     @Test fun `update highlights never fall back for known versions`() {
         val fallback = updateHighlightsFor("0.0.1").single()
-        for (version in listOf("8.2.0", "8.1.1", "8.1.0", "7.12.0", "7.9.0-rc.2", "7.9.0")) {
+        for (version in listOf("8.2.1", "8.2.0", "8.1.1", "8.1.0", "7.12.0", "7.9.0-rc.2", "7.9.0")) {
             val highlights = updateHighlightsFor(version)
             assertTrue("$version 的更新说明不该是兜底文案", highlights.none { it == fallback })
             assertTrue("$version 应有 2–3 条更新说明，实际 ${highlights.size} 条", highlights.size in 2..3)
             assertTrue("$version 的更新说明不该提到别的版本", highlights.none { it.contains("版本路线图") })
+        }
+    }
+
+    @Test fun `8_2_1 highlights distinguish acrylic and frosted glass`() {
+        val copy = updateHighlightsFor("8.2.1-rc.1").joinToString("\n")
+        for (keyword in listOf("亚克力", "毛玻璃", "丰富外观", "默认关闭")) {
+            assertTrue("8.2.1 更新说明应提到「$keyword」", copy.contains(keyword))
         }
     }
 
