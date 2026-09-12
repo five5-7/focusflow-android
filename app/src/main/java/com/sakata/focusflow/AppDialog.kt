@@ -20,6 +20,7 @@ import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.contentColorFor
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -207,10 +208,14 @@ internal fun AppDialogHost(
                     val shape = RoundedCornerShape(28.dp)
                     val dialogBase = MaterialTheme.colorScheme.surfaceContainerHigh
                     val dialogMaterial = LocalAppearance.current.effectiveCardMaterial
+                    val realGlassBackdrop = dialogMaterial.samplesPageBackdrop && LocalGlassBackdropState.current != null
                     Surface(
                         shape = shape,
-                        color = dialogBase,
-                        tonalElevation = 6.dp,
+                        // 真玻璃层会在内容底部重画并模糊页面；Surface 本身必须透明，
+                        // 否则下方日程内容仍会被这块不透明底色盖死。
+                        color = if (realGlassBackdrop) Color.Transparent else dialogBase,
+                        contentColor = contentColorFor(dialogBase),
+                        tonalElevation = if (realGlassBackdrop) 0.dp else 6.dp,
                         // 阴影自己画：Material 默认是纯黑直角阴影，这里换成主题染色的软阴影，
                         // 并把卡片抬得更高，让它明显浮在压暗的页面之上（分层）。
                         shadowElevation = 0.dp,
@@ -222,10 +227,21 @@ internal fun AppDialogHost(
                             .litShadow(SurfaceLighting.DIALOG_SHADOW, shape)
                     ) {
                         Box {
+                            // 按弹窗在屏幕上的真实位置截取下方页面并模糊；正文和按钮在后面绘制，保持清晰。
+                            if (realGlassBackdrop) {
+                                Box(
+                                    Modifier.matchParentSize().glassBackdropEffect(
+                                        dialogMaterial,
+                                        dialogBase,
+                                        shape
+                                    )
+                                )
+                            }
                             // 维护者口径「弹窗也没有材质渲染」：弹窗卡片同样吃当前材质，
                             // 与页面卡片/底栏共用同一份实现（materialBrush）。
                             //
-                            // **材质层必须画在 Surface 自己的底色之上。**
+                            // **材质层必须画在底层之上。** 非玻璃档的底层是 Surface 自己的底色，
+                            // 玻璃档的底层是上面的真实页面模糊层。
                             // 原先这里是把它挂在 Surface 的 modifier 上，而 Modifier 链里
                             // `drawBehind` 排在 Surface 内部 `.background(color)` 之前 ——
                             // 画出来的材质被底色整块盖住，这就是「弹窗还是没有渲染」的成因。

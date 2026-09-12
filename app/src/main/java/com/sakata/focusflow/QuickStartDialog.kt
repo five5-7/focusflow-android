@@ -107,7 +107,7 @@ internal fun CampusLifeChoiceDialog(onEnable: () -> Unit, onSkip: () -> Unit) {
 internal fun updateHighlightsFor(version: String): List<String> = when {
     version.startsWith("8.2.1") -> listOf(
         "卡片材质扩展为五档：亚克力会保留更多背景轮廓并带主题染色；毛玻璃使用更强扩散、低染色白纱和玻璃高光边，两种效果不再只是换名字。",
-        "玻璃类材质只模糊卡片底层，不会把卡片里的文字与按钮一起糊掉；旧预设和旧外观设置可继续读取。",
+        "悬浮底栏和页内弹窗会透明地露出并模糊它们实际挡住的日程文字、色块与背景；表面自己的文字和按钮保持清晰，旧预设与旧设置可继续读取。",
         "「丰富外观」总开关仍然默认关闭（设置中名为「丰富的动画与外观效果」）；主动开启后才会显示并启用亚克力、毛玻璃、图片背景等效果，关闭后保留选择、随时可恢复。"
     )
     version.startsWith("8.2.0") -> listOf(

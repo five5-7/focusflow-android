@@ -81,6 +81,23 @@ class FocusCardMaterialTest {
         assertEquals(1f, materialRimWidthDp(CardMaterial.FROSTED), 0.001f)
     }
 
+    @Test
+    fun onlyGlassMaterialsCaptureAndBlurRealCoveredContent() {
+        assertNull(CardMaterial.TONAL.glassBackdropProfile())
+        assertNull(CardMaterial.GRADIENT.glassBackdropProfile())
+        assertNull(CardMaterial.SOFT.glassBackdropProfile())
+
+        val acrylic = requireNotNull(CardMaterial.ACRYLIC.glassBackdropProfile())
+        val frosted = requireNotNull(CardMaterial.FROSTED.glassBackdropProfile())
+        assertEquals(18f, acrylic.blurRadiusDp, 0.001f)
+        assertEquals(30f, frosted.blurRadiusDp, 0.001f)
+        assertTrue("毛玻璃应比亚克力少染色，让底下内容更明显", frosted.tintAlpha < acrylic.tintAlpha)
+        assertTrue("离屏采样必须降分辨率，避免把默认滚动性能预算吃完", acrylic.inputScale < 1f)
+        assertEquals(acrylic.inputScale, frosted.inputScale, 0.001f)
+        assertTrue(acrylic.inputScale >= 0.5f)
+        assertTrue(acrylic.noiseFactor > frosted.noiseFactor)
+    }
+
     /**
      * 柔光必须是"顶亮 → 底色 → 底沉"的三站，方向不能反
      * （维护者反馈过"曲线反了"，所以这里把方向钉死）。

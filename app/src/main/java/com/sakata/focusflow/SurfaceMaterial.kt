@@ -27,6 +27,12 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import dev.chrisbanes.haze.ExperimentalHazeApi
+import dev.chrisbanes.haze.HazeInputScale
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.HazeStyle
+import dev.chrisbanes.haze.HazeTint
+import dev.chrisbanes.haze.hazeEffect
 import kotlin.math.max
 import kotlin.math.roundToInt
 
@@ -43,6 +49,15 @@ internal val LocalAppearance = staticCompositionLocalOf { AppearanceSpec.DEFAULT
 
 /** 当前解码好的背景图（没设图或解码失败就是 null）。由应用根提供，深层页面不再各自解码。 */
 internal val LocalBackdropBitmap = staticCompositionLocalOf<ImageBitmap?> { null }
+
+/**
+ * 页面真实画面的共享捕获源。
+ *
+ * 普通卡片与页面内容处于同一排版层，并没有其它内容被它覆盖，继续按页面坐标重画底图即可；
+ * 真正覆盖页面内容的是悬浮底栏与页内弹窗，它们从这里取得下方的日程文字、色块与背景，
+ * 只在玻璃材质生效时进行模糊。默认外观不建立捕获节点，也没有额外逐帧开销。
+ */
+internal val LocalGlassBackdropState = staticCompositionLocalOf<HazeState?> { null }
 
 /**
  * 页面层的**不透明**背景。
@@ -868,6 +883,78 @@ internal fun acrylicBrush(base: Color, scheme: ColorScheme, reversed: Boolean = 
     Brush.verticalGradient(*acrylicStops(base, scheme, reversed).toTypedArray())
 
 /**
+ * 真背景模糊的性能／光学参数。把数值留在纯 Kotlin 模型里，单测可以直接锁住两种材质的差异，
+ * Compose 层只负责把参数接到共享页面捕获源。
+ */
+internal data class GlassBackdropProfile(
+    val blurRadiusDp: Float,
+    val tintAlpha: Float,
+    val noiseFactor: Float,
+    val inputScale: Float
+)
+
+internal fun CardMaterial.glassBackdropProfile(): GlassBackdropProfile? = when (this) {
+    // 亚克力保留更多底下内容的轮廓，并用少量颗粒模拟哑光塑料。
+    CardMaterial.ACRYLIC -> GlassBackdropProfile(
+        blurRadiusDp = backdropBlurRadiusDp,
+        tintAlpha = 0.10f,
+        noiseFactor = 0.05f,
+        inputScale = 0.66f
+    )
+    // 毛玻璃扩散更强、染色更少；它的玻璃边由上层 frostedBrush / rim 负责。
+    CardMaterial.FROSTED -> GlassBackdropProfile(
+        blurRadiusDp = backdropBlurRadiusDp,
+        tintAlpha = 0.07f,
+        noiseFactor = 0.025f,
+        inputScale = 0.66f
+    )
+    else -> null
+}
+
+/**
+ * 在悬浮控件内部重画并模糊它**实际盖住的页面内容**。
+ *
+ * 这不是 `Modifier.blur`（后者只会把控件自己糊掉），也不是再画一份页面渐变；
+ * [LocalGlassBackdropState] 里的源包含页面背景和 Scaffold 正文，效果层按屏幕坐标截取对应区域，
+ * 所以底栏／弹窗下面若有日程文字或色块，看到的是那一块真实内容的模糊副本。
+ */
+@OptIn(ExperimentalHazeApi::class)
+@Composable
+internal fun Modifier.glassBackdropEffect(
+    material: CardMaterial,
+    base: Color,
+    shape: Shape
+): Modifier {
+    val state = LocalGlassBackdropState.current ?: return this
+    val profile = material.glassBackdropProfile() ?: return this
+    val scheme = MaterialTheme.colorScheme
+    val tint = remember(material, base, scheme, profile.tintAlpha) {
+        val colour = when (material) {
+            CardMaterial.ACRYLIC -> blendSrgb(base, scheme.primary, 0.16f)
+            CardMaterial.FROSTED -> blendSrgb(base, Color.White, 0.08f)
+            else -> base
+        }
+        HazeTint(colour.copy(alpha = profile.tintAlpha))
+    }
+    val style = remember(material, base, scheme, profile, tint) {
+        HazeStyle(
+            // 捕获源存在透明像素时用页面底色托底；实际页面内容仍绘制在它上面。
+            backgroundColor = scheme.background,
+            tints = listOf(tint),
+            blurRadius = androidx.compose.ui.unit.Dp(profile.blurRadiusDp),
+            noiseFactor = profile.noiseFactor,
+            // Android 12 以下无法实时模糊时至少保留半透明玻璃面，不露出失控的正文。
+            fallbackTint = HazeTint(base.copy(alpha = 0.82f))
+        )
+    }
+    return clip(shape).hazeEffect(state = state, style = style) {
+        blurEnabled = true
+        // 只采样约 44% 的原始像素；模糊后肉眼差异很小，但显著降低滚动时的离屏绘制量。
+        inputScale = HazeInputScale.Fixed(profile.inputScale)
+    }
+}
+
+/**
  * 把材质叠层画在**调用方自己的形状里**。
  *
  * 必须用 `clip(shape)` 再 `drawBehind`：起初底栏是直接 `drawBehind { drawRect(brush) }` 的，
@@ -880,13 +967,9 @@ internal fun acrylicBrush(base: Color, scheme: ColorScheme, reversed: Boolean = 
  * 维护者连续两轮报的「弹窗还是没有渲染」正是这个；底栏（"材质也影响导航栏"）同样中招。
  * `FocusCard` 之所以一直正常，只是因为它恰好把 Surface 底色设成了 `Transparent`。
  *
- * 调用方二选一，两种都能修：
- * 1. 让 Surface 的 `color = Color.Transparent`（[FloatingNavigationBar] 的做法）——
- *    底栏 `tonalElevation` 本来就是 0，没有副作用；
- * 2. 把材质层画进 Surface **内容**里的一个 `matchParentSize()` Box（[AppDialog] 的做法）——
- *    连 tonalElevation 都不用动，底色一枚像素不变。
- *
- * 本函数自己会先铺一层 [base]，所以修法 1 不会在底下留个洞。
+ * 当前统一做法是把本函数放进 Surface **内容**里的 `matchParentSize()` Box：
+ * 非玻璃档由 Surface 自己提供不透明底色；玻璃档把 Surface 让成透明，并先用
+ * [glassBackdropEffect] 填入真实页面的模糊副本。两条路径都在本函数下面已有完整底层。
  */
 @Composable
 internal fun Modifier.surfaceMaterialFill(
