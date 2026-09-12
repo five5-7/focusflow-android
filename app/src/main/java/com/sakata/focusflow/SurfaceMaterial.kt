@@ -22,6 +22,8 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.inset
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
@@ -784,23 +786,34 @@ internal fun materialBrush(
         CardMaterial.FROSTED -> frostedBrush(base)
     }
 
-/**
- * 材质的内描边宽度（dp）。**目前没有任何材质使用**（毛玻璃 2026-09-11 已删）。
- * 保留这对函数的定义与调用点，是因为卡片/底栏/弹窗三处绘制点都已接好 ——
- * 以后若再做出真正需要的"边"（例如金属或描边类材质），只改这里的返回值即可，
- * 不必再动三处绘制代码。返回 0 = 不画。
- */
+/** 材质的内描边宽度（dp）。亚克力靠染色和模糊成边，不画独立描边。 */
 internal fun materialRimWidthDp(material: CardMaterial): Float = when (material) {
-    CardMaterial.ACRYLIC -> 0.6f
     CardMaterial.FROSTED -> 1f
     else -> 0f
 }
 
 /** 内描边的颜色；null = 不画。见 [materialRimWidthDp]。 */
 internal fun materialRimColor(material: CardMaterial, base: Color): Color? = when (material) {
-    CardMaterial.ACRYLIC -> shiftGreyLevels(base, 12f).copy(alpha = 0.58f)
     CardMaterial.FROSTED -> Color.White.copy(alpha = 0.34f)
     else -> null
+}
+
+/**
+ * 沿组件的真实 [Shape] 绘制完整内描边。
+ *
+ * 旧实现用 `drawRect`，直边虽然能看到，但矩形的四个角会被外层圆角裁掉，造成毛玻璃描边
+ * 在圆角处断开。这里先向内缩半个线宽，再用同一个 Shape 创建轮廓，保证直边和圆角是一条闭合路径。
+ */
+internal fun DrawScope.drawMaterialRim(shape: Shape, color: Color, widthDp: Float) {
+    val widthPx = androidx.compose.ui.unit.Dp(widthDp).toPx()
+    if (widthPx <= 0f || size.width <= widthPx || size.height <= widthPx) return
+    inset(widthPx / 2f) {
+        drawOutline(
+            outline = shape.createOutline(size, layoutDirection, this),
+            color = color,
+            style = Stroke(widthPx)
+        )
+    }
 }
 
 /**
@@ -1002,13 +1015,7 @@ internal fun Modifier.surfaceMaterialFill(
             // 那条接法已经废弃，留着它反而会把底栏的渐变画刷盖掉。
             drawRect(layer, alpha = alpha)
             if (rim != null) {
-                val w = androidx.compose.ui.unit.Dp(rimWidthDp).toPx()
-                drawRect(
-                    color = rim,
-                    topLeft = Offset(w / 2f, w / 2f),
-                    size = androidx.compose.ui.geometry.Size(size.width - w, size.height - w),
-                    style = androidx.compose.ui.graphics.drawscope.Stroke(w)
-                )
+                drawMaterialRim(shape, rim, rimWidthDp)
             }
         }
 }

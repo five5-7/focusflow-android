@@ -77,8 +77,10 @@ class FocusCardMaterialTest {
             kotlin.math.abs(acrylic[1].second.green - base.green) > 0.005f ||
                 kotlin.math.abs(acrylic[1].second.red - base.red) > 0.005f
         )
-        assertEquals(0.6f, materialRimWidthDp(CardMaterial.ACRYLIC), 0.001f)
+        assertEquals(0f, materialRimWidthDp(CardMaterial.ACRYLIC), 0.001f)
+        assertNull("亚克力靠染色和模糊成边，不应出现独立描边", materialRimColor(CardMaterial.ACRYLIC, base))
         assertEquals(1f, materialRimWidthDp(CardMaterial.FROSTED), 0.001f)
+        assertTrue("毛玻璃保留独立玻璃描边", materialRimColor(CardMaterial.FROSTED, base) != null)
     }
 
     @Test

@@ -13,7 +13,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
@@ -69,7 +68,13 @@ internal fun FocusCard(
                 Box(
                     Modifier
                         .matchParentSize()
-                        .cardMaterialFill(containerColor, material, MaterialTheme.colorScheme, LocalAppearance.current.cardGradientReversed)
+                        .cardMaterialFill(
+                            containerColor,
+                            material,
+                            MaterialTheme.colorScheme,
+                            LocalAppearance.current.cardGradientReversed,
+                            shape
+                        )
                 )
                 Column(content = content)
             }
@@ -100,7 +105,8 @@ private fun Modifier.cardMaterialFill(
     containerColor: Color,
     material: CardMaterial,
     scheme: ColorScheme,
-    softReversed: Boolean
+    softReversed: Boolean,
+    shape: Shape
 ): Modifier {
     val layer = remember(material, containerColor, scheme, softReversed) {
         materialBrush(material, containerColor, scheme, softReversed)
@@ -124,13 +130,7 @@ private fun Modifier.cardMaterialFill(
         if (layer != null) drawRect(layer)
         drawRect(edgeBrush)
         if (rim != null) {
-            val w = androidx.compose.ui.unit.Dp(rimWidthDp).toPx()
-            drawRect(
-                color = rim,
-                topLeft = Offset(w / 2f, w / 2f),
-                size = androidx.compose.ui.geometry.Size(size.width - w, size.height - w),
-                style = androidx.compose.ui.graphics.drawscope.Stroke(w)
-            )
+            drawMaterialRim(shape, rim, rimWidthDp)
         }
     }
 }
