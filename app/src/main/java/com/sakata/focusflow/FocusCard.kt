@@ -13,7 +13,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
@@ -52,14 +51,13 @@ internal fun FocusCard(
             Column(content = content)
         } else {
             Box {
-                if (material == CardMaterial.ACRYLIC) {
-                    // Recovered acrylic experiment: redraw the page backdrop below the material layer,
-                    // then blur that copy. The original remote prototype used 40dp; the lost local
-                    // rc.2 experiment reduced it to 18dp to preserve more background structure.
+                if (material.samplesPageBackdrop) {
+                    // 8.2.1：玻璃类材质先重画卡片所覆盖的页面底图，再只模糊这份副本。
+                    // 亚克力保留较多轮廓，毛玻璃扩散更强；两者不模糊正文与交互内容。
                     Box(
                         Modifier
                             .matchParentSize()
-                            .blur(androidx.compose.ui.unit.Dp(18f))
+                            .blur(androidx.compose.ui.unit.Dp(material.backdropBlurRadiusDp))
                             .appearanceBackdrop(
                                 LocalAppearance.current,
                                 MaterialTheme.colorScheme,
@@ -70,7 +68,13 @@ internal fun FocusCard(
                 Box(
                     Modifier
                         .matchParentSize()
-                        .cardMaterialFill(containerColor, material, MaterialTheme.colorScheme, LocalAppearance.current.cardGradientReversed)
+                        .cardMaterialFill(
+                            containerColor,
+                            material,
+                            MaterialTheme.colorScheme,
+                            LocalAppearance.current.cardGradientReversed,
+                            shape
+                        )
                 )
                 Column(content = content)
             }
@@ -101,7 +105,8 @@ private fun Modifier.cardMaterialFill(
     containerColor: Color,
     material: CardMaterial,
     scheme: ColorScheme,
-    softReversed: Boolean
+    softReversed: Boolean,
+    shape: Shape
 ): Modifier {
     val layer = remember(material, containerColor, scheme, softReversed) {
         materialBrush(material, containerColor, scheme, softReversed)
@@ -118,20 +123,14 @@ private fun Modifier.cardMaterialFill(
         )
     }
     return drawBehind {
-        if (material != CardMaterial.ACRYLIC) {
+        if (!material.samplesPageBackdrop) {
             drawRect(scheme.background)
             drawRect(containerColor)
         }
         if (layer != null) drawRect(layer)
         drawRect(edgeBrush)
         if (rim != null) {
-            val w = androidx.compose.ui.unit.Dp(rimWidthDp).toPx()
-            drawRect(
-                color = rim,
-                topLeft = Offset(w / 2f, w / 2f),
-                size = androidx.compose.ui.geometry.Size(size.width - w, size.height - w),
-                style = androidx.compose.ui.graphics.drawscope.Stroke(w)
-            )
+            drawMaterialRim(shape, rim, rimWidthDp)
         }
     }
 }
@@ -142,4 +141,17 @@ internal fun CardMaterial.label(): String = when (this) {
     CardMaterial.GRADIENT -> "渐变"
     CardMaterial.SOFT -> "柔光"
     CardMaterial.ACRYLIC -> "亚克力"
+    CardMaterial.FROSTED -> "毛玻璃"
 }
+
+/** 只有玻璃类材质需要在卡片里重画页面底图；其余材质继续铺自己的不透明底色。 */
+internal val CardMaterial.samplesPageBackdrop: Boolean
+    get() = this == CardMaterial.ACRYLIC || this == CardMaterial.FROSTED
+
+/** 两种玻璃材质的可感知差异：亚克力留轮廓，毛玻璃做更强扩散。 */
+internal val CardMaterial.backdropBlurRadiusDp: Float
+    get() = when (this) {
+        CardMaterial.ACRYLIC -> 18f
+        CardMaterial.FROSTED -> 30f
+        else -> 0f
+    }

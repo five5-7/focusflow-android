@@ -17,16 +17,26 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.ImageShader
+import androidx.compose.ui.graphics.Outline
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.ShaderBrush
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.inset
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import dev.chrisbanes.haze.ExperimentalHazeApi
+import dev.chrisbanes.haze.HazeInputScale
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.HazeStyle
+import dev.chrisbanes.haze.HazeTint
+import dev.chrisbanes.haze.hazeEffect
 import kotlin.math.max
 import kotlin.math.roundToInt
 
@@ -43,6 +53,15 @@ internal val LocalAppearance = staticCompositionLocalOf { AppearanceSpec.DEFAULT
 
 /** 当前解码好的背景图（没设图或解码失败就是 null）。由应用根提供，深层页面不再各自解码。 */
 internal val LocalBackdropBitmap = staticCompositionLocalOf<ImageBitmap?> { null }
+
+/**
+ * 页面真实画面的共享捕获源。
+ *
+ * 普通卡片与页面内容处于同一排版层，并没有其它内容被它覆盖，继续按页面坐标重画底图即可；
+ * 真正覆盖页面内容的是悬浮底栏与页内弹窗，它们从这里取得下方的日程文字、色块与背景，
+ * 只在玻璃材质生效时进行模糊。默认外观不建立捕获节点，也没有额外逐帧开销。
+ */
+internal val LocalGlassBackdropState = staticCompositionLocalOf<HazeState?> { null }
 
 /**
  * 页面层的**不透明**背景。
@@ -764,19 +783,45 @@ internal fun materialBrush(
             Brush.verticalGradient(if (softReversed) listOf(base, tinted) else listOf(tinted, base))
         }
         CardMaterial.SOFT -> softLightBrush(base, softReversed)
-        CardMaterial.ACRYLIC -> acrylicBrush(base, scheme, softReversed)
+        // 玻璃类材质的高光固定来自顶部；隐藏的「卡面渐变方向」旧值不能影响它们。
+        CardMaterial.ACRYLIC -> acrylicBrush(base, scheme)
+        CardMaterial.FROSTED -> frostedBrush(base)
     }
 
-/**
- * 材质的内描边宽度（dp）。**目前没有任何材质使用**（毛玻璃 2026-09-11 已删）。
- * 保留这对函数的定义与调用点，是因为卡片/底栏/弹窗三处绘制点都已接好 ——
- * 以后若再做出真正需要的"边"（例如金属或描边类材质），只改这里的返回值即可，
- * 不必再动三处绘制代码。返回 0 = 不画。
- */
-internal fun materialRimWidthDp(material: CardMaterial): Float = 0f
+/** 材质的内描边宽度（dp）。亚克力靠染色和模糊成边，不画独立描边。 */
+internal fun materialRimWidthDp(material: CardMaterial): Float = when (material) {
+    CardMaterial.FROSTED -> 1f
+    else -> 0f
+}
 
 /** 内描边的颜色；null = 不画。见 [materialRimWidthDp]。 */
-internal fun materialRimColor(material: CardMaterial, base: Color): Color? = null
+internal fun materialRimColor(material: CardMaterial, base: Color): Color? = when (material) {
+    CardMaterial.FROSTED -> Color.White.copy(alpha = 0.34f)
+    else -> null
+}
+
+/**
+ * 沿组件的真实 [Shape] 绘制完整内描边。
+ *
+ * 旧实现用 `drawRect`，直边虽然能看到，但矩形的四个角会被外层圆角裁掉，造成毛玻璃描边
+ * 在圆角处断开。这里先向内缩半个线宽，再用同一个 Shape 创建轮廓，保证直边和圆角是一条闭合路径。
+ */
+internal fun DrawScope.drawMaterialRim(shape: Shape, color: Color, widthDp: Float) {
+    val widthPx = androidx.compose.ui.unit.Dp(widthDp).toPx()
+    if (widthPx <= 0f || size.width <= widthPx || size.height <= widthPx) return
+    inset(widthPx / 2f) {
+        val path = when (val outline = shape.createOutline(size, layoutDirection, this)) {
+            is Outline.Rectangle -> Path().apply { addRect(outline.rect) }
+            is Outline.Rounded -> Path().apply { addRoundRect(outline.roundRect) }
+            is Outline.Generic -> outline.path
+        }
+        drawPath(
+            path = path,
+            color = color,
+            style = Stroke(widthPx)
+        )
+    }
+}
 
 /**
  * 毛玻璃的高光带宽（占卡面高度的比例）。
@@ -807,12 +852,9 @@ internal fun frostedStops(base: Color, reversed: Boolean = false): List<Pair<Flo
         blue = base.blue - (top.blue - base.blue) * k,
         alpha = base.alpha
     )
-    // **半透明才是毛玻璃的本体**：不透明的话底下页面根本透不上来，
-    // 那它只是"另一种渐变"，跟柔光分不开（维护者："可以强化一下亚克力和柔光的不同"，毛玻璃同理）。
-    // 0.55 的白纱：背后看得见，正文对比度又不会被吃掉。
-    // 配套：`FocusCard.cardMaterialFill` 对毛玻璃**不铺不透明底**，
-    // 否则这层纱下面仍然是卡片自己的底色，等于没透。
-    val veil = 0.55f
+    // 毛玻璃使用低染色的白纱：背景结构由 30dp 扩散负责，面层只负责压住杂色与保正文。
+    // 透明度刻意低于亚克力，让玻璃更通透；顶部高光和 1dp 内描边负责读出玻璃边缘。
+    val veil = 0.48f
     val stops = listOf(
         0f to top.copy(alpha = veil),
         FROSTED_BAND to base.copy(alpha = veil),
@@ -843,11 +885,11 @@ internal fun acrylicStops(
     // 而且是**平的**（不随高度衰减）——"板"与"晕染"的区别就在这里。
     val tinted = blendSrgb(base, scheme.primary, 0.16f)
     // 顶部那条**很窄**的亮线是与渐变最直观的第二个区别：
-    // 渐变没有任何硬边，亚克力有一条锐利的玻璃边线（Fluent 亚克力的观感）。
-    // 0.012 × 卡高 ≈ 9px（density 4），是一条看得清的发丝高光。
+    // 亚克力没有独立描边，只保留顶部很窄的环境光，让边缘自然从染色与模糊里形成。
+    // 0.012 × 卡高 ≈ 9px（density 4），它属于面层光泽，不是一圈边线。
     val edge = shiftGreyLevels(tinted, 9f)
-    // 亚克力**再透一点**（0.78 → 0.60）：维护者口径「把亚克力材质加一点透明加模糊的效果」。
-    // 毛玻璃已于 2026-09-11 删除，所以这档同时承担"透光"的角色，不透明度必须更低。
+    // 亚克力使用较厚的有色塑料板：比毛玻璃染色更强、不透明度更高，同时只做 18dp 模糊，
+    // 因而能保留更多背景轮廓，避免两档只换了名字。
     val veil = 0.60f
     val stops = listOf(
         0f to edge.copy(alpha = veil),
@@ -859,6 +901,78 @@ internal fun acrylicStops(
 
 internal fun acrylicBrush(base: Color, scheme: ColorScheme, reversed: Boolean = false): Brush =
     Brush.verticalGradient(*acrylicStops(base, scheme, reversed).toTypedArray())
+
+/**
+ * 真背景模糊的性能／光学参数。把数值留在纯 Kotlin 模型里，单测可以直接锁住两种材质的差异，
+ * Compose 层只负责把参数接到共享页面捕获源。
+ */
+internal data class GlassBackdropProfile(
+    val blurRadiusDp: Float,
+    val tintAlpha: Float,
+    val noiseFactor: Float,
+    val inputScale: Float
+)
+
+internal fun CardMaterial.glassBackdropProfile(): GlassBackdropProfile? = when (this) {
+    // 亚克力保留更多底下内容的轮廓，并用少量颗粒模拟哑光塑料。
+    CardMaterial.ACRYLIC -> GlassBackdropProfile(
+        blurRadiusDp = backdropBlurRadiusDp,
+        tintAlpha = 0.10f,
+        noiseFactor = 0.05f,
+        inputScale = 0.66f
+    )
+    // 毛玻璃扩散更强、染色更少；它的玻璃边由上层 frostedBrush / rim 负责。
+    CardMaterial.FROSTED -> GlassBackdropProfile(
+        blurRadiusDp = backdropBlurRadiusDp,
+        tintAlpha = 0.07f,
+        noiseFactor = 0.025f,
+        inputScale = 0.66f
+    )
+    else -> null
+}
+
+/**
+ * 在悬浮控件内部重画并模糊它**实际盖住的页面内容**。
+ *
+ * 这不是 `Modifier.blur`（后者只会把控件自己糊掉），也不是再画一份页面渐变；
+ * [LocalGlassBackdropState] 里的源包含页面背景和 Scaffold 正文，效果层按屏幕坐标截取对应区域，
+ * 所以底栏／弹窗下面若有日程文字或色块，看到的是那一块真实内容的模糊副本。
+ */
+@OptIn(ExperimentalHazeApi::class)
+@Composable
+internal fun Modifier.glassBackdropEffect(
+    material: CardMaterial,
+    base: Color,
+    shape: Shape
+): Modifier {
+    val state = LocalGlassBackdropState.current ?: return this
+    val profile = material.glassBackdropProfile() ?: return this
+    val scheme = MaterialTheme.colorScheme
+    val tint = remember(material, base, scheme, profile.tintAlpha) {
+        val colour = when (material) {
+            CardMaterial.ACRYLIC -> blendSrgb(base, scheme.primary, 0.16f)
+            CardMaterial.FROSTED -> blendSrgb(base, Color.White, 0.08f)
+            else -> base
+        }
+        HazeTint(colour.copy(alpha = profile.tintAlpha))
+    }
+    val style = remember(material, base, scheme, profile, tint) {
+        HazeStyle(
+            // 捕获源存在透明像素时用页面底色托底；实际页面内容仍绘制在它上面。
+            backgroundColor = scheme.background,
+            tints = listOf(tint),
+            blurRadius = androidx.compose.ui.unit.Dp(profile.blurRadiusDp),
+            noiseFactor = profile.noiseFactor,
+            // Android 12 以下无法实时模糊时至少保留半透明玻璃面，不露出失控的正文。
+            fallbackTint = HazeTint(base.copy(alpha = 0.82f))
+        )
+    }
+    return clip(shape).hazeEffect(state = state, style = style) {
+        blurEnabled = true
+        // 只采样约 44% 的原始像素；模糊后肉眼差异很小，但显著降低滚动时的离屏绘制量。
+        inputScale = HazeInputScale.Fixed(profile.inputScale)
+    }
+}
 
 /**
  * 把材质叠层画在**调用方自己的形状里**。
@@ -873,13 +987,9 @@ internal fun acrylicBrush(base: Color, scheme: ColorScheme, reversed: Boolean = 
  * 维护者连续两轮报的「弹窗还是没有渲染」正是这个；底栏（"材质也影响导航栏"）同样中招。
  * `FocusCard` 之所以一直正常，只是因为它恰好把 Surface 底色设成了 `Transparent`。
  *
- * 调用方二选一，两种都能修：
- * 1. 让 Surface 的 `color = Color.Transparent`（[FloatingNavigationBar] 的做法）——
- *    底栏 `tonalElevation` 本来就是 0，没有副作用；
- * 2. 把材质层画进 Surface **内容**里的一个 `matchParentSize()` Box（[AppDialog] 的做法）——
- *    连 tonalElevation 都不用动，底色一枚像素不变。
- *
- * 本函数自己会先铺一层 [base]，所以修法 1 不会在底下留个洞。
+ * 当前统一做法是把本函数放进 Surface **内容**里的 `matchParentSize()` Box：
+ * 非玻璃档由 Surface 自己提供不透明底色；玻璃档把 Surface 让成透明，并先用
+ * [glassBackdropEffect] 填入真实页面的模糊副本。两条路径都在本函数下面已有完整底层。
  */
 @Composable
 internal fun Modifier.surfaceMaterialFill(
@@ -912,13 +1022,7 @@ internal fun Modifier.surfaceMaterialFill(
             // 那条接法已经废弃，留着它反而会把底栏的渐变画刷盖掉。
             drawRect(layer, alpha = alpha)
             if (rim != null) {
-                val w = androidx.compose.ui.unit.Dp(rimWidthDp).toPx()
-                drawRect(
-                    color = rim,
-                    topLeft = Offset(w / 2f, w / 2f),
-                    size = androidx.compose.ui.geometry.Size(size.width - w, size.height - w),
-                    style = androidx.compose.ui.graphics.drawscope.Stroke(w)
-                )
+                drawMaterialRim(shape, rim, rimWidthDp)
             }
         }
 }

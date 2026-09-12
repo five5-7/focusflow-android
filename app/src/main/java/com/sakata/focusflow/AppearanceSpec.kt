@@ -92,8 +92,11 @@ internal enum class CardMaterial(val storageKey: String) {
     /** 柔光：顶面高光 + 底部微沉，上下对称、亮度中性。 */
     SOFT("soft"),
 
-    /** 亚克力实验：坐标对齐的页面背景采样 + 模糊 + 半透明染色。 */
-    ACRYLIC("acrylic");
+    /** 亚克力：保留更多背景轮廓，以主题色染色模拟有色塑料板。 */
+    ACRYLIC("acrylic"),
+
+    /** 毛玻璃：更强的背景扩散、低染色白纱与窄高光边。 */
+    FROSTED("frosted");
 
     companion object {
         fun fromKey(key: String?): CardMaterial =

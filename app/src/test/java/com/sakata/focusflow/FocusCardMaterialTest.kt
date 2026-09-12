@@ -22,7 +22,7 @@ import org.junit.Test
 class FocusCardMaterialTest {
 
     @Test
-    fun threeMaterialsAreLabelledDistinctly() {
+    fun fiveMaterialsAreLabelledDistinctly() {
         val labels = CardMaterial.entries.map { it.label() }
         assertEquals(CardMaterial.entries.size, labels.size)
         assertEquals("材质名不能重复", labels.size, labels.toSet().size)
@@ -30,6 +30,7 @@ class FocusCardMaterialTest {
         assertEquals("渐变", CardMaterial.GRADIENT.label())
         assertEquals("柔光", CardMaterial.SOFT.label())
         assertEquals("亚克力", CardMaterial.ACRYLIC.label())
+        assertEquals("毛玻璃", CardMaterial.FROSTED.label())
     }
 
     /** 纸感已删：老装机/老预设里存的 `"paper"` 必须**优雅降级**，不抛错、不清数据。 */
@@ -43,7 +44,7 @@ class FocusCardMaterialTest {
         assertEquals(CardMaterial.TONAL, CardMaterial.fromKey(null))
         assertEquals(CardMaterial.TONAL, CardMaterial.fromKey(""))
         assertEquals(CardMaterial.TONAL, CardMaterial.fromKey("nonsense"))
-        // 现有三档仍能正常往返
+        // 现有五档仍能正常往返
         for (m in CardMaterial.entries) {
             assertEquals(m, CardMaterial.fromKey(m.storageKey))
         }
@@ -54,9 +55,49 @@ class FocusCardMaterialTest {
         val scheme = lightColorScheme()
         val base = scheme.surfaceContainerLow
         assertNull("默认材质不叠任何东西（走原生 Card）", materialBrush(CardMaterial.TONAL, base, scheme))
-        for (material in listOf(CardMaterial.GRADIENT, CardMaterial.SOFT, CardMaterial.ACRYLIC)) {
+        for (material in CardMaterial.entries.filterNot { it == CardMaterial.TONAL }) {
             assertTrue("$material 必须产出可见的一层", materialBrush(material, base, scheme) != null)
         }
+    }
+
+    @Test
+    fun acrylicAndFrostedHaveDifferentOpticalProfiles() {
+        val scheme = lightColorScheme(primary = androidx.compose.ui.graphics.Color(0xFF2A7F62))
+        val base = scheme.surfaceContainerLow
+        val acrylic = acrylicStops(base, scheme)
+        val frosted = frostedStops(base)
+
+        assertTrue(CardMaterial.ACRYLIC.samplesPageBackdrop)
+        assertTrue(CardMaterial.FROSTED.samplesPageBackdrop)
+        assertEquals(18f, CardMaterial.ACRYLIC.backdropBlurRadiusDp, 0.001f)
+        assertEquals(30f, CardMaterial.FROSTED.backdropBlurRadiusDp, 0.001f)
+        assertTrue("毛玻璃应比亚克力更通透", frosted[1].second.alpha < acrylic[1].second.alpha)
+        assertTrue(
+            "亚克力必须带主题色染色，不能退化成毛玻璃白纱",
+            kotlin.math.abs(acrylic[1].second.green - base.green) > 0.005f ||
+                kotlin.math.abs(acrylic[1].second.red - base.red) > 0.005f
+        )
+        assertEquals(0f, materialRimWidthDp(CardMaterial.ACRYLIC), 0.001f)
+        assertNull("亚克力靠染色和模糊成边，不应出现独立描边", materialRimColor(CardMaterial.ACRYLIC, base))
+        assertEquals(1f, materialRimWidthDp(CardMaterial.FROSTED), 0.001f)
+        assertTrue("毛玻璃保留独立玻璃描边", materialRimColor(CardMaterial.FROSTED, base) != null)
+    }
+
+    @Test
+    fun onlyGlassMaterialsCaptureAndBlurRealCoveredContent() {
+        assertNull(CardMaterial.TONAL.glassBackdropProfile())
+        assertNull(CardMaterial.GRADIENT.glassBackdropProfile())
+        assertNull(CardMaterial.SOFT.glassBackdropProfile())
+
+        val acrylic = requireNotNull(CardMaterial.ACRYLIC.glassBackdropProfile())
+        val frosted = requireNotNull(CardMaterial.FROSTED.glassBackdropProfile())
+        assertEquals(18f, acrylic.blurRadiusDp, 0.001f)
+        assertEquals(30f, frosted.blurRadiusDp, 0.001f)
+        assertTrue("毛玻璃应比亚克力少染色，让底下内容更明显", frosted.tintAlpha < acrylic.tintAlpha)
+        assertTrue("离屏采样必须降分辨率，避免把默认滚动性能预算吃完", acrylic.inputScale < 1f)
+        assertEquals(acrylic.inputScale, frosted.inputScale, 0.001f)
+        assertTrue(acrylic.inputScale >= 0.5f)
+        assertTrue(acrylic.noiseFactor > frosted.noiseFactor)
     }
 
     /**

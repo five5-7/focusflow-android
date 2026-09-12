@@ -589,8 +589,8 @@ private data class BaselineVariantDraft(val name: String)
                         // 需要一个"要流畅、不要花哨"的总开关，而不是让用户去猜某个具体档位。
                         SettingSwitch(
                             "丰富的动画与外观效果",
-                            "开启：多个渐变、卡片材质（渐变/柔光）、页面与课表底图，以及底栏形变与转场动画。" +
-                                "关闭：只留最基本的淡入淡出与纯色配色，低端机上更流畅（背景选过的图片与渐变色都保留，随时可再开回来）。",
+                            "默认关闭。开启后可使用渐变、图片背景、亚克力、毛玻璃和完整转场动画；" +
+                                "关闭时回到纯色与简化动画，已选外观不会丢失。",
                             appearance.richEffects
                         ) { onAppearanceChange(appearance.copy(richEffects = it)) }
                         HorizontalDivider()
