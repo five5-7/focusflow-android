@@ -1,14 +1,14 @@
 # FocusFlow
 
-当前开发候选：**8.2.1-rc.8**（versionCode 533）；当前正式版仍为 **8.2.0**（第四个正式版）。
+当前正式版：**8.2.1**（versionCode 534，第五个正式版）。
 
-> 8.2.1 新增亚克力与毛玻璃：亚克力轻度模糊并带主题色，不加描边；毛玻璃模糊更强，并有完整的圆角亮边。悬浮底栏与页内弹窗会透出并模糊实际遮住的内容，文字和按钮保持清晰；丰富外观默认关闭。
+> 8.2.1 新增亚克力与毛玻璃：亚克力轻度模糊并带主题色，不加描边；毛玻璃模糊更强，并有完整的圆角亮边。悬浮底栏与页内弹窗会透出并模糊实际遮住的内容，文字和按钮保持清晰；丰富外观默认关闭。自选图片背景新增非破坏性取景，可调整横向、纵向和缩放范围。
 
-> 8.2 新增可选外观系统：四种页面背景、可调渐变、四种卡片材质、独立课表底板、七套内置主题，以及可保存整套外观的自定义主题工具。亚克力卡片按页面坐标采样背后的渐变或图片，再做模糊与半透明染色；毛玻璃和纸感不在本版范围内。详见 `docs/8.2.0-release-notes.md`。
+> 8.2 新增可选外观系统：四种页面背景、可调渐变、四种卡片材质、独立课表底板、七套内置主题，以及可保存整套外观的自定义主题工具。亚克力卡片按页面坐标采样背后的渐变或图片，再做模糊与半透明染色。详见 `docs/8.2.0-release-notes.md`。
 
 本地优先的 Android 日程与执行辅助应用（`com.sakata.focusflow`）。核心目标不是维护一张完整日历，而是**降低记录压力、按当前状态调整提醒、在错过计划后帮助恢复**。
 
-最新正式版为 [8.2.0](https://github.com/five5-7/focusflow-android/releases/tag/v8.2.0)。版本规则见 [VERSIONING.md](VERSIONING.md)，更新记录见 [CHANGELOG.md](CHANGELOG.md)。
+最新正式版为 [8.2.1](https://github.com/five5-7/focusflow-android/releases/tag/v8.2.1)。版本规则见 [VERSIONING.md](VERSIONING.md)，更新记录见 [CHANGELOG.md](CHANGELOG.md)。
 
 > 数据原则：只用你确认过的数据生成建议，数据不足时不打扰、不假装精确。数据只保存在本机。
 
@@ -70,9 +70,7 @@ gradle :app:testDebugUnitTest :app:testReleaseUnitTest
 
 ## 发布
 
-7.1.3 专用发布工作流仅在该工作流合入 main 或手动运行时执行：检查 run-158 来源、应用源码、APK 哈希、版本及签名后，先上传草稿附件、验证远端校验值，再公开为 Latest。同名 tag/Release/附件不一致时停止，不覆盖、不删文件、不重新构建。需要 Actions 的 contents:write 和 actions:read；不读取签名私钥。应用内路线图沿用 run-158 的候选文案，以保留已验证 APK 不变。
-
-GitHub Actions 在 main 的 push、面向 main 的 pull request 或手动运行时执行单元测试并构建稳定签名 APK（artifact）；普通功能分支 push 不会单独触发。APK 和 artifact 名称包含 Actions run 编号。通过自动测试只能分发候选包，真机验收后才把同一产物发布为稳定正式版。
+GitHub Actions 在 main 的 push、面向 main 的 pull request 或手动运行时执行单元测试并构建稳定签名 APK（artifact）；普通功能分支 push 不会单独触发。APK 和 artifact 名称包含 Actions run 编号。通过自动测试只能分发候选包，正式版需通过发布工作流建立非 prerelease GitHub Release。
 
 7.1 起任务历史不再按 1000 条截断，界面仍只展示最近事件；已有 JSON 字段与存储键不变。旧版本已截掉的记录无法恢复。原始习惯事件独立保留最多 500 条，可浏览全部保留记录并逐条删除。损坏数据备份失败时暂停所有本地设置写入并显示提示，释放空间后可重试。
 
