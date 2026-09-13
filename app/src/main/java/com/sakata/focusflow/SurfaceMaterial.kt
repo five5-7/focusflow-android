@@ -655,7 +655,7 @@ internal fun scrimAlpha(@Suppress("UNUSED_PARAMETER") imageAlpha: Float): Float 
  * （一开始我把这条写反了，写成"页面越深越危险"，单测当场抓住：
  * 深色模式 + 亮图时遮罩丝毫没加厚。）
  *
- * 下限 [scrimAlpha] 保持不变；风险增量最多 0.36，并用 sqrt(alpha) 平滑介入。
+ * 下限 [scrimAlpha] 保持不变；风险增量最多 0.41，并用 sqrt(alpha) 平滑介入。
  * 这样既保护极端图片上的正文，也保证滑块从 0 到 100 时图片可见度严格递增。
  */
 internal fun adaptiveScrimAlpha(imageAlpha: Float, imageLuminance: Float, textIsLight: Boolean): Float {
@@ -664,7 +664,7 @@ internal fun adaptiveScrimAlpha(imageAlpha: Float, imageLuminance: Float, textIs
     val lum = imageLuminance.coerceIn(0f, 1f)
     // 正文浅 → 亮图危险（risky = lum）；正文深 → 暗图危险（risky = 1 - lum）。
     val risky = if (textIsLight) lum else 1f - lum
-    return (base + 0.36f * risky * sqrt(alpha)).coerceIn(0f, 0.70f)
+    return (base + 0.41f * risky * sqrt(alpha)).coerceIn(0f, 0.75f)
 }
 
 /** 图片经过主题遮罩后真正留在画面里的比例，供滑块单调性回归测试。 */

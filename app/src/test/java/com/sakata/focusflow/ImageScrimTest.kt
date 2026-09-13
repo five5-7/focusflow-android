@@ -80,7 +80,7 @@ class ImageScrimTest {
             for (l in listOf(0f, 0.5f, 1f)) {
                 for (light in listOf(false, true)) {
                     val s = adaptiveScrimAlpha(a, l, light)
-                    assertTrue("遮罩 $s 应落在 0..0.70", s in 0f..0.70f)
+                    assertTrue("遮罩 $s 应落在 0..0.75", s in 0f..0.75f)
                 }
             }
         }
