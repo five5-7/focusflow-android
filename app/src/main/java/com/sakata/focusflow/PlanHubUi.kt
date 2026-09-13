@@ -37,8 +37,7 @@ internal fun PlanHubScreen(
             Text("计划", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
             HelpToggleButton(onClick = { helpOpen = true })
         }
-        // 独立行动卡：保留 secondaryContainer 与轻微 elevation；玻璃边缘问题由 FocusCard
-        // 的 CLAMP 模糊统一修复，不再通过换成普通卡片规避。
+        // 保留原卡片样式；玻璃下的 elevation 冲突由 FocusCard 统一处理。
         FocusCard(
             containerColor = MaterialTheme.colorScheme.secondaryContainer,
             elevation = 1.dp
