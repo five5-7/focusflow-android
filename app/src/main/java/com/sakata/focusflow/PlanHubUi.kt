@@ -37,10 +37,13 @@ internal fun PlanHubScreen(
             Text("计划", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
             HelpToggleButton(onClick = { helpOpen = true })
         }
-        // 收编：ElevatedCard(colors = secondaryContainer) → FocusCard，底色与 1dp 默认阴影逐项保留。
+        // 这张行动卡曾使用 secondaryContainer + 1dp elevation。玻璃材质的背景模糊在边缘
+        // 会逐渐透明，于是较深底色从四周透出，真机上变成“厚灰圆框 + 内层直角矩形”。
+        // 与下方入口统一圆角和稳定底色，强调关系由“新增目标”按钮承担。
         FocusCard(
-            containerColor = MaterialTheme.colorScheme.secondaryContainer,
-            elevation = 1.dp
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(20.dp)
         ) {
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
