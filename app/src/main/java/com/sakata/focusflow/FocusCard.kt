@@ -41,7 +41,9 @@ internal fun FocusCard(
     onClick: (() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    val material = LocalAppearance.current.effectiveCardMaterial
+    val appearance = LocalAppearance.current
+    val material = appearance.effectiveCardMaterial
+    val hasGlassBackdropState = LocalGlassBackdropState.current != null
     val effectiveBorder = cardBorderForMaterial(material, border)
     val colors = CardDefaults.cardColors(
         containerColor = if (material == CardMaterial.TONAL) containerColor else Color.Transparent
@@ -58,18 +60,32 @@ internal fun FocusCard(
         } else {
             Box {
                 if (material.samplesPageBackdrop) {
-                    // 8.2.1：玻璃类材质先重画卡片所覆盖的页面底图，再只模糊这份副本。
-                    // 亚克力保留较多轮廓，毛玻璃扩散更强；两者不模糊正文与交互内容。
-                    Box(
-                        Modifier
-                            .matchParentSize()
-                            .blur(androidx.compose.ui.unit.Dp(material.backdropBlurRadiusDp))
-                            .appearanceBackdrop(
-                                LocalAppearance.current,
-                                MaterialTheme.colorScheme,
-                                LocalBackdropBitmap.current
-                            )
-                    )
+                    if (shouldUseRealGlassBackdrop(
+                            material,
+                            appearance.effectivePageBackdrop,
+                            hasGlassBackdropState
+                        )
+                    ) {
+                        // 图片背景必须按屏幕坐标采样真实页面源。旧实现会在每张卡片的小画布里
+                        // 单独 centerCrop，同一张图在各卡片中出现不同区域，看起来并非真正透底。
+                        Box(
+                            Modifier
+                                .matchParentSize()
+                                .glassBackdropEffect(material, containerColor, shape)
+                        )
+                    } else {
+                        // 纯色/渐变无需增加每卡 Haze 成本；预览或捕获源不可用时也安全回退。
+                        Box(
+                            Modifier
+                                .matchParentSize()
+                                .blur(androidx.compose.ui.unit.Dp(material.backdropBlurRadiusDp))
+                                .appearanceBackdrop(
+                                    appearance,
+                                    MaterialTheme.colorScheme,
+                                    LocalBackdropBitmap.current
+                                )
+                        )
+                    }
                 }
                 Box(
                     Modifier
@@ -167,6 +183,13 @@ internal fun CardMaterial.label(): String = when (this) {
 /** 只有玻璃类材质需要在卡片里重画页面底图；其余材质继续铺自己的不透明底色。 */
 internal val CardMaterial.samplesPageBackdrop: Boolean
     get() = this == CardMaterial.ACRYLIC || this == CardMaterial.FROSTED
+
+/** 只有图片底图需要真实坐标采样；纯色/渐变继续走更轻的本地重画路径。 */
+internal fun shouldUseRealGlassBackdrop(
+    material: CardMaterial,
+    pageBackdrop: BackdropKind,
+    hasBackdropState: Boolean
+): Boolean = material.samplesPageBackdrop && pageBackdrop == BackdropKind.IMAGE && hasBackdropState
 
 /** 两种玻璃材质的可感知差异：亚克力留轮廓，毛玻璃做更强扩散。 */
 internal val CardMaterial.backdropBlurRadiusDp: Float

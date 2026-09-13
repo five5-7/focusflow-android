@@ -123,6 +123,16 @@ class FocusCardMaterialTest {
         assertTrue(acrylic.noiseFactor > frosted.noiseFactor)
     }
 
+    @Test
+    fun imageCardsUseCoordinateAlignedGlassCaptureOnlyWhenAvailable() {
+        for (material in listOf(CardMaterial.ACRYLIC, CardMaterial.FROSTED)) {
+            assertTrue(shouldUseRealGlassBackdrop(material, BackdropKind.IMAGE, hasBackdropState = true))
+            assertTrue(!shouldUseRealGlassBackdrop(material, BackdropKind.IMAGE, hasBackdropState = false))
+            assertTrue(!shouldUseRealGlassBackdrop(material, BackdropKind.GRADIENT, hasBackdropState = true))
+        }
+        assertTrue(!shouldUseRealGlassBackdrop(CardMaterial.TONAL, BackdropKind.IMAGE, hasBackdropState = true))
+    }
+
     /**
      * 柔光必须是"顶亮 → 底色 → 底沉"的三站，方向不能反
      * （维护者反馈过"曲线反了"，所以这里把方向钉死）。

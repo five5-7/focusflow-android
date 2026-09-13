@@ -2,6 +2,7 @@ package com.sakata.focusflow
 
 import androidx.compose.material3.ColorScheme
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
@@ -61,10 +62,9 @@ class AppearanceContrastMatrixTest {
 
             BackdropKind.IMAGE -> {
                 // 与 appearanceBackdrop 的 IMAGE 分支同一条算式，顺序不能颠倒：
-                //   底色渐变 → 图片按"不透明度"叠上去 → 主题遮罩按 scrimAlpha 压在**合成结果**之上。
+                //   底色渐变 → 图片按"不透明度"叠上去 → 主题遮罩按图片明暗自适应。
                 // 图片内容未知，取纯黑与纯白两种极端；底层渐变取三个停靠色里最不利的那个。
                 val bg = scheme.background.argbInt()
-                val scrim = scrimAlpha(opacity / 100f)
                 val imageAlpha = opacity / 100f
                 val stops = ThemeGradient.pageStops(scheme, 1f).map { it.argbInt() }
                 val darkestBase = AppearanceContrast.worstCaseBackground(stops, on)
@@ -73,12 +73,12 @@ class AppearanceContrastMatrixTest {
                     AppearanceContrast.blend(
                         AppearanceContrast.blend(darkestBase, 0xFF000000.toInt(), imageAlpha),
                         bg,
-                        scrim
+                        adaptiveScrimAlpha(imageAlpha, imageLuminance = 0f, textIsLight = scheme.onBackground.luminance() > 0.5f)
                     ),
                     AppearanceContrast.blend(
                         AppearanceContrast.blend(brightestBase, 0xFFFFFFFF.toInt(), imageAlpha),
                         bg,
-                        scrim
+                        adaptiveScrimAlpha(imageAlpha, imageLuminance = 1f, textIsLight = scheme.onBackground.luminance() > 0.5f)
                     )
                 )
             }

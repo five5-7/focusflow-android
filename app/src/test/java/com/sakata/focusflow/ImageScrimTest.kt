@@ -73,14 +73,33 @@ class ImageScrimTest {
         )
     }
 
-    /** 遮罩无论怎么自适应都不能到 1.0：那等于图片被完全盖掉、设置形同失效。 */
+    /** 遮罩必须有明确上限，不能把 100% 图片重新盖成近乎不可见。 */
     @Test
     fun scrimNeverFullyHidesTheImage() {
         for (a in listOf(0.01f, 0.3f, 0.7f, 1f)) {
             for (l in listOf(0f, 0.5f, 1f)) {
                 for (light in listOf(false, true)) {
                     val s = adaptiveScrimAlpha(a, l, light)
-                    assertTrue("遮罩 $s 应落在 0..0.98", s in 0f..0.98f)
+                    assertTrue("遮罩 $s 应落在 0..0.70", s in 0f..0.70f)
+                }
+            }
+        }
+    }
+
+    @Test
+    fun visibleImageContributionStrictlyIncreasesWithSlider() {
+        val stops = listOf(0f, 0.1f, 0.25f, 0.5f, 0.75f, 1f)
+        for (luminance in listOf(0f, 0.5f, 1f)) {
+            for (textIsLight in listOf(false, true)) {
+                val visible = stops.map {
+                    effectiveImageVisibility(it, luminance, textIsLight)
+                }
+                for (index in 1 until visible.size) {
+                    assertTrue(
+                        "亮度 $luminance / 浅色字 $textIsLight：${stops[index]} 的可见度 " +
+                            "${visible[index]} 应大于上一档 ${visible[index - 1]}",
+                        visible[index] > visible[index - 1]
+                    )
                 }
             }
         }

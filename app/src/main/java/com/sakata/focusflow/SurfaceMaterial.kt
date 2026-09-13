@@ -39,6 +39,7 @@ import dev.chrisbanes.haze.HazeTint
 import dev.chrisbanes.haze.hazeEffect
 import kotlin.math.max
 import kotlin.math.roundToInt
+import kotlin.math.sqrt
 
 /**
  * 8.2.0 外观系统的**唯一渲染出口**（见 docs/8.2.0-appearance-plan.md）。
@@ -631,7 +632,14 @@ internal fun navBarColourOverBackdrop(
     deltaTo = themeSpec.navigationBarColor
 )
 
-/** 图片不透明度越高，遮罩越厚；0.34–0.78 之间，既有图感又保得住文字。 */internal fun scrimAlpha(imageAlpha: Float): Float = 0.34f + 0.44f * imageAlpha.coerceIn(0f, 1f)
+/**
+ * 图片之上的基础主题遮罩。
+ *
+ * 这里不能再跟图片不透明度一起增长：旧公式让图片 alpha 变大时遮罩也同步变厚，
+ * 实际可见贡献 `imageAlpha * (1 - scrim)` 会在中段到达峰值后下降，造成 100% 反而
+ * 比 50% 更透明。基础遮罩固定，极端明暗所需的额外保护交给 [adaptiveScrimAlpha]。
+ */
+internal fun scrimAlpha(@Suppress("UNUSED_PARAMETER") imageAlpha: Float): Float = 0.34f
 
 /**
  * 按**图片实际明暗**决定的遮罩厚度。
@@ -647,16 +655,26 @@ internal fun navBarColourOverBackdrop(
  * （一开始我把这条写反了，写成"页面越深越危险"，单测当场抓住：
  * 深色模式 + 亮图时遮罩丝毫没加厚。）
  *
- * 下限 [scrimAlpha] 保持不变，所以原来的观感只会更清楚、不会更花。
+ * 下限 [scrimAlpha] 保持不变；风险增量最多 0.36，并用 sqrt(alpha) 平滑介入。
+ * 这样既保护极端图片上的正文，也保证滑块从 0 到 100 时图片可见度严格递增。
  */
 internal fun adaptiveScrimAlpha(imageAlpha: Float, imageLuminance: Float, textIsLight: Boolean): Float {
-    val base = scrimAlpha(imageAlpha)
+    val alpha = imageAlpha.coerceIn(0f, 1f)
+    val base = scrimAlpha(alpha)
     val lum = imageLuminance.coerceIn(0f, 1f)
     // 正文浅 → 亮图危险（risky = lum）；正文深 → 暗图危险（risky = 1 - lum）。
     val risky = if (textIsLight) lum else 1f - lum
-    // 图片几乎不可见时谈不上风险，用 alpha 加权，n=0 时严格等于旧值。
-    val weight = imageAlpha.coerceIn(0f, 1f)
-    return (base + (1f - base) * risky * weight).coerceIn(0f, 0.98f)
+    return (base + 0.36f * risky * sqrt(alpha)).coerceIn(0f, 0.70f)
+}
+
+/** 图片经过主题遮罩后真正留在画面里的比例，供滑块单调性回归测试。 */
+internal fun effectiveImageVisibility(
+    imageAlpha: Float,
+    imageLuminance: Float,
+    textIsLight: Boolean
+): Float {
+    val alpha = imageAlpha.coerceIn(0f, 1f)
+    return alpha * (1f - adaptiveScrimAlpha(alpha, imageLuminance, textIsLight))
 }
 
 /**
