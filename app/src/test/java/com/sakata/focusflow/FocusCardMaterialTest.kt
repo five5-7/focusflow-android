@@ -1,6 +1,9 @@
 package com.sakata.focusflow
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.material3.lightColorScheme
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.graphics.luminance
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -81,6 +84,16 @@ class FocusCardMaterialTest {
         assertNull("亚克力靠染色和模糊成边，不应出现独立描边", materialRimColor(CardMaterial.ACRYLIC, base))
         assertEquals(1f, materialRimWidthDp(CardMaterial.FROSTED), 0.001f)
         assertTrue("毛玻璃保留独立玻璃描边", materialRimColor(CardMaterial.FROSTED, base) != null)
+    }
+
+    @Test
+    fun glassMaterialsIgnoreLegacyCardBorders() {
+        val legacyBorder = BorderStroke(1.dp, Color.Gray)
+        assertEquals(legacyBorder, cardBorderForMaterial(CardMaterial.TONAL, legacyBorder))
+        assertEquals(legacyBorder, cardBorderForMaterial(CardMaterial.GRADIENT, legacyBorder))
+        assertEquals(legacyBorder, cardBorderForMaterial(CardMaterial.SOFT, legacyBorder))
+        assertNull("亚克力不能继承调用点的通用描边", cardBorderForMaterial(CardMaterial.ACRYLIC, legacyBorder))
+        assertNull("毛玻璃只保留材质自身的圆角亮边", cardBorderForMaterial(CardMaterial.FROSTED, legacyBorder))
     }
 
     @Test

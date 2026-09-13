@@ -50,7 +50,7 @@ class UserGuideContentTest {
     }
 
     @Test fun `8_2_1 highlights distinguish acrylic and frosted glass`() {
-        val copy = updateHighlightsFor("8.2.1-rc.3").joinToString("\n")
+        val copy = updateHighlightsFor("8.2.1-rc.4").joinToString("\n")
         for (keyword in listOf("亚克力", "毛玻璃", "丰富外观", "默认关闭")) {
             assertTrue("8.2.1 更新说明应提到「$keyword」", copy.contains(keyword))
         }

@@ -261,6 +261,33 @@ private data class BaselineVariantDraft(val name: String)
     ) {
     ScrollableWithBar(scrollState = settingsScrollState) {
         Text("设置", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
+        var defaultHelpExpanded by remember { mutableStateOf(false) }
+        FocusCard(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+            elevation = 1.dp,
+            onClick = { defaultHelpExpanded = !defaultHelpExpanded }
+        ) {
+            Column(
+                Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(5.dp)
+            ) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text("默认设置怎么理解", fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                    Text(if (defaultHelpExpanded) "收起" else "展开", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
+                }
+                AnimatedVisibility(
+                    visible = defaultHelpExpanded,
+                    enter = fadeIn(MotionSpec.enter()) + expandVertically(MotionSpec.quick()),
+                    exit = fadeOut(MotionSpec.exit()) + shrinkVertically(MotionSpec.quick())
+                ) {
+                    Text(
+                        "核心功能可直接使用；AI、地点和识别均为可选，重要操作需要确认。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
         PlanHubItem("外观", "当前主题：${themeOption.label}") { onSubPageChange(SettingsSubPage.APPEARANCE) }
         HorizontalDivider()
         PlanHubItem(

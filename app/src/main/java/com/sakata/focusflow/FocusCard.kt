@@ -42,6 +42,7 @@ internal fun FocusCard(
     content: @Composable ColumnScope.() -> Unit
 ) {
     val material = LocalAppearance.current.effectiveCardMaterial
+    val effectiveBorder = cardBorderForMaterial(material, border)
     val colors = CardDefaults.cardColors(
         containerColor = if (material == CardMaterial.TONAL) containerColor else Color.Transparent
     )
@@ -87,7 +88,7 @@ internal fun FocusCard(
             shape = shape,
             colors = colors,
             elevation = elevationSpec,
-            border = border
+            border = effectiveBorder
         ) { body()() }
     } else {
         Card(
@@ -95,10 +96,18 @@ internal fun FocusCard(
             shape = shape,
             colors = colors,
             elevation = elevationSpec,
-            border = border
+            border = effectiveBorder
         ) { body()() }
     }
 }
+
+/**
+ * 玻璃材质必须独占边缘绘制：亚克力不画边，毛玻璃由材质层沿真实 Shape 画亮边。
+ * 调用点遗留的 OutlinedCard 边框若继续传给 Material Card，会让亚克力出现错误描边、
+ * 毛玻璃叠成双边；计划主页的入口卡片正是这类调用点最集中的区域。
+ */
+internal fun cardBorderForMaterial(material: CardMaterial, border: BorderStroke?): BorderStroke? =
+    if (material.samplesPageBackdrop) null else border
 
 @Composable
 private fun Modifier.cardMaterialFill(
