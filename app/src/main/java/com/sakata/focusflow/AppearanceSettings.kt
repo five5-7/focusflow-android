@@ -478,8 +478,7 @@ internal fun CardMaterialControls(
             }
         }
         Text(
-            "亚克力会轻度模糊底层并加入主题色，不加描边；毛玻璃模糊更强，并有一圈完整的圆角亮边。" +
-                "两者都不会模糊文字。",
+            "亚克力轻度模糊、无描边；毛玻璃模糊更强、有圆角亮边。",
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
