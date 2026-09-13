@@ -37,13 +37,11 @@ internal fun PlanHubScreen(
             Text("计划", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
             HelpToggleButton(onClick = { helpOpen = true })
         }
-        // 这张行动卡曾使用 secondaryContainer + 1dp elevation。玻璃材质的背景模糊在边缘
-        // 会逐渐透明，于是较深底色从四周透出，真机上变成“厚灰圆框 + 内层直角矩形”。
-        // 与下方入口统一圆角和稳定底色，强调关系由“新增目标”按钮承担。
+        // 独立行动卡：保留 secondaryContainer 与轻微 elevation；玻璃边缘问题由 FocusCard
+        // 的 CLAMP 模糊统一修复，不再通过换成普通卡片规避。
         FocusCard(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(20.dp)
+            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+            elevation = 1.dp
         ) {
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),

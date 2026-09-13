@@ -1,5 +1,7 @@
 package com.sakata.focusflow
 
+import android.os.Build
+import android.graphics.Shader
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -11,11 +13,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.asComposeRenderEffect
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalDensity
 
 /**
  * 8.2.0 的统一卡片：把「卡片材质」集中在一处实现（见 docs/8.2.0-appearance-plan.md）。
@@ -58,7 +62,7 @@ internal fun FocusCard(
                     Box(
                         Modifier
                             .matchParentSize()
-                            .blur(androidx.compose.ui.unit.Dp(material.backdropBlurRadiusDp))
+                            .clampedBackdropBlur(material.backdropBlurRadiusDp)
                             .appearanceBackdrop(
                                 LocalAppearance.current,
                                 MaterialTheme.colorScheme,
@@ -99,6 +103,30 @@ internal fun FocusCard(
             border = effectiveBorder
         ) { body()() }
     }
+}
+
+/**
+ * 只模糊背景副本，并把画布边缘像素向外延展。
+ *
+ * Compose 的 `Modifier.blur` 默认在边缘外使用透明像素。玻璃卡片的模糊半径达到 18/30dp 时，
+ * 边缘会因此逐渐透明，Surface 的底色或 elevation 色层从四周透出，形成“厚灰框 + 内层矩形”。
+ * Android 12+ 的原生 RenderEffect 可以使用 CLAMP：模糊核超出画布时继续取最外侧像素，
+ * 不再混入透明色；最终圆角仍由外层 Material Card 的同一个 Shape 裁切。
+ * Android 12 以下与原有 Compose blur 一样无法提供实时模糊，保留透明染色层安全回退。
+ */
+@Composable
+private fun Modifier.clampedBackdropBlur(radiusDp: Float): Modifier {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || radiusDp <= 0f) return this
+    val density = LocalDensity.current
+    val radiusPx = with(density) { androidx.compose.ui.unit.Dp(radiusDp).toPx() }
+    val effect = remember(radiusPx) {
+        android.graphics.RenderEffect.createBlurEffect(
+            radiusPx,
+            radiusPx,
+            Shader.TileMode.CLAMP
+        ).asComposeRenderEffect()
+    }
+    return graphicsLayer { renderEffect = effect }
 }
 
 /**
