@@ -52,6 +52,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.hazeSource
 
 /** 8.1.0 退出确认时间窗：与 Snackbar Short 显示时长一致，提示消失前再次按系统返回才真正退出。 */
 private const val EXIT_PROMPT_WINDOW_MS = 4000L
@@ -906,11 +908,22 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
         val density = LocalDensity.current
         val keyboardVisible = WindowInsets.ime.getBottom(density) > 0
         var floatingBarHeight by remember { mutableStateOf(112.dp) }
+        val capturesGlassBackdrop = appearance.effectiveCardMaterial.samplesPageBackdrop
+        // 默认关闭时连 HazeState 都不创建；开关或材质变化后才建立／释放共享捕获源。
+        // 这样 8.2.1 的默认路径没有背景捕获对象，也没有额外离屏绘制节点。
+        val glassBackdropState = remember(capturesGlassBackdrop) {
+            if (capturesGlassBackdrop) HazeState() else null
+        }
         Box(Modifier.fillMaxSize().imePadding()) {
         // 8.2.0 外观系统：背景层画在最底下（页面渐变/图片）。默认外观下它不新增任何绘制，
         // 因此「默认与 8.1.1 逐像素一致」是结构上成立的，不靠调参。
         Box(
             Modifier.fillMaxSize()
+                .then(
+                    if (glassBackdropState != null) {
+                        Modifier.hazeSource(glassBackdropState, zIndex = 0f, key = "page-background")
+                    } else Modifier
+                )
                 .appearanceBackdrop(
                     spec = appearance,
                     scheme = MaterialTheme.colorScheme,
@@ -923,6 +936,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
         CompositionLocalProvider(
             LocalAppearance provides appearance,
             LocalBackdropBitmap provides pageBackdropBitmap,
+            LocalGlassBackdropState provides glassBackdropState,
             LocalAppDialogHost provides dialogHost
         ) {
         // Horizontal cutouts constrain the viewport. Top safety travels with scroll content.
@@ -930,6 +944,9 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
         val topSafety = safeContentInsets.asPaddingValues().calculateTopPadding()
         val hasTopNotice = StorageProtection.readOnly || globalLoading
         Scaffold(
+            modifier = if (glassBackdropState != null) {
+                Modifier.hazeSource(glassBackdropState, zIndex = 1f, key = "page-content")
+            } else Modifier,
             containerColor = pageContainerColor(),
             contentWindowInsets = safeContentInsets.only(WindowInsetsSides.Horizontal),
             snackbarHost = { SnackbarHost(snackbarHostState, Modifier.padding(bottom = floatingBarHeight)) },

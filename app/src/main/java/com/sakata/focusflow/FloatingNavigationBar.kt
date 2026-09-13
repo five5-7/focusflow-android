@@ -147,8 +147,9 @@ internal fun FloatingNavigationBar(
     // 2. 把 Surface 的 color 让成 Transparent 让材质露出来 —— 底色没了之后，
     //    Surface 自己的 **shadowElevation 阴影**就画到材质层上面（阴影内部原本靠不透明底色遮着），
     //    维护者立刻复现了"胶囊要么没渲染、要么就有问题"的老毛病。
-    // 现在 Surface 底色保持不透明（投影照旧被遮住），材质与渐变画在内容最底层，层级自然正确。
+    // 非玻璃材质仍保持 Surface 底色不透明；玻璃材质改由内容最底层的真实背景效果填满内部。
     val barMaterial = LocalAppearance.current.effectiveCardMaterial
+    val realGlassBackdrop = barMaterial.samplesPageBackdrop && LocalGlassBackdropState.current != null
     val barBrush: Brush? = containerBrush
     // 8.1.0 形变：每个顶角各自跟随自己的图标——有回退才伸出左角、有折返才伸出右角；图标消失即收回。
     val backProgress by animateFloatAsState(if (canGoBack && MotionSpec.morphEnabled) 1f else 0f, MotionSpec.morph(), label = "backCorner")
@@ -223,36 +224,53 @@ internal fun FloatingNavigationBar(
                     //
                     // 注意：这条画刷路径当前恒为 null（T-4 因"渲染成三层"被回退）。
                     .then(
-                        if (containerBrush != null) {
+                        if (containerBrush != null && !realGlassBackdrop) {
                             Modifier.drawBehind { drawRect(containerBrush) }
                         } else {
                             Modifier
                         }
                     ),
                 shape = barShape,
-                // 底色恒为 Surface 自己的不透明色：它同时负责遮住 Surface 投影的内部，
-                // 所以**不能**为了露出材质而把它让成透明。
-                // 渐变（barBrush）与材质都画在内容最底层、盖在它上面。
-                color = background,
+                // 非玻璃材质仍由 Surface 的不透明色遮住投影内部；玻璃材质例外，
+                // 内部的真实背景效果会填满同一形状，同时让被遮住的页面内容可见。
+                // 玻璃材质必须把 Surface 自己的不透明底色让开，才能看到下面真实页面的模糊副本。
+                // 效果层会在内容最底层重新填满形状；预览等没有捕获源的环境仍走原不透明兜底。
+                color = if (realGlassBackdrop) Color.Transparent else background,
+                contentColor = navigationContentColor(background),
                 tonalElevation = 0.dp,
                 // 维护者口径：不要那条 2dp 的硬灰线，改成"靠里浅、靠边深"的过渡——
                 // 描边收成几乎看不见的发丝线，靠阴影把边缘柔化出去（3dp → 7dp）。
                 // 弹窗打开时收到 1dp：那圈投影正是"抢弹窗存在感"的来源。
                 shadowElevation = barShadow,
-                border = BorderStroke(0.6.dp, navigationContentColor(background).copy(alpha = 0.12f))
+                // 玻璃档由材质层自己决定边缘：亚克力无描边，毛玻璃沿真实圆角画 1dp 亮边。
+                // 保留这里的通用边框会让亚克力仍像有边、毛玻璃叠成双边。
+                border = if (barMaterial.samplesPageBackdrop) null else {
+                    BorderStroke(0.6.dp, navigationContentColor(background).copy(alpha = 0.12f))
+                }
             ) {
                 // 底栏自己的两层底**必须画在 Surface 内容里**：
-                // Surface 的 `color` 会盖住挂在它 modifier 上的 drawBehind（见 surfaceMaterialFill 的说明），
-                // 而把 Surface 底色让成透明又会让它自己的投影浮上来（维护者当场复现"胶囊有问题"）。
-                // 所以：Surface 底色保持不透明（投影照旧被它遮住），底色与材质都画在内容最底层。
+                // Surface 的 `color` 会盖住挂在它 modifier 上的 drawBehind（见 surfaceMaterialFill 的说明）。
+                // 非玻璃档保持不透明底色；玻璃档先用与形状一致的真实背景层填满内部，再叠材质面层，
+                // 因此不会退回过去那种只有透明 Surface、内部投影也暴露出来的空壳。
                 //
                 // `propagateMinConstraints = true` 是必须的：Surface 内部那个 Box 就是开着它的，
                 // 少了这一句，下面的 BoxWithConstraints 会拿不到最小宽度、底栏缩成内容宽度。
                 Box(propagateMinConstraints = true) {
+                    // ⓪ 真背景层：按屏幕坐标截取底栏实际盖住的日程文字／色块并模糊。
+                    // 这一层只包含背景，下面的图标、标签、选中色块仍保持锐利。
+                    if (realGlassBackdrop) {
+                        Box(
+                            Modifier.matchParentSize().glassBackdropEffect(
+                                barMaterial,
+                                background,
+                                barShape
+                            )
+                        )
+                    }
                     // ① 底色层：页面是渐变时按点取色铺一条横向画刷
                     //    （维护者："导航栏不会相应左右渐变的底色"）。
                     //    非渐变档 barBrush 为 null，交给 Surface 的纯色，那些档位逐像素不变。
-                    if (barBrush != null) {
+                    if (barBrush != null && !realGlassBackdrop) {
                         Box(Modifier.matchParentSize().drawBehind { drawRect(barBrush) })
                     }
                     // ② 材质层：与卡片、弹窗共用同一份实现
@@ -270,12 +288,12 @@ internal fun FloatingNavigationBar(
                             barShape,
                             // **不要对已经半透明的材质再乘一次 alpha。**
                             // 这层 0.6 原本是为了让下面那条"跟随页面左右渐变"的画刷透上来；
-                            // 而亚克力自身 alpha 就是 0.60，再乘 0.6 只剩 0.36 ——
+                            // 而玻璃类材质自身已经半透明，再乘一次会让它们几乎消失 ——
                             // 叠在底栏这种不透明底色上几乎看不出层次，
                             // 维护者就是因此报"导航栏没有渲染上"（真机实测：亚克力档底栏
                             // 比默认只深 9 级且完全平，看着像没生效）。
                             // 半透明材质本来就透，所以它走全强度。
-                            alpha = if (barBrush != null && barMaterial != CardMaterial.ACRYLIC) 0.6f else 1f
+                            alpha = if (barBrush != null && !barMaterial.samplesPageBackdrop) 0.6f else 1f
                         )
                     )
                 // Internal padding contains BOTH selected background and ripple within the outer corners.

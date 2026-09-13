@@ -37,7 +37,7 @@ internal fun PlanHubScreen(
             Text("计划", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
             HelpToggleButton(onClick = { helpOpen = true })
         }
-        // 收编：ElevatedCard(colors = secondaryContainer) → FocusCard，底色与 1dp 默认阴影逐项保留。
+        // 保留原卡片样式；玻璃下的 elevation 冲突由 FocusCard 统一处理。
         FocusCard(
             containerColor = MaterialTheme.colorScheme.secondaryContainer,
             elevation = 1.dp

@@ -2,6 +2,7 @@ package com.sakata.focusflow
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -11,9 +12,11 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -24,6 +27,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -31,8 +35,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
@@ -74,8 +80,7 @@ internal fun AppearanceSettingsSection(
         } else {
             HorizontalDivider()
             Text(
-                "卡片材质与课表底色已随「丰富的动画与外观效果」一起暂停——" +
-                    "之前选过的设置都还留着，重新打开开关就会恢复。",
+                "丰富外观已关闭：卡片材质和课表底色暂不生效，已选内容会保留，重新开启即可恢复。",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -111,7 +116,13 @@ internal fun PageBackdropControls(
             }
             if (stored) {
                 // 先落下新图再切模式：切模式会立刻触发解码，避免出现"模式是新图但文件还是旧的"。
-                onAppearanceChange(appearance.copy(pageBackdrop = BackdropKind.IMAGE, pageImage = name))
+                onAppearanceChange(
+                    appearance.copy(
+                        pageBackdrop = BackdropKind.IMAGE,
+                        pageImage = name,
+                        pageImageCrop = ImageCrop()
+                    )
+                )
                 status = "已导入，只存在本机（原图不会被上传）"
             } else {
                 status = "这张图片读不出来，换一张试试"
@@ -211,7 +222,13 @@ internal fun PageBackdropControls(
                 if (appearance.pageImage.isNotBlank()) {
                     TextButton(onClick = {
                         val old = appearance.pageImage
-                        onAppearanceChange(appearance.copy(pageImage = "", pageBackdrop = BackdropKind.THEME))
+                        onAppearanceChange(
+                            appearance.copy(
+                                pageImage = "",
+                                pageBackdrop = BackdropKind.THEME,
+                                pageImageCrop = ImageCrop()
+                            )
+                        )
                         scope.launch { withContext(Dispatchers.IO) { AppearanceImages.delete(context, old) } }
                         status = "已移除图片背景"
                     }) { Text("移除图片") }
@@ -230,6 +247,11 @@ internal fun PageBackdropControls(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             if (appearance.pageImage.isNotBlank()) {
+                ImageCropControls(
+                    bitmap = LocalBackdropBitmap.current,
+                    crop = appearance.pageImageCrop,
+                    onCropChange = { onAppearanceChange(appearance.copy(pageImageCrop = it)) }
+                )
                 TextButton(onClick = {
                     scope.launch {
                         val palette = withContext(Dispatchers.Default) {
@@ -457,7 +479,7 @@ internal fun GradientStopsControls(
     )
 }
 
-/** 卡片材质六档（默认 = 原来的纯色卡片，逐像素不变）。 */
+/** 卡片材质五档（默认 = 原来的纯色卡片，逐像素不变）。 */
 @Composable
 @OptIn(ExperimentalLayoutApi::class)
 internal fun CardMaterialControls(
@@ -479,7 +501,7 @@ internal fun CardMaterialControls(
             }
         }
         Text(
-            "默认＝原来的纯色卡片（逐像素不变）；渐变按当前配色派生；柔光给卡面一层很淡的顶亮底沉。",
+            "亚克力轻度模糊、无描边；毛玻璃模糊更强、有圆角亮边。",
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -526,7 +548,13 @@ internal fun TimetableBaseControls(
                 stream != null && AppearanceImages.store(context, name, stream, 1440, 3168)
             }
             if (stored) {
-                onAppearanceChange(appearance.copy(timetableBackdrop = BackdropKind.IMAGE, timetableImage = name))
+                onAppearanceChange(
+                    appearance.copy(
+                        timetableBackdrop = BackdropKind.IMAGE,
+                        timetableImage = name,
+                        timetableImageCrop = ImageCrop()
+                    )
+                )
                 status = "课表底色已换成这张图片"
             } else {
                 status = "这张图片读不出来，换一张试试"
@@ -591,7 +619,13 @@ internal fun TimetableBaseControls(
                 if (appearance.timetableImage.isNotBlank()) {
                     TextButton(onClick = {
                         val old = appearance.timetableImage
-                        onAppearanceChange(appearance.copy(timetableImage = "", timetableBackdrop = BackdropKind.THEME))
+                        onAppearanceChange(
+                            appearance.copy(
+                                timetableImage = "",
+                                timetableBackdrop = BackdropKind.THEME,
+                                timetableImageCrop = ImageCrop()
+                            )
+                        )
                         scope.launch { withContext(Dispatchers.IO) { AppearanceImages.delete(context, old) } }
                         status = "课表底图已移除"
                     }) { Text("移除图片") }
@@ -611,11 +645,83 @@ internal fun TimetableBaseControls(
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+            if (appearance.timetableImage.isNotBlank()) {
+                ImageCropControls(
+                    bitmap = rememberStoredAppearanceBitmap(appearance.timetableImage),
+                    crop = appearance.timetableImageCrop,
+                    onCropChange = { onAppearanceChange(appearance.copy(timetableImageCrop = it)) }
+                )
+            }
         }
         status?.let {
             Text(it, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
         }
     }
+}
+
+@Composable
+private fun ImageCropControls(
+    bitmap: ImageBitmap?,
+    crop: ImageCrop,
+    onCropChange: (ImageCrop) -> Unit
+) {
+    val normalized = crop.normalized()
+    val configuration = LocalConfiguration.current
+    val screenRatio = (configuration.screenWidthDp.toFloat() / configuration.screenHeightDp.toFloat())
+        .coerceIn(0.4f, 0.75f)
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        Text("图片范围", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+        val previewShape = RoundedCornerShape(14.dp)
+        Canvas(
+            Modifier
+                .fillMaxWidth(0.46f)
+                .aspectRatio(screenRatio)
+                .clip(previewShape)
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, previewShape)
+        ) {
+            bitmap?.let { drawImageCover(it, 1f, normalized) }
+        }
+        Text("横向 ${(normalized.centerX * 100).toInt()}%", style = MaterialTheme.typography.labelSmall)
+        Slider(
+            value = normalized.centerX,
+            onValueChange = { onCropChange(normalized.copy(centerX = it)) },
+            valueRange = 0f..1f,
+            modifier = Modifier.fillMaxWidth()
+        )
+        Text("纵向 ${(normalized.centerY * 100).toInt()}%", style = MaterialTheme.typography.labelSmall)
+        Slider(
+            value = normalized.centerY,
+            onValueChange = { onCropChange(normalized.copy(centerY = it)) },
+            valueRange = 0f..1f,
+            modifier = Modifier.fillMaxWidth()
+        )
+        Text("缩放 %.1f×".format(normalized.zoom), style = MaterialTheme.typography.labelSmall)
+        Slider(
+            value = normalized.zoom,
+            onValueChange = { onCropChange(normalized.copy(zoom = it)) },
+            valueRange = 1f..4f,
+            modifier = Modifier.fillMaxWidth()
+        )
+        if (normalized != ImageCrop()) {
+            TextButton(onClick = { onCropChange(ImageCrop()) }) { Text("重置范围") }
+        }
+    }
+}
+
+@Composable
+private fun rememberStoredAppearanceBitmap(name: String): ImageBitmap? {
+    val context = LocalContext.current
+    val bitmap by produceState<ImageBitmap?>(initialValue = null, name) {
+        value = if (name.isBlank()) null else withContext(Dispatchers.IO) {
+            AppearanceImages.load(context, name, 720, 1584)
+        }
+    }
+    return bitmap
 }
 
 /** 图上取色：只解到 64×64 再喂给抽取器（省内存、结果稳定）。 */

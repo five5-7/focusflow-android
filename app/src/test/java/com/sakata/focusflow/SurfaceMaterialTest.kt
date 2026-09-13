@@ -78,19 +78,23 @@ class SurfaceMaterialTest {
     }
 
     @Test
-    fun scrimGrowsWithImageOpacity() {
+    fun baseScrimDoesNotFightTheOpacitySlider() {
         assertEquals(0.34f, scrimAlpha(0f), 0.001f)
-        assertEquals(0.78f, scrimAlpha(1f), 0.001f)
-        assertTrue(scrimAlpha(0.5f) > scrimAlpha(0.2f))
+        assertEquals(0.34f, scrimAlpha(1f), 0.001f)
+        assertEquals(scrimAlpha(0.2f), scrimAlpha(0.5f), 0.001f)
         // 越界读数不炸
         assertEquals(0.34f, scrimAlpha(-1f), 0.001f)
-        assertEquals(0.78f, scrimAlpha(9f), 0.001f)
+        assertEquals(0.34f, scrimAlpha(9f), 0.001f)
     }
 
     @Test
     fun scrimKeepsDarkTextReadableOverADarkPhoto() {
         // 最坏情况：纯黑照片 + 浅色主题的遮罩 → 深色正文必须仍然过 AA
-        val scrimmed = blendSrgb(Color(0xFF000000), apricot.background, scrimAlpha(1f))
+        val scrimmed = blendSrgb(
+            Color(0xFF000000),
+            apricot.background,
+            adaptiveScrimAlpha(1f, imageLuminance = 0f, textIsLight = false)
+        )
         val text = 0xFF241D1A.toInt()
         val ratio = AppearanceContrast.ratio(text, argb(scrimmed))
         assertTrue("遮罩后对比度应达标，实际 $ratio", ratio >= AppearanceContrast.AA_BODY)
@@ -124,6 +128,20 @@ class SurfaceMaterialTest {
         assertEquals(0, same[1])
         assertEquals(500, same[2])
         assertEquals(1000, same[3])
+    }
+
+    @Test
+    fun coverRectRespectsChosenFocusAndZoom() {
+        val left = coverSourceRect(2000, 1000, 1000f, 1000f, ImageCrop(centerX = 0f))
+        val right = coverSourceRect(2000, 1000, 1000f, 1000f, ImageCrop(centerX = 1f))
+        assertEquals(0, left[0])
+        assertEquals(1000, right[0])
+
+        val zoomed = coverSourceRect(2000, 1000, 1000f, 1000f, ImageCrop(0.5f, 0.5f, 2f))
+        assertEquals(500, zoomed[2])
+        assertEquals(500, zoomed[3])
+        assertEquals(750, zoomed[0])
+        assertEquals(250, zoomed[1])
     }
 
     @Test

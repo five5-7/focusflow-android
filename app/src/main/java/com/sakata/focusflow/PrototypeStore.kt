@@ -106,6 +106,9 @@ class PrototypeStore(context: Context) {
         pageBackdrop = preferences.getString("appearance_page_backdrop", null),
         pageImage = preferences.getString("appearance_page_image", null),
         backdropOpacity = preferences.getInt("appearance_backdrop_opacity", 100),
+        pageCropX = preferences.getFloat("appearance_page_crop_x", 0.5f),
+        pageCropY = preferences.getFloat("appearance_page_crop_y", 0.5f),
+        pageCropZoom = preferences.getFloat("appearance_page_crop_zoom", 1f),
         gradientStrength = preferences.getInt("appearance_gradient_strength", 100),
         pageColor = preferences.getInt("appearance_page_color", 0),
         gradientFollowsContent = preferences.getBoolean("appearance_gradient_follows", false),
@@ -116,6 +119,9 @@ class PrototypeStore(context: Context) {
         timetableColor = preferences.getInt("appearance_timetable_color", 0),
         timetableImage = preferences.getString("appearance_timetable_image", null),
         timetableOpacity = preferences.getInt("appearance_timetable_opacity", 100),
+        timetableCropX = preferences.getFloat("appearance_timetable_crop_x", 0.5f),
+        timetableCropY = preferences.getFloat("appearance_timetable_crop_y", 0.5f),
+        timetableCropZoom = preferences.getFloat("appearance_timetable_crop_zoom", 1f),
         extracted = preferences.getString("appearance_extracted_colors", null),
         // 读不到 = true（保持现状）：老装机升级后行为不变。
         richEffects = preferences.getBoolean("appearance_rich_effects", false),
@@ -128,6 +134,9 @@ class PrototypeStore(context: Context) {
             .putString("appearance_page_backdrop", spec.pageBackdrop.storageKey)
             .putString("appearance_page_image", spec.pageImage)
             .putInt("appearance_backdrop_opacity", spec.backdropOpacity.coerceIn(0, 100))
+            .putFloat("appearance_page_crop_x", spec.pageImageCrop.normalized().centerX)
+            .putFloat("appearance_page_crop_y", spec.pageImageCrop.normalized().centerY)
+            .putFloat("appearance_page_crop_zoom", spec.pageImageCrop.normalized().zoom)
             .putInt("appearance_gradient_strength", spec.gradientStrength.coerceIn(0, GRADIENT_STRENGTH_MAX))
             .putInt("appearance_page_color", spec.pageColor)
             .putBoolean("appearance_gradient_follows", spec.gradientFollowsContent)
@@ -138,6 +147,9 @@ class PrototypeStore(context: Context) {
             .putInt("appearance_timetable_color", spec.timetableColor)
             .putString("appearance_timetable_image", spec.timetableImage)
             .putInt("appearance_timetable_opacity", spec.timetableOpacity.coerceIn(0, 100))
+            .putFloat("appearance_timetable_crop_x", spec.timetableImageCrop.normalized().centerX)
+            .putFloat("appearance_timetable_crop_y", spec.timetableImageCrop.normalized().centerY)
+            .putFloat("appearance_timetable_crop_zoom", spec.timetableImageCrop.normalized().zoom)
             .putString("appearance_extracted_colors", AppearanceSpec.encodeExtracted(spec.extractedColors))
             .putBoolean("appearance_rich_effects", spec.richEffects)
             .putString("appearance_gradient_direction", spec.gradientDirection.storageKey)

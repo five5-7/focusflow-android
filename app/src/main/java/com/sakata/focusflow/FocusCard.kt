@@ -13,7 +13,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
@@ -42,35 +41,62 @@ internal fun FocusCard(
     onClick: (() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    val material = LocalAppearance.current.effectiveCardMaterial
+    val appearance = LocalAppearance.current
+    val material = appearance.effectiveCardMaterial
+    val hasGlassBackdropState = LocalGlassBackdropState.current != null
+    val effectiveBorder = cardBorderForMaterial(material, border)
     val colors = CardDefaults.cardColors(
         containerColor = if (material == CardMaterial.TONAL) containerColor else Color.Transparent
     )
-    val elevationSpec = CardDefaults.cardElevation(defaultElevation = elevation)
+    // Material Card 的 elevation 会在透明容器外额外建立阴影/色调图层。玻璃卡片本身透明，
+    // 该图层便会从圆角四周露出，成为真机上看到的“厚灰框”；其中的背景副本则像内嵌矩形。
+    // 两张稳定复现的卡片（“从结果开始”“默认设置怎么理解”）共同点正是 elevation = 1.dp。
+    // 玻璃由背景模糊与自身亮边表达层级，不再叠 Material elevation；其他材质原样保留。
+    val effectiveElevation = cardElevationForMaterial(material, elevation)
+    val elevationSpec = CardDefaults.cardElevation(defaultElevation = effectiveElevation)
     fun body(): @Composable () -> Unit = {
         if (material == CardMaterial.TONAL) {
             Column(content = content)
         } else {
             Box {
-                if (material == CardMaterial.ACRYLIC) {
-                    // Recovered acrylic experiment: redraw the page backdrop below the material layer,
-                    // then blur that copy. The original remote prototype used 40dp; the lost local
-                    // rc.2 experiment reduced it to 18dp to preserve more background structure.
-                    Box(
-                        Modifier
-                            .matchParentSize()
-                            .blur(androidx.compose.ui.unit.Dp(18f))
-                            .appearanceBackdrop(
-                                LocalAppearance.current,
-                                MaterialTheme.colorScheme,
-                                LocalBackdropBitmap.current
-                            )
-                    )
+                if (material.samplesPageBackdrop) {
+                    if (shouldUseRealGlassBackdrop(
+                            material,
+                            appearance.effectivePageBackdrop,
+                            hasGlassBackdropState
+                        )
+                    ) {
+                        // 图片背景必须按屏幕坐标采样真实页面源。旧实现会在每张卡片的小画布里
+                        // 单独 centerCrop，同一张图在各卡片中出现不同区域，看起来并非真正透底。
+                        Box(
+                            Modifier
+                                .matchParentSize()
+                                .glassBackdropEffect(material, containerColor, shape)
+                        )
+                    } else {
+                        // 纯色/渐变无需增加每卡 Haze 成本；预览或捕获源不可用时也安全回退。
+                        Box(
+                            Modifier
+                                .matchParentSize()
+                                .blur(androidx.compose.ui.unit.Dp(material.backdropBlurRadiusDp))
+                                .appearanceBackdrop(
+                                    appearance,
+                                    MaterialTheme.colorScheme,
+                                    LocalBackdropBitmap.current
+                                )
+                        )
+                    }
                 }
                 Box(
                     Modifier
                         .matchParentSize()
-                        .cardMaterialFill(containerColor, material, MaterialTheme.colorScheme, LocalAppearance.current.cardGradientReversed)
+                        .cardMaterialFill(
+                            containerColor,
+                            material,
+                            MaterialTheme.colorScheme,
+                            LocalAppearance.current.cardGradientReversed,
+                            shape
+                        )
                 )
                 Column(content = content)
             }
@@ -83,7 +109,7 @@ internal fun FocusCard(
             shape = shape,
             colors = colors,
             elevation = elevationSpec,
-            border = border
+            border = effectiveBorder
         ) { body()() }
     } else {
         Card(
@@ -91,17 +117,32 @@ internal fun FocusCard(
             shape = shape,
             colors = colors,
             elevation = elevationSpec,
-            border = border
+            border = effectiveBorder
         ) { body()() }
     }
 }
+
+/**
+ * 玻璃材质必须独占边缘绘制：亚克力不画边，毛玻璃由材质层沿真实 Shape 画亮边。
+ * 调用点遗留的 OutlinedCard 边框若继续传给 Material Card，会让亚克力出现错误描边、
+ * 毛玻璃叠成双边；计划主页的入口卡片正是这类调用点最集中的区域。
+ */
+internal fun cardBorderForMaterial(material: CardMaterial, border: BorderStroke?): BorderStroke? =
+    if (material.samplesPageBackdrop) null else border
+
+/** 透明玻璃不能与 Material elevation 的独立色调/阴影层叠加。 */
+internal fun cardElevationForMaterial(
+    material: CardMaterial,
+    elevation: androidx.compose.ui.unit.Dp
+): androidx.compose.ui.unit.Dp = if (material.samplesPageBackdrop) androidx.compose.ui.unit.Dp(0f) else elevation
 
 @Composable
 private fun Modifier.cardMaterialFill(
     containerColor: Color,
     material: CardMaterial,
     scheme: ColorScheme,
-    softReversed: Boolean
+    softReversed: Boolean,
+    shape: Shape
 ): Modifier {
     val layer = remember(material, containerColor, scheme, softReversed) {
         materialBrush(material, containerColor, scheme, softReversed)
@@ -118,20 +159,14 @@ private fun Modifier.cardMaterialFill(
         )
     }
     return drawBehind {
-        if (material != CardMaterial.ACRYLIC) {
+        if (!material.samplesPageBackdrop) {
             drawRect(scheme.background)
             drawRect(containerColor)
         }
         if (layer != null) drawRect(layer)
         drawRect(edgeBrush)
         if (rim != null) {
-            val w = androidx.compose.ui.unit.Dp(rimWidthDp).toPx()
-            drawRect(
-                color = rim,
-                topLeft = Offset(w / 2f, w / 2f),
-                size = androidx.compose.ui.geometry.Size(size.width - w, size.height - w),
-                style = androidx.compose.ui.graphics.drawscope.Stroke(w)
-            )
+            drawMaterialRim(shape, rim, rimWidthDp)
         }
     }
 }
@@ -142,4 +177,24 @@ internal fun CardMaterial.label(): String = when (this) {
     CardMaterial.GRADIENT -> "渐变"
     CardMaterial.SOFT -> "柔光"
     CardMaterial.ACRYLIC -> "亚克力"
+    CardMaterial.FROSTED -> "毛玻璃"
 }
+
+/** 只有玻璃类材质需要在卡片里重画页面底图；其余材质继续铺自己的不透明底色。 */
+internal val CardMaterial.samplesPageBackdrop: Boolean
+    get() = this == CardMaterial.ACRYLIC || this == CardMaterial.FROSTED
+
+/** 只有图片底图需要真实坐标采样；纯色/渐变继续走更轻的本地重画路径。 */
+internal fun shouldUseRealGlassBackdrop(
+    material: CardMaterial,
+    pageBackdrop: BackdropKind,
+    hasBackdropState: Boolean
+): Boolean = material.samplesPageBackdrop && pageBackdrop == BackdropKind.IMAGE && hasBackdropState
+
+/** 两种玻璃材质的可感知差异：亚克力留轮廓，毛玻璃做更强扩散。 */
+internal val CardMaterial.backdropBlurRadiusDp: Float
+    get() = when (this) {
+        CardMaterial.ACRYLIC -> 18f
+        CardMaterial.FROSTED -> 30f
+        else -> 0f
+    }

@@ -112,8 +112,8 @@ jobs:
           echo "FOCUSFLOW_SIGNING_KEY_ALIAS=$resolved_alias" >> "$GITHUB_ENV"
           echo "FOCUSFLOW_SIGNING_KEY_PASSWORD=$resolved_key_password" >> "$GITHUB_ENV"
 
-      - name: Assemble release artifacts
-        run: gradle --no-daemon :app:assembleDebug :app:assembleRelease
+      - name: Run unit tests
+        run: gradle --no-daemon :app:testDebugUnitTest :app:testReleaseUnitTest
 
       - name: Upload unit test evidence
         if: always()
