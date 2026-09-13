@@ -146,7 +146,7 @@ internal fun cardBorderForMaterial(material: CardMaterial, border: BorderStroke?
 internal fun cardElevationForMaterial(
     material: CardMaterial,
     elevation: androidx.compose.ui.unit.Dp
-): androidx.compose.ui.unit.Dp = if (material.samplesPageBackdrop) androidx.compose.ui.unit.Dp.Zero else elevation
+): androidx.compose.ui.unit.Dp = if (material.samplesPageBackdrop) androidx.compose.ui.unit.Dp(0f) else elevation
 
 @Composable
 private fun Modifier.cardMaterialFill(
