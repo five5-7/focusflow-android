@@ -97,6 +97,16 @@ class FocusCardMaterialTest {
     }
 
     @Test
+    fun glassMaterialsDoNotExposeMaterialElevationLayer() {
+        val requested = 1.dp
+        assertEquals(requested, cardElevationForMaterial(CardMaterial.TONAL, requested))
+        assertEquals(requested, cardElevationForMaterial(CardMaterial.GRADIENT, requested))
+        assertEquals(requested, cardElevationForMaterial(CardMaterial.SOFT, requested))
+        assertEquals(0.dp, cardElevationForMaterial(CardMaterial.ACRYLIC, requested))
+        assertEquals(0.dp, cardElevationForMaterial(CardMaterial.FROSTED, requested))
+    }
+
+    @Test
     fun onlyGlassMaterialsCaptureAndBlurRealCoveredContent() {
         assertNull(CardMaterial.TONAL.glassBackdropProfile())
         assertNull(CardMaterial.GRADIENT.glassBackdropProfile())

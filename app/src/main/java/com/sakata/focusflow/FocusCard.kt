@@ -50,7 +50,12 @@ internal fun FocusCard(
     val colors = CardDefaults.cardColors(
         containerColor = if (material == CardMaterial.TONAL) containerColor else Color.Transparent
     )
-    val elevationSpec = CardDefaults.cardElevation(defaultElevation = elevation)
+    // Material Card 的 elevation 会在透明容器外额外建立阴影/色调图层。玻璃卡片本身透明，
+    // 该图层便会从圆角四周露出，成为真机上看到的“厚灰框”；其中的背景副本则像内嵌矩形。
+    // 两张稳定复现的卡片（“从结果开始”“默认设置怎么理解”）共同点正是 elevation = 1.dp。
+    // 玻璃由背景模糊与自身亮边表达层级，不再叠 Material elevation；其他材质原样保留。
+    val effectiveElevation = cardElevationForMaterial(material, elevation)
+    val elevationSpec = CardDefaults.cardElevation(defaultElevation = effectiveElevation)
     fun body(): @Composable () -> Unit = {
         if (material == CardMaterial.TONAL) {
             Column(content = content)
@@ -136,6 +141,12 @@ private fun Modifier.clampedBackdropBlur(radiusDp: Float): Modifier {
  */
 internal fun cardBorderForMaterial(material: CardMaterial, border: BorderStroke?): BorderStroke? =
     if (material.samplesPageBackdrop) null else border
+
+/** 透明玻璃不能与 Material elevation 的独立色调/阴影层叠加。 */
+internal fun cardElevationForMaterial(
+    material: CardMaterial,
+    elevation: androidx.compose.ui.unit.Dp
+): androidx.compose.ui.unit.Dp = if (material.samplesPageBackdrop) androidx.compose.ui.unit.Dp.Zero else elevation
 
 @Composable
 private fun Modifier.cardMaterialFill(
