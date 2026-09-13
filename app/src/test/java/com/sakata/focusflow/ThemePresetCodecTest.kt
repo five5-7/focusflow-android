@@ -28,6 +28,7 @@ class ThemePresetCodecTest {
 
     private val look = AppearanceSpec(
         pageBackdrop = BackdropKind.GRADIENT,
+        pageImageCrop = ImageCrop(0.2f, 0.8f, 2.4f),
         gradientStrength = 140,
         gradientTop = 0xFFDCE9F2.toInt(),
         gradientBottom = 0xFFF7FBFF.toInt(),
@@ -35,6 +36,7 @@ class ThemePresetCodecTest {
         cardMaterial = CardMaterial.SOFT,
         timetableBackdrop = BackdropKind.COLOR,
         timetableColor = 0xFFF2ECE8.toInt(),
+        timetableImageCrop = ImageCrop(0.7f, 0.3f, 1.8f),
         richEffects = false,
         gradientDirection = GradientDirection.DIAGONAL_UP,
         cardGradientReversed = true

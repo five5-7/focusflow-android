@@ -56,6 +56,14 @@ class AppearanceSpecTest {
     }
 
     @Test
+    fun imageCropDefaultsAndInvalidValuesAreSafe() {
+        assertEquals(ImageCrop(), AppearanceSpec.DEFAULT.pageImageCrop)
+        assertEquals(ImageCrop(), AppearanceSpec.DEFAULT.timetableImageCrop)
+        assertEquals(ImageCrop(0f, 1f, 4f), ImageCrop(-2f, 8f, 9f).normalized())
+        assertEquals(ImageCrop(), ImageCrop(Float.NaN, Float.POSITIVE_INFINITY, Float.NaN).normalized())
+    }
+
+    @Test
     fun gradientStrengthDefaultsAndClamps() {
         assertEquals(100, AppearanceSpec.DEFAULT.gradientStrength)
         assertEquals(1f, AppearanceSpec.DEFAULT.gradientScale, 0.0001f)

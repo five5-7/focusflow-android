@@ -131,6 +131,20 @@ class SurfaceMaterialTest {
     }
 
     @Test
+    fun coverRectRespectsChosenFocusAndZoom() {
+        val left = coverSourceRect(2000, 1000, 1000f, 1000f, ImageCrop(centerX = 0f))
+        val right = coverSourceRect(2000, 1000, 1000f, 1000f, ImageCrop(centerX = 1f))
+        assertEquals(0, left[0])
+        assertEquals(1000, right[0])
+
+        val zoomed = coverSourceRect(2000, 1000, 1000f, 1000f, ImageCrop(0.5f, 0.5f, 2f))
+        assertEquals(500, zoomed[2])
+        assertEquals(500, zoomed[3])
+        assertEquals(750, zoomed[0])
+        assertEquals(250, zoomed[1])
+    }
+
+    @Test
     fun gradientStrengthScalesTheAmplitude() {
         val plain = argb(apricot.background)
         // 0% = 纯色：三站全是底色

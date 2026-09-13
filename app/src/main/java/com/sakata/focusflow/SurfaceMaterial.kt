@@ -388,6 +388,10 @@ internal fun Modifier.appearanceBackdrop(
         // 8.2.0 §7.5：页面也能选固定背景色了（0 = 未选时退回按主题派生的浅色）。
         BackdropRole.Page -> spec.pageColor
     }
+    val imageCrop = when (role) {
+        BackdropRole.Page -> spec.pageImageCrop
+        BackdropRole.Timetable -> spec.timetableImageCrop
+    }.normalized()
     return drawBehind {
         when (backdrop) {
             BackdropKind.GRADIENT -> drawRect(
@@ -412,7 +416,7 @@ internal fun Modifier.appearanceBackdrop(
             BackdropKind.IMAGE -> {
                 drawRect(ThemeGradient.page(scheme))
                 if (bitmap != null && alpha > 0f) {
-                    drawImageCover(bitmap, alpha)
+                    drawImageCover(bitmap, alpha, imageCrop)
                     // 图片之上永远压一层主题遮罩：正文对比度靠它保住（见 AppearanceContrast）。
                     // 厚度按图片实际明暗自适应——固定厚度会让"浅图@低不透明度"把正文洗没。
                     drawRect(
@@ -732,26 +736,20 @@ private fun sampleLuminance(bitmap: ImageBitmap): Float = runCatching {
     averageLuminance(pixels, w, h)
 }.getOrDefault(0.5f)
 
-/** 背景图按"保持比例、居中裁切"铺满：算源矩形，目标永远是整块画布（不会出现负偏移）。 */
-private fun DrawScope.drawImageCover(bitmap: ImageBitmap, alpha: Float) {
+/** 背景图按用户选择的焦点与缩放铺满；默认参数仍是原来的居中裁切。 */
+internal fun DrawScope.drawImageCover(
+    bitmap: ImageBitmap,
+    alpha: Float,
+    crop: ImageCrop = ImageCrop()
+) {
     val srcW = bitmap.width
     val srcH = bitmap.height
-    if (srcW <= 0 || srcH <= 0) return
-    val targetRatio = size.width / size.height
-    val srcRatio = srcW.toFloat() / srcH.toFloat()
-    val cropW: Int
-    val cropH: Int
-    if (srcRatio > targetRatio) {
-        cropH = srcH
-        cropW = (srcH * targetRatio).roundToInt().coerceIn(1, srcW)
-    } else {
-        cropW = srcW
-        cropH = (srcW / targetRatio).roundToInt().coerceIn(1, srcH)
-    }
+    if (srcW <= 0 || srcH <= 0 || size.width <= 0f || size.height <= 0f) return
+    val source = coverSourceRect(srcW, srcH, size.width, size.height, crop)
     drawImage(
         image = bitmap,
-        srcOffset = IntOffset((srcW - cropW) / 2, (srcH - cropH) / 2),
-        srcSize = IntSize(cropW, cropH),
+        srcOffset = IntOffset(source[0], source[1]),
+        srcSize = IntSize(source[2], source[3]),
         dstOffset = IntOffset.Zero,
         dstSize = IntSize(size.width.roundToInt(), size.height.roundToInt()),
         alpha = alpha,
@@ -1128,7 +1126,13 @@ internal fun softLightBrush(base: Color, reversed: Boolean = false): Brush =
     Brush.verticalGradient(softLightStops(base, reversed))
 
 /** 供测试：Crop 铺满时源图应取的矩形（与 [drawImageCover] 同一套算法）。 */
-internal fun coverSourceRect(srcW: Int, srcH: Int, dstW: Float, dstH: Float): IntArray {
+internal fun coverSourceRect(
+    srcW: Int,
+    srcH: Int,
+    dstW: Float,
+    dstH: Float,
+    crop: ImageCrop = ImageCrop()
+): IntArray {
     if (srcW <= 0 || srcH <= 0 || dstW <= 0f || dstH <= 0f) return intArrayOf(0, 0, srcW, srcH)
     val targetRatio = dstW / dstH
     val srcRatio = srcW.toFloat() / srcH.toFloat()
@@ -1141,7 +1145,12 @@ internal fun coverSourceRect(srcW: Int, srcH: Int, dstW: Float, dstH: Float): In
         cropW = srcW
         cropH = (srcW / targetRatio).roundToInt().coerceIn(1, srcH)
     }
-    return intArrayOf((srcW - cropW) / 2, (srcH - cropH) / 2, cropW, cropH)
+    val normalized = crop.normalized()
+    val zoomedW = (cropW / normalized.zoom).roundToInt().coerceIn(1, cropW)
+    val zoomedH = (cropH / normalized.zoom).roundToInt().coerceIn(1, cropH)
+    val x = ((srcW - zoomedW) * normalized.centerX).roundToInt().coerceIn(0, srcW - zoomedW)
+    val y = ((srcH - zoomedH) * normalized.centerY).roundToInt().coerceIn(0, srcH - zoomedH)
+    return intArrayOf(x, y, zoomedW, zoomedH)
 }
 
 /** 供 UI 判断"这个背景到底会不会改变画面"。 */

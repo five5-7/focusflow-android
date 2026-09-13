@@ -51,6 +51,9 @@ internal object ThemePresetCodec {
         put("pageBackdrop", spec.pageBackdrop.storageKey)
         put("pageImage", spec.pageImage)
         put("backdropOpacity", spec.backdropOpacity)
+        put("pageCropX", spec.pageImageCrop.centerX.toDouble())
+        put("pageCropY", spec.pageImageCrop.centerY.toDouble())
+        put("pageCropZoom", spec.pageImageCrop.zoom.toDouble())
         put("gradientStrength", spec.gradientStrength)
         put("pageColor", spec.pageColor)
         put("gradientFollows", spec.gradientFollowsContent)
@@ -61,6 +64,9 @@ internal object ThemePresetCodec {
         put("timetableColor", spec.timetableColor)
         put("timetableImage", spec.timetableImage)
         put("timetableOpacity", spec.timetableOpacity)
+        put("timetableCropX", spec.timetableImageCrop.centerX.toDouble())
+        put("timetableCropY", spec.timetableImageCrop.centerY.toDouble())
+        put("timetableCropZoom", spec.timetableImageCrop.zoom.toDouble())
         // rc.1 recovery: these three appearance switches were present in AppearanceSpec but
         // omitted by the original preset codec, so a round-trip silently changed the look.
         put("richEffects", spec.richEffects)
@@ -78,6 +84,11 @@ internal object ThemePresetCodec {
             pageBackdrop = BackdropKind.fromKey(value.optString("pageBackdrop", fallback.pageBackdrop.storageKey)),
             pageImage = value.optString("pageImage", fallback.pageImage),
             backdropOpacity = value.optInt("backdropOpacity", fallback.backdropOpacity),
+            pageImageCrop = ImageCrop(
+                value.optDouble("pageCropX", 0.5).toFloat(),
+                value.optDouble("pageCropY", 0.5).toFloat(),
+                value.optDouble("pageCropZoom", 1.0).toFloat()
+            ).normalized(),
             gradientStrength = value.optInt("gradientStrength", fallback.gradientStrength),
             pageColor = value.optInt("pageColor", fallback.pageColor),
             gradientFollowsContent = value.optBoolean("gradientFollows", fallback.gradientFollowsContent),
@@ -90,6 +101,11 @@ internal object ThemePresetCodec {
             timetableColor = value.optInt("timetableColor", fallback.timetableColor),
             timetableImage = value.optString("timetableImage", fallback.timetableImage),
             timetableOpacity = value.optInt("timetableOpacity", fallback.timetableOpacity),
+            timetableImageCrop = ImageCrop(
+                value.optDouble("timetableCropX", 0.5).toFloat(),
+                value.optDouble("timetableCropY", 0.5).toFloat(),
+                value.optDouble("timetableCropZoom", 1.0).toFloat()
+            ).normalized(),
             richEffects = value.optBoolean("richEffects", fallback.richEffects),
             gradientDirection = GradientDirection.fromKey(
                 value.optString("gradientDirection", fallback.gradientDirection.storageKey)

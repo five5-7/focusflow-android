@@ -104,6 +104,19 @@ internal enum class CardMaterial(val storageKey: String) {
     }
 }
 
+/** 背景图的非破坏性取景参数：保留原图，只记录焦点位置与放大倍数。 */
+internal data class ImageCrop(
+    val centerX: Float = 0.5f,
+    val centerY: Float = 0.5f,
+    val zoom: Float = 1f
+) {
+    fun normalized(): ImageCrop = ImageCrop(
+        centerX = centerX.takeIf { it.isFinite() }?.coerceIn(0f, 1f) ?: 0.5f,
+        centerY = centerY.takeIf { it.isFinite() }?.coerceIn(0f, 1f) ?: 0.5f,
+        zoom = zoom.takeIf { it.isFinite() }?.coerceIn(1f, 4f) ?: 1f
+    )
+}
+
 /**
  * 当前外观偏好。
  *
@@ -114,6 +127,7 @@ internal data class AppearanceSpec(
     val pageBackdrop: BackdropKind = BackdropKind.THEME,
     val pageImage: String = "",
     val backdropOpacity: Int = 100,
+    val pageImageCrop: ImageCrop = ImageCrop(),
     /** 渐变强度百分比：100 = 设计值（默认，与首次实现逐像素一致），0 = 等于纯色，200 = 最深。 */
     val gradientStrength: Int = 100,
     /** 页面固定背景色（[BackdropKind.COLOR] 用）；0 = 未选。 */
@@ -132,6 +146,7 @@ internal data class AppearanceSpec(
     val timetableColor: Int = 0,
     val timetableImage: String = "",
     val timetableOpacity: Int = 100,
+    val timetableImageCrop: ImageCrop = ImageCrop(),
     val extractedColors: List<Long> = emptyList(),
     /**
      * 丰富的动画与外观效果（维护者口径 8.2.0）。
@@ -303,11 +318,18 @@ internal data class AppearanceSpec(
             extracted: String?,
             richEffects: Boolean = false,
             gradientDirection: String? = null,
-            cardGradientReversed: Boolean = false
+            cardGradientReversed: Boolean = false,
+            pageCropX: Float = 0.5f,
+            pageCropY: Float = 0.5f,
+            pageCropZoom: Float = 1f,
+            timetableCropX: Float = 0.5f,
+            timetableCropY: Float = 0.5f,
+            timetableCropZoom: Float = 1f
         ): AppearanceSpec = AppearanceSpec(
             pageBackdrop = BackdropKind.fromKey(pageBackdrop),
             pageImage = pageImage.orEmpty(),
             backdropOpacity = backdropOpacity,
+            pageImageCrop = ImageCrop(pageCropX, pageCropY, pageCropZoom).normalized(),
             gradientStrength = gradientStrength,
             pageColor = pageColor,
             gradientFollowsContent = gradientFollowsContent,
@@ -318,6 +340,7 @@ internal data class AppearanceSpec(
             timetableColor = timetableColor,
             timetableImage = timetableImage.orEmpty(),
             timetableOpacity = timetableOpacity,
+            timetableImageCrop = ImageCrop(timetableCropX, timetableCropY, timetableCropZoom).normalized(),
             extractedColors = decodeExtracted(extracted),
             richEffects = richEffects,
             gradientDirection = GradientDirection.fromKey(gradientDirection),
