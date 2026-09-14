@@ -218,13 +218,10 @@ private data class BaselineVariantDraft(val name: String)
     val settingsStore = remember(context) { PrototypeStore(context) }
     val settingsLifecycleOwner = LocalLifecycleOwner.current
     var settingsNotificationHealth by remember { mutableStateOf(NotificationChannelSettings.health(context)) }
-    var permissionReminderDismissed by remember { mutableStateOf(settingsStore.loadPermissionReminderDismissed()) }
-    var permissionStateRevision by remember { mutableIntStateOf(0) }
     DisposableEffect(settingsLifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 settingsNotificationHealth = NotificationChannelSettings.health(context)
-                permissionStateRevision += 1
             }
         }
         settingsLifecycleOwner.lifecycle.addObserver(observer)
@@ -266,46 +263,6 @@ private data class BaselineVariantDraft(val name: String)
     ) {
     ScrollableWithBar(scrollState = settingsScrollState) {
         Text("设置", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
-        val missingPermissions = remember(permissionStateRevision, gameDetectionEnabled) {
-            PermissionReminderPolicy.missing(
-                notificationsGranted = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
-                    context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED,
-                exactAlarmsGranted = Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
-                    context.getSystemService(AlarmManager::class.java).canScheduleExactAlarms(),
-                usageAccessRequired = gameDetectionEnabled,
-                usageAccessGranted = AppLibrary.hasUsageAccess(context)
-            )
-        }
-        if (missingPermissions.isNotEmpty() && !permissionReminderDismissed) {
-            FocusCard(containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.72f)) {
-                Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                    Text("权限待设置", fontWeight = FontWeight.SemiBold)
-                    Text(PermissionReminderPolicy.summary(missingPermissions), style = MaterialTheme.typography.bodySmall)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onClick = {
-                            when (missingPermissions.first()) {
-                                MissingPermission.NOTIFICATIONS -> context.startActivity(
-                                    Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS, Uri.parse("package:${context.packageName}"))
-                                )
-                                MissingPermission.EXACT_ALARMS -> context.startActivity(
-                                    Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, Uri.parse("package:${context.packageName}"))
-                                )
-                                MissingPermission.USAGE_ACCESS -> AppLibrary.openUsageAccessSettings(context)
-                            }
-                        }) { Text("去设置") }
-                        TextButton(onClick = {
-                            permissionReminderDismissed = true
-                            settingsStore.savePermissionReminderDismissed(true)
-                        }) { Text("关闭提醒") }
-                    }
-                }
-            }
-        } else if (missingPermissions.isNotEmpty()) {
-            TextButton(onClick = {
-                permissionReminderDismissed = false
-                settingsStore.savePermissionReminderDismissed(false)
-            }) { Text("权限提醒已关闭 · 重新开启") }
-        }
         var defaultHelpExpanded by remember { mutableStateOf(false) }
         FocusCard(
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
@@ -985,27 +942,32 @@ private data class BaselineVariantDraft(val name: String)
                                             "没有路线记录或可判断档位时才使用；关闭后不自动预留",
                                             commuteProfile.useDefaultForUnknown
                                         ) { onCommuteChange(commuteProfile.copy(useDefaultForUnknown = it)) }
-                                        Text("各方式路上预留", fontWeight = FontWeight.SemiBold)
-                                        Text("切换出行方式时自动使用对应时间；楼内进出缓冲另算，实测路线记录优先。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                        listOf("步行", "自行车", "电动车").forEach { mode ->
-                                            val selectedMinutes = commuteProfile.reserveMinutesFor(mode)
-                                            Text("$mode · $selectedMinutes 分钟", style = MaterialTheme.typography.labelMedium)
-                                            FlowRow(
-                                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                                verticalArrangement = Arrangement.spacedBy(6.dp)
-                                            ) {
-                                                listOf(3, 5, 10, 15, 20, 30, 45, 60).forEach { minutes ->
-                                                    FilterChip(
-                                                        selected = selectedMinutes == minutes,
-                                                        onClick = {
-                                                            onCommuteChange(when (mode) {
-                                                                "自行车" -> commuteProfile.copy(bicycleReserveMinutes = minutes)
-                                                                "电动车" -> commuteProfile.copy(eBikeReserveMinutes = minutes)
-                                                                else -> commuteProfile.copy(walkingReserveMinutes = minutes)
-                                                            })
-                                                        },
-                                                        label = { Text("${minutes} 分钟", maxLines = 1) }
-                                                    )
+                                        var transportReservesExpanded by remember { mutableStateOf(false) }
+                                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                            Text("各方式路上预留", fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                                            TextButton(onClick = { transportReservesExpanded = !transportReservesExpanded }) {
+                                                Text(if (transportReservesExpanded) "收起" else "设置")
+                                            }
+                                        }
+                                        AnimatedVisibility(transportReservesExpanded) {
+                                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                                Text("楼内进出缓冲另算；实测路线记录优先。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                listOf("步行", "自行车", "电动车").forEach { mode ->
+                                                    val selectedMinutes = commuteProfile.reserveMinutesFor(mode)
+                                                    Text("$mode · $selectedMinutes 分钟", style = MaterialTheme.typography.labelMedium)
+                                                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                                        listOf(3, 5, 10, 15, 20, 30, 45, 60).forEach { minutes ->
+                                                            FilterChip(
+                                                                selected = selectedMinutes == minutes,
+                                                                onClick = { onCommuteChange(when (mode) {
+                                                                    "自行车" -> commuteProfile.copy(bicycleReserveMinutes = minutes)
+                                                                    "电动车" -> commuteProfile.copy(eBikeReserveMinutes = minutes)
+                                                                    else -> commuteProfile.copy(walkingReserveMinutes = minutes)
+                                                                }) },
+                                                                label = { Text("${minutes} 分钟", maxLines = 1) }
+                                                            )
+                                                        }
+                                                    }
                                                 }
                                             }
                                         }
