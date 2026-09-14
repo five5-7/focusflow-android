@@ -108,7 +108,7 @@ internal fun updateHighlightsFor(version: String): List<String> = when {
     version.startsWith("8.2.2") -> listOf(
         "通勤可分别设置步行、自行车和电动车的路上预留时间。",
         "玻璃卡片在深色主题下会使用浅色正文，避免黑字看不清。",
-        "设置页会提示尚未开启的必要权限，也可以关闭这项提醒。"
+        "权限提示放在今日“开始活动”下方；关闭后仍可从设置查看并恢复。"
     )
     version.startsWith("8.2.1") -> listOf(
         "新增亚克力和毛玻璃：亚克力无描边，毛玻璃保留完整圆角亮边。",

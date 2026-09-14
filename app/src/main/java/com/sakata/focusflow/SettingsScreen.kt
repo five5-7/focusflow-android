@@ -235,6 +235,8 @@ private data class BaselineVariantDraft(val name: String)
     var choosingCurrentPlace by remember { mutableStateOf(false) }
     var choosingDestination by remember { mutableStateOf(false) }
     var helpBlock by remember { mutableStateOf<SettingsBlock?>(null) }
+    var permissionReminderDismissed by remember { mutableStateOf(settingsStore.loadPermissionReminderDismissed()) }
+    var permissionDetailsOpen by remember { mutableStateOf(false) }
     var baselineVariantsExpanded by remember { mutableStateOf(false) }
     var dayGroupWizardOpen by remember { mutableStateOf(false) }
     var previewDestination by remember(campusPlaces, currentCampusPlace) {
@@ -495,6 +497,14 @@ private data class BaselineVariantDraft(val name: String)
         TextButton(onClick = onAddImprovement) { Text("＋ 记录改进想法") }
         improvementNotes.takeLast(3).reversed().forEach { note -> ElevatedCard { Text(note.text, Modifier.padding(10.dp)) } }
         HorizontalDivider()
+        if (permissionReminderDismissed) {
+            val missingPermissions = reminderPermissionsMissing(context)
+            PlanHubItem(
+                "权限与提醒",
+                if (missingPermissions.isEmpty()) "今日提示已关闭 · 权限已设置" else "今日提示已关闭 · ${PermissionReminderPolicy.summary(missingPermissions)}"
+            ) { permissionDetailsOpen = true }
+            HorizontalDivider()
+        }
         PlanHubItem("检查更新", updateCheckState.message ?: "手动或自动检查；仅接受 GitHub 正式版更新") { onSubPageChange(SettingsSubPage.UPDATES) }
         HorizontalDivider()
         PlanHubItem("快速入门", "首次使用") { onOpenFeatureIntro() }
@@ -504,6 +514,16 @@ private data class BaselineVariantDraft(val name: String)
         PlanHubItem("版本路线图", "当前 ${BuildConfig.VERSION_NAME} · 构建 #${BuildConfig.CI_RUN_NUMBER} · 更新说明与版本演进") { onSubPageChange(SettingsSubPage.ROADMAP) }
     }
     }
+    if (permissionDetailsOpen) PermissionRequirementsDialog(
+        missing = reminderPermissionsMissing(context),
+        todayReminderDismissed = permissionReminderDismissed,
+        onDismiss = { permissionDetailsOpen = false },
+        onRestoreTodayReminder = {
+            settingsStore.savePermissionReminderDismissed(false)
+            permissionReminderDismissed = false
+            permissionDetailsOpen = false
+        }
+    )
     SubpageMotion(subPage, depth = { destination ->
         when (destination) {
             SettingsSubPage.ADVANCED, SettingsSubPage.USER_GUIDE, SettingsSubPage.ROADMAP, SettingsSubPage.APPEARANCE,

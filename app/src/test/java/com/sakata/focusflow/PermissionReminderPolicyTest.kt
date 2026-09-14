@@ -23,4 +23,10 @@ class PermissionReminderPolicyTest {
             PermissionReminderPolicy.summary(listOf(MissingPermission.NOTIFICATIONS, MissingPermission.USAGE_ACCESS))
         )
     }
+
+    @Test fun notificationIsRequiredButDeliveryPrecisionIsOptional() {
+        assertEquals(PermissionPriority.REQUIRED, MissingPermission.NOTIFICATIONS.priority)
+        assertEquals(PermissionPriority.OPTIONAL, MissingPermission.EXACT_ALARMS.priority)
+        assertEquals(PermissionPriority.OPTIONAL, MissingPermission.USAGE_ACCESS.priority)
+    }
 }

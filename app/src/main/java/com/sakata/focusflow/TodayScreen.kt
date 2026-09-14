@@ -1,12 +1,5 @@
 package com.sakata.focusflow
 
-import android.Manifest
-import android.app.AlarmManager
-import android.content.Intent
-import android.content.pm.PackageManager
-import android.net.Uri
-import android.os.Build
-import android.provider.Settings
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -698,38 +691,37 @@ private fun TodayPermissionReminder(now: Long) {
     val context = LocalContext.current
     val store = remember(context) { PrototypeStore(context) }
     var dismissed by remember { mutableStateOf(store.loadPermissionReminderDismissed()) }
-    val missing = remember(now / 30_000L) {
-        PermissionReminderPolicy.missing(
-            notificationsGranted = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
-                context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED,
-            exactAlarmsGranted = Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
-                context.getSystemService(AlarmManager::class.java).canScheduleExactAlarms(),
-            usageAccessRequired = false,
-            usageAccessGranted = true
-        )
-    }
+    var detailsOpen by remember { mutableStateOf(false) }
+    var confirmDismissOpen by remember { mutableStateOf(false) }
+    val missing = remember(now / 30_000L) { reminderPermissionsMissing(context) }
     if (missing.isEmpty() || dismissed) return
-    FocusCard(containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.72f)) {
+    FocusCard(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.78f)) {
         Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-            Text("提醒权限待设置", fontWeight = FontWeight.SemiBold)
+            Text("提醒权限", fontWeight = FontWeight.SemiBold)
             Text(PermissionReminderPolicy.summary(missing), style = MaterialTheme.typography.bodySmall)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = {
-                    when (missing.first()) {
-                        MissingPermission.NOTIFICATIONS -> context.startActivity(
-                            Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS, Uri.parse("package:${context.packageName}"))
-                        )
-                        MissingPermission.EXACT_ALARMS -> context.startActivity(
-                            Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, Uri.parse("package:${context.packageName}"))
-                        )
-                        MissingPermission.USAGE_ACCESS -> AppLibrary.openUsageAccessSettings(context)
-                    }
-                }) { Text("去设置") }
-                TextButton(onClick = {
-                    dismissed = true
-                    store.savePermissionReminderDismissed(true)
-                }) { Text("关闭提醒") }
+                Button(onClick = { detailsOpen = true }) { Text("查看") }
+                TextButton(onClick = { confirmDismissOpen = true }) { Text("不再提示") }
             }
         }
     }
+    if (detailsOpen) PermissionRequirementsDialog(
+        missing = missing,
+        todayReminderDismissed = false,
+        onDismiss = { detailsOpen = false },
+        onRestoreTodayReminder = {}
+    )
+    if (confirmDismissOpen) AlertDialog(
+        onDismissRequest = { confirmDismissOpen = false },
+        title = { Text("不再在今日页提示？") },
+        text = { Text("之后可在 设置 → 检查更新 上方的“权限与提醒”查看和恢复。") },
+        confirmButton = {
+            Button(onClick = {
+                    dismissed = true
+                    store.savePermissionReminderDismissed(true)
+                    confirmDismissOpen = false
+                }) { Text("确认不再提示") }
+        },
+        dismissButton = { TextButton(onClick = { confirmDismissOpen = false }) { Text("取消") } }
+    )
 }
