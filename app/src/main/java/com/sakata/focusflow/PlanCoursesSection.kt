@@ -23,6 +23,7 @@ internal fun PlanCoursesSection(
     tutorialSearch: TutorialSearchSettings,
     courseVision: CourseVisionSettings,
     onImportCourses: () -> Unit,
+    onImportZju: () -> Unit,
     onAddCourse: () -> Unit,
     onClearAwaitingCourses: () -> Unit,
     onConfirmCourse: (Course) -> Unit,
@@ -32,17 +33,27 @@ internal fun PlanCoursesSection(
     onDeleteCourses: (Set<Course>) -> Unit
 ) {
     Text("导入课程", fontWeight = FontWeight.Bold)
+    FilledTonalButton(
+        enabled = !courseImportRunning,
+        onClick = onImportZju,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Text(if (courseImportRunning) "导入处理中…" else "浙江大学教务")
+    }
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        FilledTonalButton(enabled = !courseImportRunning, onClick = onImportCourses) {
-            Text(if (courseImportRunning) "正在识别…" else "截图识别")
-        }
-        TextButton(onClick = onAddCourse) { Text("手动新增") }
+        OutlinedButton(enabled = !courseImportRunning, onClick = onImportCourses) { Text("截图识别") }
+        TextButton(enabled = !courseImportRunning, onClick = onAddCourse) { Text("手动新增") }
     }
     Text(
+        "教务导入会打开浙大官方统一身份认证；FocusFlow 不读取或保存账号密码，导入结果仍需逐项确认。",
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+    Text(
         if (courseVision.enabled && tutorialSearch.apiKey.isNotBlank()) {
-            "识别方式：硅基流动视觉模型（${courseVision.model}）"
+            "截图识别：硅基流动视觉模型（${courseVision.model}）"
         } else {
-            "未开启视觉模型：请到设置开启并填写 key 后导入"
+            "截图识别未开启：可到设置开启并填写 key"
         },
         style = MaterialTheme.typography.labelSmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant

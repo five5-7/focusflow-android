@@ -5,6 +5,7 @@ package com.sakata.focusflow
  */
 enum class CourseImportSource(val label: String) {
     VISION_SCREENSHOT("课表截图"),
+    ZJU_TIMETABLE("浙江大学教务"),
     SCHOOL_EXPORT("学校课表"),
     MANUAL("手动新增")
 }

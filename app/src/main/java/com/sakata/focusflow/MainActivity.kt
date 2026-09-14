@@ -686,6 +686,26 @@ private fun FocusFlowApp(store: PrototypeStore, startup: FocusFlowStartupSnapsho
                 })
         }
     }
+    val zjuTimetableLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        courseImportRunning = false
+        globalLoading = false
+        if (result.resultCode == android.app.Activity.RESULT_OK) {
+            val payload = result.data?.getStringExtra(ZjuTimetableImportActivity.EXTRA_TIMETABLE_PAYLOAD).orEmpty()
+            when (val parsed = ZjuTimetableParser.parse(payload)) {
+                is ZjuTimetableParseResult.Success -> {
+                    applyImportedCourses(parsed.batch)
+                    val cautions = buildList {
+                        if (parsed.nonWeeklyRows > 0) add("${parsed.nonWeeklyRows} 条含单双周或不连续教学周，已保留为待确认，请按本学期实际周次核对")
+                        if (parsed.invalidRows > 0) add("${parsed.invalidRows} 条缺少课程名、星期或节次，未导入")
+                    }
+                    if (cautions.isNotEmpty()) courseImportMessage = courseImportMessage.orEmpty() + " " + cautions.joinToString("；") + "。"
+                }
+                is ZjuTimetableParseResult.Failure -> courseImportMessage = parsed.message
+            }
+        } else {
+            courseImportMessage = "已取消浙江大学教务导入。"
+        }
+    }
     fun saveItems(updated: List<Item>): Boolean {
         val previous = items
         if (!store.saveItemsIfUnchanged(updated, previous)) {
@@ -1325,6 +1345,12 @@ private fun FocusFlowApp(store: PrototypeStore, startup: FocusFlowStartupSnapsho
                         } else {
                             courseScreenshotLauncher.launch(arrayOf("image/*"))
                         }
+                    },
+                    onImportZju = {
+                        courseImportRunning = true
+                        globalLoading = false
+                        courseImportMessage = "请在浙大官方页面完成统一身份认证，再读取当前选择的学年与学期。"
+                        zjuTimetableLauncher.launch(Intent(context, ZjuTimetableImportActivity::class.java))
                     },
                     onEditCourse = { courseEditor = it },
                     onToggleCourse = { course ->
