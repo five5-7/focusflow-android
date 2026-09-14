@@ -498,10 +498,10 @@ private data class BaselineVariantDraft(val name: String)
         improvementNotes.takeLast(3).reversed().forEach { note -> ElevatedCard { Text(note.text, Modifier.padding(10.dp)) } }
         HorizontalDivider()
         if (permissionReminderDismissed) {
-            val missingPermissions = reminderPermissionsMissing(context)
+            val permissionEntries = permissionCenterEntries(context)
             PlanHubItem(
                 "权限与提醒",
-                if (missingPermissions.isEmpty()) "今日提示已关闭 · 权限已设置" else "今日提示已关闭 · ${PermissionReminderPolicy.summary(missingPermissions)}"
+                "今日提示已关闭 · ${PermissionCenterPolicy.summary(permissionEntries)}"
             ) { permissionDetailsOpen = true }
             HorizontalDivider()
         }
@@ -515,7 +515,6 @@ private data class BaselineVariantDraft(val name: String)
     }
     }
     if (permissionDetailsOpen) PermissionRequirementsDialog(
-        missing = reminderPermissionsMissing(context),
         todayReminderDismissed = permissionReminderDismissed,
         onDismiss = { permissionDetailsOpen = false },
         onRestoreTodayReminder = {
