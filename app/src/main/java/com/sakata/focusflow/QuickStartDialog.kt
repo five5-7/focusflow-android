@@ -105,6 +105,11 @@ internal fun CampusLifeChoiceDialog(onEnable: () -> Unit, onSkip: () -> Unit) {
 
 /** 覆盖安装后每个版本只展示一次的更新说明；版本名来自 BuildConfig，路线图是唯一详情入口。 */
 internal fun updateHighlightsFor(version: String): List<String> = when {
+    version.startsWith("8.3.0") -> listOf(
+        "权限与提醒集中到一个页面；系统无法读取的 ColorOS 横幅、自启动和后台开关会明确提示手动确认。",
+        "截图课程统一校验、去重并完整显示待确认信息；学校网页课表要等实际页面或导出样例后再接入。",
+        "启动数据改在后台一次读取，隐藏页签等首屏稳定后再预热，减轻前几次切页和展开卡顿。"
+    )
     version.startsWith("8.2.2") -> listOf(
         "通勤可分别设置步行、自行车和电动车的路上预留时间。",
         "玻璃卡片在深色主题下会使用浅色正文，避免黑字看不清。",
