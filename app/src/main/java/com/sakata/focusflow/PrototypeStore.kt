@@ -1,566 +1,11 @@
-package com.sakata.focusflow
-
-import android.content.Context
-import org.json.JSONArray
-import org.json.JSONObject
-import java.io.File
-
-/**
- * è‡ªå®šä¹‰ä¸»é¢˜é¢„è®¾ï¼šå‘½åé…è‰²å­˜æ¡£ï¼Œç”¨äºä¿å­˜ï¼åˆ‡æ¢å¤šå¥—è‡ªå®šä¹‰é…è‰²ã€‚
- *
- * 8.2.0 ç¬¬ 7 é¡¹èµ·å¯ä»¥**å¯é€‰åœ°**å¸¦ä¸Šä¸€æ•´å¥—å¤–è§‚ï¼ˆ[appearance]ï¼‰ï¼š
- * - `appearance == null` = è€é¢„è®¾ï¼Œåªå¸¦é…è‰²ï¼Œåº”ç”¨å®ƒä¸åŠ¨ç”¨æˆ·å½“å‰çš„èƒŒæ™¯/å¡ç‰‡å¤–è§‚ï¼›
- * - `appearance != null` = æ–°é¢„è®¾ï¼Œ"æ¢ä¸»é¢˜"å°±æ˜¯æ•´å¥—æ¢ï¼ˆæ¸å˜åœé è‰²ã€èƒŒæ™¯ã€æè´¨ã€è¯¾è¡¨åº•è‰²ï¼‰ã€‚
- *
- * å¯è§æ€§è·Ÿ [AppearanceSpec] ä¿æŒä¸€è‡´ï¼ˆinternalï¼‰ï¼šé¢„è®¾åªæ˜¯è®¾ç½®é¡µä¸ä¸»é¢˜å·¥å…·ä¹‹é—´çš„æ•°æ®ç»“æ„ï¼Œ
- * ä¸æ˜¯å¯¹å¤– APIã€‚
- */
-internal data class ThemePreset(
-    val name: String,
-    val colors: FocusFlowThemeColors,
-    val appearance: AppearanceSpec? = null
-)
-
-private val taskHistoryLock = Any()
-
-internal data class StoredTaskMutation(val before: Item, val after: Item)
-
-/** Deliberately small offline persistence for the first test build. */
-class PrototypeStore(context: Context) {
-    private val appContext = context.applicationContext
-    private val preferences = ProtectedPreferences(context.getSharedPreferences("focusflow", Context.MODE_PRIVATE))
-
-    /**
-     * è¯Šæ–­é”®ï¼ˆé‡å¯æ¢å¤ï¼‰ä¸“ç”¨ï¼š**ä¸ç»è¿‡** [StorageProtection]ã€‚
-     * æŸåæ•°æ®å¤‡ä»½å¤±è´¥æ—¶ä¿æŠ¤å±‚ä¼šè¿›å…¥åªè¯»ã€é™é»˜ä¸¢å¼ƒå†™å…¥ï¼Œè‹¥è¯Šæ–­é”®èµ°ä¿æŠ¤å±‚ï¼Œ
-     * `seen_boot_count` æ°¸è¿œä¸æ¨è¿›ï¼Œæ­£å¸¸é‡å¯ä¹Ÿä¼šè¢«è¯¯æŠ¥æˆ"ç³»ç»Ÿæ¨è¿Ÿäº†å¼€æœºå¯åŠ¨"ã€‚
-     */
-    private val diagnosticPreferences = context.getSharedPreferences("focusflow", Context.MODE_PRIVATE)
-
-    /** æŸåæ•°æ®å¤‡ä»½ç›®å½•ï¼šè§£æå¤±è´¥çš„ prefs åŸå§‹ä¸²å…ˆè½ç›˜ï¼Œå†è¿”å›ç©ºé»˜è®¤â€”â€”åç»­ä¿å­˜è¦†ç›–ä¹Ÿä¸ä¸¢åŸå§‹æ•°æ®ã€‚ */
-    private val corruptDir: File by lazy { File(appContext.filesDir, CorruptionBackup.DIR_NAME) }
-
-    /**
-     * æ•°æ®ç‰ˆæœ¬é”šç‚¹ï¼ˆåªè¯»ï¼‰ï¼šæœ¬ä»“åº“ prefs æ•°æ®å½“å‰æŒ‰ data_version = 1 ç»„ç»‡ï¼›æ—§ç‰ˆæœ¬æ— æ­¤é”®ï¼Œè§†ä¸º 1ã€‚
-     * å½’ä½è§„åˆ™ï¼šå°†æ¥å¼•å…¥æ•°æ®è¿ç§»æ—¶â€”â€”å…ˆè¯» data_versionï¼Œâ‰¥ ç›®æ ‡ç‰ˆæœ¬åˆ™è·³è¿‡ï¼›æŒ‰ä¸€æ¬¡æ€§æ ‡è®°é”®é€é¡¹è¿ç§»å¹¶ç½®ä½ï¼Œ
-     * å®ŒæˆåæŠŠ data_version æŠ¬åˆ°ç›®æ ‡å€¼ï¼ˆå†™æ­¤é”®å…è®¸ï¼Œä½†è¿ç§»é€»è¾‘å¿…é¡»å…ˆåœ¨ä¸‹æ–¹æ³¨å†Œè¡¨ç™»è®°ï¼‰ã€‚
-     *
-     * è¿ç§»æ³¨å†Œè¡¨ï¼ˆä¸€æ¬¡æ€§å¸ƒå°”æ ‡è®° â†’ ç”¨é€”ï¼‰ï¼š
-     *   task_history_migrated_v65_0 â†’ 6.5 å­˜é‡ items è¡¥é½ä»»åŠ¡äº‹ä»¶ï¼ˆmigrateTaskHistoryï¼Œå·²å®Œæˆï¼‰ã€‚
-     */
-    val dataVersion: Int = preferences.getInt("data_version", 1)
-
-    /**
-     * åˆ—è¡¨/é›†åˆå‹ JSON å­˜æ¡£çš„æŸåä¿æŠ¤ï¼šè§£ç ç»“æœä¸ºç©ºï¼ˆæˆ–è§£ç æœ¬èº«å¤±è´¥ï¼‰è€ŒåŸå§‹ä¸²éå¸¸è§„ç©ºå®¹å™¨ï¼Œ
-     * åˆ¤å®šä¸ºæŸåâ€”â€”å¤‡ä»½åŸå§‹ä¸²åè¿”å›é»˜è®¤ç©ºå€¼ã€‚æ­£å¸¸è·¯å¾„ä¸åŸå…ˆè¡Œä¸ºå®Œå…¨ä¸€è‡´ã€‚
-     */
-    private inline fun <T> decodeGuarded(
-        key: String,
-        fallback: T,
-        decode: (String) -> T,
-        isDamaged: (T) -> Boolean
-    ): T {
-        val raw = preferences.getString(key, null) ?: return fallback
-        val decoded = runCatching { decode(raw) }.getOrNull()
-        if (decoded == null || isDamaged(decoded)) {
-            StorageProtection.backup(corruptDir, key, raw)
-            return fallback
-        }
-        return decoded
-    }
-
-    /** å¯¹è±¡å‹ JSON å­˜æ¡£çš„æŸåä¿æŠ¤ï¼šè§£ç å¤±è´¥ â†’ å¤‡ä»½åŸå§‹ä¸²åè¿”å›é»˜è®¤å€¼ã€‚ */
-    private inline fun <T> decodeObjectGuarded(
-        key: String,
-        fallback: T?,
-        decode: (String) -> T
-    ): T? {
-        val raw = preferences.getString(key, null) ?: return fallback
-        val decoded = runCatching { decode(raw) }.getOrNull()
-        if (decoded == null) {
-            StorageProtection.backup(corruptDir, key, raw)
-            return fallback
-        }
-        return decoded
-    }
-
-    fun loadTheme(): FocusFlowThemeOption =
-        FocusFlowThemeOption.fromStorageKey(preferences.getString("app_theme", null))
-
-    fun saveTheme(theme: FocusFlowThemeOption) {
-        preferences.edit().putString("app_theme", theme.storageKey).apply()
-    }
-
-    fun loadDarkMode(): Boolean = preferences.getBoolean("dark_mode", false)
-
-    fun saveDarkMode(enabled: Boolean) {
-        preferences.edit().putBoolean("dark_mode", enabled).apply()
-    }
-
-    /**
-     * 8.2.0 å¤–è§‚ç³»ç»Ÿï¼šå…¨éƒ¨å¯é€‰ã€å…¨éƒ¨å¸¦é»˜è®¤å€¼ã€‚
-     * è¯»ä¸åˆ°æˆ–è¯»åäº†éƒ½é€€å› [AppearanceSpec.DEFAULT]ï¼ˆç­‰äºç°åœ¨çš„æ ·å­ï¼‰ï¼Œç»ä¸æŠ›é”™ã€ç»ä¸æ¸…æ•°æ®ã€‚
-     * èƒŒæ™¯å›¾åªå­˜**ç§æœ‰ç›®å½•å†…çš„ç›¸å¯¹æ–‡ä»¶å**ï¼ŒçœŸå®è·¯å¾„ç”± [AppearanceImages] è§£æã€‚
-     */
-    internal fun loadAppearance(): AppearanceSpec = AppearanceSpec.fromKeys(
-        pageBackdrop = preferences.getString("appearance_page_backdrop", null),
-        pageImage = preferences.getString("appearance_page_image", null),
-        backdropOpacity = preferences.getInt("appearance_backdrop_opacity", 100),
-        pageCropX = preferences.getFloat("appearance_page_crop_x", 0.5f),
-        pageCropY = preferences.getFloat("appearance_page_crop_y", 0.5f),
-        pageCropZoom = preferences.getFloat("appearance_page_crop_zoom", 1f),
-        gradientStrength = preferences.getInt("appearance_gradient_strength", 100),
-        pageColor = preferences.getInt("appearance_page_color", 0),
-        gradientFollowsContent = preferences.getBoolean("appearance_gradient_follows", false),
-        gradientTop = preferences.getInt("appearance_gradient_top", 0),
-        gradientBottom = preferences.getInt("appearance_gradient_bottom", 0),
-        cardMaterial = preferences.getString("appearance_card_material", null),
-        timetableBackdrop = preferences.getString("appearance_timetable_backdrop", null),
-        timetableColor = preferences.getInt("appearance_timetable_color", 0),
-        timetableImage = preferences.getString("appearance_timetable_image", null),
-        timetableOpacity = preferences.getInt("appearance_timetable_opacity", 100),
-        timetableCropX = preferences.getFloat("appearance_timetable_crop_x", 0.5f),
-        timetableCropY = preferences.getFloat("appearance_timetable_crop_y", 0.5f),
-        timetableCropZoom = preferences.getFloat("appearance_timetable_crop_zoom", 1f),
-        extracted = preferences.getString("appearance_extracted_colors", null),
-        // è¯»ä¸åˆ° = trueï¼ˆä¿æŒç°çŠ¶ï¼‰ï¼šè€è£…æœºå‡çº§åè¡Œä¸ºä¸å˜ã€‚
-        richEffects = preferences.getBoolean("appearance_rich_effects", false),
-        gradientDirection = preferences.getString("appearance_gradient_direction", null),
-        cardGradientReversed = preferences.getBoolean("appearance_card_gradient_reversed", false)
-    )
-
-    internal fun saveAppearance(spec: AppearanceSpec) {
-        preferences.edit()
-            .putString("appearance_page_backdrop", spec.pageBackdrop.storageKey)
-            .putString("appearance_page_image", spec.pageImage)
-            .putInt("appearance_backdrop_opacity", spec.backdropOpacity.coerceIn(0, 100))
-            .putFloat("appearance_page_crop_x", spec.pageImageCrop.normalized().centerX)
-            .putFloat("appearance_page_crop_y", spec.pageImageCrop.normalized().centerY)
-            .putFloat("appearance_page_crop_zoom", spec.pageImageCrop.normalized().zoom)
-            .putInt("appearance_gradient_strength", spec.gradientStrength.coerceIn(0, GRADIENT_STRENGTH_MAX))
-            .putInt("appearance_page_color", spec.pageColor)
-            .putBoolean("appearance_gradient_follows", spec.gradientFollowsContent)
-            .putInt("appearance_gradient_top", spec.gradientTop)
-            .putInt("appearance_gradient_bottom", spec.gradientBottom)
-            .putString("appearance_card_material", spec.cardMaterial.storageKey)
-            .putString("appearance_timetable_backdrop", spec.timetableBackdrop.storageKey)
-            .putInt("appearance_timetable_color", spec.timetableColor)
-            .putString("appearance_timetable_image", spec.timetableImage)
-            .putInt("appearance_timetable_opacity", spec.timetableOpacity.coerceIn(0, 100))
-            .putFloat("appearance_timetable_crop_x", spec.timetableImageCrop.normalized().centerX)
-            .putFloat("appearance_timetable_crop_y", spec.timetableImageCrop.normalized().centerY)
-            .putFloat("appearance_timetable_crop_zoom", spec.timetableImageCrop.normalized().zoom)
-            .putString("appearance_extracted_colors", AppearanceSpec.encodeExtracted(spec.extractedColors))
-            .putBoolean("appearance_rich_effects", spec.richEffects)
-            .putString("appearance_gradient_direction", spec.gradientDirection.storageKey)
-            .putBoolean("appearance_card_gradient_reversed", spec.cardGradientReversed)
-            .apply()
-    }
-
-    fun saveReminderTestScheduled(expectedAt: Long) {
-        preferences.edit()
-            .putLong("reminder_test_expected_at", expectedAt)
-            .remove("reminder_test_delivered_at")
-            .apply()
-    }
-
-    fun markReminderTestDelivered(deliveredAt: Long = System.currentTimeMillis()) {
-        preferences.edit().putLong("reminder_test_delivered_at", deliveredAt).apply()
-    }
-
-    fun loadReminderTestProbe(): ReminderTestProbe? {
-        val expectedAt = preferences.getLong("reminder_test_expected_at", 0L)
-        if (expectedAt <= 0L) return null
-        return ReminderTestProbe(
-            expectedAt = expectedAt,
-            deliveredAt = preferences.getLong("reminder_test_delivered_at", 0L).takeIf { it > 0L }
-        )
-    }
-
-    /** å…­è‰²ä¸»é¢˜ï¼›æ—§äº”è‰²å­˜æ¡£æŒ‰åŸé…è‰²æ´¾ç”Ÿå¯¼èˆªæ è‰²ï¼Œä¸è¦†ç›–å…¶ä»–æ§½ä½ã€‚ */
-    fun loadCustomThemeColors(): FocusFlowThemeColors? =
-        decodeObjectGuarded("custom_theme_colors", null, { json ->
-            ThemeColorsCodec.decode(JSONObject(json))
-        })
-
-    fun saveCustomThemeColors(colors: FocusFlowThemeColors) {
-        preferences.edit().putString("custom_theme_colors", ThemeColorsCodec.encode(colors).toString()).apply()
-    }
-
-    /** è‡ªå®šä¹‰ä¸»é¢˜é¢„è®¾ï¼šå¤šå¥—å‘½åé…è‰²å­˜æ¡£ã€‚æ— é¢„è®¾æ—¶è¿”å›ç©ºåˆ—è¡¨ã€‚è€å­˜æ¡£ç¼ºå­—æ®µæŒ‰"åªæœ‰é…è‰²"è¯»ã€‚ */
-    internal fun loadThemePresets(): List<ThemePreset> =
-        decodeGuarded("theme_presets", emptyList(), { json ->
-            ThemePresetCodec.decode(json)
-        }, { it.isEmpty() })
-
-    internal fun saveThemePresets(presets: List<ThemePreset>) {
-        preferences.edit().putString("theme_presets", ThemePresetCodec.encode(presets)).apply()
-    }
-
-    fun loadEnergyLevel(): String = (preferences.getString("energy_level", "æ­£å¸¸") ?: "æ­£å¸¸").takeIf { it in setOf("åä½", "æ­£å¸¸", "å……è¶³") } ?: "æ­£å¸¸"
-
-    fun loadEnergyRecordedAt(): Long = preferences.getLong("energy_recorded_at", 0L)
-
-    fun saveEnergyLevel(level: String, recordedAt: Long = System.currentTimeMillis()) {
-        preferences.edit().putString("energy_level", level).putLong("energy_recorded_at", recordedAt).apply()
-    }
-
-    fun loadStatusCheckInSettings(): StatusCheckInSettings = StatusCheckInSettings(
-        enabled = preferences.getBoolean("status_checkin_enabled", ReminderFeatureDefaults.STATUS_CHECK_IN_ENABLED),
-        promptHour = preferences.getInt("status_checkin_hour", 14).coerceIn(8, 22),
-        secondPromptEnabled = preferences.getBoolean("status_checkin_second_enabled", false),
-        secondPromptHour = preferences.getInt("status_checkin_second_hour", 19).coerceIn(12, 23),
-        snoozeMinutes = preferences.getInt("status_checkin_snooze_minutes", 60).coerceIn(30, 180),
-        adaptiveSamplingEnabled = preferences.getBoolean("status_checkin_adaptive_sampling", true),
-        promptHourAutoAdjusted = preferences.getBoolean("status_checkin_hour_auto", false)
-    )
-
-    fun saveStatusCheckInSettings(settings: StatusCheckInSettings) {
-        preferences.edit()
-            .putBoolean("status_checkin_enabled", settings.enabled)
-            .putInt("status_checkin_hour", settings.promptHour)
-            .putBoolean("status_checkin_second_enabled", settings.secondPromptEnabled)
-            .putInt("status_checkin_second_hour", settings.secondPromptHour)
-            .putInt("status_checkin_snooze_minutes", settings.snoozeMinutes)
-            .putBoolean("status_checkin_adaptive_sampling", settings.adaptiveSamplingEnabled)
-            .putBoolean("status_checkin_hour_auto", settings.promptHourAutoAdjusted)
-            .apply()
-    }
-
-    fun loadStatusCheckIns(limit: Int = 90): List<StatusCheckIn> =
-        decodeGuarded("status_checkins", emptyList(), { StatusCheckInCodec.decode(it) }, { it.isEmpty() })
-            .takeLast(limit.coerceIn(1, 365))
-
-    fun saveStatusCheckIn(checkIn: StatusCheckIn) {
-        val all = (loadStatusCheckIns(365) + checkIn).takeLast(365)
-        preferences.edit()
-            .putString("status_checkins", StatusCheckInCodec.encode(all))
-            .putString("energy_level", checkIn.energy)
-            .putLong("energy_recorded_at", checkIn.recordedAt)
-            .apply()
-    }
-
-    fun loadLatestStatusCheckIn(): StatusCheckIn? = loadStatusCheckIns(1).lastOrNull()
-
-    fun loadNextStatusPromptAt(): Long = preferences.getLong("status_prompt_next_at", 0L)
-
-    fun saveNextStatusPromptAt(at: Long) {
-        preferences.edit().putLong("status_prompt_next_at", at.coerceAtLeast(0L)).apply()
-    }
-
-    fun loadStatusPromptTrace(): StatusPromptTrace {
-        val raw = preferences.getString("status_prompt_last_outcome", null)
-        val outcome = StatusPromptOutcome.entries.firstOrNull { it.name == raw } ?: StatusPromptOutcome.NONE
-        return StatusPromptTrace(
-            outcome = outcome,
-            recordedAt = preferences.getLong("status_prompt_last_at", 0L),
-            expectedAt = preferences.getLong("status_prompt_last_expected_at", 0L)
-        )
-    }
-
-    fun saveStatusPromptTrace(trace: StatusPromptTrace) {
-        preferences.edit()
-            .putString("status_prompt_last_outcome", trace.outcome.name)
-            .putLong("status_prompt_last_at", trace.recordedAt)
-            .putLong("status_prompt_last_expected_at", trace.expectedAt)
-            .apply()
-    }
-
-    fun loadEnergySamplingStartedAt(): Long = preferences.getLong("energy_sampling_started_at", 0L)
-
-    fun ensureEnergySamplingStartedAt(now: Long = System.currentTimeMillis()): Long {
-        val existing = loadEnergySamplingStartedAt()
-        if (existing > 0L) return existing
-        preferences.edit().putLong("energy_sampling_started_at", now).apply()
-        return now
-    }
-
-    fun restartEnergySampling(now: Long = System.currentTimeMillis()) {
-        preferences.edit().putLong("energy_sampling_started_at", now).apply()
-    }
-
-    fun loadItems(): List<Item> {
-        val raw = preferences.getString("items", null) ?: return emptyList()
-        val result = ItemsCodec.decode(raw)
-        if (result.items.isEmpty() && CorruptionBackup.shouldBackup(raw)) {
-            StorageProtection.backup(corruptDir, "items", raw)
-            return emptyList()
-        }
-        val canonicalItems = result.items.map(TaskScheduleText::canonicalize)
-        if (result.idsNormalized || canonicalItems != result.items) saveItems(canonicalItems)
-        return canonicalItems
-    }
-
-    private fun saveItems(items: List<Item>) = synchronized(taskHistoryLock) {
-        preferences.edit().putString("items", ItemsCodec.encode(items)).apply()
-    }
-
-    /** UI writes derived from an in-memory snapshot must not replace a newer receiver write. */
-    fun saveItemsIfUnchanged(items: List<Item>, expectedItems: List<Item>): Boolean = synchronized(taskHistoryLock) {
-        if (StorageProtection.readOnly || !TaskSnapshotPolicy.canSave(expectedItems, loadItems())) {
-            return@synchronized false
-        }
-        preferences.edit().putString("items", ItemsCodec.encode(items)).commit()
-    }
-
-    /** 7.5 æ•´ç†åŠ¨ä½œï¼šä»»åŠ¡å¿«ç…§ä¸å¯¹åº”å†å²ä¸€æ¬¡æäº¤ï¼Œé¿å…ä¸­é€”é€€å‡ºåªä¿å­˜ä¸€åŠã€‚ */
-    fun saveItemsAndTaskEvents(items: List<Item>, events: List<TaskEvent>, expectedItems: List<Item>? = null): Boolean = synchronized(taskHistoryLock) {
-        if (StorageProtection.readOnly) return@synchronized false
-        if (expectedItems != null && !TaskSnapshotPolicy.canSave(expectedItems, loadItems())) return@synchronized false
-        val updatedEvents = events.fold(loadTaskEvents()) { history, event -> TaskHistory.append(history, event) }
-        preferences.edit()
-            .putString("items", ItemsCodec.encode(items))
-            .putString("task_events", TaskEventCodec.encode(updatedEvents))
-            .commit()
-    }
-
-    fun saveItemsAndTaskEvent(items: List<Item>, event: TaskEvent, expectedItems: List<Item>? = null): Boolean =
-        saveItemsAndTaskEvents(items, listOf(event), expectedItems)
-
-    fun saveItemsTaskEventsAndGoals(
-        items: List<Item>,
-        events: List<TaskEvent>,
-        goals: List<Goal>,
-        expectedItems: List<Item>,
-        expectedGoals: List<Goal>
-    ): Boolean = synchronized(taskHistoryLock) {
-        if (StorageProtection.readOnly || !TaskSnapshotPolicy.canSave(expectedItems, loadItems()) || expectedGoals != loadGoals()) {
-            return@synchronized false
-        }
-        val updatedEvents = events.fold(loadTaskEvents()) { history, event -> TaskHistory.append(history, event) }
-        preferences.edit()
-            .putString("items", ItemsCodec.encode(items))
-            .putString("task_events", TaskEventCodec.encode(updatedEvents))
-            .putString("goals", StoredGoalsCodec.encodeGoals(goals))
-            .commit()
-    }
-
-    /** æ”¶é›†ç®±è½¬æˆç›®æ ‡æ—¶ï¼Œç›®æ ‡ã€åŸä»»åŠ¡ç§»é™¤ä¸å†å²å¿…é¡»åŒæ—¶è½ç›˜ã€‚ */
-    fun saveGoalConversion(
-        goals: List<Goal>,
-        items: List<Item>,
-        event: TaskEvent,
-        expectedGoals: List<Goal>? = null,
-        expectedItems: List<Item>? = null
-    ): Boolean = if (expectedGoals != null && expectedItems != null) {
-        saveItemsTaskEventsAndGoals(items, listOf(event), goals, expectedItems, expectedGoals)
-    } else synchronized(taskHistoryLock) {
-        if (StorageProtection.readOnly) return@synchronized false
-        val updatedEvents = TaskHistory.append(loadTaskEvents(), event)
-        preferences.edit()
-            .putString("goals", StoredGoalsCodec.encodeGoals(goals))
-            .putString("items", ItemsCodec.encode(items))
-            .putString("task_events", TaskEventCodec.encode(updatedEvents))
-            .commit()
-    }
-
-    /** Notification task action: freshness check, item/event update and goal count share one commit. */
-    internal fun mutateScheduledTask(
-        id: Long,
-        expectedScheduledAt: Long,
-        completionMinimum: Boolean? = null,
-        transform: (Item) -> Item,
-        event: (Item, Item) -> TaskEvent
-    ): StoredTaskMutation? = synchronized(taskHistoryLock) {
-        if (StorageProtection.readOnly) return@synchronized null
-        val currentItems = loadItems()
-        val before = currentItems.firstOrNull { it.id == id } ?: return@synchronized null
-        if (!TaskReminderActionFreshness.matches(before, expectedScheduledAt)) return@synchronized null
-        val after = transform(before)
-        val updatedItems = currentItems.map { if (it.id == id) after else it }
-        val updatedEvents = TaskHistory.append(loadTaskEvents(), event(before, after))
-        val editor = preferences.edit()
-            .putString("items", ItemsCodec.encode(updatedItems))
-            .putString("task_events", TaskEventCodec.encode(updatedEvents))
-        if (completionMinimum != null && before.goalId != null) {
-            val key = GoalPlanner.currentWeekKey()
-            val updatedGoals = loadGoals().map { goal ->
-                if (goal.id != before.goalId) goal
-                else if (goal.completionWeekKey == key) {
-                    if (completionMinimum) goal.copy(minimumCompletionsThisWeek = goal.minimumCompletionsThisWeek + 1)
-                    else goal.copy(completedThisWeek = goal.completedThisWeek + 1)
-                } else if (completionMinimum) {
-                    goal.copy(minimumCompletionsThisWeek = 1, completionWeekKey = key)
-                } else {
-                    goal.copy(completedThisWeek = 1, minimumCompletionsThisWeek = 0, completionWeekKey = key)
-                }
-            }
-            editor.putString("goals", StoredGoalsCodec.encodeGoals(updatedGoals))
-        }
-        if (editor.commit()) StoredTaskMutation(before, after) else null
-    }
-
-    fun saveSession(session: ActivitySession) {
-        val sessions = loadSessions().filterNot { it.id == session.id } + session
-        val values = JSONArray()
-        sessions.takeLast(50).forEach { value -> values.put(JSONObject().apply {
-            put("id", value.id)
-            put("name", value.name)
-            put("category", value.category)
-            put("plannedStartAt", value.plannedStartAt)
-            put("actualStartAt", value.actualStartAt)
-            put("endsAt", value.endsAt)
-            put("nextStep", value.nextStep)
-            put("status", value.status)
-            put("extensionCount", value.extensionCount)
-            put("extensionReason", value.extensionReason)
-            put("actualEndAt", value.actualEndAt ?: 0)
-            put("endChoice", value.endChoice)
-        }) }
-        preferences.edit().putString("sessions", values.toString()).apply()
-    }
-
-    fun updateSession(id: Long, status: String, endsAt: Long? = null) {
-        val current = loadSessions().firstOrNull { it.id == id } ?: return
-        saveSession(current.copy(status = status, endsAt = endsAt ?: current.endsAt))
-    }
-
-    fun finishSession(id: Long, status: String, choice: String, endedAt: Long = System.currentTimeMillis()) {
-        val current = loadSessions().firstOrNull { it.id == id } ?: return
-        saveSession(current.copy(status = status, actualEndAt = endedAt, endChoice = choice))
-    }
-
-    fun extendSession(id: Long, minutes: Int, reason: String = ""): ActivitySession? {
-        val current = loadSessions().firstOrNull { it.id == id } ?: return null
-        if (!current.isOpen()) return null
-        if (current.extensionCount >= loadActivityReminderSettings().maxExtensions) return null
-        val extended = current.copy(
-            endsAt = System.currentTimeMillis() + minutes.coerceIn(1, 180) * 60_000L,
-            status = ActivitySession.STATUS_EXTENDED,
-            extensionCount = current.extensionCount + 1,
-            extensionReason = reason,
-            actualEndAt = null,
-            endChoice = ""
-        )
-        saveSession(extended)
-        return extended
-    }
-
-    fun markSessionAwaitingConfirmation(id: Long): ActivitySession? {
-        val current = loadSessions().firstOrNull { it.id == id } ?: return null
-        if (!current.isOpen()) return current
-        val pending = current.copy(status = ActivitySession.STATUS_AWAITING_CONFIRMATION)
-        saveSession(pending)
-        return pending
-    }
-
-    fun loadLatestActiveSession(): ActivitySession? = loadSessions().lastOrNull(ActivitySession::isOpen)
-
-    fun findActivitySession(id: Long): ActivitySession? = loadSessions().firstOrNull { it.id == id }
-
-    fun loadRecentActivitySessions(limit: Int = 20): List<ActivitySession> = loadSessions().takeLast(limit.coerceIn(1, 50)).reversed()
-
-    fun loadActivityReminderSettings(): ActivityReminderSettings = ActivityReminderSettings(
-        notificationsEnabled = preferences.getBoolean("activity_notifications", true),
-        previewMinutes = preferences.getInt("activity_preview_minutes", 10).coerceIn(0, 60),
-        maxExtensions = preferences.getInt("activity_max_extensions", 3).coerceIn(0, 10),
-        strongerEndReminder = preferences.getBoolean("activity_stronger_end_reminder", true),
-        scheduleRemindersEnabled = preferences.getBoolean("schedule_reminders_enabled", true),
-        scheduleAdvanceMinutes = preferences.getInt("schedule_reminders_advance_minutes", 10).coerceIn(0, 60)
-    )
-
-    fun saveActivityReminderSettings(settings: ActivityReminderSettings) {
-        preferences.edit()
-            .putBoolean("activity_notifications", settings.notificationsEnabled)
-            .putInt("activity_preview_minutes", settings.previewMinutes)
-            .putInt("activity_max_extensions", settings.maxExtensions)
-            .putBoolean("activity_stronger_end_reminder", settings.strongerEndReminder)
-            .putBoolean("schedule_reminders_enabled", settings.scheduleRemindersEnabled)
-            .putInt("schedule_reminders_advance_minutes", settings.scheduleAdvanceMinutes.coerceIn(0, 60))
-            .apply()
-    }
-
-    fun addReplanItem(activityName: String): Boolean = synchronized(taskHistoryLock) {
-        val item = Item(title = "é‡æ–°å®‰æ’ï¼š$activityName", detail = "ç”±æœªå®Œæˆçš„æ´»åŠ¨è½¬å›ï¼›å¯ä»¥æ”¹æœŸã€ç¼©çŸ­æˆ–æš‚åœ", kind = "æ”¶é›†ç®±")
-        val current = loadItems()
-        saveItemsAndTaskEvent(
-            listOf(item) + current,
-            TaskRecorder.event(TaskEventType.TASK_CREATED, item.id, item.title),
-            expectedItems = current
-        )
-    }
-
-    fun findItem(id: Long): Item? = loadItems().firstOrNull { it.id == id }
-
-    fun recoverMissedGoalTasks(): List<Item> = synchronized(taskHistoryLock) {
-        val cutoff = System.currentTimeMillis() - 2 * 60 * 60_000L
-        val all = loadItems()
-        val events = mutableListOf<TaskEvent>()
-        val recovered = all.map { item ->
-            if (item.goalId != null && item.kind == "ä»»åŠ¡" && !item.done && (item.scheduledAt ?: Long.MAX_VALUE) < cutoff) {
-                events += TaskRecorder.event(TaskEventType.TASK_TO_INBOX, item.id, item.title, extra = "é”™è¿‡è‡ªåŠ¨æ”¾å›")
-                item.copy(title = if (item.title.startsWith("é‡æ–°å®‰æ’ï¼š")) item.title else "é‡æ–°å®‰æ’ï¼š${item.title}", kind = "æ”¶é›†ç®±", detail = "ä¸Šæ¬¡ç›®æ ‡å®‰æ’æœªç¡®è®¤ï¼›å¯æ”¹æœŸã€ç¼©çŸ­ã€æš‚åœæˆ–æ”¾å¼ƒ", scheduledAt = null)
-            } else item
-        }
-        if (recovered != all && !saveItemsAndTaskEvents(recovered, events, expectedItems = all)) return@synchronized loadItems()
-        recovered
-    }
-
-    fun loadCommuteProfile(): CommuteProfile = CommuteProfile(
-        // ä»…å½±å“ä»æœªä¿å­˜è¿‡é€šå‹¤è®¾ç½®çš„æ–°å®‰è£…ï¼›å·²æœ‰é”®ç»§ç»­ä¿ç•™ç”¨æˆ·é€‰æ‹©ã€‚
-        enabled = preferences.getBoolean("commute_enabled", true),
-        oneWayMinutes = preferences.getInt("commute_one_way_minutes", 10),
-        useDefaultForUnknown = preferences.getBoolean("commute_default_unknown", true),
-        nearMinutes = preferences.getInt("commute_tier_near", 5),
-        fairlyNearMinutes = preferences.getInt("commute_tier_fairly_near", 10),
-        fairlyFarMinutes = preferences.getInt("commute_tier_fairly_far", 15),
-        farMinutes = preferences.getInt("commute_tier_far", 25),
-        campusMode = preferences.getString("campus_mode", "æ­¥è¡Œ") ?: "æ­¥è¡Œ",
-        buildingBufferMinutes = preferences.getInt("building_buffer_minutes", 3),
-        eBikeBattery = preferences.getString("ebike_battery", "æœªçŸ¥") ?: "æœªçŸ¥",
-        // è·¯ç”±æ ¡å‡†/è§‚æµ‹é”®ä¸å¥—æŸåä¿æŠ¤ï¼šç©ºä¸ºåˆæ³•çŠ¶æ€ï¼Œå¯å›é€€ legacy è§‚æµ‹ã€‚
-        routeCalibrations = CommuteRouteCodec.decodeCalibrations(preferences.getString("route_calibrations", "{}") ?: "{}"),
-        routeObservations = CommuteRouteCodec.decodeObservations(preferences.getString("route_observations", "{}") ?: "{}").ifEmpty {
-            CommuteRouteCodec.legacyObservations(preferences.getString("route_calibrations", "{}") ?: "{}")
-        }
-    )
-
-    fun saveCommuteProfile(profile: CommuteProfile) {
-        preferences.edit()
-            .putBoolean("commute_enabled", profile.enabled)
-            .putInt("commute_one_way_minutes", profile.oneWayMinutes)
-            .putBoolean("commute_default_unknown", profile.useDefaultForUnknown)
-            .putInt("commute_tier_near", profile.nearMinutes)
-            .putInt("commute_tier_fairly_near", profile.fairlyNearMinutes)
-            .putInt("commute_tier_fairly_far", profile.fairlyFarMinutes)
-            .putInt("commute_tier_far", profile.farMinutes)
-            .putString("campus_mode", profile.campusMode)
-            .putInt("building_buffer_minutes", profile.buildingBufferMinutes)
-            .putString("ebike_battery", profile.eBikeBattery)
-            .putString("route_calibrations", CommuteRouteCodec.encodeCalibrations(profile.routeCalibrations))
-            .putString("route_observations", CommuteRouteCodec.encodeObservations(profile.routeObservations))
-            .apply()
-    }
-
-    fun loadCampusLifeEnabled(): Boolean = preferences.getBoolean("campus_life_enabled", true)
-
-    fun saveCampusLifeEnabled(enabled: Boolean) {
-        preferences.edit().putBoolean("campus_life_enabled", enabled).apply()
-    }
-
-    /** è¢«ç”¨æˆ·åˆ é™¤ï¼ˆéšè—ï¼‰çš„å†…ç½®é»˜è®¤åœ°ç‚¹åï¼›å¯ä»â€œå·²éšè—åœ°ç‚¹â€æ¢å¤ã€‚ */
-    fun loadHiddenPlaces(): Set<String> =
-        decodeGuarded("hidden_places", emptySet(), { StringArrayCodec.decodeNonBlank(it).toSet() }, { it.isEmpty() })
-
-    fun saveHiddenPlaces(hidden: Set<String>) {
-        preferences.edit().putString("hidden_places", StringArrayCodec.encode(hidden.take(100))).apply()
-    }
-
-    fun loadCampusMapPackage(): CampusMapPackage? =
-        decodeObjectGuarded("campus_map_package", null, { CampusMapPackageCodec.parse(it) })
-
-    fun saveCampusMapPackage(mapPackage: CampusMapPackage?) {
-        preferences.edit().apply {
-            if (mapPackage == null) remove("campus_map_package")
-            else putString("campus_map_package", CampusMapPackageCodec.encode(mapPackage))
-        }.apply()
-    }
-
-    fun loadCurrentCampusPlace(): String? = preferences.getString("current_campus_place", null)
-
-    fun saveCurrentCampusPlace(placeName: String?) {
-        preferences.edit().apply {
-            if (placeName.isNullOrBlank()) remove("current_campus_place")
+YªçŠx-®éÜj×¢ëiºÚ+Š§j[h‘éÜ¢éíÛN8Ù:-jZ.¶›­–)Ş³W6¶vR6öÒç6¶Fæfö7W6fÆ÷pĞ Ğ¦–×÷'BæG&ö–Bæ6öçFVçBä6öçFW‡@Ğ¦–×÷'B÷&ræ§6öâä¥4ôä'&Ğ¦–×÷'B÷&ræ§6öâä¥4ôäö&¦V7@Ğ¦–×÷'B¦fæ–òäf–ÆPĞ Ğ¢ò¢ Ğ¢¢ˆz®Zé®K˜K‹¾š)š(NŠëîûÉ®YŞYŞ˜XŞˆ›.ZÙj>ûÈÎyJK¨îKùŞZÙûÈşXˆ~hÚ.ZI®ZY~ˆz®Zé®K˜˜XŞˆ›.8 Ğ¢ Ğ¢¢‚ã"ãzÊÂrš‹[~XúşKºR¢®Xúş˜YË¢®[ŠnKˆ®Kˆi[NZY~ZInŠx.ûÈ…¶V&æ6UŞûÈûÉ Ğ¢¢ÒV&æ6RÓÒçVÆÆÒˆš(NŠëîûÈÎXú®[Šn˜XŞˆ›.ûÈÎ[©NyJZè>KˆŞXªyJh‹~[Ù>X˜Şy¨Nˆ8ÎišòşXÚx˜~ZInŠx.ûÉ°Ğ¢¢ÒV&æ6RÒçVÆÆÒikš(NŠëîûÈÂ.hÚ.K‹¾š)‚.[iŠşi[NZY~hÚ.ûÈk‰XùXÎ™Úˆ›.8ˆ8Îišş8iÙ‹J8ŠûîŠ[©^ˆ›.ûÈ8 Ğ¢ Ğ¢¢XúşŠxh
+~‹yò´V&æ6U7V5ÒKùŞhÈKˆˆ{NûÈ†–çFW&æÎûÈûÉ®š(NŠëîXú®iŠşŠëî{Úîš^KˆîK‹¾š)[z^X[~K˜¾™{Ny¨Ni[hÚî{¹>ièNûÈÀĞ¢¢KˆŞiŠşZûZIb8 Ğ¢¢ğĞ¦–çFW&æÂFF6Æ72F†VÖU&W6WB€Ğ¢fÂæÖS¢7G&–ærÀĞ¢fÂ6öÆ÷'3¢fö7W4fÆ÷uF†VÖT6öÆ÷'2ÀĞ¢fÂV&æ6S¢V&æ6U7V3òÒçVÆÀĞ¢Ğ Ğ§&—fFRfÂF6´†—7F÷'”Æö6²Òç’‚Ğ Ğ¦–çFW&æÂFF6Æ727F÷&VEF6´×WFF–öâ‡fÂ&Vf÷&S¢—FVÒÂfÂgFW#¢—FVÒĞ Ğ¢ò¢¢FVÆ–&W&FVÇ’6ÖÆÂöffÆ–æRW'6—7FVæ6Rf÷"F†Rf—'7BFW7B'V–ÆBâ¢ğĞ¦6Æ72&÷F÷G—U7F÷&R†6öçFW‡C¢6öçFW‡B’°Ğ¢&—fFRfÂ6öçFW‡BÒ6öçFW‡BæÆ–6F–öä6öçFW‡@Ğ¢&—fFRfÂ&VfW&Væ6W2Ò&÷FV7FVE&VfW&Væ6W2†6öçFW‡BævWE6†&VE&VfW&Væ6W2‚&fö7W6fÆ÷r"Â6öçFW‡BäÔôDUõ$•dDR’Ğ Ğ¢ò¢ Ğ¢¢Šø®ijŞ™JîûÈ˜xŞY
+şh.ZHŞûÈK‰>yJûÉ¢¢®KˆŞ{¸ş‹ør¢¢µ7F÷&vU&÷FV7F–öåŞ8 Ğ¢¢hÙşYØşi[hÚîZH~K»ŞZK‹J^i{nKùŞhªN[.KÉ®‹ù¾XZ^Xú®Šû¾8™Ù›¹KŠ.[È>XiXZ^ûÈÎˆº^Šø®ijŞ™Jî‹[KùŞhªN[.ûÈÀĞ¢¢6VVåö&ö÷Eö6÷VçFk‹ùÎKˆŞhê‹ù¾ûÈÎjÚ>[‹˜xŞY
+şK™şKÉ®Š*¾Šúşhª^h‰.{;¾{¹şhê‹ùşK¨n[ÈiË®Y
+şXª‚.8 Ğ¢¢ğĞ¢&—fFRfÂF–væ÷7F–5&VfW&Væ6W2Ò6öçFW‡BævWE6†&VE&VfW&Væ6W2‚&fö7W6fÆ÷r"Â6öçFW‡BäÔôDUõ$•dDRĞ Ğ¢ò¢¢hÙşYØşi[hÚîZH~K»Şyºî[Ù^ûÉ®Šz>iéZK‹J^y¨B&Vg2XéşZx¾K‹.XX‰Şy¹ûÈÎXhŞ‹ùNY¹îz›®›¹ŠêN(	N(	NYî{ºŞKùŞZÙŠhny¹nK™şKˆŞKŠ.XéşZx¾i[hÚî8"¢ğĞ¢&—fFRfÂ6÷''WDF—#¢f–ÆR'’Æ§’²f–ÆR†6öçFW‡Bæf–ÆW4F—"Â6÷''WF–öä&6·WäD•%ôäÔR’ĞĞ Ğ¢ò¢ Ğ¢¢i[hÚîx˜iÊÎ™I®x+ûÈXú®Šû¾ûÈûÉ®iÊÎK¹>[©2&Vg2i[hÚî[Ù>X˜ŞhÈ’FF÷fW'6–öâÒ{¸N{¸~ûÉ¾iz~x˜iÊÎizjÚN™JîûÈÎŠxnK‹¢8 Ğ¢¢[Ù.KØŞŠxNX‰ûÉ®[niÚ^[É^XZ^i[hÚî‹øz{¾i{n(	N(	NXXŠû²FF÷fW'6–öîûÈÎ(šRyºîj~x˜iÊÎX‰‹{>‹ø~ûÉ¾hÈKˆjÊh
+~j~Šë™Jî˜	š‹øz{¾[›n{ÚîKØŞûÈÀĞ¢¢ZèÎh‰Yîh¨¢FF÷fW'6–öâhªÎX‹yºîj~XÎûÈXijÚN™JîXXŠëûÈÎKØn‹øz{¾˜¾‹é[ø^š¾XXYÊKˆ¾ikk:XhÎŠy›¾ŠëûÈ8 Ğ¢ Ğ¢¢‹øz{¾k:XhÎŠûÈKˆjÊh
+~[ˆ>[	Nj~Šë(i"yJ˜	NûÈûÉ Ğ¢¢F6µö†—7F÷'•öÖ–w&FVE÷ccUó(i"bãRZÙ˜xò—FV×2Š^›ÙK»¾XªK¨¾K»nûÈ†Ö–w&FUF6´†—7F÷'ûÈÎ[{.ZèÎh‰ûÈ8 Ğ¢¢ğĞ¢fÂFFfW'6–öã¢–çBÒ&VfW&Væ6W2ævWD–çB‚&FF÷fW'6–öâ"ÂĞ Ğ¢ò¢ Ğ¢¢X‰~Š‚ş™¸nYYè²¥4ôâZÙj>y¨NhÙşYØşKùŞhªNûÉ®Šz>z{¹>iéÎK‹®z›®ûÈh‰nŠz>ziÊÎ‹ª¾ZK‹J^ûÈˆÎXéşZx¾K‹.™Ùî[‹ŠxNz›®ZëYšûÈÀĞ¢¢XŠNZé®K‹®hÙşYØş(	N(	NZH~K»ŞXéşZx¾K‹.Yî‹ùNY¹î›¹ŠêNz›®XÎ8.jÚ>[‹‹zş[èNKˆîXéşXXŠÎK‹®ZèÎXZKˆˆ{N8 Ğ¢¢ğĞ¢&—fFR–æÆ–æRgVâÅCâFV6öFTwV&FVB€Ğ¢¶W“¢7G&–ærÀĞ¢fÆÆ&6³¢BÀĞ¢FV6öFS¢…7G&–ær’ÓâBÀĞ¢—4FÖvVC¢…B’Óâ&ööÆVàĞ¢“¢B°Ğ¢fÂ&rÒ&VfW&Væ6W2ævWE7G&–ær†¶W’ÂçVÆÂ’ó¢&WGW&âfÆÆ&6°Ğ¢fÂFV6öFVBÒ'Vä6F6†–ær²FV6öFR‡&r’ÒævWD÷$çVÆÂ‚Ğ¢–b†FV6öFVBÓÒçVÆÂÇÂ—4FÖvVB†FV6öFVB’’°Ğ¢7F÷&vU&÷FV7F–öâæ&6·W†6÷''WDF—"Â¶W’Â&rĞ¢&WGW&âfÆÆ&6°Ğ¢ĞĞ¢&WGW&âFV6öFV@Ğ¢ĞĞ Ğ¢ò¢¢Zû‹Yè²¥4ôâZÙj>y¨NhÙşYØşKùŞhªNûÉ®Šz>zZK‹JR(i"ZH~K»ŞXéşZx¾K‹.Yî‹ùNY¹î›¹ŠêNXÎ8"¢ğĞ¢&—fFR–æÆ–æRgVâÅCâFV6öFTö&¦V7DwV&FVB€Ğ¢¶W“¢7G&–ærÀĞ¢fÆÆ&6³¢CòÀĞ¢FV6öFS¢…7G&–ær’Óâ@Ğ¢“¢Cò°Ğ¢fÂ&rÒ&VfW&Væ6W2ævWE7G&–ær†¶W’ÂçVÆÂ’ó¢&WGW&âfÆÆ&6°Ğ¢fÂFV6öFVBÒ'Vä6F6†–ær²FV6öFR‡&r’ÒævWD÷$çVÆÂ‚Ğ¢–b†FV6öFVBÓÒçVÆÂ’°Ğ¢7F÷&vU&÷FV7F–öâæ&6·W†6÷''WDF—"Â¶W’Â&rĞ¢&WGW&âfÆÆ&6°Ğ¢ĞĞ¢&WGW&âFV6öFV@Ğ¢ĞĞ Ğ¢gVâÆöEF†VÖR‚“¢fö7W4fÆ÷uF†VÖT÷F–öâĞĞ¢fö7W4fÆ÷uF†VÖT÷F–öâæg&öÕ7F÷&vT¶W’‡&VfW&Væ6W2ævWE7G&–ær‚&÷F†VÖR"ÂçVÆÂ’Ğ Ğ¢gVâ6fUF†VÖR‡F†VÖS¢fö7W4fÆ÷uF†VÖT÷F–öâ’°Ğ¢&VfW&Væ6W2æVF—B‚’çWE7G&–ær‚&÷F†VÖR"ÂF†VÖRç7F÷&vT¶W’’æÇ’‚Ğ¢ĞĞ Ğ¢gVâÆöDF&´ÖöFR‚“¢&ööÆVâÒ&VfW&Væ6W2ævWD&ööÆVâ‚&F&µöÖöFR"ÂfÇ6RĞ Ğ¢gVâ6fTF&´ÖöFR†Væ&ÆVC¢&ööÆVâ’°Ğ¢&VfW&Væ6W2æVF—B‚’çWD&ööÆVâ‚&F&µöÖöFR"ÂVæ&ÆVB’æÇ’‚Ğ¢ĞĞ Ğ¢ò¢ Ğ¢¢‚ã"ãZInŠx.{;¾{¹şûÉ®XZ˜:Xúş˜8XZ˜:[Šn›¹ŠêNXÎ8 Ğ¢¢Šû¾KˆŞX‹h‰nŠû¾YØşK¨n˜;Ş˜Y¹â´V&æ6U7V2äDTdTÅEŞûÈzØK¨îxëYÊy¨Nj~ZÙûÈûÈÎ{¹ŞKˆŞh©¾™I8{¹ŞKˆŞkˆ^i[hÚî8 Ğ¢¢ˆ8ÎišşY»îXú®ZÙ‚¢®zxiÈyºî[Ù^Xh^y¨Ny»Zûih~K»nYÒ¢®ûÈÎyÉşZéî‹zş[èNyK´V&æ6T–ÖvW5ÒŠz>ié8 Ğ¢¢ğĞ¢–çFW&æÂgVâÆöDV&æ6R‚“¢V&æ6U7V2ÒV&æ6U7V2æg&öÔ¶W—2€Ğ¢vT&6¶G&÷Ò&VfW&Væ6W2ævWE7G&–ær‚&V&æ6U÷vUö&6¶G&÷"ÂçVÆÂ’ÀĞ¢vT–ÖvRÒ&VfW&Væ6W2ævWE7G&–ær‚&V&æ6U÷vUö–ÖvR"ÂçVÆÂ’À¢&6¶G&÷÷6—G’Ò&VfW&Væ6W2ævWD–çB‚&V&æ6Uö&6¶G&÷ö÷6—G’"Â’À¢vT7&÷‚Ò&VfW&Væ6W2ævWDfÆöB‚&V&æ6U÷vUö7&÷÷‚"ÂãVb’À¢vT7&÷’Ò&VfW&Væ6W2ævWDfÆöB‚&V&æ6U÷vUö7&÷÷’"ÂãVb’À¢vT7&÷¦ööÒÒ&VfW&Væ6W2ævWDfÆöB‚&V&æ6U÷vUö7&÷÷¦ööÒ"Âb’À¢w&F–VçE7G&VæwF‚Ò&VfW&Væ6W2ævWD–çB‚&V&æ6Uöw&F–VçE÷7G&VæwF‚"Â’ÀĞ¢vT6öÆ÷"Ò&VfW&Væ6W2ævWD–çB‚&V&æ6U÷vUö6öÆ÷""Â’ÀĞ¢w&F–VçDföÆÆ÷w46öçFVçBÒ&VfW&Væ6W2ævWD&ööÆVâ‚&V&æ6Uöw&F–VçEöföÆÆ÷w2"ÂfÇ6R’ÀĞ¢w&F–VçEF÷Ò&VfW&Væ6W2ævWD–çB‚&V&æ6Uöw&F–VçE÷F÷"Â’ÀĞ¢w&F–VçD&÷GFöÒÒ&VfW&Væ6W2ævWD–çB‚&V&æ6Uöw&F–VçEö&÷GFöÒ"Â’ÀĞ¢6&DÖFW&–ÂÒ&VfW&Væ6W2ævWE7G&–ær‚&V&æ6Uö6&EöÖFW&–Â"ÂçVÆÂ’ÀĞ¢F–ÖWF&ÆT&6¶G&÷Ò&VfW&Væ6W2ævWE7G&–ær‚&V&æ6U÷F–ÖWF&ÆUö&6¶G&÷"ÂçVÆÂ’ÀĞ¢F–ÖWF&ÆT6öÆ÷"Ò&VfW&Væ6W2ævWD–çB‚&V&æ6U÷F–ÖWF&ÆUö6öÆ÷""Â’ÀĞ¢F–ÖWF&ÆT–ÖvRÒ&VfW&Væ6W2ævWE7G&–ær‚&V&æ6U÷F–ÖWF&ÆUö–ÖvR"ÂçVÆÂ’À¢F–ÖWF&ÆT÷6—G’Ò&VfW&Væ6W2ævWD–çB‚&V&æ6U÷F–ÖWF&ÆUö÷6—G’"Â’À¢F–ÖWF&ÆT7&÷‚Ò&VfW&Væ6W2ævWDfÆöB‚&V&æ6U÷F–ÖWF&ÆUö7&÷÷‚"ÂãVb’À¢F–ÖWF&ÆT7&÷’Ò&VfW&Væ6W2ævWDfÆöB‚&V&æ6U÷F–ÖWF&ÆUö7&÷÷’"ÂãVb’À¢F–ÖWF&ÆT7&÷¦ööÒÒ&VfW&Væ6W2ævWDfÆöB‚&V&æ6U÷F–ÖWF&ÆUö7&÷÷¦ööÒ"Âb’À¢W‡G&7FVBÒ&VfW&Væ6W2ævWE7G&–ær‚&V&æ6UöW‡G&7FVEö6öÆ÷'2"ÂçVÆÂ’ÀĞ¢òòŠû¾KˆŞX‹ÒG'V^ûÈKùŞhÈxëx«nûÈûÉ®ˆŠ8^iË®XØ~{ª~YîŠÎK‹®KˆŞXù8 Ğ¢&–6„VffV7G2Ò&VfW&Væ6W2ævWD&ööÆVâ‚&V&æ6U÷&–6…öVffV7G2"ÂfÇ6R’À¢w&F–VçDF—&V7F–öâÒ&VfW&Væ6W2ævWE7G&–ær‚&V&æ6Uöw&F–VçEöF—&V7F–öâ"ÂçVÆÂ’ÀĞ¢6&Dw&F–VçE&WfW'6VBÒ&VfW&Væ6W2ævWD&ööÆVâ‚&V&æ6Uö6&Eöw&F–VçE÷&WfW'6VB"ÂfÇ6RĞ¢Ğ Ğ¢–çFW&æÂgVâ6fTV&æ6R‡7V3¢V&æ6U7V2’°Ğ¢&VfW&Væ6W2æVF—B‚Ğ¢çWE7G&–ær‚&V&æ6U÷vUö&6¶G&÷"Â7V2çvT&6¶G&÷ç7F÷&vT¶W’Ğ¢çWE7G&–ær‚&V&æ6U÷vUö–ÖvR"Â7V2çvT–ÖvR¢çWD–çB‚&V&æ6Uö&6¶G&÷ö÷6—G’"Â7V2æ&6¶G&÷÷6—G’æ6öW&6T–âƒÂ’¢çWDfÆöB‚&V&æ6U÷vUö7&÷÷‚"Â7V2çvT–ÖvT7&÷ææ÷&ÖÆ—¦VB‚’æ6VçFW%‚¢çWDfÆöB‚&V&æ6U÷vUö7&÷÷’"Â7V2çvT–ÖvT7&÷ææ÷&ÖÆ—¦VB‚’æ6VçFW%’¢çWDfÆöB‚&V&æ6U÷vUö7&÷÷¦ööÒ"Â7V2çvT–ÖvT7&÷ææ÷&ÖÆ—¦VB‚’ç¦ööÒ¢çWD–çB‚&V&æ6Uöw&F–VçE÷7G&VæwF‚"Â7V2æw&F–VçE7G&VæwF‚æ6öW&6T–âƒÂu$D”TåEõ5E$TäuD…ôÔ‚’Ğ¢çWD–çB‚&V&æ6U÷vUö6öÆ÷""Â7V2çvT6öÆ÷"Ğ¢çWD&ööÆVâ‚&V&æ6Uöw&F–VçEöföÆÆ÷w2"Â7V2æw&F–VçDföÆÆ÷w46öçFVçBĞ¢çWD–çB‚&V&æ6Uöw&F–VçE÷F÷"Â7V2æw&F–VçEF÷Ğ¢çWD–çB‚&V&æ6Uöw&F–VçEö&÷GFöÒ"Â7V2æw&F–VçD&÷GFöÒĞ¢çWE7G&–ær‚&V&æ6Uö6&EöÖFW&–Â"Â7V2æ6&DÖFW&–Âç7F÷&vT¶W’Ğ¢çWE7G&–ær‚&V&æ6U÷F–ÖWF&ÆUö&6¶G&÷"Â7V2çF–ÖWF&ÆT&6¶G&÷ç7F÷&vT¶W’Ğ¢çWD–çB‚&V&æ6U÷F–ÖWF&ÆUö6öÆ÷""Â7V2çF–ÖWF&ÆT6öÆ÷"Ğ¢çWE7G&–ær‚&V&æ6U÷F–ÖWF&ÆUö–ÖvR"Â7V2çF–ÖWF&ÆT–ÖvR¢çWD–çB‚&V&æ6U÷F–ÖWF&ÆUö÷6—G’"Â7V2çF–ÖWF&ÆT÷6—G’æ6öW&6T–âƒÂ’¢çWDfÆöB‚&V&æ6U÷F–ÖWF&ÆUö7&÷÷‚"Â7V2çF–ÖWF&ÆT–ÖvT7&÷ææ÷&ÖÆ—¦VB‚’æ6VçFW%‚¢çWDfÆöB‚&V&æ6U÷F–ÖWF&ÆUö7&÷÷’"Â7V2çF–ÖWF&ÆT–ÖvT7&÷ææ÷&ÖÆ—¦VB‚’æ6VçFW%’¢çWDfÆöB‚&V&æ6U÷F–ÖWF&ÆUö7&÷÷¦ööÒ"Â7V2çF–ÖWF&ÆT–ÖvT7&÷ææ÷&ÖÆ—¦VB‚’ç¦ööÒ¢çWE7G&–ær‚&V&æ6UöW‡G&7FVEö6öÆ÷'2"ÂV&æ6U7V2æVæ6öFTW‡G&7FVB‡7V2æW‡G&7FVD6öÆ÷'2’Ğ¢çWD&ööÆVâ‚&V&æ6U÷&–6…öVffV7G2"Â7V2ç&–6„VffV7G2Ğ¢çWE7G&–ær‚&V&æ6Uöw&F–VçEöF—&V7F–öâ"Â7V2æw&F–VçDF—&V7F–öâç7F÷&vT¶W’Ğ¢çWD&ööÆVâ‚&V&æ6Uö6&Eöw&F–VçE÷&WfW'6VB"Â7V2æ6&Dw&F–VçE&WfW'6VBĞ¢æÇ’‚Ğ¢ĞĞ Ğ¢gVâ6fU&VÖ–æFW%FW7E66†VGVÆVB†W‡V7FVDC¢Æöær’°Ğ¢&VfW&Væ6W2æVF—B‚Ğ¢çWDÆöær‚'&VÖ–æFW%÷FW7EöW‡V7FVEöB"ÂW‡V7FVDBĞ¢ç&VÖ÷fR‚'&VÖ–æFW%÷FW7EöFVÆ—fW&VEöB"Ğ¢æÇ’‚Ğ¢ĞĞ Ğ¢gVâÖ&µ&VÖ–æFW%FW7DFVÆ—fW&VB†FVÆ—fW&VDC¢ÆöærÒ7—7FVÒæ7W'&VçEF–ÖTÖ–ÆÆ—2‚’’°Ğ¢&VfW&Væ6W2æVF—B‚’çWDÆöær‚'&VÖ–æFW%÷FW7EöFVÆ—fW&VEöB"ÂFVÆ—fW&VDB’æÇ’‚Ğ¢ĞĞ Ğ¢gVâÆöE&VÖ–æFW%FW7E&ö&R‚“¢&VÖ–æFW%FW7E&ö&Sò°Ğ¢fÂW‡V7FVDBÒ&VfW&Væ6W2ævWDÆöær‚'&VÖ–æFW%÷FW7EöW‡V7FVEöB"ÂÂĞ¢–b†W‡V7FVDBÃÒÂ’&WGW&âçVÆÀĞ¢&WGW&â&VÖ–æFW%FW7E&ö&R€Ğ¢W‡V7FVDBÒW‡V7FVDBÀĞ¢FVÆ—fW&VDBÒ&VfW&Væ6W2ævWDÆöær‚'&VÖ–æFW%÷FW7EöFVÆ—fW&VEöB"ÂÂ’çF¶T–b²—BâÂĞĞ¢Ğ¢ĞĞ Ğ¢ò¢¢XZŞˆ›.K‹¾š)ûÉ¾iz~K©Nˆ›.ZÙj>hÈXéş˜XŞˆ›.kKîyIşZûÎˆŠ®jşˆ›.ûÈÎKˆŞŠhny¹nX[nK¹nj{ŞKØŞ8"¢ğĞ¢gVâÆöD7W7FöÕF†VÖT6öÆ÷'2‚“¢fö7W4fÆ÷uF†VÖT6öÆ÷'3òĞĞ¢FV6öFTö&¦V7DwV&FVB‚&7W7FöÕ÷F†VÖUö6öÆ÷'2"ÂçVÆÂÂ²§6öâÓàĞ¢F†VÖT6öÆ÷'46öFV2æFV6öFR„¥4ôäö&¦V7B†§6öâ’Ğ¢ÒĞ Ğ¢gVâ6fT7W7FöÕF†VÖT6öÆ÷'2†6öÆ÷'3¢fö7W4fÆ÷uF†VÖT6öÆ÷'2’°Ğ¢&VfW&Væ6W2æVF—B‚’çWE7G&–ær‚&7W7FöÕ÷F†VÖUö6öÆ÷'2"ÂF†VÖT6öÆ÷'46öFV2æVæ6öFR†6öÆ÷'2’çFõ7G&–ær‚’’æÇ’‚Ğ¢ĞĞ Ğ¢ò¢¢ˆz®Zé®K˜K‹¾š)š(NŠëîûÉ®ZI®ZY~YŞYŞ˜XŞˆ›.ZÙj>8.izš(NŠëîi{n‹ùNY¹îz›®X‰~Š8.ˆZÙj>{Ë®ZÙ~jë^hÈ’.Xú®iÈ˜XŞˆ›".Šû¾8"¢ğĞ¢–çFW&æÂgVâÆöEF†VÖU&W6WG2‚“¢Æ—7CÅF†VÖU&W6WCâĞĞ¢FV6öFTwV&FVB‚'F†VÖU÷&W6WG2"ÂV×G”Æ—7B‚’Â²§6öâÓàĞ¢F†VÖU&W6WD6öFV2æFV6öFR†§6öâĞ¢ÒÂ²—Bæ—4V×G’‚’ÒĞ Ğ¢–çFW&æÂgVâ6fUF†VÖU&W6WG2‡&W6WG3¢Æ—7CÅF†VÖU&W6WCâ’°Ğ¢&VfW&Væ6W2æVF—B‚’çWE7G&–ær‚'F†VÖU÷&W6WG2"ÂF†VÖU&W6WD6öFV2æVæ6öFR‡&W6WG2’’æÇ’‚Ğ¢ĞĞ Ğ¢gVâÆöDVæW&w”ÆWfVÂ‚“¢7G&–ærÒ‡&VfW&Væ6W2ævWE7G&–ær‚&VæW&w•öÆWfVÂ"Â.jÚ>[‹‚"’ó¢.jÚ>[‹‚"’çF¶T–b²—B–â6WDöb‚.XşKØâ"Â.jÚ>[‹‚"Â.XX^‹k2"’Òó¢.jÚ>[‹‚ Ğ Ğ¢gVâÆöDVæW&w•&V6÷&FVDB‚“¢ÆöærÒ&VfW&Væ6W2ævWDÆöær‚&VæW&w•÷&V6÷&FVEöB"ÂÂĞ Ğ¢gVâ6fTVæW&w”ÆWfVÂ†ÆWfVÃ¢7G&–ærÂ&V6÷&FVDC¢ÆöærÒ7—7FVÒæ7W'&VçEF–ÖTÖ–ÆÆ—2‚’’°Ğ¢&VfW&Væ6W2æVF—B‚’çWE7G&–ær‚&VæW&w•öÆWfVÂ"ÂÆWfVÂ’çWDÆöær‚&VæW&w•÷&V6÷&FVEöB"Â&V6÷&FVDB’æÇ’‚Ğ¢ĞĞ Ğ¢gVâÆöE7FGW46†V6´–å6WGF–æw2‚“¢7FGW46†V6´–å6WGF–æw2Ò7FGW46†V6´–å6WGF–æw2€Ğ¢Væ&ÆVBÒ&VfW&Væ6W2ævWD&ööÆVâ‚'7FGW5ö6†V6¶–åöVæ&ÆVB"Â&VÖ–æFW$fVGW&TFVfVÇG2å5DEU5ô4„T4µô”åôTä$ÄTB’ÀĞ¢&ö×D†÷W"Ò&VfW&Væ6W2ævWD–çB‚'7FGW5ö6†V6¶–åö†÷W""ÂB’æ6öW&6T–âƒ‚Â#"’ÀĞ¢6V6öæE&ö×DVæ&ÆVBÒ&VfW&Væ6W2ævWD&ööÆVâ‚'7FGW5ö6†V6¶–å÷6V6öæEöVæ&ÆVB"ÂfÇ6R’ÀĞ¢6V6öæE&ö×D†÷W"Ò&VfW&Væ6W2ævWD–çB‚'7FGW5ö6†V6¶–å÷6V6öæEö†÷W""Â’’æ6öW&6T–âƒ"Â#2’ÀĞ¢6æö÷¦TÖ–çWFW2Ò&VfW&Væ6W2ævWD–çB‚'7FGW5ö6†V6¶–å÷6æö÷¦UöÖ–çWFW2"Âc’æ6öW&6T–âƒ3Âƒ’ÀĞ¢FF—fU6×Æ–ætVæ&ÆVBÒ&VfW&Væ6W2ævWD&ööÆVâ‚'7FGW5ö6†V6¶–åöFF—fU÷6×Æ–ær"ÂG'VR’ÀĞ¢&ö×D†÷W$WFôF§W7FVBÒ&VfW&Væ6W2ævWD&ööÆVâ‚'7FGW5ö6†V6¶–åö†÷W%öWFò"ÂfÇ6RĞ¢Ğ Ğ¢gVâ6fU7FGW46†V6´–å6WGF–æw2‡6WGF–æw3¢7FGW46†V6´–å6WGF–æw2’°Ğ¢&VfW&Væ6W2æVF—B‚Ğ¢çWD&ööÆVâ‚'7FGW5ö6†V6¶–åöVæ&ÆVB"Â6WGF–æw2æVæ&ÆVBĞ¢çWD–çB‚'7FGW5ö6†V6¶–åö†÷W""Â6WGF–æw2ç&ö×D†÷W"Ğ¢çWD&ööÆVâ‚'7FGW5ö6†V6¶–å÷6V6öæEöVæ&ÆVB"Â6WGF–æw2ç6V6öæE&ö×DVæ&ÆVBĞ¢çWD–çB‚'7FGW5ö6†V6¶–å÷6V6öæEö†÷W""Â6WGF–æw2ç6V6öæE&ö×D†÷W"Ğ¢çWD–çB‚'7FGW5ö6†V6¶–å÷6æö÷¦UöÖ–çWFW2"Â6WGF–æw2ç6æö÷¦TÖ–çWFW2Ğ¢çWD&ööÆVâ‚'7FGW5ö6†V6¶–åöFF—fU÷6×Æ–ær"Â6WGF–æw2æFF—fU6×Æ–ætVæ&ÆVBĞ¢çWD&ööÆVâ‚'7FGW5ö6†V6¶–åö†÷W%öWFò"Â6WGF–æw2ç&ö×D†÷W$WFôF§W7FVBĞ¢æÇ’‚Ğ¢ĞĞ Ğ¢gVâÆöE7FGW46†V6´–ç2†Æ–Ö—C¢–çBÒ““¢Æ—7CÅ7FGW46†V6´–ãâĞĞ¢FV6öFTwV&FVB‚'7FGW5ö6†V6¶–ç2"ÂV×G”Æ—7B‚’Â²7FGW46†V6´–ä6öFV2æFV6öFR†—B’ÒÂ²—Bæ—4V×G’‚’ÒĞ¢çF¶TÆ7B†Æ–Ö—Bæ6öW&6T–âƒÂ3cR’Ğ Ğ¢gVâ6fU7FGW46†V6´–â†6†V6´–ã¢7FGW46†V6´–â’°Ğ¢fÂÆÂÒ†ÆöE7FGW46†V6´–ç2ƒ3cR’²6†V6´–â’çF¶TÆ7Bƒ3cRĞ¢&VfW&Væ6W2æVF—B‚Ğ¢çWE7G&–ær‚'7FGW5ö6†V6¶–ç2"Â7FGW46†V6´–ä6öFV2æVæ6öFR†ÆÂ’Ğ¢çWE7G&–ær‚&VæW&w•öÆWfVÂ"Â6†V6´–âæVæW&w’Ğ¢çWDÆöær‚&VæW&w•÷&V6÷&FVEöB"Â6†V6´–âç&V6÷&FVDBĞ¢æÇ’‚Ğ¢ĞĞ Ğ¢gVâÆöDÆFW7E7FGW46†V6´–â‚“¢7FGW46†V6´–ãòÒÆöE7FGW46†V6´–ç2ƒ’æÆ7D÷$çVÆÂ‚Ğ Ğ¢gVâÆöDæW‡E7FGW5&ö×DB‚“¢ÆöærÒ&VfW&Væ6W2ævWDÆöær‚'7FGW5÷&ö×EöæW‡EöB"ÂÂĞ Ğ¢gVâ6fTæW‡E7FGW5&ö×DB†C¢Æöær’°Ğ¢&VfW&Væ6W2æVF—B‚’çWDÆöær‚'7FGW5÷&ö×EöæW‡EöB"ÂBæ6öW&6TDÆV7BƒÂ’’æÇ’‚Ğ¢ĞĞ Ğ¢gVâÆöE7FGW5&ö×EG&6R‚“¢7FGW5&ö×EG&6R°Ğ¢fÂ&rÒ&VfW&Væ6W2ævWE7G&–ær‚'7FGW5÷&ö×EöÆ7Eö÷WF6öÖR"ÂçVÆÂĞ¢fÂ÷WF6öÖRÒ7FGW5&ö×D÷WF6öÖRæVçG&–W2æf—'7D÷$çVÆÂ²—BææÖRÓÒ&rÒó¢7FGW5&ö×D÷WF6öÖRääôäPĞ¢&WGW&â7FGW5&ö×EG&6R€Ğ¢÷WF6öÖRÒ÷WF6öÖRÀĞ¢&V6÷&FVDBÒ&VfW&Væ6W2ævWDÆöær‚'7FGW5÷&ö×EöÆ7EöB"ÂÂ’ÀĞ¢W‡V7FVDBÒ&VfW&Væ6W2ævWDÆöær‚'7FGW5÷&ö×EöÆ7EöW‡V7FVEöB"ÂÂĞ¢Ğ¢ĞĞ Ğ¢gVâ6fU7FGW5&ö×EG&6R‡G&6S¢7FGW5&ö×EG&6R’°Ğ¢&VfW&Væ6W2æVF—B‚Ğ¢çWE7G&–ær‚'7FGW5÷&ö×EöÆ7Eö÷WF6öÖR"ÂG&6Ræ÷WF6öÖRææÖRĞ¢çWDÆöær‚'7FGW5÷&ö×EöÆ7EöB"ÂG&6Rç&V6÷&FVDBĞ¢çWDÆöær‚'7FGW5÷&ö×EöÆ7EöW‡V7FVEöB"ÂG&6RæW‡V7FVDBĞ¢æÇ’‚Ğ¢ĞĞ Ğ¢gVâÆöDVæW&w•6×Æ–æu7F'FVDB‚“¢ÆöærÒ&VfW&Væ6W2ævWDÆöær‚&VæW&w•÷6×Æ–æu÷7F'FVEöB"ÂÂĞ Ğ¢gVâVç7W&TVæW&w•6×Æ–æu7F'FVDB†æ÷s¢ÆöærÒ7—7FVÒæ7W'&VçEF–ÖTÖ–ÆÆ—2‚’“¢Æöær°Ğ¢fÂW†—7F–ærÒÆöDVæW&w•6×Æ–æu7F'FVDB‚Ğ¢–b†W†—7F–ærâÂ’&WGW&âW†—7F–æpĞ¢&VfW&Væ6W2æVF—B‚’çWDÆöær‚&VæW&w•÷6×Æ–æu÷7F'FVEöB"Âæ÷r’æÇ’‚Ğ¢&WGW&âæ÷pĞ¢ĞĞ Ğ¢gVâ&W7F'DVæW&w•6×Æ–ær†æ÷s¢ÆöærÒ7—7FVÒæ7W'&VçEF–ÖTÖ–ÆÆ—2‚’’°Ğ¢&VfW&Væ6W2æVF—B‚’çWDÆöær‚&VæW&w•÷6×Æ–æu÷7F'FVEöB"Âæ÷r’æÇ’‚Ğ¢ĞĞ Ğ¢gVâÆöD—FV×2‚“¢Æ—7CÄ—FVÓâ°Ğ¢fÂ&rÒ&VfW&Væ6W2ævWE7G&–ær‚&—FV×2"ÂçVÆÂ’ó¢&WGW&âV×G”Æ—7B‚Ğ¢fÂ&W7VÇBÒ—FV×46öFV2æFV6öFR‡&rĞ¢–b‡&W7VÇBæ—FV×2æ—4V×G’‚’bb6÷''WF–öä&6·Wç6†÷VÆD&6·W‡&r’’°Ğ¢7F÷&vU&÷FV7F–öâæ&6·W†6÷''WDF—"Â&—FV×2"Â&rĞ¢&WGW&âV×G”Æ—7B‚Ğ¢ĞĞ¢fÂ6æöæ–6Ä—FV×2Ò&W7VÇBæ—FV×2æÖ…F6µ66†VGVÆUFW‡C£¦6æöæ–6Æ—¦RĞ¢–b‡&W7VÇBæ–G4æ÷&ÖÆ—¦VBÇÂ6æöæ–6Ä—FV×2Ò&W7VÇBæ—FV×2’6fT—FV×2†6æöæ–6Ä—FV×2Ğ¢&WGW&â6æöæ–6Ä—FV×0Ğ¢ĞĞ Ğ¢&—fFRgVâ6fT—FV×2†—FV×3¢Æ—7CÄ—FVÓâ’Ò7–æ6‡&öæ—¦VB‡F6´†—7F÷'”Æö6²’°Ğ¢&VfW&Væ6W2æVF—B‚’çWE7G&–ær‚&—FV×2"Â—FV×46öFV2æVæ6öFR†—FV×2’’æÇ’‚Ğ¢ĞĞ Ğ¢ò¢¢T’w&—FW2FW&—fVBg&öÒâ–âÖÖVÖ÷'’6æ6†÷B×W7Bæ÷B&WÆ6RæWvW"&V6V—fW"w&—FRâ¢ğĞ¢gVâ6fT—FV×4–eVæ6†ævVB†—FV×3¢Æ—7CÄ—FVÓâÂW‡V7FVD—FV×3¢Æ—7CÄ—FVÓâ“¢&ööÆVâÒ7–æ6‡&öæ—¦VB‡F6´†—7F÷'”Æö6²’°Ğ¢–b…7F÷&vU&÷FV7F–öâç&VDöæÇ’ÇÂF6µ6æ6†÷EöÆ–7’æ6å6fR†W‡V7FVD—FV×2ÂÆöD—FV×2‚’’’°Ğ¢&WGW&ä7–æ6‡&öæ—¦VBfÇ6PĞ¢ĞĞ¢&VfW&Væ6W2æVF—B‚’çWE7G&–ær‚&—FV×2"Â—FV×46öFV2æVæ6öFR†—FV×2’’æ6öÖÖ—B‚Ğ¢ĞĞ Ğ¢ò¢¢rãRi[NynXªKÙÎûÉ®K»¾Xª[ú¾xZ~KˆîZû[©NXènXû.KˆjÊhùKªNûÈÎ˜şXXŞKŠŞ˜	N˜X{®Xú®KùŞZÙKˆXØ®8"¢ğĞ¢gVâ6fT—FV×4æEF6´WfVçG2†—FV×3¢Æ—7CÄ—FVÓâÂWfVçG3¢Æ—7CÅF6´WfVçCâÂW‡V7FVD—FV×3¢Æ—7CÄ—FVÓãòÒçVÆÂ“¢&ööÆVâÒ7–æ6‡&öæ—¦VB‡F6´†—7F÷'”Æö6²’°Ğ¢–b…7F÷&vU&÷FV7F–öâç&VDöæÇ’’&WGW&ä7–æ6‡&öæ—¦VBfÇ6PĞ¢–b†W‡V7FVD—FV×2ÒçVÆÂbbF6µ6æ6†÷EöÆ–7’æ6å6fR†W‡V7FVD—FV×2ÂÆöD—FV×2‚’’’&WGW&ä7–æ6‡&öæ—¦VBfÇ6PĞ¢fÂWFFVDWfVçG2ÒWfVçG2æföÆB†ÆöEF6´WfVçG2‚’’²†—7F÷'’ÂWfVçBÓâF6´†—7F÷'’æVæB††—7F÷'’ÂWfVçB’ĞĞ¢&VfW&Væ6W2æVF—B‚Ğ¢çWE7G&–ær‚&—FV×2"Â—FV×46öFV2æVæ6öFR†—FV×2’Ğ¢çWE7G&–ær‚'F6µöWfVçG2"ÂF6´WfVçD6öFV2æVæ6öFR‡WFFVDWfVçG2’Ğ¢æ6öÖÖ—B‚Ğ¢ĞĞ Ğ¢gVâ6fT—FV×4æEF6´WfVçB†—FV×3¢Æ—7CÄ—FVÓâÂWfVçC¢F6´WfVçBÂW‡V7FVD—FV×3¢Æ—7CÄ—FVÓãòÒçVÆÂ“¢&ööÆVâĞĞ¢6fT—FV×4æEF6´WfVçG2†—FV×2ÂÆ—7Döb†WfVçB’ÂW‡V7FVD—FV×2Ğ Ğ¢gVâ6fT—FV×5F6´WfVçG4æDvöÇ2€Ğ¢—FV×3¢Æ—7CÄ—FVÓâÀĞ¢WfVçG3¢Æ—7CÅF6´WfVçCâÀĞ¢vöÇ3¢Æ—7CÄvöÃâÀĞ¢W‡V7FVD—FV×3¢Æ—7CÄ—FVÓâÀĞ¢W‡V7FVDvöÇ3¢Æ—7CÄvöÃàĞ¢“¢&ööÆVâÒ7–æ6‡&öæ—¦VB‡F6´†—7F÷'”Æö6²’°Ğ¢–b…7F÷&vU&÷FV7F–öâç&VDöæÇ’ÇÂF6µ6æ6†÷EöÆ–7’æ6å6fR†W‡V7FVD—FV×2ÂÆöD—FV×2‚’’ÇÂW‡V7FVDvöÇ2ÒÆöDvöÇ2‚’’°Ğ¢&WGW&ä7–æ6‡&öæ—¦VBfÇ6PĞ¢ĞĞ¢fÂWFFVDWfVçG2ÒWfVçG2æföÆB†ÆöEF6´WfVçG2‚’’²†—7F÷'’ÂWfVçBÓâF6´†—7F÷'’æVæB††—7F÷'’ÂWfVçB’ĞĞ¢&VfW&Væ6W2æVF—B‚Ğ¢çWE7G&–ær‚&—FV×2"Â—FV×46öFV2æVæ6öFR†—FV×2’Ğ¢çWE7G&–ær‚'F6µöWfVçG2"ÂF6´WfVçD6öFV2æVæ6öFR‡WFFVDWfVçG2’Ğ¢çWE7G&–ær‚&vöÇ2"Â7F÷&VDvöÇ46öFV2æVæ6öFTvöÇ2†vöÇ2’Ğ¢æ6öÖÖ—B‚Ğ¢ĞĞ Ğ¢ò¢¢iKn™¸nzë‹ÚÎh‰yºîj~i{nûÈÎyºîj~8XéşK»¾Xªz{¾™šNKˆîXènXû.[ø^š¾YÎi{n‰Şy¹8"¢ğĞ¢gVâ6fTvöÄ6öçfW'6–öâ€Ğ¢vöÇ3¢Æ—7CÄvöÃâÀĞ¢—FV×3¢Æ—7CÄ—FVÓâÀĞ¢WfVçC¢F6´WfVçBÀĞ¢W‡V7FVDvöÇ3¢Æ—7CÄvöÃãòÒçVÆÂÀĞ¢W‡V7FVD—FV×3¢Æ—7CÄ—FVÓãòÒçVÆÀĞ¢“¢&ööÆVâÒ–b†W‡V7FVDvöÇ2ÒçVÆÂbbW‡V7FVD—FV×2ÒçVÆÂ’°Ğ¢6fT—FV×5F6´WfVçG4æDvöÇ2†—FV×2ÂÆ—7Döb†WfVçB’ÂvöÇ2ÂW‡V7FVD—FV×2ÂW‡V7FVDvöÇ2Ğ¢ÒVÇ6R7–æ6‡&öæ—¦VB‡F6´†—7F÷'”Æö6²’°Ğ¢–b…7F÷&vU&÷FV7F–öâç&VDöæÇ’’&WGW&ä7–æ6‡&öæ—¦VBfÇ6PĞ¢fÂWFFVDWfVçG2ÒF6´†—7F÷'’æVæB†ÆöEF6´WfVçG2‚’ÂWfVçBĞ¢&VfW&Væ6W2æVF—B‚Ğ¢çWE7G&–ær‚&vöÇ2"Â7F÷&VDvöÇ46öFV2æVæ6öFTvöÇ2†vöÇ2’Ğ¢çWE7G&–ær‚&—FV×2"Â—FV×46öFV2æVæ6öFR†—FV×2’Ğ¢çWE7G&–ær‚'F6µöWfVçG2"ÂF6´WfVçD6öFV2æVæ6öFR‡WFFVDWfVçG2’Ğ¢æ6öÖÖ—B‚Ğ¢ĞĞ Ğ¢ò¢¢æ÷F–f–6F–öâF6²7F–öã¢g&W6†æW726†V6²Â—FVÒöWfVçBWFFRæBvöÂ6÷VçB6†&RöæR6öÖÖ—Bâ¢ğĞ¢–çFW&æÂgVâ×WFFU66†VGVÆVEF6²€Ğ¢–C¢ÆöærÀĞ¢W‡V7FVE66†VGVÆVDC¢ÆöærÀĞ¢6ö×ÆWF–öäÖ–æ–×VÓ¢&ööÆVãòÒçVÆÂÀĞ¢G&ç6f÷&Ó¢„—FVÒ’Óâ—FVÒÀĞ¢WfVçC¢„—FVÒÂ—FVÒ’ÓâF6´WfVç@Ğ¢“¢7F÷&VEF6´×WFF–öãòÒ7–æ6‡&öæ—¦VB‡F6´†—7F÷'”Æö6²’°Ğ¢–b…7F÷&vU&÷FV7F–öâç&VDöæÇ’’&WGW&ä7–æ6‡&öæ—¦VBçVÆÀĞ¢fÂ7W'&VçD—FV×2ÒÆöD—FV×2‚Ğ¢fÂ&Vf÷&RÒ7W'&VçD—FV×2æf—'7D÷$çVÆÂ²—Bæ–BÓÒ–BÒó¢&WGW&ä7–æ6‡&öæ—¦VBçVÆÀĞ¢–b‚F6µ&VÖ–æFW$7F–öäg&W6†æW72æÖF6†W2†&Vf÷&RÂW‡V7FVE66†VGVÆVDB’’&WGW&ä7–æ6‡&öæ—¦VBçVÆÀĞ¢fÂgFW"ÒG&ç6f÷&Ò†&Vf÷&RĞ¢fÂWFFVD—FV×2Ò7W'&VçD—FV×2æÖ²–b†—Bæ–BÓÒ–B’gFW"VÇ6R—BĞĞ¢fÂWFFVDWfVçG2ÒF6´†—7F÷'’æVæB†ÆöEF6´WfVçG2‚’ÂWfVçB†&Vf÷&RÂgFW"’Ğ¢fÂVF—F÷"Ò&VfW&Væ6W2æVF—B‚Ğ¢çWE7G&–ær‚&—FV×2"Â—FV×46öFV2æVæ6öFR‡WFFVD—FV×2’Ğ¢çWE7G&–ær‚'F6µöWfVçG2"ÂF6´WfVçD6öFV2æVæ6öFR‡WFFVDWfVçG2’Ğ¢–b†6ö×ÆWF–öäÖ–æ–×VÒÒçVÆÂbb&Vf÷&RævöÄ–BÒçVÆÂ’°Ğ¢fÂ¶W’ÒvöÅÆææW"æ7W'&VçEvVV´¶W’‚Ğ¢fÂWFFVDvöÇ2ÒÆöDvöÇ2‚’æÖ²vöÂÓàĞ¢–b†vöÂæ–BÒ&Vf÷&RævöÄ–B’vöÀĞ¢VÇ6R–b†vöÂæ6ö×ÆWF–öåvVV´¶W’ÓÒ¶W’’°Ğ¢–b†6ö×ÆWF–öäÖ–æ–×VÒ’vöÂæ6÷’†Ö–æ–×VÔ6ö×ÆWF–öç5F†—5vVV²ÒvöÂæÖ–æ–×VÔ6ö×ÆWF–öç5F†—5vVV²²Ğ¢VÇ6RvöÂæ6÷’†6ö×ÆWFVEF†—5vVV²ÒvöÂæ6ö×ÆWFVEF†—5vVV²²Ğ¢ÒVÇ6R–b†6ö×ÆWF–öäÖ–æ–×VÒ’°Ğ¢vöÂæ6÷’†Ö–æ–×VÔ6ö×ÆWF–öç5F†—5vVV²ÒÂ6ö×ÆWF–öåvVV´¶W’Ò¶W’Ğ¢ÒVÇ6R°Ğ¢vöÂæ6÷’†6ö×ÆWFVEF†—5vVV²ÒÂÖ–æ–×VÔ6ö×ÆWF–öç5F†—5vVV²ÒÂ6ö×ÆWF–öåvVV´¶W’Ò¶W’Ğ¢ĞĞ¢ĞĞ¢VF—F÷"çWE7G&–ær‚&vöÇ2"Â7F÷&VDvöÇ46öFV2æVæ6öFTvöÇ2‡WFFVDvöÇ2’Ğ¢ĞĞ¢–b†VF—F÷"æ6öÖÖ—B‚’’7F÷&VEF6´×WFF–öâ†&Vf÷&RÂgFW"’VÇ6RçVÆÀĞ¢ĞĞ Ğ¢gVâ6fU6W76–öâ‡6W76–öã¢7F—f—G•6W76–öâ’°Ğ¢fÂ6W76–öç2ÒÆöE6W76–öç2‚’æf–ÇFW$æ÷B²—Bæ–BÓÒ6W76–öâæ–BÒ²6W76–öàĞ¢fÂfÇVW2Ò¥4ôä'&’‚Ğ¢6W76–öç2çF¶TÆ7BƒS’æf÷$V6‚²fÇVRÓâfÇVW2çWB„¥4ôäö&¦V7B‚’æÇ’°Ğ¢WB‚&–B"ÂfÇVRæ–BĞ¢WB‚&æÖR"ÂfÇVRææÖRĞ¢WB‚&6FVv÷'’"ÂfÇVRæ6FVv÷'’Ğ¢WB‚'ÆææVE7F'DB"ÂfÇVRçÆææVE7F'DBĞ¢WB‚&7GVÅ7F'DB"ÂfÇVRæ7GVÅ7F'DBĞ¢WB‚&VæG4B"ÂfÇVRæVæG4BĞ¢WB‚&æW‡E7FW"ÂfÇVRææW‡E7FWĞ¢WB‚'7FGW2"ÂfÇVRç7FGW2Ğ¢WB‚&W‡FVç6–öä6÷VçB"ÂfÇVRæW‡FVç6–öä6÷VçBĞ¢WB‚&W‡FVç6–öå&V6öâ"ÂfÇVRæW‡FVç6–öå&V6öâĞ¢WB‚&7GVÄVæDB"ÂfÇVRæ7GVÄVæDBó¢Ğ¢WB‚&VæD6†ö–6R"ÂfÇVRæVæD6†ö–6RĞ¢Ò’ĞĞ¢&VfW&Væ6W2æVF—B‚’çWE7G&–ær‚'6W76–öç2"ÂfÇVW2çFõ7G&–ær‚’’æÇ’‚Ğ¢ĞĞ Ğ¢gVâWFFU6W76–öâ†–C¢ÆöærÂ7FGW3¢7G&–ærÂVæG4C¢ÆöæsòÒçVÆÂ’°Ğ¢fÂ7W'&VçBÒÆöE6W76–öç2‚’æf—'7D÷$çVÆÂ²—Bæ–BÓÒ–BÒó¢&WGW&àĞ¢6fU6W76–öâ†7W'&VçBæ6÷’‡7FGW2Ò7FGW2ÂVæG4BÒVæG4Bó¢7W'&VçBæVæG4B’Ğ¢ĞĞ Ğ¢gVâf–æ—6…6W76–öâ†–C¢ÆöærÂ7FGW3¢7G&–ærÂ6†ö–6S¢7G&–ærÂVæFVDC¢ÆöærÒ7—7FVÒæ7W'&VçEF–ÖTÖ–ÆÆ—2‚’’°Ğ¢fÂ7W'&VçBÒÆöE6W76–öç2‚’æf—'7D÷$çVÆÂ²—Bæ–BÓÒ–BÒó¢&WGW&àĞ¢6fU6W76–öâ†7W'&VçBæ6÷’‡7FGW2Ò7FGW2Â7GVÄVæDBÒVæFVDBÂVæD6†ö–6RÒ6†ö–6R’Ğ¢ĞĞ Ğ¢gVâW‡FVæE6W76–öâ†–C¢ÆöærÂÖ–çWFW3¢–çBÂ&V6öã¢7G&–ærÒ""“¢7F—f—G•6W76–öãò°Ğ¢fÂ7W'&VçBÒÆöE6W76–öç2‚’æf—'7D÷$çVÆÂ²—Bæ–BÓÒ–BÒó¢&WGW&âçVÆÀĞ¢–b‚7W'&VçBæ—4÷Vâ‚’’&WGW&âçVÆÀĞ¢–b†7W'&VçBæW‡FVç6–öä6÷VçBãÒÆöD7F—f—G•&VÖ–æFW%6WGF–æw2‚’æÖ„W‡FVç6–öç2’&WGW&âçVÆÀĞ¢fÂW‡FVæFVBÒ7W'&VçBæ6÷’€Ğ¢VæG4BÒ7—7FVÒæ7W'&VçEF–ÖTÖ–ÆÆ—2‚’²Ö–çWFW2æ6öW&6T–âƒÂƒ’¢cóÂÀĞ¢7FGW2Ò7F—f—G•6W76–öâå5DEU5ôU…DTäDTBÀĞ¢W‡FVç6–öä6÷VçBÒ7W'&VçBæW‡FVç6–öä6÷VçB²ÀĞ¢W‡FVç6–öå&V6öâÒ&V6öâÀĞ¢7GVÄVæDBÒçVÆÂÀĞ¢VæD6†ö–6RÒ" Ğ¢Ğ¢6fU6W76–öâ†W‡FVæFVBĞ¢&WGW&âW‡FVæFV@Ğ¢ĞĞ Ğ¢gVâÖ&µ6W76–öäv—F–æt6öæf—&ÖF–öâ†–C¢Æöær“¢7F—f—G•6W76–öãò°Ğ¢fÂ7W'&VçBÒÆöE6W76–öç2‚’æf—'7D÷$çVÆÂ²—Bæ–BÓÒ–BÒó¢&WGW&âçVÆÀĞ¢–b‚7W'&VçBæ—4÷Vâ‚’’&WGW&â7W'&Vç@Ğ¢fÂVæF–ærÒ7W'&VçBæ6÷’‡7FGW2Ò7F—f—G•6W76–öâå5DEU5ôt•D”äuô4ôäd•$ÔD”ôâĞ¢6fU6W76–öâ‡VæF–ærĞ¢&WGW&âVæF–æpĞ¢ĞĞ Ğ¢gVâÆöDÆFW7D7F—fU6W76–öâ‚“¢7F—f—G•6W76–öãòÒÆöE6W76–öç2‚’æÆ7D÷$çVÆÂ„7F—f—G•6W76–öã£¦—4÷VâĞ Ğ¢gVâf–æD7F—f—G•6W76–öâ†–C¢Æöær“¢7F—f—G•6W76–öãòÒÆöE6W76–öç2‚’æf—'7D÷$çVÆÂ²—Bæ–BÓÒ–BĞĞ Ğ¢gVâÆöE&V6VçD7F—f—G•6W76–öç2†Æ–Ö—C¢–çBÒ#“¢Æ—7CÄ7F—f—G•6W76–öãâÒÆöE6W76–öç2‚’çF¶TÆ7B†Æ–Ö—Bæ6öW&6T–âƒÂS’’ç&WfW'6VB‚Ğ Ğ¢gVâÆöD7F—f—G•&VÖ–æFW%6WGF–æw2‚“¢7F—f—G•&VÖ–æFW%6WGF–æw2Ò7F—f—G•&VÖ–æFW%6WGF–æw2€Ğ¢æ÷F–f–6F–öç4Væ&ÆVBÒ&VfW&Væ6W2ævWD&ööÆVâ‚&7F—f—G•öæ÷F–f–6F–öç2"ÂG'VR’ÀĞ¢&Wf–WtÖ–çWFW2Ò&VfW&Væ6W2ævWD–çB‚&7F—f—G•÷&Wf–WuöÖ–çWFW2"Â’æ6öW&6T–âƒÂc’ÀĞ¢Ö„W‡FVç6–öç2Ò&VfW&Væ6W2ævWD–çB‚&7F—f—G•öÖ…öW‡FVç6–öç2"Â2’æ6öW&6T–âƒÂ’ÀĞ¢7G&öævW$VæE&VÖ–æFW"Ò&VfW&Væ6W2ævWD&ööÆVâ‚&7F—f—G•÷7G&öævW%öVæE÷&VÖ–æFW""ÂG'VR’ÀĞ¢66†VGVÆU&VÖ–æFW'4Væ&ÆVBÒ&VfW&Væ6W2ævWD&ööÆVâ‚'66†VGVÆU÷&VÖ–æFW'5öVæ&ÆVB"ÂG'VR’ÀĞ¢66†VGVÆTGfæ6TÖ–çWFW2Ò&VfW&Væ6W2ævWD–çB‚'66†VGVÆU÷&VÖ–æFW'5öGfæ6UöÖ–çWFW2"Â’æ6öW&6T–âƒÂcĞ¢Ğ Ğ¢gVâ6fT7F—f—G•&VÖ–æFW%6WGF–æw2‡6WGF–æw3¢7F—f—G•&VÖ–æFW%6WGF–æw2’°Ğ¢&VfW&Væ6W2æVF—B‚Ğ¢çWD&ööÆVâ‚&7F—f—G•öæ÷F–f–6F–öç2"Â6WGF–æw2ææ÷F–f–6F–öç4Væ&ÆVBĞ¢çWD–çB‚&7F—f—G•÷&Wf–WuöÖ–çWFW2"Â6WGF–æw2ç&Wf–WtÖ–çWFW2Ğ¢çWD–çB‚&7F—f—G•öÖ…öW‡FVç6–öç2"Â6WGF–æw2æÖ„W‡FVç6–öç2Ğ¢çWD&ööÆVâ‚&7F—f—G•÷7G&öævW%öVæE÷&VÖ–æFW""Â6WGF–æw2ç7G&öævW$VæE&VÖ–æFW"Ğ¢çWD&ööÆVâ‚'66†VGVÆU÷&VÖ–æFW'5öVæ&ÆVB"Â6WGF–æw2ç66†VGVÆU&VÖ–æFW'4Væ&ÆVBĞ¢çWD–çB‚'66†VGVÆU÷&VÖ–æFW'5öGfæ6UöÖ–çWFW2"Â6WGF–æw2ç66†VGVÆTGfæ6TÖ–çWFW2æ6öW&6T–âƒÂc’Ğ¢æÇ’‚Ğ¢ĞĞ Ğ¢gVâFE&WÆä—FVÒ†7F—f—G”æÖS¢7G&–ær“¢&ööÆVâÒ7–æ6‡&öæ—¦VB‡F6´†—7F÷'”Æö6²’°Ğ¢fÂ—FVÒÒ—FVÒ‡F—FÆRÒ.˜xŞikZèhé.ûÉ¢F7F—f—G”æÖR"ÂFWF–ÂÒ.yKiÊ®ZèÎh‰y¨NkK¾Xª‹ÚÎY¹îûÉ¾XúşKº^iKiÉş8{ÊyúŞh‰ni¨.XÂ"Â¶–æBÒ.iKn™¸nzë"Ğ¢fÂ7W'&VçBÒÆöD—FV×2‚Ğ¢6fT—FV×4æEF6´WfVçB€Ğ¢Æ—7Döb†—FVÒ’²7W'&VçBÀĞ¢F6µ&V6÷&FW"æWfVçB…F6´WfVçEG—RåD4µô5$TDTBÂ—FVÒæ–BÂ—FVÒçF—FÆR’ÀĞ¢W‡V7FVD—FV×2Ò7W'&Vç@Ğ¢Ğ¢ĞĞ Ğ¢gVâf–æD—FVÒ†–C¢Æöær“¢—FVÓòÒÆöD—FV×2‚’æf—'7D÷$çVÆÂ²—Bæ–BÓÒ–BĞĞ Ğ¢gVâ&V6÷fW$Ö—76VDvöÅF6·2‚“¢Æ—7CÄ—FVÓâÒ7–æ6‡&öæ—¦VB‡F6´†—7F÷'”Æö6²’°Ğ¢fÂ7WFöfbÒ7—7FVÒæ7W'&VçEF–ÖTÖ–ÆÆ—2‚’Ò"¢c¢cóÀĞ¢fÂÆÂÒÆöD—FV×2‚Ğ¢fÂWfVçG2Ò×WF&ÆTÆ—7DöcÅF6´WfVçCâ‚Ğ¢fÂ&V6÷fW&VBÒÆÂæÖ²—FVÒÓàĞ¢–b†—FVÒævöÄ–BÒçVÆÂbb—FVÒæ¶–æBÓÒ.K»¾Xª"bb—FVÒæFöæRbb†—FVÒç66†VGVÆVDBó¢ÆöæräÔ…õdÅTR’Â7WFöfb’°Ğ¢WfVçG2³ÒF6µ&V6÷&FW"æWfVçB…F6´WfVçEG—RåD4µõDõô”ä$õ‚Â—FVÒæ–BÂ—FVÒçF—FÆRÂW‡G&Ò.™I‹ø~ˆz®XªiKîY¹â"Ğ¢—FVÒæ6÷’‡F—FÆRÒ–b†—FVÒçF—FÆRç7F'G5v—F‚‚.˜xŞikZèhé.ûÉ¢"’’—FVÒçF—FÆRVÇ6R.˜xŞikZèhé.ûÉ¢G¶—FVÒçF—FÆWÒ"Â¶–æBÒ.iKn™¸nzë"ÂFWF–ÂÒ.Kˆ®jÊyºîj~Zèhé.iÊ®zîŠêNûÉ¾XúşiKiÉş8{ÊyúŞ8i¨.XÎh‰niKî[È2"Â66†VGVÆVDBÒçVÆÂĞ¢ÒVÇ6R—FVĞĞ¢ĞĞ¢–b‡&V6÷fW&VBÒÆÂbb6fT—FV×4æEF6´WfVçG2‡&V6÷fW&VBÂWfVçG2ÂW‡V7FVD—FV×2ÒÆÂ’’&WGW&ä7–æ6‡&öæ—¦VBÆöD—FV×2‚Ğ¢&V6÷fW&V@Ğ¢ĞĞ Ğ¢gVâÆöD6öÖ×WFU&öf–ÆR‚“¢6öÖ×WFU&öf–ÆRÒ6öÖ×WFU&öf–ÆR€Ğ¢òòK¸^[ÛY8ŞK¸îiÊ®KùŞZÙ‹ø~˜	®XºNŠëî{Úîy¨NikZèŠ8^ûÉ¾[{.iÈ™Jî{º~{ºŞKùŞyYyJh‹~˜hº8 Ğ¢Væ&ÆVBÒ&VfW&Væ6W2ævWD&ööÆVâ‚&6öÖ×WFUöVæ&ÆVB"ÂG'VR’ÀĞ¢öæUv”Ö–çWFW2Ò&VfW&Væ6W2ævWD–çB‚&6öÖ×WFUööæU÷v•öÖ–çWFW2"Â’ÀĞ¢W6TFVfVÇDf÷%Væ¶æ÷vâÒ&VfW&Væ6W2ævWD&ööÆVâ‚&6öÖ×WFUöFVfVÇE÷Væ¶æ÷vâ"ÂG'VR’ÀĞ¢æV$Ö–çWFW2Ò&VfW&Væ6W2ævWD–çB‚&6öÖ×WFU÷F–W%öæV""ÂR’ÀĞ¢f—&Ç”æV$Ö–çWFW2Ò&VfW&Væ6W2ævWD–çB‚&6öÖ×WFU÷F–W%öf—&Ç•öæV""Â’ÀĞ¢f—&Ç”f$Ö–çWFW2Ò&VfW&Væ6W2ævWD–çB‚&6öÖ×WFU÷F–W%öf—&Ç•öf""ÂR’ÀĞ¢f$Ö–çWFW2Ò&VfW&Væ6W2ævWD–çB‚&6öÖ×WFU÷F–W%öf""Â#R’ÀĞ¢6×W4ÖöFRÒ&VfW&Væ6W2ævWE7G&–ær‚&6×W5öÖöFR"Â.jÚ^ŠÂ"’ó¢.jÚ^ŠÂ"À¢vÆ¶–æu&W6W'fTÖ–çWFW2Ò&VfW&Væ6W2ævWD–çB‚&6öÖ×WFU÷vÆµ÷&W6W'fUöÖ–çWFW2"Â&VfW&Væ6W2ævWD–çB‚&6öÖ×WFUööæU÷v•öÖ–çWFW2"Â’’À¢&–7–6ÆU&W6W'fTÖ–çWFW2Ò&VfW&Væ6W2ævWD–çB‚&6öÖ×WFUö&–7–6ÆU÷&W6W'fUöÖ–çWFW2"ÂÖ„öbƒ2Â‡&VfW&Væ6W2ævWD–çB‚&6öÖ×WFUööæU÷v•öÖ–çWFW2"Â’¢ãfb’çFô–çB‚’’’À¢T&–¶U&W6W'fTÖ–çWFW2Ò&VfW&Væ6W2ævWD–çB‚&6öÖ×WFUöV&–¶U÷&W6W'fUöÖ–çWFW2"ÂÖ„öbƒ2Â‡&VfW&Væ6W2ævWD–çB‚&6öÖ×WFUööæU÷v•öÖ–çWFW2"Â’¢ãVb’çFô–çB‚’’’À¢'V–ÆF–æt'VffW$Ö–çWFW2Ò&VfW&Væ6W2ævWD–çB‚&'V–ÆF–æuö'VffW%öÖ–çWFW2"Â2’ÀĞ¢T&–¶T&GFW'’Ò&VfW&Væ6W2ævWE7G&–ær‚&V&–¶Uö&GFW'’"Â.iÊ®yúR"’ó¢.iÊ®yúR"ÀĞ¢òò‹zşyKj
+XxbşŠx.kX¾™JîKˆŞZY~hÙşYØşKùŞhªNûÉ®z›®K‹®Yk9^x«nhûÈÎXúşY¹î˜ÆVv7’Šx.kX¾8 Ğ¢&÷WFT6Æ–'&F–öç2Ò6öÖ×WFU&÷WFT6öFV2æFV6öFT6Æ–'&F–öç2‡&VfW&Væ6W2ævWE7G&–ær‚'&÷WFUö6Æ–'&F–öç2"Â'·Ò"’ó¢'·Ò"’ÀĞ¢&÷WFTö'6W'fF–öç2Ò6öÖ×WFU&÷WFT6öFV2æFV6öFTö'6W'fF–öç2‡&VfW&Væ6W2ævWE7G&–ær‚'&÷WFUöö'6W'fF–öç2"Â'·Ò"’ó¢'·Ò"’æ–dV×G’°Ğ¢6öÖ×WFU&÷WFT6öFV2æÆVv7”ö'6W'fF–öç2‡&VfW&Væ6W2ævWE7G&–ær‚'&÷WFUö6Æ–'&F–öç2"Â'·Ò"’ó¢'·Ò"Ğ¢ĞĞ¢Ğ Ğ¢gVâ6fT6öÖ×WFU&öf–ÆR‡&öf–ÆS¢6öÖ×WFU&öf–ÆR’°Ğ¢&VfW&Væ6W2æVF—B‚Ğ¢çWD&ööÆVâ‚&6öÖ×WFUöVæ&ÆVB"Â&öf–ÆRæVæ&ÆVBĞ¢çWD–çB‚&6öÖ×WFUööæU÷v•öÖ–çWFW2"Â&öf–ÆRæöæUv”Ö–çWFW2Ğ¢çWD&ööÆVâ‚&6öÖ×WFUöFVfVÇE÷Væ¶æ÷vâ"Â&öf–ÆRçW6TFVfVÇDf÷%Væ¶æ÷vâĞ¢çWD–çB‚&6öÖ×WFU÷F–W%öæV""Â&öf–ÆRææV$Ö–çWFW2Ğ¢çWD–çB‚&6öÖ×WFU÷F–W%öf—&Ç•öæV""Â&öf–ÆRæf—&Ç”æV$Ö–çWFW2Ğ¢çWD–çB‚&6öÖ×WFU÷F–W%öf—&Ç•öf""Â&öf–ÆRæf—&Ç”f$Ö–çWFW2Ğ¢çWD–çB‚&6öÖ×WFU÷F–W%öf""Â&öf–ÆRæf$Ö–çWFW2Ğ¢çWE7G&–ær‚&6×W5öÖöFR"Â&öf–ÆRæ6×W4ÖöFR¢çWD–çB‚&6öÖ×WFU÷vÆµ÷&W6W'fUöÖ–çWFW2"Â&öf–ÆRç&W6W'fTÖ–çWFW4f÷"‚.jÚ^ŠÂ"’¢çWD–çB‚&6öÖ×WFUö&–7–6ÆU÷&W6W'fUöÖ–çWFW2"Â&öf–ÆRç&W6W'fTÖ–çWFW4f÷"‚.ˆz®ŠÎ‹Úb"’¢çWD–çB‚&6öÖ×WFUöV&–¶U÷&W6W'fUöÖ–çWFW2"Â&öf–ÆRç&W6W'fTÖ–çWFW4f÷"‚.yK^Xª‹Úb"’¢çWD–çB‚&'V–ÆF–æuö'VffW%öÖ–çWFW2"Â&öf–ÆRæ'V–ÆF–æt'VffW$Ö–çWFW2Ğ¢çWE7G&–ær‚&V&–¶Uö&GFW'’"Â&öf–ÆRæT&–¶T&GFW'’Ğ¢çWE7G&–ær‚'&÷WFUö6Æ–'&F–öç2"Â6öÖ×WFU&÷WFT6öFV2æVæ6öFT6Æ–'&F–öç2‡&öf–ÆRç&÷WFT6Æ–'&F–öç2’Ğ¢çWE7G&–ær‚'&÷WFUöö'6W'fF–öç2"Â6öÖ×WFU&÷WFT6öFV2æVæ6öFTö'6W'fF–öç2‡&öf–ÆRç&÷WFTö'6W'fF–öç2’Ğ¢æÇ’‚Ğ¢ĞĞ Ğ¢gVâÆöD6×W4Æ–fTVæ&ÆVB‚“¢&ööÆVâÒ&VfW&Væ6W2ævWD&ööÆVâ‚&6×W5öÆ–fUöVæ&ÆVB"ÂG'VRĞ Ğ¢gVâ6fT6×W4Æ–fTVæ&ÆVB†Væ&ÆVC¢&ööÆVâ’°¢&VfW&Væ6W2æVF—B‚’çWD&ööÆVâ‚&6×W5öÆ–fUöVæ&ÆVB"ÂVæ&ÆVB’æÇ’‚Ğ¢Ğ ¢gVâÆöEW&Ö—76–öå&VÖ–æFW$F—6Ö—76VB‚“¢&ööÆVâ8ÚÚ$z{-®éÜj×ove("current_campus_place")
             else putString("current_campus_place", placeName)
         }.apply()
     }
