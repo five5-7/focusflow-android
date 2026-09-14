@@ -39,6 +39,7 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.lifecycleScope
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.input.pointer.PointerEventPass
@@ -103,13 +104,17 @@ class MainActivity : ComponentActivity() {
         onBackPressedDispatcher.addCallback(this, startupBackFallback)
         // 8.1.0：判断本次开机系统是否把开机广播送给了我们（ColorOS 会推迟），设置页据此如实提示。
         BootRecovery.noteLaunch(this)
-        setContent {
-            LaunchedEffect(Unit) { startupBackFallback.isEnabled = false }
-            FocusFlowApp(statusCheckInRequested, mealPromptRequested, mealFinishRequested, quickCaptureRequested, permissionOnboardingPending) {
-                statusCheckInRequested = false
-                mealPromptRequested = null
-                mealFinishRequested = null
-                quickCaptureRequested = false
+        val startupStore = PrototypeStore(this)
+        lifecycleScope.launch {
+            val startupSnapshot = withContext(Dispatchers.IO) { FocusFlowStartupSnapshot.load(startupStore) }
+            setContent {
+                LaunchedEffect(Unit) { startupBackFallback.isEnabled = false }
+                FocusFlowApp(startupStore, startupSnapshot, statusCheckInRequested, mealPromptRequested, mealFinishRequested, quickCaptureRequested, permissionOnboardingPending) {
+                    statusCheckInRequested = false
+                    mealPromptRequested = null
+                    mealFinishRequested = null
+                    quickCaptureRequested = false
+                }
             }
         }
     }
@@ -167,9 +172,8 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: MealType?, mealFinishRequested: MealType?, quickCaptureRequested: Boolean, permissionOnboardingPending: Boolean, onRequestHandled: () -> Unit) {
+private fun FocusFlowApp(store: PrototypeStore, startup: FocusFlowStartupSnapshot, statusCheckInRequested: Boolean, mealPromptRequested: MealType?, mealFinishRequested: MealType?, quickCaptureRequested: Boolean, permissionOnboardingPending: Boolean, onRequestHandled: () -> Unit) {
     val context = LocalContext.current
-    val store = remember(context) { PrototypeStore(context) }
     var tab by remember { mutableIntStateOf(0) }
     var todayInboxOpen by remember { mutableStateOf(false) }
     var addOpen by remember { mutableStateOf(false) }
@@ -188,17 +192,15 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     var convertTarget by remember { mutableStateOf<Item?>(null) }
     var attachTarget by remember { mutableStateOf<Item?>(null) }
     var schedulePresetExact by remember { mutableStateOf<Long?>(null) }
-    var gameSessions by remember { mutableStateOf(store.loadGameSessions()) }
+    var gameSessions by remember { mutableStateOf(startup.gameSessions) }
     var gameDetectionEnabled by remember { mutableStateOf(store.loadGameDetectionEnabled()) }
-    var foregroundDetectionTrace by remember { mutableStateOf(store.loadForegroundDetectionTrace()) }
-    var appCategories by remember { mutableStateOf(store.loadAppCategories()) }
-    var hiddenApps by remember { mutableStateOf(store.loadHiddenApps()) }
-    var items by remember {
-        mutableStateOf(store.recoverMissedGoalTasks())
-    }
-    var taskEvents by remember { mutableStateOf(store.loadTaskEvents()) }
-    var activeSession by remember { mutableStateOf(store.loadLatestActiveSession()) }
-    var activityHistory by remember { mutableStateOf(store.loadRecentActivitySessions()) }
+    var foregroundDetectionTrace by remember { mutableStateOf(startup.foregroundDetectionTrace) }
+    var appCategories by remember { mutableStateOf(startup.appCategories) }
+    var hiddenApps by remember { mutableStateOf(startup.hiddenApps) }
+    var items by remember { mutableStateOf(startup.items) }
+    var taskEvents by remember { mutableStateOf(startup.taskEvents) }
+    var activeSession by remember { mutableStateOf(startup.activeSession) }
+    var activityHistory by remember { mutableStateOf(startup.activityHistory) }
     var activitySettings by remember { mutableStateOf(store.loadActivityReminderSettings()) }
     var statusCheckInSettings by remember { mutableStateOf(store.loadStatusCheckInSettings()) }
     var statusPromptTrace by remember { mutableStateOf(store.loadStatusPromptTrace()) }
@@ -206,8 +208,8 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     var quietHours by remember { mutableStateOf(store.loadQuietHoursSettings()) }
     var quickCaptureEnabled by remember { mutableStateOf(store.loadQuickCaptureEnabled()) }
     var windDownEnabled by remember { mutableStateOf(store.loadWindDownEnabled()) }
-    var latestStatusCheckIn by remember { mutableStateOf(store.loadLatestStatusCheckIn()) }
-    var statusCheckIns by remember { mutableStateOf(store.loadStatusCheckIns(365)) }
+    var latestStatusCheckIn by remember { mutableStateOf(startup.latestStatusCheckIn) }
+    var statusCheckIns by remember { mutableStateOf(startup.statusCheckIns) }
     var statusCheckInOpen by remember { mutableStateOf(false) }
     var activityStatusOpen by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
@@ -252,7 +254,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     var darkMode by remember { mutableStateOf(store.loadDarkMode()) }
 
     // 8.2.0 外观系统：全部可选、默认等于现状（老装机升级后外观不变）。
-    var appearance by remember { mutableStateOf(store.loadAppearance()) }
+    var appearance by remember { mutableStateOf(startup.appearance) }
     // 背景图在后台线程按屏幕尺寸降采样解码；没设图或解码失败就是 null，页面退回主题底色。
     var pageBackdropBitmap by remember { mutableStateOf<ImageBitmap?>(null) }
     LaunchedEffect(appearance.pageImage, appearance.pageBackdrop) {
@@ -274,8 +276,8 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     val effectiveMotionScale = if (appearance.richEffects) animationSpeed else animationSpeed * 0.6f
     LaunchedEffect(effectiveMotionScale) { MotionSettings.update(effectiveMotionScale) }
     LaunchedEffect(appearance.richEffects) { MotionSettings.updateRichForms(appearance.richEffects) }
-    var customThemeColors by remember { mutableStateOf(store.loadCustomThemeColors() ?: FocusFlowThemeOption.CUSTOM.colors) }
-    var themePresets by remember { mutableStateOf(store.loadThemePresets()) }
+    var customThemeColors by remember { mutableStateOf(startup.customThemeColors ?: FocusFlowThemeOption.CUSTOM.colors) }
+    var themePresets by remember { mutableStateOf(startup.themePresets) }
     // 自定义主题的"恢复默认"目标：最近一次选过的内置主题。
     var lastBuiltInTheme by remember {
         mutableStateOf(store.loadTheme().takeIf { it != FocusFlowThemeOption.CUSTOM } ?: FocusFlowThemeOption.OCEAN)
@@ -283,7 +285,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     var energyLevel by remember { mutableStateOf(store.loadEnergyLevel()) }
     var energyRecordedAt by remember { mutableLongStateOf(store.loadEnergyRecordedAt()) }
     val planningEnergyLevel = if (StatusFreshnessPolicy.isCurrent(energyRecordedAt)) energyLevel else "正常"
-    var commuteProfile by remember { mutableStateOf(store.loadCommuteProfile()) }
+    var commuteProfile by remember { mutableStateOf(startup.commuteProfile) }
     var campusLifeEnabled by remember {
         mutableStateOf(
             CampusLifePolicy.initialEnabled(
@@ -293,12 +295,12 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             )
         )
     }
-    var hiddenPlaces by remember { mutableStateOf(store.loadHiddenPlaces()) }
-    var campusMapPackage by remember { mutableStateOf(store.loadCampusMapPackage()) }
-    var currentCampusPlace by remember { mutableStateOf(store.loadCurrentCampusPlace()) }
-    var customPlaces by remember { mutableStateOf(store.loadCustomPlaces()) }
+    var hiddenPlaces by remember { mutableStateOf(startup.hiddenPlaces) }
+    var campusMapPackage by remember { mutableStateOf(startup.campusMapPackage) }
+    var currentCampusPlace by remember { mutableStateOf(startup.currentCampusPlace) }
+    var customPlaces by remember { mutableStateOf(startup.customPlaces) }
     var amapKey by remember { mutableStateOf(store.loadAmapKey()) }
-    var campusCenter by remember { mutableStateOf(store.loadCampusCenter()) }
+    var campusCenter by remember { mutableStateOf(startup.campusCenter) }
     var tutorialSearch by remember { mutableStateOf(store.loadTutorialSearchSettings()) }
     var aiWeeklySummary by remember { mutableStateOf(store.loadAiWeeklySummarySettings()) }
     var tutorialSearchOpen by remember { mutableStateOf(false) }
@@ -307,7 +309,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     var videoAnalysisOpen by remember { mutableStateOf(false) }
     var videoAnalysisModel by remember { mutableStateOf(store.loadVideoAnalysisModel()) }
     var courseVision by remember { mutableStateOf(store.loadCourseVisionSettings()) }
-    var pendingPlaces by remember { mutableStateOf(store.loadPendingPlaces()) }
+    var pendingPlaces by remember { mutableStateOf(startup.pendingPlaces) }
     var courseVisionGuideOpen by remember { mutableStateOf(false) }
     var featureIntroOpen by remember { mutableStateOf(false) }
     var campusLifeChoiceOpen by remember { mutableStateOf(false) }
@@ -320,9 +322,9 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             courseVisionGuideOpen = true
         }
     }
-    var courses by remember { mutableStateOf(if (store.hasCourseSetup()) store.loadCourses() else emptyList()) }
-    var coursePeriodTable by remember { mutableStateOf(store.loadCoursePeriodTable()) }
-    var coursePeriodTableConfigured by remember { mutableStateOf(store.hasCoursePeriodTable()) }
+    var courses by remember { mutableStateOf(startup.courses) }
+    var coursePeriodTable by remember { mutableStateOf(startup.coursePeriodTable) }
+    var coursePeriodTableConfigured by remember { mutableStateOf(startup.coursePeriodTableConfigured) }
     var courseTimetableCompact by remember { mutableStateOf(store.loadCourseTimetableCompact()) }
     var courseTimetableTrailingDaysExpanded by remember { mutableStateOf(store.loadCourseTimetableTrailingDaysExpanded()) }
     CourseGapPlanner.configure(coursePeriodTable)
@@ -331,11 +333,11 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     var courseImportRunning by remember { mutableStateOf(false) }
     var courseImportMessage by remember { mutableStateOf<String?>(null) }
     var autoPlanMessage by remember { mutableStateOf<String?>(null) }
-    var goals by remember { mutableStateOf(store.loadGoals()) }
+    var goals by remember { mutableStateOf(startup.goals) }
     var addGoalOpen by remember { mutableStateOf(false) }
     var editGoalTarget by remember { mutableStateOf<Goal?>(null) }
     var goalFinderSuggestion by remember { mutableStateOf("") }
-    var resources by remember { mutableStateOf(store.loadResources()) }
+    var resources by remember { mutableStateOf(startup.resources) }
     var addResourceOpen by remember { mutableStateOf(false) }
     var summaryTarget by remember { mutableStateOf<LearningResource?>(null) }
     var completionTarget by remember { mutableStateOf<Item?>(null) }
@@ -347,11 +349,11 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
         goalScheduleTarget = null
     }
     var feedbackTarget by remember { mutableStateOf<Pair<Item, String>?>(null) }
-    var feedback by remember { mutableStateOf(store.loadFeedback()) }
-    var improvementNotes by remember { mutableStateOf(store.loadImprovementNotes()) }
+    var feedback by remember { mutableStateOf(startup.feedback) }
+    var improvementNotes by remember { mutableStateOf(startup.improvementNotes) }
     var improvementOpen by remember { mutableStateOf(false) }
-    var baselineProfile by remember { mutableStateOf(store.loadBaselineProfile()) }
-    var baselineVariants by remember { mutableStateOf(store.loadBaselineVariants()) }
+    var baselineProfile by remember { mutableStateOf(startup.baselineProfile) }
+    var baselineVariants by remember { mutableStateOf(startup.baselineVariants) }
     var baselineVariantNameOpen by remember { mutableStateOf(false) }
     // 权限一站式进行中时先不弹习惯基线引导，避免两个对话框叠在一起；权限流程结束后补弹。
     var baselineOnboardingOpen by remember { mutableStateOf(!store.loadOnboardingDone() && !permissionOnboardingPending) }
@@ -386,10 +388,10 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     }
     var baselineEventsOpen by remember { mutableStateOf(false) }
     var baselineResetConfirmOpen by remember { mutableStateOf(false) }
-    var mealRecords by remember { mutableStateOf(store.loadMealRecords()) }
+    var mealRecords by remember { mutableStateOf(startup.mealRecords) }
     var mealReminderEnabled by remember { mutableStateOf(store.loadMealReminderEnabled()) }
     var mealDurationTrackingEnabled by remember { mutableStateOf(store.loadMealDurationTrackingEnabled()) }
-    var mealSkipDays by remember { mutableStateOf(store.loadMealSkipDays()) }
+    var mealSkipDays by remember { mutableStateOf(startup.mealSkipDays) }
     var mealPromptOpen by remember { mutableStateOf<MealType?>(null) }
     var mealFinishOpen by remember { mutableStateOf<MealType?>(null) }
     var mealRecordsOpen by remember { mutableStateOf(false) }
