@@ -215,27 +215,33 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     val appLifecycleOwner = LocalLifecycleOwner.current
     // 初始值保证冷启动也检查；后续每次回到前台再递增。
     var notificationForegroundCheck by remember { mutableIntStateOf(1) }
+    // 注册观察器时 Lifecycle 会把当前 STARTED 状态补发一次；初始状态已经从 store 读取，不能立即再读整批数据。
+    var initialStartObserved by remember(appLifecycleOwner) { mutableStateOf(false) }
     DisposableEffect(appLifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_START) {
-                notificationForegroundCheck++
-                items = store.loadItems()
-                gameSessions = store.loadGameSessions()
-                activeSession = store.loadLatestActiveSession()
-                activityHistory = store.loadRecentActivitySessions()
-                // 弹窗可能持有通知操作前的任务快照，返回前台后重新打开。
-                rescheduleTarget = null
-                inboxScheduleTarget = null
-                flexiblePlanTarget = null
-                inboxEditTarget = null
-                organizeTarget = null
-                convertTarget = null
-                attachTarget = null
-                // 通知栏里完成/最低版本/延后/跳过是后台 Receiver 写的，回到前台时重读事件，让今日统计与记录卡同步。
-                taskEvents = store.loadTaskEvents()
-                statusPromptTrace = store.loadStatusPromptTrace()
-                nextStatusPromptAt = store.loadNextStatusPromptAt()
-                foregroundDetectionTrace = store.loadForegroundDetectionTrace()
+                if (!initialStartObserved) {
+                    initialStartObserved = true
+                } else {
+                    notificationForegroundCheck++
+                    items = store.loadItems()
+                    gameSessions = store.loadGameSessions()
+                    activeSession = store.loadLatestActiveSession()
+                    activityHistory = store.loadRecentActivitySessions()
+                    // 弹窗可能持有通知操作前的任务快照，返回前台后重新打开。
+                    rescheduleTarget = null
+                    inboxScheduleTarget = null
+                    flexiblePlanTarget = null
+                    inboxEditTarget = null
+                    organizeTarget = null
+                    convertTarget = null
+                    attachTarget = null
+                    // 通知栏里完成/最低版本/延后/跳过是后台 Receiver 写的，回到前台时重读事件，让今日统计与记录卡同步。
+                    taskEvents = store.loadTaskEvents()
+                    statusPromptTrace = store.loadStatusPromptTrace()
+                    nextStatusPromptAt = store.loadNextStatusPromptAt()
+                    foregroundDetectionTrace = store.loadForegroundDetectionTrace()
+                }
             }
         }
         appLifecycleOwner.lifecycle.addObserver(observer)
@@ -334,6 +340,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     var summaryTarget by remember { mutableStateOf<LearningResource?>(null) }
     var completionTarget by remember { mutableStateOf<Item?>(null) }
     LaunchedEffect(notificationForegroundCheck) {
+        if (notificationForegroundCheck <= 1) return@LaunchedEffect
         goals = store.loadGoals()
         completionTarget = null
         editGoalTarget = null
@@ -993,16 +1000,18 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                 TransformOrigin(0.664f, 0.878f),
                 TransformOrigin(0.829f, 0.878f)
             )
-            // 8.1.0 第三轮：启动只组合当前页签（首帧不被三个整页拖慢）；
-            // 首帧之后再逐帧补齐其余页签——否则第一次切到某页签时才组合整页，切换会明显掉帧。
+            // 启动只组合当前页签。隐藏页必须等当前页面持续空闲后逐个预热；首帧后连续组合三个整页
+            // 会和首次展开、弹窗及切页动画争抢主线程，正是“前几次动画都掉帧”的高风险路径。
             val visitedTabs = remember { mutableStateListOf(0) }
             // 当前页签在组合期就入表：否则切过去的那一帧它还没被组合，页面会空白一帧。
             if (tab !in visitedTabs) visitedTabs.add(tab)
-            LaunchedEffect(Unit) {
-                withFrameNanos { }
-                for (extra in listOf(1, 2, 3)) {
-                    if (extra !in visitedTabs) visitedTabs.add(extra)
+            LaunchedEffect(tab, todayInboxOpen, planPage, settingsSubPage, dialogLayerVisible, globalLoading) {
+                if (!StartupWorkPolicy.canWarmTabs(globalLoading, dialogLayerVisible)) return@LaunchedEffect
+                delay(StartupWorkPolicy.TAB_WARMUP_IDLE_MS)
+                for (extra in StartupWorkPolicy.pendingTabs(visitedTabs, tab)) {
                     withFrameNanos { }
+                    if (extra !in visitedTabs) visitedTabs.add(extra)
+                    delay(StartupWorkPolicy.TAB_WARMUP_GAP_MS)
                 }
             }
             val currentSnapshot = PageSnapshot(tab, todayInboxOpen, planPage, settingsSubPage, settingsBackStack)
