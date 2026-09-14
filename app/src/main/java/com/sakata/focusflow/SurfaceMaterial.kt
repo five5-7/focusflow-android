@@ -108,6 +108,30 @@ internal fun pageContainerColor(): Color =
  * 选了底色或底图时让出容器色（透明），由 [Modifier.appearanceBackdrop] 的 Timetable 角色去画；
  * 跟随主题时保持原来的 surface —— 默认外观逐像素不变。
  */
+/**
+ * 页面直接绘制的文字不在 Card 内部，不能依赖透明容器推导颜色。
+ * 图片背景按同一遮罩公式估算平均底色，再选择对比更高的黑/白正文色。
+ */
+@Composable
+internal fun pageBodyContentColor(): Color {
+    val appearance = LocalAppearance.current
+    val scheme = MaterialTheme.colorScheme
+    if (appearance.effectivePageBackdrop != BackdropKind.IMAGE) return scheme.onBackground
+    val luminance = rememberImageLuminance(LocalBackdropBitmap.current)
+    val image = Color(luminance, luminance, luminance)
+    val underScrim = blendSrgb(scheme.background, image, appearance.imageAlpha)
+    val finalBackground = blendSrgb(
+        underScrim,
+        scheme.background,
+        adaptiveScrimAlpha(
+            appearance.imageAlpha,
+            luminance,
+            textIsLight = scheme.onBackground.luminance() > 0.5f
+        )
+    )
+    return onOf(finalBackground)
+}
+
 @Composable
 internal fun timetableContainerColor(): Color =
     if (LocalAppearance.current.effectiveTimetableBackdrop == BackdropKind.THEME) {
