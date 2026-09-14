@@ -1,0 +1,45 @@
+package com.sakata.focusflow
+
+/**
+ * 课程数据来自哪里。来源只描述获取方式；去重、冲突检查和逐项确认由统一导入流程完成。
+ */
+enum class CourseImportSource(val label: String) {
+    VISION_SCREENSHOT("课表截图"),
+    SCHOOL_EXPORT("学校课表"),
+    MANUAL("手动新增")
+}
+
+/**
+ * 任意导入器的统一输出。后续接入学校导出文件或登录后的页面解析时，只需产生此结构。
+ */
+data class CourseImportBatch(
+    val source: CourseImportSource,
+    val courses: List<Course>,
+    val newPlaces: List<String> = emptyList()
+)
+
+/** 导入边界统一收紧，避免不同来源把无效或已确认状态的数据直接写进课表。 */
+object CourseImportPolicy {
+    fun prepare(batch: CourseImportBatch): CourseImportBatch {
+        val courses = batch.courses.mapNotNull { course ->
+            val title = course.title.trim()
+            val building = course.building.trim().ifBlank { "地点待确认" }
+            if (title.isBlank() || course.weekday !in 1..7 || course.startPeriod !in 1..20) {
+                null
+            } else {
+                course.copy(
+                    title = title,
+                    startPeriod = course.startPeriod,
+                    endPeriod = course.endPeriod.coerceIn(course.startPeriod, 20),
+                    building = building,
+                    needsConfirmation = true
+                )
+            }
+        }.distinctBy { listOf(it.weekday, it.startPeriod, it.endPeriod, it.title) }
+
+        return batch.copy(
+            courses = courses,
+            newPlaces = batch.newPlaces.map { it.trim() }.filter { it.isNotBlank() }.distinct().take(50)
+        )
+    }
+}

@@ -54,9 +54,8 @@ object CourseVisionRecognizer {
         apiKey: String,
         model: String,
         places: List<CampusPlace>,
-        onSuccess: (List<Course>) -> Unit,
-        onFailure: (String) -> Unit,
-        onNewPlaces: (List<String>) -> Unit = {}
+        onSuccess: (CourseImportBatch) -> Unit,
+        onFailure: (String) -> Unit
     ) {
         // 网络请求 + 图片压缩耗时，放后台线程避免主线程卡顿。
         Thread {
@@ -65,8 +64,13 @@ object CourseVisionRecognizer {
             Handler(Looper.getMainLooper()).post {
                 when (result) {
                     is RecognizeResult.Success -> {
-                        onSuccess(result.courses)
-                        if (result.newPlaces.isNotEmpty()) onNewPlaces(result.newPlaces)
+                        onSuccess(
+                            CourseImportBatch(
+                                source = CourseImportSource.VISION_SCREENSHOT,
+                                courses = result.courses,
+                                newPlaces = result.newPlaces
+                            )
+                        )
                     }
                     is RecognizeResult.Error -> onFailure(result.message)
                 }

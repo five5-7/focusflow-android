@@ -633,9 +633,14 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     // 新安装不预置任何校园地点；只有用户导入地点包或自行添加后才参与课程与通勤。
     val basePlaces = campusMapPackage?.places.orEmpty()
     val campusPlaces = if (campusLifeEnabled) basePlaces.filterNot { b -> customPlaces.any { it.name.lowercase() == b.name.lowercase() } || b.name.lowercase() in hiddenPlaces } + customPlaces else emptyList()
-    /** 统一处理识别结果：去重、保留冲突为待确认课程并生成提示（计算在 CourseSchedule，只保留保存/状态副作用）。 */
-    fun applyRecognizedCourses(recognized: List<Course>) {
-        val merge = mergeRecognizedCourses(courses, recognized)
+    /** 任意来源统一进入同一条校验、去重、冲突与待确认链路。 */
+    fun applyImportedCourses(rawBatch: CourseImportBatch) {
+        val batch = CourseImportPolicy.prepare(rawBatch)
+        if (batch.newPlaces.isNotEmpty()) {
+            pendingPlaces = (batch.newPlaces + pendingPlaces).distinct().take(50)
+            store.savePendingPlaces(pendingPlaces)
+        }
+        val merge = mergeRecognizedCourses(courses, batch.courses)
         // 与已确认课程冲突的识别结果也保留为待确认：应用已有冲突警示机制，由用户决定确认/编辑/忽略。
         if (merge.added.isNotEmpty()) {
             val updated = courses + merge.added
@@ -643,7 +648,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             store.saveCourses(updated)
             navHistory.markWorkedHere()
         }
-        courseImportMessage = merge.message
+        courseImportMessage = "${batch.source.label}：${merge.message}"
         courseImportRunning = false
         globalLoading = false
     }
@@ -654,18 +659,12 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             globalLoading = true
             courseImportMessage = "正在用硅基流动视觉模型识别课程…"
             CourseVisionRecognizer.recognize(context, uri, tutorialSearch.apiKey, courseVision.model, campusPlaces,
-                onSuccess = { applyRecognizedCourses(it) },
+                onSuccess = { applyImportedCourses(it) },
                 onFailure = { visionError ->
                     // 4.0.1 起不再回退本地 OCR（效果差）：直接说明失败原因，可检查 key/模型名/网络后重试。
                     courseImportMessage = "视觉模型识别失败（$visionError）。可检查设置里的 key、模型名或网络后重试。"
                     courseImportRunning = false
                     globalLoading = false
-                },
-                onNewPlaces = { newPlaces ->
-                    if (newPlaces.isNotEmpty()) {
-                        pendingPlaces = (newPlaces + pendingPlaces).distinct().take(50)
-                        store.savePendingPlaces(pendingPlaces)
-                    }
                 })
         }
     }

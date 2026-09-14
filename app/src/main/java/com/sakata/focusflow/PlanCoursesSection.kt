@@ -31,10 +31,10 @@ internal fun PlanCoursesSection(
     onToggleCourse: (Course) -> Unit,
     onDeleteCourses: (Set<Course>) -> Unit
 ) {
-    Text("从课表截图开始", fontWeight = FontWeight.Bold)
+    Text("导入课程", fontWeight = FontWeight.Bold)
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         FilledTonalButton(enabled = !courseImportRunning, onClick = onImportCourses) {
-            Text(if (courseImportRunning) "正在识别…" else "选择课表截图")
+            Text(if (courseImportRunning) "正在识别…" else "截图识别")
         }
         TextButton(onClick = onAddCourse) { Text("手动新增") }
     }
@@ -245,13 +245,17 @@ private fun ConfirmedCourses(confirmed: List<Course>, onEdit: (Course) -> Unit, 
 @Composable
 private fun CourseIdentity(course: Course, titleColor: androidx.compose.ui.graphics.Color? = null) {
     Text(
-        "${weekdayName(course.weekday)} · ${course.title}",
+        course.title,
         fontWeight = FontWeight.SemiBold,
         color = titleColor ?: LocalContentColor.current
     )
     Text(
-        "第 ${course.startPeriod}–${course.endPeriod} 节 · ${course.building}" +
+        "${weekdayName(course.weekday)} · 第 ${course.startPeriod}–${course.endPeriod} 节" +
             (if (!course.enabled) " · 已停用" else courseDateRangeText(course)),
+        style = MaterialTheme.typography.bodySmall
+    )
+    Text(
+        if (course.building.isBlank()) "地点待确认" else course.building,
         style = MaterialTheme.typography.bodySmall
     )
 }
