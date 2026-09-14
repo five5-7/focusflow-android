@@ -694,11 +694,14 @@ private fun TodayPermissionReminder(now: Long) {
     var detailsOpen by remember { mutableStateOf(false) }
     var confirmDismissOpen by remember { mutableStateOf(false) }
     val missing = remember(now / 30_000L) { reminderPermissionsMissing(context) }
-    if (missing.isEmpty() || dismissed) return
+    if (dismissed) return
     FocusCard(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.78f)) {
         Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-            Text("提醒权限", fontWeight = FontWeight.SemiBold)
-            Text(PermissionReminderPolicy.summary(missing), style = MaterialTheme.typography.bodySmall)
+            Text("权限与提醒", fontWeight = FontWeight.SemiBold)
+            Text(
+                if (missing.isEmpty()) "权限已检查；点此查看提醒设置。" else PermissionReminderPolicy.summary(missing),
+                style = MaterialTheme.typography.bodySmall
+            )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = { detailsOpen = true }) { Text("查看") }
                 TextButton(onClick = { confirmDismissOpen = true }) { Text("不再提示") }
