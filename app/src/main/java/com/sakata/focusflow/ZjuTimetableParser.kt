@@ -64,7 +64,7 @@ internal object ZjuTimetableParser {
             val title = row.firstText("kcmc", "kcm").ifBlank { parts.getOrNull(0).orEmpty() }
             val rawLocation = row.firstText("cdmc", "jxdd").ifBlank { parts.getOrNull(3).orEmpty() }
             val location = normalizeLocation(rawLocation)
-            if (title.isBlank() || weekday !in 1..7 || start !in 1..20 || end == null || end < start) {
+            if (title.isBlank() || weekday == null || weekday !in 1..7 || start == null || start !in 1..20 || end == null || end < start) {
                 invalidRows += 1
                 continue
             }
