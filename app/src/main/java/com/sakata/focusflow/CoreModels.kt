@@ -66,7 +66,8 @@ enum class ItemPriority(val label: String, val storageKey: String) {
 
 data class CommuteProfile(
     val enabled: Boolean = false,
-    val oneWayMinutes: Int = 0,
+    // 与持久化层的新安装默认值一致；旧代码也按 10/6/5 推导三种方式。
+    val oneWayMinutes: Int = 10,
     val useDefaultForUnknown: Boolean = true,
     val nearMinutes: Int = 5,
     val fairlyNearMinutes: Int = 10,
