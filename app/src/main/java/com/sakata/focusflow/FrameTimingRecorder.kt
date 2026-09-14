@@ -65,6 +65,12 @@ internal object FrameTimingRecorder {
         timingThread = thread
         timingHandler = Handler(thread.looper)
         installedWindow = window
+        synchronized(lock) {
+            samples.clear()
+            nextSampleId = 1L
+            tabSwitchCount = 0
+            expansionCount = 0
+        }
         val refreshRate = window.decorView.display?.refreshRate?.takeIf { it > 1f } ?: 60f
         frameBudgetNanos = (1_000_000_000.0 / refreshRate).toLong()
         window.addOnFrameMetricsAvailableListener(listener, timingHandler)
