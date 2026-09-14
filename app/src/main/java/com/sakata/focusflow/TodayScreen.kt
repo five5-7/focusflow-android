@@ -1,5 +1,12 @@
 package com.sakata.focusflow
 
+import android.Manifest
+import android.app.AlarmManager
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
+import android.provider.Settings
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -14,6 +21,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
@@ -211,6 +219,7 @@ import kotlinx.coroutines.delay
                 }
             }
         }
+        TodayPermissionReminder(now)
         FocusCard(
             containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
             modifier = Modifier.fillMaxWidth().clickable(onClick = onOpenSchedule)
@@ -682,4 +691,45 @@ internal fun todayAgenda(courses: List<Course>, items: List<Item>, now: Long = S
             AgendaEntry(calendar.get(java.util.Calendar.HOUR_OF_DAY) * 60 + calendar.get(java.util.Calendar.MINUTE), item.title, "任务 · ${item.detail.ifBlank { "已安排" }}", false)
         } }
     return (todayCourses + todayTasks).sortedBy { it.startMinute }
+}
+
+@Composable
+private fun TodayPermissionReminder(now: Long) {
+    val context = LocalContext.current
+    val store = remember(context) { PrototypeStore(context) }
+    var dismissed by remember { mutableStateOf(store.loadPermissionReminderDismissed()) }
+    val missing = remember(now / 30_000L) {
+        PermissionReminderPolicy.missing(
+            notificationsGranted = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+                context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED,
+            exactAlarmsGranted = Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
+                context.getSystemService(AlarmManager::class.java).canScheduleExactAlarms(),
+            usageAccessRequired = false,
+            usageAccessGranted = true
+        )
+    }
+    if (missing.isEmpty() || dismissed) return
+    FocusCard(containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.72f)) {
+        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+            Text("提醒权限待设置", fontWeight = FontWeight.SemiBold)
+            Text(PermissionReminderPolicy.summary(missing), style = MaterialTheme.typography.bodySmall)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = {
+                    when (missing.first()) {
+                        MissingPermission.NOTIFICATIONS -> context.startActivity(
+                            Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS, Uri.parse("package:${context.packageName}"))
+                        )
+                        MissingPermission.EXACT_ALARMS -> context.startActivity(
+                            Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, Uri.parse("package:${context.packageName}"))
+                        )
+                        MissingPermission.USAGE_ACCESS -> AppLibrary.openUsageAccessSettings(context)
+                    }
+                }) { Text("去设置") }
+                TextButton(onClick = {
+                    dismissed = true
+                    store.savePermissionReminderDismissed(true)
+                }) { Text("关闭提醒") }
+            }
+        }
+    }
 }
