@@ -139,7 +139,10 @@ import kotlinx.coroutines.delay
         }
         TodayStatusPanel(
             expanded = statusPanelOpen,
-            onExpandedChange = { statusPanelOpen = it },
+            onExpandedChange = {
+                if (it) FrameTimingRecorder.recordExpansion("today_status")
+                statusPanelOpen = it
+            },
             lifeStage = baselineProfile.lifeStage,
             onSwitchLifeStage = onSwitchLifeStage,
             energyLevel = energyLevel,

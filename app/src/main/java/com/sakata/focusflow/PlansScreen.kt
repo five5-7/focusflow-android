@@ -103,7 +103,10 @@ import kotlinx.coroutines.launch
                 checkIns = checkIns,
                 store = store,
                 tableExpanded = gapsTableExpanded,
-                onTableExpandedChange = { gapsTableExpanded = it },
+                onTableExpandedChange = {
+                    if (it) FrameTimingRecorder.recordExpansion("gap_table")
+                    gapsTableExpanded = it
+                },
                 onScheduleGoal = onScheduleGoal,
                 onScheduleFlexible = onScheduleFlexible
             )

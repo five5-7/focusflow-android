@@ -80,6 +80,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         CrashReporter.init(applicationContext)
+        FrameTimingRecorder.install(window)
         statusCheckInRequested = intent.getBooleanExtra(ReminderReceiver.EXTRA_OPEN_STATUS_CHECK_IN, false) &&
             PrototypeStore(this).loadStatusCheckInSettings().enabled
         quickCaptureRequested = intent.getBooleanExtra(ReminderReceiver.EXTRA_OPEN_QUICK_CAPTURE, false)
@@ -105,8 +106,11 @@ class MainActivity : ComponentActivity() {
         // 8.1.0：判断本次开机系统是否把开机广播送给了我们（ColorOS 会推迟），设置页据此如实提示。
         BootRecovery.noteLaunch(this)
         val startupStore = PrototypeStore(this)
+        FrameTimingRecorder.beginStartupSnapshot()
         lifecycleScope.launch {
             val startupSnapshot = withContext(Dispatchers.IO) { FocusFlowStartupSnapshot.load(startupStore) }
+            FrameTimingRecorder.endStartupSnapshot()
+            FrameTimingRecorder.recordStartupFrames()
             setContent {
                 LaunchedEffect(Unit) { startupBackFallback.isEnabled = false }
                 FocusFlowApp(startupStore, startupSnapshot, statusCheckInRequested, mealPromptRequested, mealFinishRequested, quickCaptureRequested, permissionOnboardingPending) {
@@ -133,6 +137,11 @@ class MainActivity : ComponentActivity() {
                 startActivity(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, Uri.parse("package:$packageName")))
             }
         }
+    }
+
+    override fun onDestroy() {
+        FrameTimingRecorder.uninstall(window)
+        super.onDestroy()
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -453,6 +462,7 @@ private fun FocusFlowApp(store: PrototypeStore, startup: FocusFlowStartupSnapsho
 
     /** 把页面状态写回（统一导航与回退/折返恢复共用；不记录历史）。 */
     fun applySnapshot(snapshot: PageSnapshot) {
+        if (snapshot.tab != tab) FrameTimingRecorder.recordTabSwitch(snapshot.tab)
         tab = snapshot.tab
         todayInboxOpen = snapshot.todayInboxOpen
         planPage = snapshot.planPage

@@ -269,7 +269,10 @@ private data class BaselineVariantDraft(val name: String)
         FocusCard(
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
             elevation = 1.dp,
-            onClick = { defaultHelpExpanded = !defaultHelpExpanded }
+            onClick = {
+                if (!defaultHelpExpanded) FrameTimingRecorder.recordExpansion("settings_defaults")
+                defaultHelpExpanded = !defaultHelpExpanded
+            }
         ) {
             Column(
                 Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
@@ -964,7 +967,10 @@ private data class BaselineVariantDraft(val name: String)
                                         var transportReservesExpanded by remember { mutableStateOf(false) }
                                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                                             Text("各方式路上预留", fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                                            TextButton(onClick = { transportReservesExpanded = !transportReservesExpanded }) {
+                                            TextButton(onClick = {
+                                                if (!transportReservesExpanded) FrameTimingRecorder.recordExpansion("transport_reserves")
+                                                transportReservesExpanded = !transportReservesExpanded
+                                            }) {
                                                 Text(if (transportReservesExpanded) "收起" else "设置")
                                             }
                                         }
@@ -1562,7 +1568,10 @@ internal fun CollapsibleSettingsDetails(
         Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(summary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
-                TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "收起" else "展开") }
+                TextButton(onClick = {
+                    if (!expanded) FrameTimingRecorder.recordExpansion("settings_details")
+                    expanded = !expanded
+                }) { Text(if (expanded) "收起" else "展开") }
             }
             AnimatedVisibility(
                   visible = expanded,
