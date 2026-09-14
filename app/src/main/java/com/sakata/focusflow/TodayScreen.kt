@@ -14,6 +14,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
@@ -211,6 +212,7 @@ import kotlinx.coroutines.delay
                 }
             }
         }
+        TodayPermissionReminder(now)
         FocusCard(
             containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
             modifier = Modifier.fillMaxWidth().clickable(onClick = onOpenSchedule)
@@ -682,4 +684,47 @@ internal fun todayAgenda(courses: List<Course>, items: List<Item>, now: Long = S
             AgendaEntry(calendar.get(java.util.Calendar.HOUR_OF_DAY) * 60 + calendar.get(java.util.Calendar.MINUTE), item.title, "任务 · ${item.detail.ifBlank { "已安排" }}", false)
         } }
     return (todayCourses + todayTasks).sortedBy { it.startMinute }
+}
+
+@Composable
+private fun TodayPermissionReminder(now: Long) {
+    val context = LocalContext.current
+    val store = remember(context) { PrototypeStore(context) }
+    var dismissed by remember { mutableStateOf(store.loadPermissionReminderDismissed()) }
+    var detailsOpen by remember { mutableStateOf(false) }
+    var confirmDismissOpen by remember { mutableStateOf(false) }
+    val missing = remember(now / 30_000L) { reminderPermissionsMissing(context) }
+    if (dismissed) return
+    FocusCard(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.78f)) {
+        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+            Text("权限与提醒", fontWeight = FontWeight.SemiBold)
+            Text(
+                if (missing.isEmpty()) "权限已检查；点此查看提醒设置。" else PermissionReminderPolicy.summary(missing),
+                style = MaterialTheme.typography.bodySmall
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = { detailsOpen = true }) { Text("查看") }
+                TextButton(onClick = { confirmDismissOpen = true }) { Text("不再提示") }
+            }
+        }
+    }
+    if (detailsOpen) PermissionRequirementsDialog(
+        missing = missing,
+        todayReminderDismissed = false,
+        onDismiss = { detailsOpen = false },
+        onRestoreTodayReminder = {}
+    )
+    if (confirmDismissOpen) AlertDialog(
+        onDismissRequest = { confirmDismissOpen = false },
+        title = { Text("不再在今日页提示？") },
+        text = { Text("之后可在 设置 → 检查更新 上方的“权限与提醒”查看和恢复。") },
+        confirmButton = {
+            Button(onClick = {
+                    dismissed = true
+                    store.savePermissionReminderDismissed(true)
+                    confirmDismissOpen = false
+                }) { Text("确认不再提示") }
+        },
+        dismissButton = { TextButton(onClick = { confirmDismissOpen = false }) { Text("取消") } }
+    )
 }

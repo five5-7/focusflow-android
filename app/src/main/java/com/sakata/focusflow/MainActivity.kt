@@ -937,7 +937,9 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             LocalAppearance provides appearance,
             LocalBackdropBitmap provides pageBackdropBitmap,
             LocalGlassBackdropState provides glassBackdropState,
-            LocalAppDialogHost provides dialogHost
+            LocalAppDialogHost provides dialogHost,
+            // 页面直接文字也要随真实背景选对比色，不能只修卡片内容。
+            LocalContentColor provides pageBodyContentColor()
         ) {
         // Horizontal cutouts constrain the viewport. Top safety travels with scroll content.
         val safeContentInsets = WindowInsets.systemBars.union(WindowInsets.displayCutout)

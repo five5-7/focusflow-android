@@ -2,6 +2,7 @@ package com.sakata.focusflow
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.material3.lightColorScheme
+import androidx.compose.material3.darkColorScheme
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.graphics.luminance
@@ -104,6 +105,12 @@ class FocusCardMaterialTest {
         assertEquals(requested, cardElevationForMaterial(CardMaterial.SOFT, requested))
         assertEquals(0.dp, cardElevationForMaterial(CardMaterial.ACRYLIC, requested))
         assertEquals(0.dp, cardElevationForMaterial(CardMaterial.FROSTED, requested))
+    }
+
+    @Test
+    fun glassCardsDeclareAThemeContentColor() {
+        assertEquals(lightColorScheme().onSurface, focusCardContentColor(lightColorScheme()))
+        assertEquals(darkColorScheme().onSurface, focusCardContentColor(darkColorScheme()))
     }
 
     @Test

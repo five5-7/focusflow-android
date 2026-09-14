@@ -105,6 +105,11 @@ internal fun CampusLifeChoiceDialog(onEnable: () -> Unit, onSkip: () -> Unit) {
 
 /** 覆盖安装后每个版本只展示一次的更新说明；版本名来自 BuildConfig，路线图是唯一详情入口。 */
 internal fun updateHighlightsFor(version: String): List<String> = when {
+    version.startsWith("8.2.2") -> listOf(
+        "通勤可分别设置步行、自行车和电动车的路上预留时间。",
+        "玻璃卡片在深色主题下会使用浅色正文，避免黑字看不清。",
+        "权限提示放在今日“开始活动”下方；关闭后仍可从设置查看并恢复。"
+    )
     version.startsWith("8.2.1") -> listOf(
         "新增亚克力和毛玻璃：亚克力无描边，毛玻璃保留完整圆角亮边。",
         "底栏和弹窗可透出并模糊下方内容，文字与按钮保持清晰。",

@@ -46,7 +46,10 @@ internal fun FocusCard(
     val hasGlassBackdropState = LocalGlassBackdropState.current != null
     val effectiveBorder = cardBorderForMaterial(material, border)
     val colors = CardDefaults.cardColors(
-        containerColor = if (material == CardMaterial.TONAL) containerColor else Color.Transparent
+        containerColor = if (material == CardMaterial.TONAL) containerColor else Color.Transparent,
+        // Transparent 会让 Material 无法推导内容色，并在部分设备退回黑字；玻璃卡片
+        // 必须显式跟随当前主题的正文色，深色主题下始终为浅字。
+        contentColor = focusCardContentColor(MaterialTheme.colorScheme)
     )
     // Material Card 的 elevation 会在透明容器外额外建立阴影/色调图层。玻璃卡片本身透明，
     // 该图层便会从圆角四周露出，成为真机上看到的“厚灰框”；其中的背景副本则像内嵌矩形。
@@ -121,6 +124,9 @@ internal fun FocusCard(
         ) { body()() }
     }
 }
+
+/** 玻璃 Surface 为透明时，正文不能交给 Material 从透明色推导。 */
+internal fun focusCardContentColor(scheme: ColorScheme): Color = scheme.onSurface
 
 /**
  * 玻璃材质必须独占边缘绘制：亚克力不画边，毛玻璃由材质层沿真实 Shape 画亮边。
