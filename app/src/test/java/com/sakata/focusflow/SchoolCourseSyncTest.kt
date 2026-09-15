@@ -20,7 +20,8 @@ class SchoolCourseSyncTest {
         assertEquals("东2", updated.building)
         assertFalse(updated.needsConfirmation)
         assertFalse(updated.enabled)
-        assertEquals(100, updated.effectiveFromEpochDay)
+        assertEquals(100L, updated.effectiveFromEpochDay)
+        assertEquals(200L, updated.effectiveUntilEpochDay)
         assertEquals(1, result.updatedCount)
         assertEquals(0, result.addedCount)
     }
