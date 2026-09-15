@@ -21,7 +21,7 @@ object RoadmapData {
     /** 已实现版本演进（1.0 → 当前版本），每版本浓缩 1–3 条，与 CHANGELOG.md 对应。 */
     val evolution: List<RoadmapVersion> = listOf(
         RoadmapVersion("8.3.0", listOf(
-            RoadmapEntry("8.3.0-rc.6", "权限、浙大课表导入与首次动画性能", "权限与提醒集中检查且如实标出 ColorOS 手动项；通过浙大官方统一身份认证页读取当前课表，不保存账号密码，导入后仍逐项确认；启动数据移出首次组合并延后隐藏页预热。浙大账号与帧耗时真机验收仍待完成。", RoadmapStatus.CANDIDATE)
+            RoadmapEntry("8.3.0-rc.7", "权限、浙大课表自动导入与首次动画性能", "权限与提醒集中检查且如实标出 ColorOS 手动项；从“从教务网导入 → 浙江大学”进入，在应用内输入凭据后由原生 HTTPS 流程自动登录、读取当前学期与课表并显示进度，凭据只驻留内存；新课进入候选，唯一匹配的已有课程更新，歧义项不覆盖；启动数据移出首次组合并延后隐藏页预热。浙大账号、异常登录路径与帧耗时真机验收仍待完成。", RoadmapStatus.CANDIDATE)
         )),
         RoadmapVersion("8.2.2", listOf(
             RoadmapEntry("8.2.2-rc.4", "通勤、文字对比与权限提醒", "三种校内出行方式可分别设置预留；玻璃卡片深色文字对比修复；今日页始终显示权限入口，关闭后可在设置中查看和恢复。", RoadmapStatus.CANDIDATE)
