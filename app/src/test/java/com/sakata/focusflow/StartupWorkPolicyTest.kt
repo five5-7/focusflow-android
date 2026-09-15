@@ -17,4 +17,20 @@ class StartupWorkPolicyTest {
     fun `warmup excludes visible and already visited tabs`() {
         assertEquals(listOf(2, 3), StartupWorkPolicy.pendingTabs(visited = setOf(0, 1), current = 1))
     }
+
+    @Test
+    fun `each idle window warms only the next pending tab`() {
+        assertEquals(2, StartupWorkPolicy.nextPendingTab(visited = setOf(0, 1), current = 1))
+        assertEquals(null, StartupWorkPolicy.nextPendingTab(visited = setOf(0, 1, 2, 3), current = 1))
+    }
+
+    @Test
+    fun `interaction restarts a separate idle window`() {
+        assertEquals(2_400L, StartupWorkPolicy.warmupIdleMs(hasInteracted = false))
+        assertEquals(1_400L, StartupWorkPolicy.warmupIdleMs(hasInteracted = true))
+        assertTrue(
+            StartupWorkPolicy.warmupIdleMs(hasInteracted = false) >
+                StartupWorkPolicy.warmupIdleMs(hasInteracted = true)
+        )
+    }
 }

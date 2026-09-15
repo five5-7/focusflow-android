@@ -109,11 +109,16 @@ class MainActivity : ComponentActivity() {
         FrameTimingRecorder.beginStartupSnapshot()
         lifecycleScope.launch {
             val startupSnapshot = withContext(Dispatchers.IO) { FocusFlowStartupSnapshot.load(startupStore) }
+            // 图片背景在首个 Compose 树建立前完成后台解码。旧路径先显示主题底色，再把整屏位图
+            // 塞进已组合好的页面与全部亚克力卡片，首次 GPU 上传会正好撞上用户的第一个动画。
+            val startupPageBackdropBitmap = withContext(Dispatchers.IO) {
+                loadStartupPageBackdrop(this@MainActivity, startupSnapshot.appearance)
+            }
             FrameTimingRecorder.endStartupSnapshot()
             FrameTimingRecorder.recordStartupFrames()
             setContent {
                 LaunchedEffect(Unit) { startupBackFallback.isEnabled = false }
-                FocusFlowApp(startupStore, startupSnapshot, statusCheckInRequested, mealPromptRequested, mealFinishRequested, quickCaptureRequested, permissionOnboardingPending) {
+                FocusFlowApp(startupStore, startupSnapshot, startupPageBackdropBitmap, statusCheckInRequested, mealPromptRequested, mealFinishRequested, quickCaptureRequested, permissionOnboardingPending) {
                     statusCheckInRequested = false
                     mealPromptRequested = null
                     mealFinishRequested = null
@@ -180,8 +185,23 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+/**
+ * 启动页图片沿用导入时的上限，同时按当前屏幕约束目标尺寸；解码始终发生在 IO 线程。
+ * 不降低图片质量，只把原本首屏后的第二次整页重绘提前到用户能交互之前。
+ */
+private fun loadStartupPageBackdrop(context: Context, appearance: AppearanceSpec): ImageBitmap? {
+    if (!appearance.hasPageImage) return null
+    val metrics = context.resources.displayMetrics
+    return AppearanceImages.load(
+        context = context,
+        name = appearance.pageImage,
+        maxWidth = metrics.widthPixels.coerceIn(1, 1440),
+        maxHeight = metrics.heightPixels.coerceIn(1, 3168)
+    )
+}
+
 @Composable
-private fun FocusFlowApp(store: PrototypeStore, startup: FocusFlowStartupSnapshot, statusCheckInRequested: Boolean, mealPromptRequested: MealType?, mealFinishRequested: MealType?, quickCaptureRequested: Boolean, permissionOnboardingPending: Boolean, onRequestHandled: () -> Unit) {
+private fun FocusFlowApp(store: PrototypeStore, startup: FocusFlowStartupSnapshot, startupPageBackdropBitmap: ImageBitmap?, statusCheckInRequested: Boolean, mealPromptRequested: MealType?, mealFinishRequested: MealType?, quickCaptureRequested: Boolean, permissionOnboardingPending: Boolean, onRequestHandled: () -> Unit) {
     val context = LocalContext.current
     var tab by remember { mutableIntStateOf(0) }
     var todayInboxOpen by remember { mutableStateOf(false) }
@@ -223,6 +243,9 @@ private fun FocusFlowApp(store: PrototypeStore, startup: FocusFlowStartupSnapsho
     var activityStatusOpen by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    // 首启保护窗只记录按下动作；全部隐藏页完成预热后会移除监听，不给日常交互增加重组。
+    var startupInteractionToken by remember { mutableIntStateOf(0) }
+    var startupInteractionGuardActive by remember { mutableStateOf(true) }
     val appLifecycleOwner = LocalLifecycleOwner.current
     // 初始值保证冷启动也检查；后续每次回到前台再递增。
     var notificationForegroundCheck by remember { mutableIntStateOf(1) }
@@ -265,13 +288,27 @@ private fun FocusFlowApp(store: PrototypeStore, startup: FocusFlowStartupSnapsho
     // 8.2.0 外观系统：全部可选、默认等于现状（老装机升级后外观不变）。
     var appearance by remember { mutableStateOf(startup.appearance) }
     // 背景图在后台线程按屏幕尺寸降采样解码；没设图或解码失败就是 null，页面退回主题底色。
-    var pageBackdropBitmap by remember { mutableStateOf<ImageBitmap?>(null) }
-    LaunchedEffect(appearance.pageImage, appearance.pageBackdrop) {
+    var pageBackdropBitmap by remember { mutableStateOf(startupPageBackdropBitmap) }
+    var loadedPageImageName by remember {
+        mutableStateOf(startup.appearance.pageImage.takeIf { startupPageBackdropBitmap != null })
+    }
+    LaunchedEffect(appearance.pageImage, appearance.hasPageImage) {
         val name = appearance.pageImage
-        pageBackdropBitmap = if (appearance.hasPageImage && name.isNotBlank()) {
-            withContext(Dispatchers.IO) { AppearanceImages.load(context, name, 1440, 3168) }
-        } else {
-            null
+        if (!appearance.hasPageImage || name.isBlank()) {
+            pageBackdropBitmap = null
+            loadedPageImageName = null
+        } else if (loadedPageImageName != name || pageBackdropBitmap == null) {
+            val metrics = context.resources.displayMetrics
+            val loaded = withContext(Dispatchers.IO) {
+                AppearanceImages.load(
+                    context,
+                    name,
+                    metrics.widthPixels.coerceIn(1, 1440),
+                    metrics.heightPixels.coerceIn(1, 3168)
+                )
+            }
+            pageBackdropBitmap = loaded
+            loadedPageImageName = name.takeIf { loaded != null }
         }
     }
     // 8.1.0 动画速度（外观页）：全局时长倍率，写入 MotionSettings 供各动画换算。
@@ -932,11 +969,16 @@ private fun FocusFlowApp(store: PrototypeStore, startup: FocusFlowStartupSnapsho
     }
 
     LaunchedEffect(Unit) {
-        ReminderScheduler.restoreActivityReminders(context)
+        // 恢复提醒会读取多组偏好、重建多类闹钟；它不应在首个 Compose 提交后立刻占住主线程。
+        withContext(Dispatchers.IO) { ReminderScheduler.restoreActivityReminders(context) }
+        // 启动快照已经带回当前会话与历史，首轮无需再次读取。
+        delay(1_000)
         while (true) {
-            val restored = store.loadLatestActiveSession()
+            val (restored, recentHistory) = withContext(Dispatchers.IO) {
+                store.loadLatestActiveSession() to store.loadRecentActivitySessions()
+            }
             activeSession = restored
-            activityHistory = store.loadRecentActivitySessions()
+            activityHistory = recentHistory
             if (restored == null) {
                 transitionTarget = null
             } else if (transitionTarget?.id == restored.id && transitionTarget != restored) {
@@ -975,7 +1017,21 @@ private fun FocusFlowApp(store: PrototypeStore, startup: FocusFlowStartupSnapsho
         val glassBackdropState = remember(capturesGlassBackdrop) {
             if (capturesGlassBackdrop) HazeState() else null
         }
-        Box(Modifier.fillMaxSize().imePadding()) {
+        val startupInteractionModifier = if (startupInteractionGuardActive) {
+            Modifier.pointerInput(Unit) {
+                awaitPointerEventScope {
+                    while (true) {
+                        val event = awaitPointerEvent(PointerEventPass.Initial)
+                        if (event.changes.any { it.pressed && !it.previousPressed }) {
+                            startupInteractionToken++
+                        }
+                    }
+                }
+            }
+        } else {
+            Modifier
+        }
+        Box(Modifier.fillMaxSize().imePadding().then(startupInteractionModifier)) {
         // 8.2.0 外观系统：背景层画在最底下（页面渐变/图片）。默认外观下它不新增任何绘制，
         // 因此「默认与 8.1.1 逐像素一致」是结构上成立的，不靠调参。
         Box(
@@ -1060,13 +1116,32 @@ private fun FocusFlowApp(store: PrototypeStore, startup: FocusFlowStartupSnapsho
             val visitedTabs = remember { mutableStateListOf(0) }
             // 当前页签在组合期就入表：否则切过去的那一帧它还没被组合，页面会空白一帧。
             if (tab !in visitedTabs) visitedTabs.add(tab)
-            LaunchedEffect(tab, todayInboxOpen, planPage, settingsSubPage, dialogLayerVisible, globalLoading) {
+            val visitedTabCount = visitedTabs.size
+            LaunchedEffect(
+                tab,
+                todayInboxOpen,
+                planPage,
+                settingsSubPage,
+                dialogLayerVisible,
+                globalLoading,
+                startupInteractionToken,
+                visitedTabCount
+            ) {
                 if (!StartupWorkPolicy.canWarmTabs(globalLoading, dialogLayerVisible)) return@LaunchedEffect
-                delay(StartupWorkPolicy.TAB_WARMUP_IDLE_MS)
-                for (extra in StartupWorkPolicy.pendingTabs(visitedTabs, tab)) {
-                    withFrameNanos { }
-                    if (extra !in visitedTabs) visitedTabs.add(extra)
-                    delay(StartupWorkPolicy.TAB_WARMUP_GAP_MS)
+                val extra = StartupWorkPolicy.nextPendingTab(visitedTabs, tab)
+                if (extra == null) {
+                    startupInteractionGuardActive = false
+                    return@LaunchedEffect
+                }
+                // 固定的“启动 1.2 秒后连做三页”仍会撞上第一次触摸；现在每次按下都会取消
+                // 当前等待，并从最后一次交互重新计算空闲窗。每个空闲窗只组合一个完整页签，
+                // 图片背景 + 亚克力下也不会在相邻几帧连续建立大量 Haze 效果层。
+                delay(StartupWorkPolicy.warmupIdleMs(hasInteracted = startupInteractionToken > 0))
+                withFrameNanos { }
+                if (StartupWorkPolicy.canWarmTabs(globalLoading, dialogLayerVisible) &&
+                    extra != tab && extra !in visitedTabs
+                ) {
+                    visitedTabs.add(extra)
                 }
             }
             val currentSnapshot = PageSnapshot(tab, todayInboxOpen, planPage, settingsSubPage, settingsBackStack)
