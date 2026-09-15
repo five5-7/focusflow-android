@@ -107,7 +107,7 @@ internal fun CampusLifeChoiceDialog(onEnable: () -> Unit, onSkip: () -> Unit) {
 internal fun updateHighlightsFor(version: String): List<String> = when {
     version.startsWith("8.3.0") -> listOf(
         "权限与提醒集中到一个页面；系统无法读取的 ColorOS 横幅、自启动和后台开关会明确提示手动确认。",
-        "课程页可从“从教务网导入 → 浙江大学”在应用内输入账号密码并自动获取课表，过程显示进度且凭据不保存；新课进入候选，唯一匹配的已有课程会更新。",
+        "课程页可从“从教务网导入 → 浙江大学”在应用内输入账号密码并自动获取课表；认证与教务会话分段显示并修复验证超时，凭据不保存；新课进入候选，唯一匹配的已有课程会更新。",
         "启动数据改在后台一次读取，隐藏页签等首屏稳定后再预热；帧统计可辅助核对前几次切页和展开卡顿。"
     )
     version.startsWith("8.2.2") -> listOf(
