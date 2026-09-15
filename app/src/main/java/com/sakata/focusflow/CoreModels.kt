@@ -66,15 +66,26 @@ enum class ItemPriority(val label: String, val storageKey: String) {
 
 data class CommuteProfile(
     val enabled: Boolean = false,
-    val oneWayMinutes: Int = 0,
+    // 与持久化层的新安装默认值一致；旧代码也按 10/6/5 推导三种方式。
+    val oneWayMinutes: Int = 10,
     val useDefaultForUnknown: Boolean = true,
     val nearMinutes: Int = 5,
     val fairlyNearMinutes: Int = 10,
     val fairlyFarMinutes: Int = 15,
     val farMinutes: Int = 25,
     val campusMode: String = "步行",
+    /** 各方式的路上预留（不含两端楼内缓冲）。0 表示读取旧版统一默认值。 */
+    val walkingReserveMinutes: Int = 0,
+    val bicycleReserveMinutes: Int = 0,
+    val eBikeReserveMinutes: Int = 0,
     val buildingBufferMinutes: Int = 3,
     val eBikeBattery: String = "未知",
     val routeCalibrations: Map<String, Int> = emptyMap(),
     val routeObservations: Map<String, List<Int>> = emptyMap()
-)
+) {
+    fun reserveMinutesFor(mode: String): Int = when (mode) {
+        "自行车" -> bicycleReserveMinutes.takeIf { it > 0 } ?: maxOf(3, (oneWayMinutes * 0.6f).toInt())
+        "电动车" -> eBikeReserveMinutes.takeIf { it > 0 } ?: maxOf(3, (oneWayMinutes * 0.5f).toInt())
+        else -> walkingReserveMinutes.takeIf { it > 0 } ?: oneWayMinutes
+    }
+}

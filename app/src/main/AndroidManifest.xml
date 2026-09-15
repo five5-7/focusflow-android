@@ -54,6 +54,10 @@
         <!-- 竖屏锁定：本应用的布局（底部悬浮栏 + 单列卡片）为竖屏设计，横屏只是被拉伸的同一套布局。
              横屏几何（弹窗避让底栏、窄屏不裁切）仍保留为兜底，大屏/分屏被系统忽略锁定时不会破版。 -->
         <activity
+            android:name=".ZjuTimetableImportActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
+        <activity
             android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTop"

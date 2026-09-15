@@ -105,6 +105,16 @@ internal fun CampusLifeChoiceDialog(onEnable: () -> Unit, onSkip: () -> Unit) {
 
 /** 覆盖安装后每个版本只展示一次的更新说明；版本名来自 BuildConfig，路线图是唯一详情入口。 */
 internal fun updateHighlightsFor(version: String): List<String> = when {
+    version.startsWith("8.3.0") -> listOf(
+        "权限与提醒集中到一个页面；系统无法读取的 ColorOS 横幅、自启动和后台开关会明确提示手动确认。",
+        "课程页可从“从教务网导入 → 浙江大学”自动获取课表；新的主题化导入页会逐步显示认证、会话和解析状态，凭据不保存；新课进入候选，唯一匹配的已有课程会更新。",
+        "图片背景会在首屏前于后台准备并复用；隐藏页签只在操作空闲后逐页预热，减少亚克力首次切页和展开时的抢帧。"
+    )
+    version.startsWith("8.2.2") -> listOf(
+        "通勤可分别设置步行、自行车和电动车的路上预留时间。",
+        "玻璃卡片在深色主题下会使用浅色正文，避免黑字看不清。",
+        "权限提示放在今日“开始活动”下方；关闭后仍可从设置查看并恢复。"
+    )
     version.startsWith("8.2.1") -> listOf(
         "新增亚克力和毛玻璃：亚克力无描边，毛玻璃保留完整圆角亮边。",
         "底栏和弹窗可透出并模糊下方内容，文字与按钮保持清晰。",

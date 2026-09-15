@@ -506,6 +506,9 @@ class PrototypeStore(context: Context) {
         fairlyFarMinutes = preferences.getInt("commute_tier_fairly_far", 15),
         farMinutes = preferences.getInt("commute_tier_far", 25),
         campusMode = preferences.getString("campus_mode", "步行") ?: "步行",
+        walkingReserveMinutes = preferences.getInt("commute_walk_reserve_minutes", preferences.getInt("commute_one_way_minutes", 10)),
+        bicycleReserveMinutes = preferences.getInt("commute_bicycle_reserve_minutes", maxOf(3, (preferences.getInt("commute_one_way_minutes", 10) * 0.6f).toInt())),
+        eBikeReserveMinutes = preferences.getInt("commute_ebike_reserve_minutes", maxOf(3, (preferences.getInt("commute_one_way_minutes", 10) * 0.5f).toInt())),
         buildingBufferMinutes = preferences.getInt("building_buffer_minutes", 3),
         eBikeBattery = preferences.getString("ebike_battery", "未知") ?: "未知",
         // 路由校准/观测键不套损坏保护：空为合法状态，可回退 legacy 观测。
@@ -525,6 +528,9 @@ class PrototypeStore(context: Context) {
             .putInt("commute_tier_fairly_far", profile.fairlyFarMinutes)
             .putInt("commute_tier_far", profile.farMinutes)
             .putString("campus_mode", profile.campusMode)
+            .putInt("commute_walk_reserve_minutes", profile.reserveMinutesFor("步行"))
+            .putInt("commute_bicycle_reserve_minutes", profile.reserveMinutesFor("自行车"))
+            .putInt("commute_ebike_reserve_minutes", profile.reserveMinutesFor("电动车"))
             .putInt("building_buffer_minutes", profile.buildingBufferMinutes)
             .putString("ebike_battery", profile.eBikeBattery)
             .putString("route_calibrations", CommuteRouteCodec.encodeCalibrations(profile.routeCalibrations))
@@ -536,6 +542,12 @@ class PrototypeStore(context: Context) {
 
     fun saveCampusLifeEnabled(enabled: Boolean) {
         preferences.edit().putBoolean("campus_life_enabled", enabled).apply()
+    }
+
+    fun loadPermissionReminderDismissed(): Boolean = preferences.getBoolean("permission_reminder_dismissed", false)
+
+    fun savePermissionReminderDismissed(dismissed: Boolean) {
+        preferences.edit().putBoolean("permission_reminder_dismissed", dismissed).apply()
     }
 
     /** 被用户删除（隐藏）的内置默认地点名；可从“已隐藏地点”恢复。 */

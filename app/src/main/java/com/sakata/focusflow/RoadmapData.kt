@@ -20,6 +20,12 @@ data class RoadmapVersion(val version: String, val entries: List<RoadmapEntry>)
 object RoadmapData {
     /** 已实现版本演进（1.0 → 当前版本），每版本浓缩 1–3 条，与 CHANGELOG.md 对应。 */
     val evolution: List<RoadmapVersion> = listOf(
+        RoadmapVersion("8.3.0", listOf(
+            RoadmapEntry("8.3.0-rc.10", "权限、浙大课表自动导入与首次动画性能", "权限与提醒集中检查且如实标出 ColorOS 手动项；浙大课表在应用内自动登录、读取并同步，导入页提供主题化七段进度；图片背景在首屏前后台解码并复用，隐藏页签按交互空闲逐页预热，提醒恢复与会话轮询移出主线程，重点改善图片背景＋亚克力的首次动画。仍待 OPPO 真机帧耗时复测。", RoadmapStatus.CANDIDATE)
+        )),
+        RoadmapVersion("8.2.2", listOf(
+            RoadmapEntry("8.2.2-rc.4", "通勤、文字对比与权限提醒", "三种校内出行方式可分别设置预留；玻璃卡片深色文字对比修复；今日页始终显示权限入口，关闭后可在设置中查看和恢复。", RoadmapStatus.CANDIDATE)
+        )),
         RoadmapVersion("8.2.1", listOf(
             RoadmapEntry("8.2.1-rc.7", "亚克力与毛玻璃扩展", "修复玻璃卡片层级冲突与滚动回归；丰富外观默认关闭。", RoadmapStatus.CANDIDATE)
         )),
@@ -430,7 +436,7 @@ fun RoadmapSubpageContent() {
                 Text("每次功能更新递增 0.1；更新记录见版本演进。", style = MaterialTheme.typography.bodySmall)
             }
         }
-        Text("版本演进（1.0 → 8.1）", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Text("版本演进（1.0 → 8.3）", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         RoadmapData.evolution.forEach { version ->
             Text(version.version, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
             version.entries.forEach { entry ->
