@@ -44,3 +44,63 @@ object CourseImportPolicy {
         )
     }
 }
+
+
+internal data class SchoolCourseSync(
+    val courses: List<Course>,
+    val addedCount: Int,
+    val updatedCount: Int,
+    val unchangedCount: Int
+)
+
+/**
+ * 官方课表同步：唯一匹配时更新已有记录并保留其 ID、确认状态、启停与生效期；
+ * 无法唯一匹配的课程只新增为待确认，绝不猜测覆盖同名多节课程。
+ */
+internal fun syncSchoolCourses(existing: List<Course>, imported: List<Course>): SchoolCourseSync {
+    val output = existing.toMutableList()
+    val usedIndexes = mutableSetOf<Int>()
+    val incomingGroups = imported.groupingBy { it.title.trim() to it.weekday }.eachCount()
+    var added = 0
+    var updated = 0
+    var unchanged = 0
+
+    imported.forEach { incoming ->
+        val title = incoming.title.trim()
+        val exact = output.indices.filter { index ->
+            index !in usedIndexes && output[index].title.trim() == title &&
+                output[index].weekday == incoming.weekday &&
+                output[index].startPeriod == incoming.startPeriod &&
+                output[index].endPeriod == incoming.endPeriod
+        }
+        val sameDay = output.indices.filter { index ->
+            index !in usedIndexes && output[index].title.trim() == title &&
+                output[index].weekday == incoming.weekday
+        }
+        val match = when {
+            exact.size == 1 -> exact.single()
+            exact.isEmpty() && sameDay.size == 1 && incomingGroups[title to incoming.weekday] == 1 -> sameDay.single()
+            else -> null
+        }
+        if (match == null) {
+            output += incoming.copy(needsConfirmation = true)
+            added += 1
+        } else {
+            usedIndexes += match
+            val previous = output[match]
+            val replacement = previous.copy(
+                title = title,
+                weekday = incoming.weekday,
+                startPeriod = incoming.startPeriod,
+                endPeriod = incoming.endPeriod,
+                building = incoming.building,
+                zone = incoming.zone
+            )
+            if (replacement == previous) unchanged += 1 else {
+                output[match] = replacement
+                updated += 1
+            }
+        }
+    }
+    return SchoolCourseSync(output, added, updated, unchanged)
+}

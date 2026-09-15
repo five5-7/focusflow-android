@@ -658,15 +658,39 @@ private fun FocusFlowApp(store: PrototypeStore, startup: FocusFlowStartupSnapsho
             pendingPlaces = (batch.newPlaces + pendingPlaces).distinct().take(50)
             store.savePendingPlaces(pendingPlaces)
         }
-        val merge = mergeRecognizedCourses(courses, batch.courses)
-        // 与已确认课程冲突的识别结果也保留为待确认：应用已有冲突警示机制，由用户决定确认/编辑/忽略。
-        if (merge.added.isNotEmpty()) {
-            val updated = courses + merge.added
-            courses = updated
-            store.saveCourses(updated)
-            navHistory.markWorkedHere()
+        if (batch.source == CourseImportSource.ZJU_TIMETABLE) {
+            val sync = syncSchoolCourses(courses, batch.courses)
+            if (sync.courses != courses) {
+                courses = sync.courses
+                store.saveCourses(courses)
+                navHistory.markWorkedHere()
+            }
+            courseImportMessage = buildString {
+                append(batch.source.label).append("：")
+                when {
+                    batch.courses.isEmpty() -> append("没有找到可解析的课程。")
+                    sync.addedCount == 0 && sync.updatedCount == 0 -> append("已有课程均为最新数据。")
+                    else -> {
+                        if (sync.addedCount > 0) append("新增 ").append(sync.addedCount).append(" 门待确认课程")
+                        if (sync.updatedCount > 0) {
+                            if (sync.addedCount > 0) append("；")
+                            append("更新 ").append(sync.updatedCount).append(" 门已有课程")
+                        }
+                        append("。")
+                    }
+                }
+            }
+        } else {
+            val merge = mergeRecognizedCourses(courses, batch.courses)
+            // 截图等不可靠来源仍只新增待确认课程，不更新已有记录。
+            if (merge.added.isNotEmpty()) {
+                val updated = courses + merge.added
+                courses = updated
+                store.saveCourses(updated)
+                navHistory.markWorkedHere()
+            }
+            courseImportMessage = "${batch.source.label}：${merge.message}"
         }
-        courseImportMessage = "${batch.source.label}：${merge.message}"
         courseImportRunning = false
         globalLoading = false
     }
@@ -1349,7 +1373,7 @@ private fun FocusFlowApp(store: PrototypeStore, startup: FocusFlowStartupSnapsho
                     onImportZju = {
                         courseImportRunning = true
                         globalLoading = false
-                        courseImportMessage = "请在浙大官方页面完成统一身份认证，再读取当前选择的学年与学期。"
+                        courseImportMessage = "请在应用内填写浙江大学统一身份认证账号和密码，随后自动获取当前课表。"
                         zjuTimetableLauncher.launch(Intent(context, ZjuTimetableImportActivity::class.java))
                     },
                     onEditCourse = { courseEditor = it },
