@@ -23,7 +23,19 @@ class ZjuTimetableClientTest {
         assertTrue("username" to "student" in form)
         assertTrue("password" to "encrypted" in form)
         assertTrue("_eventId" to "submit" in form)
-        assertFalse(form.any { it.first == "rememberMe" })
+        assertTrue("rememberMe" to "true" in form)
+    }
+
+    @Test
+    fun `timeout message identifies authentication and session phases`() {
+        assertTrue(
+            ZjuTimetableClient.timeoutMessage(ZjuImportStage.AUTHENTICATING)
+                .contains("验证账号")
+        )
+        assertTrue(
+            ZjuTimetableClient.timeoutMessage(ZjuImportStage.ESTABLISHING_SESSION)
+                .contains("教务会话")
+        )
     }
 
     @Test

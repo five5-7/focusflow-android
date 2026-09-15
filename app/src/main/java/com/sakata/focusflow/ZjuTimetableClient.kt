@@ -14,12 +14,13 @@ import java.net.URLEncoder
 import java.nio.CharBuffer
 
 internal enum class ZjuImportStage(val percent: Int, val label: String) {
-    CONNECTING(10, "正在连接浙江大学统一身份认证…"),
-    ENCRYPTING(25, "正在获取登录参数并加密密码…"),
-    AUTHENTICATING(45, "正在验证账号…"),
-    LOADING_SEMESTER(65, "正在读取当前学年与学期…"),
-    FETCHING_TIMETABLE(82, "正在下载课表数据…"),
-    PARSING(94, "正在解析并核对课程…"),
+    CONNECTING(8, "正在连接浙江大学统一身份认证…"),
+    ENCRYPTING(22, "正在获取登录参数并加密密码…"),
+    AUTHENTICATING(40, "正在验证账号…"),
+    ESTABLISHING_SESSION(58, "账号已验证，正在建立教务会话…"),
+    LOADING_SEMESTER(70, "正在读取当前学年与学期…"),
+    FETCHING_TIMETABLE(84, "正在下载课表数据…"),
+    PARSING(95, "正在解析并核对课程…"),
     DONE(100, "课表获取完成")
 }
 
@@ -59,10 +60,14 @@ internal object ZjuTimetableClient {
     ) {
         val main = Handler(Looper.getMainLooper())
         Thread {
+            var currentStage = ZjuImportStage.CONNECTING
             val result = try {
-                fetchBlocking(username.trim(), password) { stage -> main.post { onProgress(stage) } }
+                fetchBlocking(username.trim(), password) { stage ->
+                    currentStage = stage
+                    main.post { onProgress(stage) }
+                }
             } catch (_: java.net.SocketTimeoutException) {
-                ZjuTimetableFetchResult.Failure("连接浙江大学教务超时，请检查网络后重试。")
+                ZjuTimetableFetchResult.Failure(timeoutMessage(currentStage))
             } catch (_: java.net.UnknownHostException) {
                 ZjuTimetableFetchResult.Failure("无法连接浙江大学教务，请检查网络或稍后重试。")
             } catch (error: Exception) {
@@ -118,7 +123,23 @@ internal object ZjuTimetableClient {
         val login = session.post(
             loginUrl,
             encodeForm(form),
-            mapOf("Referer" to loginUrl, "Content-Type" to "application/x-www-form-urlencoded; charset=UTF-8")
+            mapOf(
+                "Referer" to loginUrl,
+                "Origin" to CAS_BASE,
+                "Content-Type" to "application/x-www-form-urlencoded",
+                "Sec-Fetch-Dest" to "document",
+                "Sec-Fetch-Mode" to "navigate",
+                "Sec-Fetch-Site" to "same-origin",
+                "Sec-Fetch-User" to "?1",
+                "Upgrade-Insecure-Requests" to "1"
+            ),
+            readTimeoutMs = 35_000,
+            skipResponseBodyAtHost = "zdbk.zju.edu.cn",
+            onRedirect = { target ->
+                if (target.host.equals("zdbk.zju.edu.cn", ignoreCase = true)) {
+                    progress(ZjuImportStage.ESTABLISHING_SESSION)
+                }
+            }
         )
         val finalHost = login.url.host.orEmpty()
         if (!finalHost.equals("zdbk.zju.edu.cn", ignoreCase = true)) {
@@ -200,7 +221,11 @@ internal object ZjuTimetableClient {
                     output += field.name to encryptedPassword
                     hasPassword = true
                 }
-                field.type == "checkbox" -> Unit
+                field.type == "checkbox" -> {
+                    if (field.name.contains("remember", ignoreCase = true)) {
+                        output += field.name to field.value.ifBlank { "true" }
+                    }
+                }
                 else -> output += field.name to field.value
             }
         }
@@ -251,6 +276,19 @@ internal object ZjuTimetableClient {
         return match.groupValues.drop(1).firstOrNull { it.isNotEmpty() }.orEmpty()
     }
 
+    internal fun timeoutMessage(stage: ZjuImportStage): String = when (stage) {
+        ZjuImportStage.AUTHENTICATING ->
+            "验证账号阶段响应超时。请稍后重试；FocusFlow 不会自动重复提交密码。"
+        ZjuImportStage.ESTABLISHING_SESSION ->
+            "账号已验证，但建立教务会话超时。请切换校园网或移动数据后重试。"
+        ZjuImportStage.LOADING_SEMESTER ->
+            "读取学年与学期超时，请稍后重试。"
+        ZjuImportStage.FETCHING_TIMETABLE ->
+            "下载课表数据超时，请稍后重试。"
+        else ->
+            "连接浙江大学统一身份认证超时，请检查网络后重试。"
+    }
+
     private fun encodeForm(values: List<Pair<String, String>>): String =
         values.joinToString("&") { (key, value) -> "${encode(key)}=${encode(value)}" }
 
@@ -271,14 +309,31 @@ internal object ZjuTimetableClient {
 
         fun get(url: String): HttpResponse = request("GET", url, null, emptyMap())
 
-        fun post(url: String, body: String, headers: Map<String, String>): HttpResponse =
-            request("POST", url, body, headers)
+        fun post(
+            url: String,
+            body: String,
+            headers: Map<String, String>,
+            readTimeoutMs: Int = 18_000,
+            skipResponseBodyAtHost: String? = null,
+            onRedirect: (URI) -> Unit = {}
+        ): HttpResponse = request(
+            "POST",
+            url,
+            body,
+            headers,
+            readTimeoutMs,
+            skipResponseBodyAtHost,
+            onRedirect
+        )
 
         private fun request(
             initialMethod: String,
             initialUrl: String,
             initialBody: String?,
-            headers: Map<String, String>
+            headers: Map<String, String>,
+            readTimeoutMs: Int = 18_000,
+            skipResponseBodyAtHost: String? = null,
+            onRedirect: (URI) -> Unit = {}
         ): HttpResponse {
             var method = initialMethod
             var uri = URI(initialUrl)
@@ -287,11 +342,13 @@ internal object ZjuTimetableClient {
                 requireOfficialHttps(uri)
                 val connection = (uri.toURL().openConnection() as HttpURLConnection).apply {
                     instanceFollowRedirects = false
-                    connectTimeout = 12_000
-                    readTimeout = 18_000
+                    connectTimeout = 15_000
+                    readTimeout = readTimeoutMs
+                    useCaches = false
                     requestMethod = method
                     setRequestProperty("User-Agent", USER_AGENT)
-                    setRequestProperty("Accept", "text/html,application/json;q=0.9,*/*;q=0.8")
+                    setRequestProperty("Accept", "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8")
+                    setRequestProperty("Accept-Language", "zh-CN,zh;q=0.9")
                     headers.forEach { (key, value) -> setRequestProperty(key, value) }
                     cookies.get(uri, emptyMap()).forEach { (key, values) ->
                         setRequestProperty(key, values.joinToString("; "))
@@ -309,12 +366,19 @@ internal object ZjuTimetableClient {
                 val location = connection.getHeaderField("Location")
                 if (code in setOf(301, 302, 303, 307, 308) && !location.isNullOrBlank()) {
                     uri = uri.resolve(location)
+                    onRedirect(uri)
                     if (code in setOf(301, 302, 303)) {
                         method = "GET"
                         body = null
                     }
                     connection.disconnect()
                     return@repeat
+                }
+                if (skipResponseBodyAtHost != null &&
+                    uri.host.equals(skipResponseBodyAtHost, ignoreCase = true)
+                ) {
+                    connection.disconnect()
+                    return HttpResponse(code, uri, "")
                 }
                 val stream = if (code in 200..299) connection.inputStream else connection.errorStream
                 val responseBody = stream?.let { input ->
