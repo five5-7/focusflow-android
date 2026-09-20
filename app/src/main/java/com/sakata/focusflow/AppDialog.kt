@@ -294,6 +294,7 @@ internal fun AppDialogHost(
 /**
  * 与 Material3 AlertDialog 同形的页内弹窗；调用方式与参数完全一致，迁移只需改名。
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun AppDialog(
     onDismissRequest: () -> Unit,
@@ -343,10 +344,10 @@ internal fun AppDialog(
                     ) { it() }
                 }
             }
-            Row(
+            FlowRow(
                 Modifier.align(Alignment.End),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
+                verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 dismissButton?.invoke()
                 confirmButton()

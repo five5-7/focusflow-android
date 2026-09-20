@@ -638,7 +638,8 @@ internal fun timeOnSameDayAs(target: Long, minute: Int): Long =
     AppDialog(
         onDismissRequest = onDismiss,
         title = { Text(if (existing == null) "新增课程" else "编辑课程") },
-        text = { Column(Modifier.heightIn(max = 520.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        // AppDialog 已提供有界滚动；这里不再嵌套第二层滚动，避免窄屏上地点行测量出异常空白。
+        text = { Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedTextField(value = title, onValueChange = { title = it; persist() }, label = { Text("课程名称") }, singleLine = true)
             Text("课程会按星期、开始节和连续节数排入课表与日程；当前节次表共 $maxPeriod 节。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) { (1..7).forEach { day -> FilterChip(selected = weekday == day, onClick = { weekday = day; persist() }, label = { Text(weekdayName(day)) }) } }
@@ -668,7 +669,19 @@ internal fun timeOnSameDayAs(target: Long, minute: Int): Long =
             }
             Text("地点", fontWeight = FontWeight.SemiBold)
             Text("地点用于课程显示和已开启的出行时间估算；没有地点包时可直接自填。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            availablePlaces.chunked(3).forEach { row -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { row.forEach { candidate -> FilterChip(selected = !customSelected && place == candidate, onClick = { place = candidate; customSelected = false; persist() }, label = { Text(candidate.name.removeSuffix("教学楼")) }) } } }
+            FlowRow(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                availablePlaces.forEach { candidate ->
+                    FilterChip(
+                        selected = !customSelected && place == candidate,
+                        onClick = { place = candidate; customSelected = false; persist() },
+                        label = { Text(candidate.name.removeSuffix("教学楼")) }
+                    )
+                }
+            }
             FilterChip(selected = customSelected, onClick = { customSelected = true; persist() }, label = { Text("其他") })
             if (customSelected) OutlinedTextField(value = customName, onValueChange = { customName = it; persist() }, label = { Text("地点名称（自填，按东/西/北自动猜分区）") }, singleLine = true, modifier = Modifier.fillMaxWidth())
             TextButton(onClick = onOpenCommutePlaces) { Text("管理地点与出行参数") }

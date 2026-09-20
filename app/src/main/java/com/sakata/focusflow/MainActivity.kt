@@ -207,6 +207,8 @@ private fun FocusFlowApp(store: PrototypeStore, startup: FocusFlowStartupSnapsho
     var todayInboxOpen by remember { mutableStateOf(false) }
     var addOpen by remember { mutableStateOf(false) }
     var addMenuOpen by remember { mutableStateOf(false) }
+    // 历史导航可能只把加号弹窗收起，Boolean 仍为 true；请求序号保证再次点击会重建并注册弹窗。
+    var addMenuRequestId by remember { mutableIntStateOf(0) }
     var gamePlanOpen by remember { mutableStateOf(false) }
     var activityOpen by remember { mutableStateOf(false) }
     var activityPreset by remember { mutableStateOf<ActivityLaunchPreset?>(null) }
@@ -1803,7 +1805,11 @@ private fun FocusFlowApp(store: PrototypeStore, startup: FocusFlowStartupSnapsho
             },
             onSelectTab = { selectTab(it) },
             // 点 ＋ 视为"换一个动作"：先关掉当前弹窗再打开添加菜单（内容有草稿箱兜底）。
-            onAdd = { dialogHost.dismissCurrent(); addMenuOpen = true },
+            onAdd = {
+                dialogHost.dismissCurrent()
+                addMenuOpen = true
+                addMenuRequestId++
+            },
             canGoBack = navHistory.canGoBack(),
             canGoForward = navHistory.canGoForward(),
             // 弹窗打开时让底栏退后（压暗 + 收阴影）：它的 zIndex 比弹窗层高，遮罩盖不到它。
@@ -1818,11 +1824,13 @@ private fun FocusFlowApp(store: PrototypeStore, startup: FocusFlowStartupSnapsho
         )
         if (!hasTopNotice) StatusBarScrim(topSafety, Modifier.align(Alignment.TopCenter))
         // page with overlaid navigation; no full-width bottom surface
-        if (addMenuOpen) AddMenuDialog(
-            onDismiss = { addMenuOpen = false },
-            onQuickCapture = { addMenuOpen = false; addOpen = true },
-            onGamePlan = { addMenuOpen = false; gamePlanOpen = true }
-        )
+        if (addMenuOpen) key(addMenuRequestId) {
+            AddMenuDialog(
+                onDismiss = { addMenuOpen = false },
+                onQuickCapture = { addMenuOpen = false; addOpen = true },
+                onGamePlan = { addMenuOpen = false; gamePlanOpen = true }
+            )
+        }
         if (gamePlanOpen) GamePlanDialog(
             courses = activeCourses,
             profile = commuteProfile,
