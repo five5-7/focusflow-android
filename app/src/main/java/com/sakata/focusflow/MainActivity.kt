@@ -39,6 +39,7 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.lifecycleScope
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.input.pointer.PointerEventPass
@@ -79,6 +80,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         CrashReporter.init(applicationContext)
+        FrameTimingRecorder.install(window)
         statusCheckInRequested = intent.getBooleanExtra(ReminderReceiver.EXTRA_OPEN_STATUS_CHECK_IN, false) &&
             PrototypeStore(this).loadStatusCheckInSettings().enabled
         quickCaptureRequested = intent.getBooleanExtra(ReminderReceiver.EXTRA_OPEN_QUICK_CAPTURE, false)
@@ -103,13 +105,25 @@ class MainActivity : ComponentActivity() {
         onBackPressedDispatcher.addCallback(this, startupBackFallback)
         // 8.1.0：判断本次开机系统是否把开机广播送给了我们（ColorOS 会推迟），设置页据此如实提示。
         BootRecovery.noteLaunch(this)
-        setContent {
-            LaunchedEffect(Unit) { startupBackFallback.isEnabled = false }
-            FocusFlowApp(statusCheckInRequested, mealPromptRequested, mealFinishRequested, quickCaptureRequested, permissionOnboardingPending) {
-                statusCheckInRequested = false
-                mealPromptRequested = null
-                mealFinishRequested = null
-                quickCaptureRequested = false
+        val startupStore = PrototypeStore(this)
+        FrameTimingRecorder.beginStartupSnapshot()
+        lifecycleScope.launch {
+            val startupSnapshot = withContext(Dispatchers.IO) { FocusFlowStartupSnapshot.load(startupStore) }
+            // 图片背景在首个 Compose 树建立前完成后台解码。旧路径先显示主题底色，再把整屏位图
+            // 塞进已组合好的页面与全部亚克力卡片，首次 GPU 上传会正好撞上用户的第一个动画。
+            val startupPageBackdropBitmap = withContext(Dispatchers.IO) {
+                loadStartupPageBackdrop(this@MainActivity, startupSnapshot.appearance)
+            }
+            FrameTimingRecorder.endStartupSnapshot()
+            FrameTimingRecorder.recordStartupFrames()
+            setContent {
+                LaunchedEffect(Unit) { startupBackFallback.isEnabled = false }
+                FocusFlowApp(startupStore, startupSnapshot, startupPageBackdropBitmap, statusCheckInRequested, mealPromptRequested, mealFinishRequested, quickCaptureRequested, permissionOnboardingPending) {
+                    statusCheckInRequested = false
+                    mealPromptRequested = null
+                    mealFinishRequested = null
+                    quickCaptureRequested = false
+                }
             }
         }
     }
@@ -128,6 +142,11 @@ class MainActivity : ComponentActivity() {
                 startActivity(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, Uri.parse("package:$packageName")))
             }
         }
+    }
+
+    override fun onDestroy() {
+        FrameTimingRecorder.uninstall(window)
+        super.onDestroy()
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -166,14 +185,30 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+/**
+ * 启动页图片沿用导入时的上限，同时按当前屏幕约束目标尺寸；解码始终发生在 IO 线程。
+ * 不降低图片质量，只把原本首屏后的第二次整页重绘提前到用户能交互之前。
+ */
+private fun loadStartupPageBackdrop(context: Context, appearance: AppearanceSpec): ImageBitmap? {
+    if (!appearance.hasPageImage) return null
+    val metrics = context.resources.displayMetrics
+    return AppearanceImages.load(
+        context = context,
+        name = appearance.pageImage,
+        maxWidth = metrics.widthPixels.coerceIn(1, 1440),
+        maxHeight = metrics.heightPixels.coerceIn(1, 3168)
+    )
+}
+
 @Composable
-private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: MealType?, mealFinishRequested: MealType?, quickCaptureRequested: Boolean, permissionOnboardingPending: Boolean, onRequestHandled: () -> Unit) {
+private fun FocusFlowApp(store: PrototypeStore, startup: FocusFlowStartupSnapshot, startupPageBackdropBitmap: ImageBitmap?, statusCheckInRequested: Boolean, mealPromptRequested: MealType?, mealFinishRequested: MealType?, quickCaptureRequested: Boolean, permissionOnboardingPending: Boolean, onRequestHandled: () -> Unit) {
     val context = LocalContext.current
-    val store = remember(context) { PrototypeStore(context) }
     var tab by remember { mutableIntStateOf(0) }
     var todayInboxOpen by remember { mutableStateOf(false) }
     var addOpen by remember { mutableStateOf(false) }
     var addMenuOpen by remember { mutableStateOf(false) }
+    // 历史导航可能只把加号弹窗收起，Boolean 仍为 true；请求序号保证再次点击会重建并注册弹窗。
+    var addMenuRequestId by remember { mutableIntStateOf(0) }
     var gamePlanOpen by remember { mutableStateOf(false) }
     var activityOpen by remember { mutableStateOf(false) }
     var activityPreset by remember { mutableStateOf<ActivityLaunchPreset?>(null) }
@@ -188,77 +223,98 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     var convertTarget by remember { mutableStateOf<Item?>(null) }
     var attachTarget by remember { mutableStateOf<Item?>(null) }
     var schedulePresetExact by remember { mutableStateOf<Long?>(null) }
-    var gameSessions by remember { mutableStateOf(store.loadGameSessions()) }
-    var gameDetectionEnabled by remember { mutableStateOf(store.loadGameDetectionEnabled()) }
-    var foregroundDetectionTrace by remember { mutableStateOf(store.loadForegroundDetectionTrace()) }
-    var appCategories by remember { mutableStateOf(store.loadAppCategories()) }
-    var hiddenApps by remember { mutableStateOf(store.loadHiddenApps()) }
-    var items by remember {
-        mutableStateOf(store.recoverMissedGoalTasks())
-    }
-    var taskEvents by remember { mutableStateOf(store.loadTaskEvents()) }
-    var activeSession by remember { mutableStateOf(store.loadLatestActiveSession()) }
-    var activityHistory by remember { mutableStateOf(store.loadRecentActivitySessions()) }
-    var activitySettings by remember { mutableStateOf(store.loadActivityReminderSettings()) }
-    var statusCheckInSettings by remember { mutableStateOf(store.loadStatusCheckInSettings()) }
-    var statusPromptTrace by remember { mutableStateOf(store.loadStatusPromptTrace()) }
-    var nextStatusPromptAt by remember { mutableLongStateOf(store.loadNextStatusPromptAt()) }
-    var quietHours by remember { mutableStateOf(store.loadQuietHoursSettings()) }
-    var quickCaptureEnabled by remember { mutableStateOf(store.loadQuickCaptureEnabled()) }
-    var windDownEnabled by remember { mutableStateOf(store.loadWindDownEnabled()) }
-    var latestStatusCheckIn by remember { mutableStateOf(store.loadLatestStatusCheckIn()) }
-    var statusCheckIns by remember { mutableStateOf(store.loadStatusCheckIns(365)) }
+    var gameSessions by remember { mutableStateOf(startup.gameSessions) }
+    var gameDetectionEnabled by remember { mutableStateOf(startup.gameDetectionEnabled) }
+    var foregroundDetectionTrace by remember { mutableStateOf(startup.foregroundDetectionTrace) }
+    var appCategories by remember { mutableStateOf(startup.appCategories) }
+    var hiddenApps by remember { mutableStateOf(startup.hiddenApps) }
+    var items by remember { mutableStateOf(startup.items) }
+    var taskEvents by remember { mutableStateOf(startup.taskEvents) }
+    var activeSession by remember { mutableStateOf(startup.activeSession) }
+    var activityHistory by remember { mutableStateOf(startup.activityHistory) }
+    var activitySettings by remember { mutableStateOf(startup.activitySettings) }
+    var statusCheckInSettings by remember { mutableStateOf(startup.statusCheckInSettings) }
+    var statusPromptTrace by remember { mutableStateOf(startup.statusPromptTrace) }
+    var nextStatusPromptAt by remember { mutableLongStateOf(startup.nextStatusPromptAt) }
+    var quietHours by remember { mutableStateOf(startup.quietHours) }
+    var quickCaptureEnabled by remember { mutableStateOf(startup.quickCaptureEnabled) }
+    var windDownEnabled by remember { mutableStateOf(startup.windDownEnabled) }
+    var latestStatusCheckIn by remember { mutableStateOf(startup.latestStatusCheckIn) }
+    var statusCheckIns by remember { mutableStateOf(startup.statusCheckIns) }
     var statusCheckInOpen by remember { mutableStateOf(false) }
     var activityStatusOpen by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    // 首启保护窗只记录按下动作；全部隐藏页完成预热后会移除监听，不给日常交互增加重组。
+    var startupInteractionToken by remember { mutableIntStateOf(0) }
+    var startupInteractionGuardActive by remember { mutableStateOf(true) }
     val appLifecycleOwner = LocalLifecycleOwner.current
     // 初始值保证冷启动也检查；后续每次回到前台再递增。
     var notificationForegroundCheck by remember { mutableIntStateOf(1) }
+    // 注册观察器时 Lifecycle 会把当前 STARTED 状态补发一次；初始状态已经从 store 读取，不能立即再读整批数据。
+    var initialStartObserved by remember(appLifecycleOwner) { mutableStateOf(false) }
     DisposableEffect(appLifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_START) {
-                notificationForegroundCheck++
-                items = store.loadItems()
-                gameSessions = store.loadGameSessions()
-                activeSession = store.loadLatestActiveSession()
-                activityHistory = store.loadRecentActivitySessions()
-                // 弹窗可能持有通知操作前的任务快照，返回前台后重新打开。
-                rescheduleTarget = null
-                inboxScheduleTarget = null
-                flexiblePlanTarget = null
-                inboxEditTarget = null
-                organizeTarget = null
-                convertTarget = null
-                attachTarget = null
-                // 通知栏里完成/最低版本/延后/跳过是后台 Receiver 写的，回到前台时重读事件，让今日统计与记录卡同步。
-                taskEvents = store.loadTaskEvents()
-                statusPromptTrace = store.loadStatusPromptTrace()
-                nextStatusPromptAt = store.loadNextStatusPromptAt()
-                foregroundDetectionTrace = store.loadForegroundDetectionTrace()
+                if (!initialStartObserved) {
+                    initialStartObserved = true
+                } else {
+                    notificationForegroundCheck++
+                    items = store.loadItems()
+                    gameSessions = store.loadGameSessions()
+                    activeSession = store.loadLatestActiveSession()
+                    activityHistory = store.loadRecentActivitySessions()
+                    // 弹窗可能持有通知操作前的任务快照，返回前台后重新打开。
+                    rescheduleTarget = null
+                    inboxScheduleTarget = null
+                    flexiblePlanTarget = null
+                    inboxEditTarget = null
+                    organizeTarget = null
+                    convertTarget = null
+                    attachTarget = null
+                    // 通知栏里完成/最低版本/延后/跳过是后台 Receiver 写的，回到前台时重读事件，让今日统计与记录卡同步。
+                    taskEvents = store.loadTaskEvents()
+                    statusPromptTrace = store.loadStatusPromptTrace()
+                    nextStatusPromptAt = store.loadNextStatusPromptAt()
+                    foregroundDetectionTrace = store.loadForegroundDetectionTrace()
+                }
             }
         }
         appLifecycleOwner.lifecycle.addObserver(observer)
         onDispose { appLifecycleOwner.lifecycle.removeObserver(observer) }
     }
     var globalLoading by remember { mutableStateOf(false) }
-    var themeOption by remember { mutableStateOf(store.loadTheme()) }
-    var darkMode by remember { mutableStateOf(store.loadDarkMode()) }
+    var themeOption by remember { mutableStateOf(startup.themeOption) }
+    var darkMode by remember { mutableStateOf(startup.darkMode) }
 
     // 8.2.0 外观系统：全部可选、默认等于现状（老装机升级后外观不变）。
-    var appearance by remember { mutableStateOf(store.loadAppearance()) }
+    var appearance by remember { mutableStateOf(startup.appearance) }
     // 背景图在后台线程按屏幕尺寸降采样解码；没设图或解码失败就是 null，页面退回主题底色。
-    var pageBackdropBitmap by remember { mutableStateOf<ImageBitmap?>(null) }
-    LaunchedEffect(appearance.pageImage, appearance.pageBackdrop) {
+    var pageBackdropBitmap by remember { mutableStateOf(startupPageBackdropBitmap) }
+    var loadedPageImageName by remember {
+        mutableStateOf(startup.appearance.pageImage.takeIf { startupPageBackdropBitmap != null })
+    }
+    LaunchedEffect(appearance.pageImage, appearance.hasPageImage) {
         val name = appearance.pageImage
-        pageBackdropBitmap = if (appearance.hasPageImage && name.isNotBlank()) {
-            withContext(Dispatchers.IO) { AppearanceImages.load(context, name, 1440, 3168) }
-        } else {
-            null
+        if (!appearance.hasPageImage || name.isBlank()) {
+            pageBackdropBitmap = null
+            loadedPageImageName = null
+        } else if (loadedPageImageName != name || pageBackdropBitmap == null) {
+            val metrics = context.resources.displayMetrics
+            val loaded = withContext(Dispatchers.IO) {
+                AppearanceImages.load(
+                    context,
+                    name,
+                    metrics.widthPixels.coerceIn(1, 1440),
+                    metrics.heightPixels.coerceIn(1, 3168)
+                )
+            }
+            pageBackdropBitmap = loaded
+            loadedPageImageName = name.takeIf { loaded != null }
         }
     }
     // 8.1.0 动画速度（外观页）：全局时长倍率，写入 MotionSettings 供各动画换算。
-    var animationSpeed by remember { mutableStateOf(store.loadAnimationSpeed()) }
+    var animationSpeed by remember { mutableStateOf(startup.animationSpeed) }
     // 8.2.0「丰富的动画与外观效果」对动画的影响有**两条**，缺一不可：
     //   ① 时长收紧到 0.6 倍。注意不是 0——置 0 会让 MotionSpec 全部退化成 snap，
     //      连"最基本的淡入淡出"都没了，与这个开关的承诺不符。
@@ -268,100 +324,100 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     val effectiveMotionScale = if (appearance.richEffects) animationSpeed else animationSpeed * 0.6f
     LaunchedEffect(effectiveMotionScale) { MotionSettings.update(effectiveMotionScale) }
     LaunchedEffect(appearance.richEffects) { MotionSettings.updateRichForms(appearance.richEffects) }
-    var customThemeColors by remember { mutableStateOf(store.loadCustomThemeColors() ?: FocusFlowThemeOption.CUSTOM.colors) }
-    var themePresets by remember { mutableStateOf(store.loadThemePresets()) }
+    var customThemeColors by remember { mutableStateOf(startup.customThemeColors ?: FocusFlowThemeOption.CUSTOM.colors) }
+    var themePresets by remember { mutableStateOf(startup.themePresets) }
     // 自定义主题的"恢复默认"目标：最近一次选过的内置主题。
     var lastBuiltInTheme by remember {
-        mutableStateOf(store.loadTheme().takeIf { it != FocusFlowThemeOption.CUSTOM } ?: FocusFlowThemeOption.OCEAN)
+        mutableStateOf(startup.themeOption.takeIf { it != FocusFlowThemeOption.CUSTOM } ?: FocusFlowThemeOption.OCEAN)
     }
-    var energyLevel by remember { mutableStateOf(store.loadEnergyLevel()) }
-    var energyRecordedAt by remember { mutableLongStateOf(store.loadEnergyRecordedAt()) }
+    var energyLevel by remember { mutableStateOf(startup.energyLevel) }
+    var energyRecordedAt by remember { mutableLongStateOf(startup.energyRecordedAt) }
     val planningEnergyLevel = if (StatusFreshnessPolicy.isCurrent(energyRecordedAt)) energyLevel else "正常"
-    var commuteProfile by remember { mutableStateOf(store.loadCommuteProfile()) }
-    var campusLifeEnabled by remember {
-        mutableStateOf(
-            CampusLifePolicy.initialEnabled(
-                stored = store.loadCampusLifeEnabled(),
-                featureIntroShown = store.loadFeatureIntroShown(),
-                choiceShown = store.loadCampusLifeChoiceShown()
-            )
-        )
-    }
-    var hiddenPlaces by remember { mutableStateOf(store.loadHiddenPlaces()) }
-    var campusMapPackage by remember { mutableStateOf(store.loadCampusMapPackage()) }
-    var currentCampusPlace by remember { mutableStateOf(store.loadCurrentCampusPlace()) }
-    var customPlaces by remember { mutableStateOf(store.loadCustomPlaces()) }
-    var amapKey by remember { mutableStateOf(store.loadAmapKey()) }
-    var campusCenter by remember { mutableStateOf(store.loadCampusCenter()) }
-    var tutorialSearch by remember { mutableStateOf(store.loadTutorialSearchSettings()) }
-    var aiWeeklySummary by remember { mutableStateOf(store.loadAiWeeklySummarySettings()) }
+    var commuteProfile by remember { mutableStateOf(startup.commuteProfile) }
+    var campusLifeEnabled by remember { mutableStateOf(startup.campusLifeEnabled) }
+    var hiddenPlaces by remember { mutableStateOf(startup.hiddenPlaces) }
+    var campusMapPackage by remember { mutableStateOf(startup.campusMapPackage) }
+    var currentCampusPlace by remember { mutableStateOf(startup.currentCampusPlace) }
+    var customPlaces by remember { mutableStateOf(startup.customPlaces) }
+    var amapKey by remember { mutableStateOf(startup.amapKey) }
+    var campusCenter by remember { mutableStateOf(startup.campusCenter) }
+    var tutorialSearch by remember { mutableStateOf(startup.tutorialSearch) }
+    var aiWeeklySummary by remember { mutableStateOf(startup.aiWeeklySummary) }
     var tutorialSearchOpen by remember { mutableStateOf(false) }
     var tutorialFinderOpen by remember { mutableStateOf(false) }
     var finderContext by remember { mutableStateOf("") }
     var videoAnalysisOpen by remember { mutableStateOf(false) }
-    var videoAnalysisModel by remember { mutableStateOf(store.loadVideoAnalysisModel()) }
-    var courseVision by remember { mutableStateOf(store.loadCourseVisionSettings()) }
-    var pendingPlaces by remember { mutableStateOf(store.loadPendingPlaces()) }
+    var videoAnalysisModel by remember { mutableStateOf(startup.videoAnalysisModel) }
+    var courseVision by remember { mutableStateOf(startup.courseVision) }
+    var pendingPlaces by remember { mutableStateOf(startup.pendingPlaces) }
     var courseVisionGuideOpen by remember { mutableStateOf(false) }
+    var courseVisionGuideShown by remember { mutableStateOf(startup.courseVisionGuideShown) }
     var featureIntroOpen by remember { mutableStateOf(false) }
+    var featureIntroShown by remember { mutableStateOf(startup.featureIntroShown) }
     var campusLifeChoiceOpen by remember { mutableStateOf(false) }
+    var campusLifeChoiceShown by remember { mutableStateOf(startup.campusLifeChoiceShown) }
     var updateNoticeOpen by remember { mutableStateOf(false) }
+    var lastSeenAppVersion by remember { mutableStateOf(startup.lastSeenAppVersion) }
     var baselineWhereToFindOpen by remember { mutableStateOf(false) }
     // 首次开启课表视觉模型且未填 key 时自动弹出申请引导（只弹一次）。
     LaunchedEffect(courseVision.enabled) {
-        if (courseVision.enabled && tutorialSearch.apiKey.isBlank() && !store.loadCourseVisionGuideShown()) {
+        if (courseVision.enabled && tutorialSearch.apiKey.isBlank() && !courseVisionGuideShown) {
+            courseVisionGuideShown = true
             store.saveCourseVisionGuideShown(true)
             courseVisionGuideOpen = true
         }
     }
-    var courses by remember { mutableStateOf(if (store.hasCourseSetup()) store.loadCourses() else emptyList()) }
-    var coursePeriodTable by remember { mutableStateOf(store.loadCoursePeriodTable()) }
-    var coursePeriodTableConfigured by remember { mutableStateOf(store.hasCoursePeriodTable()) }
-    var courseTimetableCompact by remember { mutableStateOf(store.loadCourseTimetableCompact()) }
-    var courseTimetableTrailingDaysExpanded by remember { mutableStateOf(store.loadCourseTimetableTrailingDaysExpanded()) }
+    var courses by remember { mutableStateOf(startup.courses) }
+    var coursePeriodTable by remember { mutableStateOf(startup.coursePeriodTable) }
+    var coursePeriodTableConfigured by remember { mutableStateOf(startup.coursePeriodTableConfigured) }
+    var courseTimetableCompact by remember { mutableStateOf(startup.courseTimetableCompact) }
+    var courseTimetableTrailingDaysExpanded by remember { mutableStateOf(startup.courseTimetableTrailingDaysExpanded) }
     CourseGapPlanner.configure(coursePeriodTable)
     var courseEditor by remember { mutableStateOf<Course?>(null) }
     var addCourseOpen by remember { mutableStateOf(false) }
     var courseImportRunning by remember { mutableStateOf(false) }
     var courseImportMessage by remember { mutableStateOf<String?>(null) }
     var autoPlanMessage by remember { mutableStateOf<String?>(null) }
-    var goals by remember { mutableStateOf(store.loadGoals()) }
+    var goals by remember { mutableStateOf(startup.goals) }
     var addGoalOpen by remember { mutableStateOf(false) }
     var editGoalTarget by remember { mutableStateOf<Goal?>(null) }
     var goalFinderSuggestion by remember { mutableStateOf("") }
-    var resources by remember { mutableStateOf(store.loadResources()) }
+    var resources by remember { mutableStateOf(startup.resources) }
     var addResourceOpen by remember { mutableStateOf(false) }
     var summaryTarget by remember { mutableStateOf<LearningResource?>(null) }
     var completionTarget by remember { mutableStateOf<Item?>(null) }
     LaunchedEffect(notificationForegroundCheck) {
+        if (notificationForegroundCheck <= 1) return@LaunchedEffect
         goals = store.loadGoals()
         completionTarget = null
         editGoalTarget = null
         goalScheduleTarget = null
     }
     var feedbackTarget by remember { mutableStateOf<Pair<Item, String>?>(null) }
-    var feedback by remember { mutableStateOf(store.loadFeedback()) }
-    var improvementNotes by remember { mutableStateOf(store.loadImprovementNotes()) }
+    var feedback by remember { mutableStateOf(startup.feedback) }
+    var improvementNotes by remember { mutableStateOf(startup.improvementNotes) }
     var improvementOpen by remember { mutableStateOf(false) }
-    var baselineProfile by remember { mutableStateOf(store.loadBaselineProfile()) }
-    var baselineVariants by remember { mutableStateOf(store.loadBaselineVariants()) }
+    var baselineProfile by remember { mutableStateOf(startup.baselineProfile) }
+    var baselineVariants by remember { mutableStateOf(startup.baselineVariants) }
     var baselineVariantNameOpen by remember { mutableStateOf(false) }
+    var onboardingDone by remember { mutableStateOf(startup.onboardingDone) }
     // 权限一站式进行中时先不弹习惯基线引导，避免两个对话框叠在一起；权限流程结束后补弹。
-    var baselineOnboardingOpen by remember { mutableStateOf(!store.loadOnboardingDone() && !permissionOnboardingPending) }
+    var baselineOnboardingOpen by remember { mutableStateOf(!onboardingDone && !permissionOnboardingPending) }
     LaunchedEffect(permissionOnboardingPending) {
-        if (!permissionOnboardingPending && !store.loadOnboardingDone()) baselineOnboardingOpen = true
+        if (!permissionOnboardingPending && !onboardingDone) baselineOnboardingOpen = true
     }
     // 仅新安装在快速入门前询问一次；已有用户升级时不弹出，也不改写现有校园生活设置。
     LaunchedEffect(permissionOnboardingPending, baselineOnboardingOpen, baselineWhereToFindOpen) {
         if (!permissionOnboardingPending && !baselineOnboardingOpen && !baselineWhereToFindOpen &&
-            !store.loadFeatureIntroShown() && !store.loadCampusLifeChoiceShown()
+            !featureIntroShown && !campusLifeChoiceShown
         ) campusLifeChoiceOpen = true
     }
     // 首次启动快速入门：校园生活选择完成后再弹，避免两个弹窗叠在一起。
     LaunchedEffect(permissionOnboardingPending, baselineOnboardingOpen, baselineWhereToFindOpen, campusLifeChoiceOpen) {
         if (!permissionOnboardingPending && !baselineOnboardingOpen && !baselineWhereToFindOpen && !campusLifeChoiceOpen &&
-            store.loadCampusLifeChoiceShown() && !store.loadFeatureIntroShown()
+            campusLifeChoiceShown && !featureIntroShown
         ) {
+            featureIntroShown = true
             store.saveFeatureIntroShown(true)
             featureIntroOpen = true
         }
@@ -370,19 +426,19 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     // 首次安装先完成快速入门；既有用户或后续覆盖安装才显示一次版本更新说明。
     LaunchedEffect(permissionOnboardingPending, baselineOnboardingOpen, baselineWhereToFindOpen, campusLifeChoiceOpen, featureIntroOpen) {
         if (permissionOnboardingPending || baselineOnboardingOpen || baselineWhereToFindOpen || campusLifeChoiceOpen || featureIntroOpen) return@LaunchedEffect
-        val seenVersion = store.loadLastSeenAppVersion()
-        if (seenVersion == null && !store.loadFeatureIntroShown()) return@LaunchedEffect
-        if (seenVersion != BuildConfig.VERSION_NAME) {
+        if (lastSeenAppVersion == null && !featureIntroShown) return@LaunchedEffect
+        if (lastSeenAppVersion != BuildConfig.VERSION_NAME) {
+            lastSeenAppVersion = BuildConfig.VERSION_NAME
             store.saveLastSeenAppVersion(BuildConfig.VERSION_NAME)
             updateNoticeOpen = true
         }
     }
     var baselineEventsOpen by remember { mutableStateOf(false) }
     var baselineResetConfirmOpen by remember { mutableStateOf(false) }
-    var mealRecords by remember { mutableStateOf(store.loadMealRecords()) }
-    var mealReminderEnabled by remember { mutableStateOf(store.loadMealReminderEnabled()) }
-    var mealDurationTrackingEnabled by remember { mutableStateOf(store.loadMealDurationTrackingEnabled()) }
-    var mealSkipDays by remember { mutableStateOf(store.loadMealSkipDays()) }
+    var mealRecords by remember { mutableStateOf(startup.mealRecords) }
+    var mealReminderEnabled by remember { mutableStateOf(startup.mealReminderEnabled) }
+    var mealDurationTrackingEnabled by remember { mutableStateOf(startup.mealDurationTrackingEnabled) }
+    var mealSkipDays by remember { mutableStateOf(startup.mealSkipDays) }
     var mealPromptOpen by remember { mutableStateOf<MealType?>(null) }
     var mealFinishOpen by remember { mutableStateOf<MealType?>(null) }
     var mealRecordsOpen by remember { mutableStateOf(false) }
@@ -417,8 +473,8 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     }
     // 8.1.0 检查更新（仅 GitHub 正式版；下载后调系统安装）。
     var updateCheckState by remember { mutableStateOf(UpdateCheckState()) }
-    var autoCheckUpdates by remember { mutableStateOf(store.loadAutoCheckUpdates()) }
-    var acceptRcUpdates by remember { mutableStateOf(store.loadAcceptRcUpdates()) }
+    var autoCheckUpdates by remember { mutableStateOf(startup.autoCheckUpdates) }
+    var acceptRcUpdates by remember { mutableStateOf(startup.acceptRcUpdates) }
     var downloadedUpdate by remember { mutableStateOf<File?>(null) }
     // 8.1.0 导航历史与草稿保险箱（会话内）：页面目的地变化统一记录，回退/折返键恢复快照。
     val navHistory = remember { NavHistory() }
@@ -445,6 +501,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
 
     /** 把页面状态写回（统一导航与回退/折返恢复共用；不记录历史）。 */
     fun applySnapshot(snapshot: PageSnapshot) {
+        if (snapshot.tab != tab) FrameTimingRecorder.recordTabSwitch(snapshot.tab)
         tab = snapshot.tab
         todayInboxOpen = snapshot.todayInboxOpen
         planPage = snapshot.planPage
@@ -591,7 +648,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     LaunchedEffect(Unit) {
         if (autoCheckUpdates) {
             val day = java.text.SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(java.util.Date())
-            if (store.loadLastUpdateCheckDay() != day) {
+            if (startup.lastUpdateCheckDay != day) {
                 store.saveLastUpdateCheckDay(day)
                 checkForUpdate(silent = true)
             }
@@ -633,17 +690,49 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     // 新安装不预置任何校园地点；只有用户导入地点包或自行添加后才参与课程与通勤。
     val basePlaces = campusMapPackage?.places.orEmpty()
     val campusPlaces = if (campusLifeEnabled) basePlaces.filterNot { b -> customPlaces.any { it.name.lowercase() == b.name.lowercase() } || b.name.lowercase() in hiddenPlaces } + customPlaces else emptyList()
-    /** 统一处理识别结果：去重、保留冲突为待确认课程并生成提示（计算在 CourseSchedule，只保留保存/状态副作用）。 */
-    fun applyRecognizedCourses(recognized: List<Course>) {
-        val merge = mergeRecognizedCourses(courses, recognized)
-        // 与已确认课程冲突的识别结果也保留为待确认：应用已有冲突警示机制，由用户决定确认/编辑/忽略。
-        if (merge.added.isNotEmpty()) {
-            val updated = courses + merge.added
-            courses = updated
-            store.saveCourses(updated)
-            navHistory.markWorkedHere()
+    /** 任意来源统一进入同一条校验、去重、冲突与待确认链路。 */
+    fun applyImportedCourses(rawBatch: CourseImportBatch) {
+        val batch = CourseImportPolicy.prepare(rawBatch)
+        if (batch.newPlaces.isNotEmpty()) {
+            pendingPlaces = (batch.newPlaces + pendingPlaces).distinct().take(50)
+            store.savePendingPlaces(pendingPlaces)
         }
-        courseImportMessage = merge.message
+        if (batch.source == CourseImportSource.ZJU_TIMETABLE) {
+            val sync = syncSchoolCourses(courses, batch.courses)
+            if (sync.courses != courses) {
+                courses = sync.courses
+                store.saveCourses(courses)
+                navHistory.markWorkedHere()
+            }
+            courseImportMessage = buildString {
+                append(batch.source.label).append("：")
+                when {
+                    batch.courses.isEmpty() -> append("没有找到可解析的课程。")
+                    sync.addedCount == 0 && sync.updatedCount == 0 -> append("已有课程均为最新数据。")
+                    else -> {
+                        if (sync.addedCount > 0) append("新增 ").append(sync.addedCount).append(" 门待确认课程")
+                        if (sync.updatedCount > 0) {
+                            if (sync.addedCount > 0) append("；")
+                            append("更新 ").append(sync.updatedCount).append(" 门已有课程")
+                        }
+                        append("。")
+                    }
+                }
+            }
+        } else {
+            val merge = mergeRecognizedCourses(courses, batch.courses)
+            // 截图等不可靠来源仍只新增待确认课程，不更新已有记录。
+            if (merge.added.isNotEmpty()) {
+                val updated = courses + merge.added
+                courses = updated
+                store.saveCourses(updated)
+                navHistory.markWorkedHere()
+            }
+            courseImportMessage = "${batch.source.label}：${merge.message}"
+        }
+        if (batch.warnings.isNotEmpty()) {
+            courseImportMessage = courseImportMessage.orEmpty() + " " + batch.warnings.joinToString("；") + "。"
+        }
         courseImportRunning = false
         globalLoading = false
     }
@@ -654,19 +743,33 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             globalLoading = true
             courseImportMessage = "正在用硅基流动视觉模型识别课程…"
             CourseVisionRecognizer.recognize(context, uri, tutorialSearch.apiKey, courseVision.model, campusPlaces,
-                onSuccess = { applyRecognizedCourses(it) },
+                onSuccess = { applyImportedCourses(it) },
                 onFailure = { visionError ->
                     // 4.0.1 起不再回退本地 OCR（效果差）：直接说明失败原因，可检查 key/模型名/网络后重试。
                     courseImportMessage = "视觉模型识别失败（$visionError）。可检查设置里的 key、模型名或网络后重试。"
                     courseImportRunning = false
                     globalLoading = false
-                },
-                onNewPlaces = { newPlaces ->
-                    if (newPlaces.isNotEmpty()) {
-                        pendingPlaces = (newPlaces + pendingPlaces).distinct().take(50)
-                        store.savePendingPlaces(pendingPlaces)
-                    }
                 })
+        }
+    }
+    val zjuTimetableLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        courseImportRunning = false
+        globalLoading = false
+        if (result.resultCode == android.app.Activity.RESULT_OK) {
+            val payload = result.data?.getStringExtra(ZjuTimetableImportActivity.EXTRA_TIMETABLE_PAYLOAD).orEmpty()
+            when (val parsed = ZjuTimetableParser.parse(payload)) {
+                is ZjuTimetableParseResult.Success -> {
+                    applyImportedCourses(parsed.batch)
+                    val cautions = buildList {
+                        if (parsed.nonWeeklyRows > 0) add("${parsed.nonWeeklyRows} 条含单双周或不连续教学周，已保留为待确认，请按本学期实际周次核对")
+                        if (parsed.invalidRows > 0) add("${parsed.invalidRows} 条缺少课程名、星期或节次，未导入")
+                    }
+                    if (cautions.isNotEmpty()) courseImportMessage = courseImportMessage.orEmpty() + " " + cautions.joinToString("；") + "。"
+                }
+                is ZjuTimetableParseResult.Failure -> courseImportMessage = parsed.message
+            }
+        } else {
+            courseImportMessage = "已取消浙江大学教务导入。"
         }
     }
     fun saveItems(updated: List<Item>): Boolean {
@@ -802,7 +905,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     // 8.1.0 两级退出：非今日页主页按返回先回今日主页；今日页主页按返回二次确认退出，可记忆不再提示。
     // 子页返回处理器在本处理器之后组合，子页打开时优先；弹窗宿主也组合在本处理器之后，弹窗打开时返回先关弹窗。
     var lastExitPromptAt by remember { mutableLongStateOf(0L) }
-    var exitConfirmDisabled by remember { mutableStateOf(store.loadExitConfirmDisabled()) }
+    var exitConfirmDisabled by remember { mutableStateOf(startup.exitConfirmDisabled) }
     // 只按"当前页签"判断是否在子页：别的页签遗留的子页状态（切走后保留）不该让本处理器失效，
     // 否则系统返回没有任何处理器接管，会直接退出应用、跳过二次确认。
     val onCurrentSubpage = (tab == 0 && todayInboxOpen) ||
@@ -871,11 +974,16 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     }
 
     LaunchedEffect(Unit) {
-        ReminderScheduler.restoreActivityReminders(context)
+        // 恢复提醒会读取多组偏好、重建多类闹钟；它不应在首个 Compose 提交后立刻占住主线程。
+        withContext(Dispatchers.IO) { ReminderScheduler.restoreActivityReminders(context) }
+        // 启动快照已经带回当前会话与历史，首轮无需再次读取。
+        delay(1_000)
         while (true) {
-            val restored = store.loadLatestActiveSession()
+            val (restored, recentHistory) = withContext(Dispatchers.IO) {
+                store.loadLatestActiveSession() to store.loadRecentActivitySessions()
+            }
             activeSession = restored
-            activityHistory = store.loadRecentActivitySessions()
+            activityHistory = recentHistory
             if (restored == null) {
                 transitionTarget = null
             } else if (transitionTarget?.id == restored.id && transitionTarget != restored) {
@@ -914,7 +1022,21 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
         val glassBackdropState = remember(capturesGlassBackdrop) {
             if (capturesGlassBackdrop) HazeState() else null
         }
-        Box(Modifier.fillMaxSize().imePadding()) {
+        val startupInteractionModifier = if (startupInteractionGuardActive) {
+            Modifier.pointerInput(Unit) {
+                awaitPointerEventScope {
+                    while (true) {
+                        val event = awaitPointerEvent(PointerEventPass.Initial)
+                        if (event.changes.any { it.pressed && !it.previousPressed }) {
+                            startupInteractionToken++
+                        }
+                    }
+                }
+            }
+        } else {
+            Modifier
+        }
+        Box(Modifier.fillMaxSize().imePadding().then(startupInteractionModifier)) {
         // 8.2.0 外观系统：背景层画在最底下（页面渐变/图片）。默认外观下它不新增任何绘制，
         // 因此「默认与 8.1.1 逐像素一致」是结构上成立的，不靠调参。
         Box(
@@ -937,7 +1059,9 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             LocalAppearance provides appearance,
             LocalBackdropBitmap provides pageBackdropBitmap,
             LocalGlassBackdropState provides glassBackdropState,
-            LocalAppDialogHost provides dialogHost
+            LocalAppDialogHost provides dialogHost,
+            // 页面直接文字也要随真实背景选对比色，不能只修卡片内容。
+            LocalContentColor provides pageBodyContentColor()
         ) {
         // Horizontal cutouts constrain the viewport. Top safety travels with scroll content.
         val safeContentInsets = WindowInsets.systemBars.union(WindowInsets.displayCutout)
@@ -992,16 +1116,37 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                 TransformOrigin(0.664f, 0.878f),
                 TransformOrigin(0.829f, 0.878f)
             )
-            // 8.1.0 第三轮：启动只组合当前页签（首帧不被三个整页拖慢）；
-            // 首帧之后再逐帧补齐其余页签——否则第一次切到某页签时才组合整页，切换会明显掉帧。
+            // 启动只组合当前页签。隐藏页必须等当前页面持续空闲后逐个预热；首帧后连续组合三个整页
+            // 会和首次展开、弹窗及切页动画争抢主线程，正是“前几次动画都掉帧”的高风险路径。
             val visitedTabs = remember { mutableStateListOf(0) }
             // 当前页签在组合期就入表：否则切过去的那一帧它还没被组合，页面会空白一帧。
             if (tab !in visitedTabs) visitedTabs.add(tab)
-            LaunchedEffect(Unit) {
+            val visitedTabCount = visitedTabs.size
+            LaunchedEffect(
+                tab,
+                todayInboxOpen,
+                planPage,
+                settingsSubPage,
+                dialogLayerVisible,
+                globalLoading,
+                startupInteractionToken,
+                visitedTabCount
+            ) {
+                if (!StartupWorkPolicy.canWarmTabs(globalLoading, dialogLayerVisible)) return@LaunchedEffect
+                val extra = StartupWorkPolicy.nextPendingTab(visitedTabs, tab)
+                if (extra == null) {
+                    startupInteractionGuardActive = false
+                    return@LaunchedEffect
+                }
+                // 固定的“启动 1.2 秒后连做三页”仍会撞上第一次触摸；现在每次按下都会取消
+                // 当前等待，并从最后一次交互重新计算空闲窗。每个空闲窗只组合一个完整页签，
+                // 图片背景 + 亚克力下也不会在相邻几帧连续建立大量 Haze 效果层。
+                delay(StartupWorkPolicy.warmupIdleMs(hasInteracted = startupInteractionToken > 0))
                 withFrameNanos { }
-                for (extra in listOf(1, 2, 3)) {
-                    if (extra !in visitedTabs) visitedTabs.add(extra)
-                    withFrameNanos { }
+                if (StartupWorkPolicy.canWarmTabs(globalLoading, dialogLayerVisible) &&
+                    extra != tab && extra !in visitedTabs
+                ) {
+                    visitedTabs.add(extra)
                 }
             }
             val currentSnapshot = PageSnapshot(tab, todayInboxOpen, planPage, settingsSubPage, settingsBackStack)
@@ -1278,9 +1423,13 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                         saveItemsWithEvent(result.items, result.event)
                     },
                     onConfirmCourse = { course ->
-                        courseImportMessage = null
-                        courses = courses.map { if (it == course) it.copy(needsConfirmation = false) else it }
-                        store.saveCourses(courses)
+                        if (CourseConfirmationSafety.isDirectConfirmationBlocked(course, courses)) {
+                            courseImportMessage = "这门课与另一门待确认或已确认课程被识别到完全相同的星期和节次。请点“编辑并确认”核对坐标，避免错误课表直接生效。"
+                        } else {
+                            courseImportMessage = null
+                            courses = courses.map { if (it == course) it.copy(needsConfirmation = false) else it }
+                            store.saveCourses(courses)
+                        }
                     },
                     onIgnoreCourse = { course ->
                         courseImportMessage = null
@@ -1304,6 +1453,12 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                         } else {
                             courseScreenshotLauncher.launch(arrayOf("image/*"))
                         }
+                    },
+                    onImportZju = {
+                        courseImportRunning = true
+                        globalLoading = false
+                        courseImportMessage = "请在应用内填写浙江大学统一身份认证账号和密码，随后自动获取当前课表。"
+                        zjuTimetableLauncher.launch(Intent(context, ZjuTimetableImportActivity::class.java))
                     },
                     onEditCourse = { courseEditor = it },
                     onToggleCourse = { course ->
@@ -1657,7 +1812,11 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             },
             onSelectTab = { selectTab(it) },
             // 点 ＋ 视为"换一个动作"：先关掉当前弹窗再打开添加菜单（内容有草稿箱兜底）。
-            onAdd = { dialogHost.dismissCurrent(); addMenuOpen = true },
+            onAdd = {
+                dialogHost.dismissCurrent()
+                addMenuOpen = true
+                addMenuRequestId++
+            },
             canGoBack = navHistory.canGoBack(),
             canGoForward = navHistory.canGoForward(),
             // 弹窗打开时让底栏退后（压暗 + 收阴影）：它的 zIndex 比弹窗层高，遮罩盖不到它。
@@ -1672,11 +1831,13 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
         )
         if (!hasTopNotice) StatusBarScrim(topSafety, Modifier.align(Alignment.TopCenter))
         // page with overlaid navigation; no full-width bottom surface
-        if (addMenuOpen) AddMenuDialog(
-            onDismiss = { addMenuOpen = false },
-            onQuickCapture = { addMenuOpen = false; addOpen = true },
-            onGamePlan = { addMenuOpen = false; gamePlanOpen = true }
-        )
+        if (addMenuOpen) key(addMenuRequestId) {
+            AddMenuDialog(
+                onDismiss = { addMenuOpen = false },
+                onQuickCapture = { addMenuOpen = false; addOpen = true },
+                onGamePlan = { addMenuOpen = false; gamePlanOpen = true }
+            )
+        }
         if (gamePlanOpen) GamePlanDialog(
             courses = activeCourses,
             profile = commuteProfile,
@@ -2107,12 +2268,14 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             initial = baselineProfile,
             onDismiss = {
                 baselineOnboardingOpen = false
+                onboardingDone = true
                 store.saveOnboardingDone(true)
             },
             onSave = { profile ->
                 val previous = baselineProfile
                 baselineProfile = profile
                 store.saveBaselineProfile(profile)
+                onboardingDone = true
                 store.saveOnboardingDone(true)
                 ReminderScheduler.scheduleDailyWindDown(context, profile)
                 profile.lifeStage?.takeIf { it != previous.lifeStage }?.let { stage ->
@@ -2140,17 +2303,20 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             onEnable = {
                 campusLifeEnabled = true
                 store.saveCampusLifeEnabled(true)
+                campusLifeChoiceShown = true
                 store.saveCampusLifeChoiceShown(true)
                 campusLifeChoiceOpen = false
             },
             onSkip = {
                 campusLifeEnabled = false
                 store.saveCampusLifeEnabled(false)
+                campusLifeChoiceShown = true
                 store.saveCampusLifeChoiceShown(true)
                 campusLifeChoiceOpen = false
             }
         )
         if (featureIntroOpen) WelcomeIntroDialog(onDismiss = {
+            lastSeenAppVersion = BuildConfig.VERSION_NAME
             store.saveLastSeenAppVersion(BuildConfig.VERSION_NAME)
             featureIntroOpen = false
         })

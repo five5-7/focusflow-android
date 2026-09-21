@@ -23,6 +23,7 @@ internal fun PlanCoursesSection(
     tutorialSearch: TutorialSearchSettings,
     courseVision: CourseVisionSettings,
     onImportCourses: () -> Unit,
+    onImportZju: () -> Unit,
     onAddCourse: () -> Unit,
     onClearAwaitingCourses: () -> Unit,
     onConfirmCourse: (Course) -> Unit,
@@ -31,18 +32,29 @@ internal fun PlanCoursesSection(
     onToggleCourse: (Course) -> Unit,
     onDeleteCourses: (Set<Course>) -> Unit
 ) {
-    Text("从课表截图开始", fontWeight = FontWeight.Bold)
+    Text("从教务网导入", fontWeight = FontWeight.Bold)
+    FilledTonalButton(
+        enabled = !courseImportRunning,
+        onClick = onImportZju,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Text(if (courseImportRunning) "导入处理中…" else "浙江大学")
+    }
+    Text(
+        "应用内填写统一身份认证账号和密码后自动获取；密码仅用于本次导入，不保存。新课程进入待确认，唯一匹配的已有课程直接更新。",
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+    Text("其他导入方式", fontWeight = FontWeight.Bold)
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        FilledTonalButton(enabled = !courseImportRunning, onClick = onImportCourses) {
-            Text(if (courseImportRunning) "正在识别…" else "选择课表截图")
-        }
-        TextButton(onClick = onAddCourse) { Text("手动新增") }
+        OutlinedButton(enabled = !courseImportRunning, onClick = onImportCourses) { Text("截图识别") }
+        TextButton(enabled = !courseImportRunning, onClick = onAddCourse) { Text("手动新增") }
     }
     Text(
         if (courseVision.enabled && tutorialSearch.apiKey.isNotBlank()) {
-            "识别方式：硅基流动视觉模型（${courseVision.model}）"
+            "截图识别：硅基流动视觉模型（${courseVision.model}）"
         } else {
-            "未开启视觉模型：请到设置开启并填写 key 后导入"
+            "截图识别未开启：可到设置开启并填写 key"
         },
         style = MaterialTheme.typography.labelSmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -88,8 +100,20 @@ private fun PendingCourses(
         Text("待确认课程", fontWeight = FontWeight.Bold)
         TextButton(onClick = onClear) { Text("全部忽略") }
     }
+    val blockedDirectConfirmationIds = remember(awaiting, confirmed) {
+        CourseConfirmationSafety.blockedDirectConfirmationIds(awaiting + confirmed)
+    }
+    if (blockedDirectConfirmationIds.isNotEmpty()) {
+        Text(
+            "检测到多门课程占用完全相同的星期和节次。为避免错误课表生效，这些课程只能逐门“编辑并确认”。",
+            color = CONFLICT_TEXT_COLOR,
+            style = MaterialTheme.typography.bodySmall,
+            fontWeight = FontWeight.SemiBold
+        )
+    }
     awaiting.forEach { course ->
         val conflictWith = confirmed.firstOrNull { coursesOverlap(course, it) }
+        val directConfirmationBlocked = course.id in blockedDirectConfirmationIds
         // 收编：带冲突描边的 Card → FocusCard。border 原样传入（null 时与原来一样不描边）；
         // 底色不变；Card 默认阴影 Level0 = 0dp，与 FocusCard 默认一致。
         FocusCard(
@@ -109,8 +133,19 @@ private fun PendingCourses(
                         fontWeight = FontWeight.SemiBold
                     )
                 }
+                if (directConfirmationBlocked) {
+                    Text(
+                        "星期和节次需要手动核对；编辑器会保留课程名与地点供修正。",
+                        color = CONFLICT_TEXT_COLOR,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextButton(onClick = { onConfirm(course) }) { Text("确认") }
+                    TextButton(
+                        enabled = !directConfirmationBlocked,
+                        onClick = { onConfirm(course) }
+                    ) { Text(if (directConfirmationBlocked) "需先编辑" else "确认") }
                     TextButton(onClick = { onEdit(course) }) { Text("编辑并确认") }
                     TextButton(onClick = { onIgnore(course) }) { Text("忽略") }
                 }
@@ -245,13 +280,17 @@ private fun ConfirmedCourses(confirmed: List<Course>, onEdit: (Course) -> Unit, 
 @Composable
 private fun CourseIdentity(course: Course, titleColor: androidx.compose.ui.graphics.Color? = null) {
     Text(
-        "${weekdayName(course.weekday)} · ${course.title}",
+        course.title,
         fontWeight = FontWeight.SemiBold,
         color = titleColor ?: LocalContentColor.current
     )
     Text(
-        "第 ${course.startPeriod}–${course.endPeriod} 节 · ${course.building}" +
+        "${weekdayName(course.weekday)} · 第 ${course.startPeriod}–${course.endPeriod} 节" +
             (if (!course.enabled) " · 已停用" else courseDateRangeText(course)),
+        style = MaterialTheme.typography.bodySmall
+    )
+    Text(
+        if (course.building.isBlank()) "地点待确认" else course.building,
         style = MaterialTheme.typography.bodySmall
     )
 }

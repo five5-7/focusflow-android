@@ -47,14 +47,14 @@ object ZijingangTravel {
             setOf(CampusZone.WEST_TEACHING, CampusZone.CHEMISTRY_LABS),
             setOf(CampusZone.EAST_TEACHING, CampusZone.NORTH_TEACHING) -> profile.fairlyFarMinutes
             setOf(CampusZone.WEST_TEACHING, CampusZone.EAST_TEACHING) -> profile.farMinutes
-            else -> if (profile.useDefaultForUnknown) profile.oneWayMinutes else 0
+            else -> if (profile.useDefaultForUnknown) profile.reserveMinutesFor(profile.campusMode) else 0
         }
         if (walkingMinutes <= 0) return 0
-        // 档位只是可调整的规划缓冲；实测路线校准始终优先，不把校内分区当作导航距离。
-        val travel = when (profile.campusMode) {
-            "自行车" -> maxOf(3, (walkingMinutes * 0.6).toInt())
-            "电动车" -> maxOf(3, (walkingMinutes * 0.5).toInt())
-            else -> walkingMinutes
+        // 档位按步行标定；各方式的预留决定同一档位的缩放比例。
+        // 旧存档的 10/6/5 分钟默认值与过去的 1/0.6/0.5 倍行为完全一致。
+        val walkingReserve = profile.reserveMinutesFor("步行").coerceAtLeast(1)
+        val travel = if (profile.campusMode == "步行") walkingMinutes else {
+            maxOf(3, (walkingMinutes * profile.reserveMinutesFor(profile.campusMode).toFloat() / walkingReserve).toInt())
         }
         return travel + profile.buildingBufferMinutes * 2
     }

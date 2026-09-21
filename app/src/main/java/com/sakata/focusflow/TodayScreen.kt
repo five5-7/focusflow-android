@@ -14,6 +14,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
@@ -138,7 +139,10 @@ import kotlinx.coroutines.delay
         }
         TodayStatusPanel(
             expanded = statusPanelOpen,
-            onExpandedChange = { statusPanelOpen = it },
+            onExpandedChange = {
+                if (it) FrameTimingRecorder.recordExpansion("today_status")
+                statusPanelOpen = it
+            },
             lifeStage = baselineProfile.lifeStage,
             onSwitchLifeStage = onSwitchLifeStage,
             energyLevel = energyLevel,
@@ -211,6 +215,7 @@ import kotlinx.coroutines.delay
                 }
             }
         }
+        TodayPermissionReminder(now)
         FocusCard(
             containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
             modifier = Modifier.fillMaxWidth().clickable(onClick = onOpenSchedule)
@@ -592,7 +597,10 @@ private fun StatusChoiceRow(label: String, options: List<String>, selected: Stri
 @Composable internal fun InboxItemCard(item: Item, onPickTime: (Item) -> Unit, onEdit: (Item) -> Unit, onOrganize: (Item) -> Unit, onShrink: (Item) -> Unit, onPause: (Item) -> Unit, onAbandon: (Item) -> Unit) {
     // 收编进 FocusCard（维护者反馈"收集箱等没有渲染"）：ElevatedCard 不读卡片材质，
     // 所以选柔光/纸感时收集箱卡片毫无反应。FocusCard 在默认材质下与原生 Card 渲染一致。
-    FocusCard(containerColor = MaterialTheme.colorScheme.surfaceContainerLow) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    FocusCard(
+        modifier = Modifier.fillMaxWidth(),
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+    ) { Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text(item.title, fontWeight = FontWeight.SemiBold)
         Text(item.detail)
         if (item.userNote != null && item.userNote.isNotBlank() && item.userNote != item.detail) {
@@ -622,7 +630,10 @@ private fun StatusChoiceRow(label: String, options: List<String>, selected: Stri
 
 @Composable private fun ProgressCaptureCard(item: Item, activeChild: Item?, onOrganize: (Item) -> Unit, onCreateNextAction: (Item) -> Unit, onRestore: (Item) -> Unit, onDelete: (Item) -> Unit, onComplete: (Item) -> Unit) {
     // 同上：收编进 FocusCard，让"逐步推进"的卡片也吃材质。
-    FocusCard(containerColor = MaterialTheme.colorScheme.surfaceContainerLow) { Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    FocusCard(
+        modifier = Modifier.fillMaxWidth(),
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+    ) { Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(item.title, fontWeight = FontWeight.SemiBold)
         Text(item.editableNote(), style = MaterialTheme.typography.bodySmall)
         Text(activeChild?.let { "当前步骤：${it.title}" } ?: item.nextAction.takeIf { it.isNotBlank() }?.let { "下一步：$it" } ?: "等待补充下一步，不必立即安排。", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Medium)
@@ -649,7 +660,10 @@ private fun StatusChoiceRow(label: String, options: List<String>, selected: Stri
 }
 
 @Composable private fun ReferenceCaptureCard(item: Item, onRestore: (Item) -> Unit, onDelete: (Item) -> Unit) {
-    FocusCard(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)) {
+    FocusCard(
+        modifier = Modifier.fillMaxWidth(),
+        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+    ) {
         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(item.title, fontWeight = FontWeight.SemiBold)
             Text(item.editableNote())
@@ -682,4 +696,46 @@ internal fun todayAgenda(courses: List<Course>, items: List<Item>, now: Long = S
             AgendaEntry(calendar.get(java.util.Calendar.HOUR_OF_DAY) * 60 + calendar.get(java.util.Calendar.MINUTE), item.title, "任务 · ${item.detail.ifBlank { "已安排" }}", false)
         } }
     return (todayCourses + todayTasks).sortedBy { it.startMinute }
+}
+
+@Composable
+private fun TodayPermissionReminder(now: Long) {
+    val context = LocalContext.current
+    val store = remember(context) { PrototypeStore(context) }
+    var dismissed by remember { mutableStateOf(store.loadPermissionReminderDismissed()) }
+    var detailsOpen by remember { mutableStateOf(false) }
+    var confirmDismissOpen by remember { mutableStateOf(false) }
+    val permissionEntries = remember(now / 30_000L) { permissionCenterEntries(context) }
+    if (dismissed) return
+    FocusCard(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.78f)) {
+        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+            Text("权限与提醒", fontWeight = FontWeight.SemiBold)
+            Text(
+                PermissionCenterPolicy.summary(permissionEntries),
+                style = MaterialTheme.typography.bodySmall
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = { detailsOpen = true }) { Text("查看") }
+                TextButton(onClick = { confirmDismissOpen = true }) { Text("不再提示") }
+            }
+        }
+    }
+    if (detailsOpen) PermissionRequirementsDialog(
+        todayReminderDismissed = false,
+        onDismiss = { detailsOpen = false },
+        onRestoreTodayReminder = {}
+    )
+    if (confirmDismissOpen) AlertDialog(
+        onDismissRequest = { confirmDismissOpen = false },
+        title = { Text("不再在今日页提示？") },
+        text = { Text("之后可在 设置 → 检查更新 上方的“权限与提醒”查看和恢复。") },
+        confirmButton = {
+            Button(onClick = {
+                    dismissed = true
+                    store.savePermissionReminderDismissed(true)
+                    confirmDismissOpen = false
+                }) { Text("确认不再提示") }
+        },
+        dismissButton = { TextButton(onClick = { confirmDismissOpen = false }) { Text("取消") } }
+    )
 }

@@ -220,7 +220,9 @@ private data class BaselineVariantDraft(val name: String)
     var settingsNotificationHealth by remember { mutableStateOf(NotificationChannelSettings.health(context)) }
     DisposableEffect(settingsLifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) settingsNotificationHealth = NotificationChannelSettings.health(context)
+            if (event == Lifecycle.Event.ON_RESUME) {
+                settingsNotificationHealth = NotificationChannelSettings.health(context)
+            }
         }
         settingsLifecycleOwner.lifecycle.addObserver(observer)
         onDispose { settingsLifecycleOwner.lifecycle.removeObserver(observer) }
@@ -233,6 +235,8 @@ private data class BaselineVariantDraft(val name: String)
     var choosingCurrentPlace by remember { mutableStateOf(false) }
     var choosingDestination by remember { mutableStateOf(false) }
     var helpBlock by remember { mutableStateOf<SettingsBlock?>(null) }
+    var permissionReminderDismissed by remember { mutableStateOf(settingsStore.loadPermissionReminderDismissed()) }
+    var permissionDetailsOpen by remember { mutableStateOf(false) }
     var baselineVariantsExpanded by remember { mutableStateOf(false) }
     var dayGroupWizardOpen by remember { mutableStateOf(false) }
     var previewDestination by remember(campusPlaces, currentCampusPlace) {
@@ -265,7 +269,10 @@ private data class BaselineVariantDraft(val name: String)
         FocusCard(
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
             elevation = 1.dp,
-            onClick = { defaultHelpExpanded = !defaultHelpExpanded }
+            onClick = {
+                if (!defaultHelpExpanded) FrameTimingRecorder.recordExpansion("settings_defaults")
+                defaultHelpExpanded = !defaultHelpExpanded
+            }
         ) {
             Column(
                 Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
@@ -493,6 +500,14 @@ private data class BaselineVariantDraft(val name: String)
         TextButton(onClick = onAddImprovement) { Text("＋ 记录改进想法") }
         improvementNotes.takeLast(3).reversed().forEach { note -> ElevatedCard { Text(note.text, Modifier.padding(10.dp)) } }
         HorizontalDivider()
+        if (permissionReminderDismissed) {
+            val permissionEntries = permissionCenterEntries(context)
+            PlanHubItem(
+                "权限与提醒",
+                "今日提示已关闭 · ${PermissionCenterPolicy.summary(permissionEntries)}"
+            ) { permissionDetailsOpen = true }
+            HorizontalDivider()
+        }
         PlanHubItem("检查更新", updateCheckState.message ?: "手动或自动检查；仅接受 GitHub 正式版更新") { onSubPageChange(SettingsSubPage.UPDATES) }
         HorizontalDivider()
         PlanHubItem("快速入门", "首次使用") { onOpenFeatureIntro() }
@@ -502,6 +517,15 @@ private data class BaselineVariantDraft(val name: String)
         PlanHubItem("版本路线图", "当前 ${BuildConfig.VERSION_NAME} · 构建 #${BuildConfig.CI_RUN_NUMBER} · 更新说明与版本演进") { onSubPageChange(SettingsSubPage.ROADMAP) }
     }
     }
+    if (permissionDetailsOpen) PermissionRequirementsDialog(
+        todayReminderDismissed = permissionReminderDismissed,
+        onDismiss = { permissionDetailsOpen = false },
+        onRestoreTodayReminder = {
+            settingsStore.savePermissionReminderDismissed(false)
+            permissionReminderDismissed = false
+            permissionDetailsOpen = false
+        }
+    )
     SubpageMotion(subPage, depth = { destination ->
         when (destination) {
             SettingsSubPage.ADVANCED, SettingsSubPage.USER_GUIDE, SettingsSubPage.ROADMAP, SettingsSubPage.APPEARANCE,
@@ -940,21 +964,36 @@ private data class BaselineVariantDraft(val name: String)
                                             "没有路线记录或可判断档位时才使用；关闭后不自动预留",
                                             commuteProfile.useDefaultForUnknown
                                         ) { onCommuteChange(commuteProfile.copy(useDefaultForUnknown = it)) }
-                                        if (commuteProfile.useDefaultForUnknown) {
-                                            Text("未知路线默认 ${commuteProfile.oneWayMinutes} 分钟")
+                                        var transportReservesExpanded by remember { mutableStateOf(false) }
+                                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                            Text("各方式路上预留", fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                                            TextButton(onClick = {
+                                                if (!transportReservesExpanded) FrameTimingRecorder.recordExpansion("transport_reserves")
+                                                transportReservesExpanded = !transportReservesExpanded
+                                            }) {
+                                                Text(if (transportReservesExpanded) "收起" else "设置")
+                                            }
                                         }
-                                        Text("这只是规划缓冲，不读取定位；实测路线记录会优先使用。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                        Text("未知路线默认值", style = MaterialTheme.typography.labelMedium)
-                                        FlowRow(
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                            verticalArrangement = Arrangement.spacedBy(6.dp)
-                                        ) {
-                                            listOf(5, 10, 15, 20, 30, 45, 60).forEach { minutes ->
-                                                FilterChip(
-                                                    selected = commuteProfile.oneWayMinutes == minutes,
-                                                    onClick = { onCommuteChange(commuteProfile.copy(oneWayMinutes = minutes)) },
-                                                    label = { Text("${minutes} 分钟", maxLines = 1) }
-                                                )
+                                        AnimatedVisibility(transportReservesExpanded) {
+                                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                                Text("楼内进出缓冲另算；实测路线记录优先。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                listOf("步行", "自行车", "电动车").forEach { mode ->
+                                                    val selectedMinutes = commuteProfile.reserveMinutesFor(mode)
+                                                    Text("$mode · $selectedMinutes 分钟", style = MaterialTheme.typography.labelMedium)
+                                                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                                        listOf(3, 5, 10, 15, 20, 30, 45, 60).forEach { minutes ->
+                                                            FilterChip(
+                                                                selected = selectedMinutes == minutes,
+                                                                onClick = { onCommuteChange(when (mode) {
+                                                                    "自行车" -> commuteProfile.copy(bicycleReserveMinutes = minutes)
+                                                                    "电动车" -> commuteProfile.copy(eBikeReserveMinutes = minutes)
+                                                                    else -> commuteProfile.copy(walkingReserveMinutes = minutes)
+                                                                }) },
+                                                                label = { Text("${minutes} 分钟", maxLines = 1) }
+                                                            )
+                                                        }
+                                                    }
+                                                }
                                             }
                                         }
                                         Text("距离档位", fontWeight = FontWeight.SemiBold)
@@ -1225,7 +1264,7 @@ private data class BaselineVariantDraft(val name: String)
                                 singleLine = true,
                                 modifier = Modifier.fillMaxWidth()
                             )
-                            Text("默认 Qwen/Qwen3-VL-8B-Instruct（在线免费，识别课表足够）；识别率不满意可换 Qwen/Qwen3-VL-32B-Instruct（是否计费以硅基流动为准）。旧版 Qwen2.5-VL 系列已下线，保存过旧模型名会自动迁移。key 仅存本机，只发往 api.siliconflow.cn，关闭开关后导入课表不再联网。", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("默认 Qwen/Qwen3-VL-8B-Instruct（在线免费，适合先试；复杂网格、拍屏摩尔纹或透视图片可能识别错误）；可换 32B／30B-A3B，或像自定义模型工具一样在上方直接填写硅基流动支持的其他视觉模型 ID。识别结果会校验星期与节次，明显塌缩的整批结果不会导入。旧版 Qwen2.5-VL 系列已下线。key 仅存本机，只发往 api.siliconflow.cn。", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                     SettingsSubPage.APP_DETECTION -> {
@@ -1529,7 +1568,10 @@ internal fun CollapsibleSettingsDetails(
         Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(summary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
-                TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "收起" else "展开") }
+                TextButton(onClick = {
+                    if (!expanded) FrameTimingRecorder.recordExpansion("settings_details")
+                    expanded = !expanded
+                }) { Text(if (expanded) "收起" else "展开") }
             }
             AnimatedVisibility(
                   visible = expanded,
