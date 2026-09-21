@@ -1,0 +1,111 @@
+package com.sakata.focusflow.data
+
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class LegacyPreferencesReaderTest {
+    @Test
+    fun `8_2_1 fixture receives safe defaults without changing IDs`() {
+        val source = MapLegacySource(
+            strings = mapOf(
+                LegacyPreferencesReader.KEY_ITEMS to fixture("migration/8.2.1/items.json"),
+                LegacyPreferencesReader.KEY_GOALS to fixture("migration/8.2.1/goals.json")
+            ),
+            dataVersion = 1
+        )
+
+        val result = LegacyPreferencesReader(source) { _, _ -> true }.read() as LegacyReadResult.Success
+
+        assertEquals(listOf(101L, 102L), result.snapshot.tasks.map { it.id })
+        assertEquals(TaskStatusKey.CAPTURED, result.snapshot.tasks[0].status)
+        assertEquals(TaskStatusKey.SCHEDULED, result.snapshot.tasks[1].status)
+        assertEquals("mid", result.snapshot.tasks[0].priority)
+        assertEquals(201L, result.snapshot.tasks[1].planId)
+        assertEquals(listOf(201L), result.snapshot.plans.map { it.id })
+        assertTrue(result.snapshot.taskEvents.isEmpty())
+    }
+
+    @Test
+    fun `8_3 fixture preserves current fields and detached history`() {
+        val source = MapLegacySource(
+            strings = mapOf(
+                LegacyPreferencesReader.KEY_ITEMS to fixture("migration/8.3-rc.12/items.json"),
+                LegacyPreferencesReader.KEY_TASK_EVENTS to fixture("migration/8.3-rc.12/task_events.json"),
+                LegacyPreferencesReader.KEY_GOALS to fixture("migration/8.3-rc.12/goals.json")
+            ),
+            dataVersion = 1
+        )
+
+        val result = LegacyPreferencesReader(source) { _, _ -> true }.read() as LegacyReadResult.Success
+        val task = result.snapshot.tasks.single()
+
+        assertEquals(TaskStatusKey.COMPLETED, task.status)
+        assertEquals("用户备注", task.userNote)
+        assertEquals("high", task.priority)
+        assertEquals(2, task.rescheduleCount)
+        assertEquals(listOf(501L, 502L), result.snapshot.taskEvents.map { it.id })
+        assertTrue(result.snapshot.diagnostics.any { it.message.contains("deleted tasks") })
+        assertFalse(result.snapshot.sourceFingerprint.isBlank())
+    }
+
+    @Test
+    fun `corrupt fixture is backed up and blocks migration`() {
+        val backups = mutableListOf<Pair<String, String>>()
+        val source = MapLegacySource(
+            strings = mapOf(LegacyPreferencesReader.KEY_ITEMS to fixture("migration/corrupt/items.json"))
+        )
+
+        val result = LegacyPreferencesReader(source) { key, raw ->
+            backups += key to raw
+            true
+        }.read() as LegacyReadResult.Failure
+
+        assertEquals(LegacyPreferencesReader.KEY_ITEMS, result.domain)
+        assertTrue(result.backupSucceeded)
+        assertEquals(1, backups.size)
+    }
+
+    @Test
+    fun `duplicate or zero item IDs are rejected instead of renumbered`() {
+        listOf(
+            """[{"id":0,"title":"zero","detail":"","kind":"任务"}]""",
+            """[{"id":7,"title":"a","detail":"","kind":"任务"},{"id":7,"title":"b","detail":"","kind":"任务"}]"""
+        ).forEach { raw ->
+            val result = LegacyPreferencesReader(
+                MapLegacySource(mapOf(LegacyPreferencesReader.KEY_ITEMS to raw))
+            ) { _, _ -> true }.read()
+            assertTrue(result is LegacyReadResult.Failure)
+        }
+    }
+
+    @Test
+    fun `unknown event type blocks import instead of disappearing`() {
+        val items = """[{"id":1,"title":"a","detail":"","kind":"任务"}]"""
+        val events = """[{"id":2,"itemId":1,"type":"future_type","recordedAt":10}]"""
+        val result = LegacyPreferencesReader(
+            MapLegacySource(
+                mapOf(
+                    LegacyPreferencesReader.KEY_ITEMS to items,
+                    LegacyPreferencesReader.KEY_TASK_EVENTS to events
+                )
+            )
+        ) { _, _ -> true }.read()
+
+        assertTrue(result is LegacyReadResult.Failure)
+        assertEquals(LegacyPreferencesReader.KEY_TASK_EVENTS, (result as LegacyReadResult.Failure).domain)
+    }
+
+    private fun fixture(path: String): String = requireNotNull(javaClass.classLoader?.getResource(path))
+        .readText(Charsets.UTF_8)
+}
+
+internal class MapLegacySource(
+    private val strings: Map<String, String> = emptyMap(),
+    private val dataVersion: Int = 1
+) : LegacyPreferencesSource {
+    override fun getString(key: String): String? = strings[key]
+    override fun getInt(key: String, defaultValue: Int): Int =
+        if (key == LegacyPreferencesReader.KEY_DATA_VERSION) dataVersion else defaultValue
+}

@@ -1,0 +1,27 @@
+[
+  {
+    "captureSchemaVersion": 1,
+    "id": 301,
+    "title": "保留完整字段",
+    "detail": "系统状态说明",
+    "kind": "任务",
+    "done": true,
+    "scheduledAt": 1789992000000,
+    "dayOnly": false,
+    "goalId": 401,
+    "completionLevel": "完成",
+    "completedAt": 1789995600000,
+    "durationMinutes": 60,
+    "windowStartAt": 0,
+    "windowEndAt": 0,
+    "rescheduleCount": 2,
+    "lastRescheduledAt": 1789988400000,
+    "recoverySourceScheduledAt": 0,
+    "priority": "high",
+    "captureRoute": "inbox",
+    "sourceDetail": "原始说明",
+    "userNote": "用户备注",
+    "nextAction": "",
+    "parentCaptureId": 0
+  }
+]
