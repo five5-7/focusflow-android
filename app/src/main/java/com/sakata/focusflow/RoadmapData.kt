@@ -21,7 +21,7 @@ object RoadmapData {
     /** 已实现版本演进（1.0 → 当前版本），每版本浓缩 1–3 条，与 CHANGELOG.md 对应。 */
     val evolution: List<RoadmapVersion> = listOf(
         RoadmapVersion("8.3.0", listOf(
-            RoadmapEntry("8.3.0-rc.12", "课表截图识别防错", "延续权限中心、浙大课表自动导入、首次动画优化与验收反馈修复；截图识别严格校验网格中的星期和节次，拒绝多数坐标缺失或明显塌缩的整批结果，完全重叠的不同课程必须逐门编辑后确认。仍待稳定签名 CI 与 OPPO 真机复测。", RoadmapStatus.CANDIDATE)
+            RoadmapEntry("8.3.0-rc.13", "课表网格证据校验", "延续 rc.12 全部范围；截图识别必须先报告真实可见的星期标题、节次标签与归一化网格坐标，拒绝无证据数组、横行误作星期、转置网格和课程位置无法吸附到声明网格的结果。仍待稳定签名 CI 与 OPPO 真机复测。", RoadmapStatus.CANDIDATE)
         )),
         RoadmapVersion("8.2.2", listOf(
             RoadmapEntry("8.2.2-rc.4", "通勤、文字对比与权限提醒", "三种校内出行方式可分别设置预留；玻璃卡片深色文字对比修复；今日页始终显示权限入口，关闭后可在设置中查看和恢复。", RoadmapStatus.CANDIDATE)

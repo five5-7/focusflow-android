@@ -102,7 +102,7 @@ object CourseVisionRecognizer {
         }
         val request = JSONObject().apply {
             put("model", model)
-            put("temperature", 0.1)
+            put("temperature", 0.0)
             put("max_tokens", MAX_TOKENS)
             put("messages", JSONArray().apply {
                 put(JSONObject().apply { put("role", "user"); put("content", content) })
@@ -179,33 +179,68 @@ object CourseVisionRecognizer {
     /** 说明性文字（页脚/备注等）关键词，命中则丢弃，避免把“隐藏课程信息”等当成课程。 */
     private val noiseKeywords = listOf("隐藏课程信息", "课程信息", "学分", "备注", "说明", "教师", "老师", "节次")
 
+    private data class GridEvidence(
+        val index: Int,
+        val label: String,
+        val centerX: Double,
+        val centerY: Double
+    )
+
     internal fun buildPrompt(places: List<CampusPlace>): String {
         val placeNames = places.map { it.name }.distinct().take(80).joinToString("、")
         return buildString {
             append("你是课表网格识别助手。图片可能有透视、摩尔纹或很小的文字。只识别课表网格内的课程色块，忽略考试时间、备注、教师名单、按钮和网格外说明。")
-            append("先根据顶部的星期表头确定列：周一到周日分别输出 day=1 到 day=7；再根据最左侧的节次标号确定行。")
+            append("必须先逐字读取图片中真实可见的顶部星期表头和最左侧节次标号；被裁掉、遮挡或看不清时不得补全、推测或沿用常见课表布局。")
+            append("顶部星期表头确定列：周一到周日分别为 day=1 到 day=7；最左侧节次标号确定行。所有 centerX/centerY 都是相对整张图片左上角的 0 到 1 归一化中心坐标。")
             append("课程色块跨越多行时，startPeriod 是色块覆盖的第一节，endPeriod 是最后一节；同一个合并色块只输出一次。")
-            append("day、startPeriod、endPeriod 必须来自色块在网格中的位置，不能从课程文字、周次、考试日期或上一门课推测。看不清表头或节次的课程直接省略，绝不能默认填 1。")
-            append("只返回一个 JSON 数组，不要代码围栏、解释或额外对象。每项严格使用：{\"name\":\"课程名称\",\"day\":1,\"startPeriod\":1,\"endPeriod\":2,\"location\":\"教室或楼名\"}。")
+            append("day、startPeriod、endPeriod 必须来自课程色块中心与已读取网格坐标的对应关系，不能从课程文字、周次、考试日期或上一门课推测，绝不能默认填 1。")
+            append("只返回一个 JSON 对象，不要代码围栏或解释。严格使用：")
+            append("{\"grid\":{\"weekdayHeaderRowVisible\":true,\"periodLabelColumnVisible\":true},")
+            append("\"weekdayHeaders\":[{\"day\":1,\"label\":\"周一\",\"centerX\":0.20,\"centerY\":0.08}],")
+            append("\"periodLabels\":[{\"period\":1,\"label\":\"第一节\",\"centerX\":0.06,\"centerY\":0.20}],")
+            append("\"courses\":[{\"name\":\"课程名称\",\"day\":1,\"startPeriod\":1,\"endPeriod\":2,\"location\":\"教室或楼名\",\"columnCenterX\":0.20,\"startRowCenterY\":0.20,\"endRowCenterY\":0.32}]}。")
             append("name 只含课程名；location 只抄图片中明确出现的地点，没有则填空字符串。所有数字必须是 JSON 整数，范围为 day 1-7、节次 1-20，且 endPeriod 不小于 startPeriod。")
-            append("如果无法可靠看清星期列和节次行，返回 []，不要生成看似完整的猜测结果。")
+            append("weekdayHeaders 必须逐项抄出实际可见的星期文字与坐标，periodLabels 必须逐项抄出实际可见的节次文字与坐标；不要输出被裁掉或看不清的标签。")
+            append("如果无法可靠看清星期标题行或节次标签列，把对应 visible 设为 false、对应证据数组与 courses 都返回空数组；不要生成看似完整的猜测结果。")
             if (placeNames.isNotBlank()) append("可用于规范地点的已有名称：$placeNames。")
         }
     }
 
-    /** 剥 JSON 围栏后解析；未知坐标不再钳制成第 1 节，并拒绝明显塌缩到同一格的整批结果。 */
+    /**
+     * 只接受带网格证据的对象。模型必须先报告真实可见的星期标题、节次标签及坐标，
+     * 每门课程的几何位置再与该网格吸附；旧版无证据数组和异常／转置网格一律拒绝。
+     */
     internal fun parseCourses(content: String, places: List<CampusPlace>): ParseReport = runCatching {
         val cleaned = content.trim()
             .removePrefix("```json").removePrefix("```")
             .removeSuffix("```")
             .trim()
-        val start = cleaned.indexOf('[')
-        val end = cleaned.lastIndexOf(']')
-        if (start < 0 || end <= start) ParseReport(emptyList(), rejectionReason = "模型返回的不是课程数组，已停止导入。")
-        else {
-            val values = JSONArray(cleaned.substring(start, end + 1))
+        if (cleaned.startsWith("[")) {
+            return@runCatching ParseReport(
+                emptyList(),
+                rejectionReason = "识别结果仍是旧版课程数组，缺少可验证的星期表头和节次网格证据，已停止导入。"
+            )
+        }
+        val start = cleaned.indexOf('{')
+        val end = cleaned.lastIndexOf('}')
+        if (start < 0 || end <= start) {
+            ParseReport(emptyList(), rejectionReason = "识别结果缺少可验证的星期表头和节次网格证据，已停止导入。请使用能完整看到顶部星期标题和左侧节次的截图。")
+        } else {
+            val root = JSONObject(cleaned.substring(start, end + 1))
+            val grid = root.optJSONObject("grid")
+            val weekdayVisible = grid?.optBoolean("weekdayHeaderRowVisible", false) == true
+            val periodVisible = grid?.optBoolean("periodLabelColumnVisible", false) == true
+            val weekdayHeaders = parseGridEvidence(root.optJSONArray("weekdayHeaders"), "day")
+            val periodLabels = parseGridEvidence(root.optJSONArray("periodLabels"), "period")
+            val evidenceFailure = validateGridEvidence(weekdayVisible, periodVisible, weekdayHeaders, periodLabels)
+            if (evidenceFailure != null) return@runCatching ParseReport(emptyList(), rejectionReason = evidenceFailure)
+            val weekdayEvidence = weekdayHeaders.orEmpty().sortedBy { it.index }
+            val periodEvidence = periodLabels.orEmpty().sortedBy { it.index }
+            val values = root.optJSONArray("courses")
+                ?: return@runCatching ParseReport(emptyList(), rejectionReason = "识别结果缺少 courses 数组，已停止导入。")
             var invalidCoordinates = 0
             var invalidContents = 0
+            var geometryMismatches = 0
             val parsed = List(values.length()) { index ->
                 val value = values.optJSONObject(index) ?: run {
                     invalidContents += 1
@@ -223,6 +258,17 @@ object CourseVisionRecognizer {
                 val title = value.optString("name", "").trim()
                 if (title.length < 2 || title.length > 80 || noiseKeywords.any { title.contains(it) }) {
                     invalidContents += 1
+                    return@List null
+                }
+                val columnCenterX = value.strictDouble("columnCenterX")
+                val startRowCenterY = value.strictDouble("startRowCenterY")
+                val endRowCenterY = value.strictDouble("endRowCenterY")
+                if (columnCenterX == null || startRowCenterY == null || endRowCenterY == null ||
+                    !snapsTo(columnCenterX, day, weekdayEvidence) ||
+                    !snapsTo(startRowCenterY, startPeriod, periodEvidence) ||
+                    !snapsTo(endRowCenterY, endPeriod, periodEvidence)
+                ) {
+                    geometryMismatches += 1
                     return@List null
                 }
                 val (building, zone) = matchLocation(value.optString("location", ""), places)
@@ -245,6 +291,10 @@ object CourseVisionRecognizer {
                 .firstOrNull { group -> group.map { it.title.trim() }.distinct().size >= 3 }
             val mostlyUnknown = values.length() >= 3 && invalidCoordinates * 2 >= values.length()
             when {
+                geometryMismatches > 0 -> ParseReport(
+                    emptyList(),
+                    rejectionReason = "有 $geometryMismatches 门课程的位置无法对应已识别的星期列或节次行，可能把一条横行误当成了一天，已停止导入。请保留完整的顶部星期标题和左侧节次后重试。"
+                )
                 collapsed != null -> ParseReport(
                     emptyList(),
                     rejectionReason = "识别结果把 ${collapsed.size} 门不同课程放在同一个星期和节次，坐标明显异常，已停止导入。请换更清晰、能完整看到星期表头和左侧节次的截图，或更换视觉模型。"
@@ -264,12 +314,115 @@ object CourseVisionRecognizer {
         }
     }.getOrElse { ParseReport(emptyList(), rejectionReason = "无法解析模型返回的课程 JSON，已停止导入。") }
 
+    private fun parseGridEvidence(values: JSONArray?, indexKey: String): List<GridEvidence>? {
+        if (values == null) return null
+        val evidence = mutableListOf<GridEvidence>()
+        for (index in 0 until values.length()) {
+            val value = values.optJSONObject(index) ?: return null
+            val gridIndex = value.strictInteger(indexKey) ?: return null
+            val label = value.optString("label", "").trim()
+            val centerX = value.strictDouble("centerX") ?: return null
+            val centerY = value.strictDouble("centerY") ?: return null
+            evidence += GridEvidence(gridIndex, label, centerX, centerY)
+        }
+        return evidence
+    }
+
+    private fun validateGridEvidence(
+        weekdayVisible: Boolean,
+        periodVisible: Boolean,
+        weekdayHeaders: List<GridEvidence>?,
+        periodLabels: List<GridEvidence>?
+    ): String? {
+        if (!weekdayVisible || !periodVisible) {
+            return "图片没有同时显示完整可辨认的星期标题行和节次标签列，已停止导入。请重新截图或拍摄，保留顶部星期栏与左侧节次栏。"
+        }
+        val weekdays = weekdayHeaders?.sortedBy { it.index }
+        val periods = periodLabels?.sortedBy { it.index }
+        if (weekdays == null || weekdays.size < 5 || weekdays.map { it.index }.distinct().size != weekdays.size ||
+            weekdays.any { it.index !in 1..7 || !weekdayLabelMatches(it.label, it.index) } ||
+            !weekdays.isConsecutive() || !weekdays.hasHorizontalAxis()
+        ) return "星期标题证据不足或排列异常，已停止导入。请使用至少能连续看清五个星期标题的完整课表图片。"
+        if (periods == null || periods.size < 3 || periods.map { it.index }.distinct().size != periods.size ||
+            periods.any { it.index !in 1..20 || !periodLabelMatches(it.label, it.index) } ||
+            !periods.isConsecutive() || !periods.hasVerticalAxis()
+        ) return "节次标签证据不足或排列异常，已停止导入。请保留左侧连续的节次标号后重试。"
+        if (weekdays.maxOf { it.centerY } >= periods.minOf { it.centerY } ||
+            periods.maxOf { it.centerX } >= weekdays.minOf { it.centerX }
+        ) return "课表网格方向异常，星期列与节次行可能被转置或误识别，已停止导入。"
+        return null
+    }
+
+    private fun List<GridEvidence>.isConsecutive(): Boolean =
+        zipWithNext().all { (first, second) -> second.index == first.index + 1 }
+
+    private fun List<GridEvidence>.hasHorizontalAxis(): Boolean {
+        val xRange = last().centerX - first().centerX
+        val yValues = map { it.centerY }
+        val yRange = yValues.maxOrNull()!! - yValues.minOrNull()!!
+        return zipWithNext().all { (first, second) -> second.centerX - first.centerX >= 0.02 } &&
+            xRange >= 0.20 && yRange <= 0.12 && xRange > yRange * 2
+    }
+
+    private fun List<GridEvidence>.hasVerticalAxis(): Boolean {
+        val yRange = last().centerY - first().centerY
+        val xValues = map { it.centerX }
+        val xRange = xValues.maxOrNull()!! - xValues.minOrNull()!!
+        return zipWithNext().all { (first, second) -> second.centerY - first.centerY >= 0.015 } &&
+            yRange >= 0.12 && xRange <= 0.12 && yRange > xRange * 2
+    }
+
+    private fun snapsTo(value: Double, claimedIndex: Int, evidence: List<GridEvidence>): Boolean {
+        val expected = evidence.firstOrNull { it.index == claimedIndex } ?: return false
+        val nearest = evidence.minByOrNull { kotlin.math.abs(value - axisCoordinate(evidence, it)) } ?: return false
+        if (nearest.index != claimedIndex) return false
+        val neighbors = evidence.filter { it.index != claimedIndex }
+            .map { kotlin.math.abs(axisCoordinate(evidence, it) - axisCoordinate(evidence, expected)) }
+        val tolerance = ((neighbors.minOrNull() ?: 0.10) * 0.45).coerceIn(0.025, 0.10)
+        return kotlin.math.abs(value - axisCoordinate(evidence, expected)) <= tolerance
+    }
+
+    private fun axisCoordinate(evidence: List<GridEvidence>, point: GridEvidence): Double =
+        if (evidence.hasHorizontalAxis()) point.centerX else point.centerY
+
+    private fun weekdayLabelMatches(label: String, day: Int): Boolean {
+        val normalized = label.lowercase().replace(" ", "")
+        val accepted = listOf(
+            listOf("周一", "星期一", "礼拜一", "mon", "monday"),
+            listOf("周二", "星期二", "礼拜二", "tue", "tues", "tuesday"),
+            listOf("周三", "星期三", "礼拜三", "wed", "wednesday"),
+            listOf("周四", "星期四", "礼拜四", "thu", "thur", "thurs", "thursday"),
+            listOf("周五", "星期五", "礼拜五", "fri", "friday"),
+            listOf("周六", "星期六", "礼拜六", "sat", "saturday"),
+            listOf("周日", "周天", "星期日", "星期天", "礼拜日", "礼拜天", "sun", "sunday")
+        )
+        return normalized in accepted[day - 1]
+    }
+
+    private fun periodLabelMatches(label: String, period: Int): Boolean {
+        val normalized = label.lowercase().replace(" ", "")
+        val chinese = chineseNumber(period)
+        return normalized in setOf(period.toString(), "${period}节", "第${period}节", chinese, "${chinese}节", "第${chinese}节")
+    }
+
+    private fun chineseNumber(value: Int): String = when {
+        value <= 10 -> listOf("零", "一", "二", "三", "四", "五", "六", "七", "八", "九", "十")[value]
+        value < 20 -> "十" + listOf("零", "一", "二", "三", "四", "五", "六", "七", "八", "九")[value - 10]
+        else -> "二十"
+    }
+
     private fun JSONObject.strictInteger(key: String): Int? = when (val value = opt(key)) {
         is Byte, is Short, is Int, is Long -> (value as Number).toLong()
             .takeIf { it >= Int.MIN_VALUE.toLong() && it <= Int.MAX_VALUE.toLong() }
             ?.toInt()
         is Float, is Double -> (value as Number).toDouble().takeIf { it.isFinite() && it % 1.0 == 0.0 }?.toInt()
         is String -> value.trim().toIntOrNull()
+        else -> null
+    }
+
+    private fun JSONObject.strictDouble(key: String): Double? = when (val value = opt(key)) {
+        is Number -> value.toDouble().takeIf { it.isFinite() && it in 0.0..1.0 }
+        is String -> value.trim().toDoubleOrNull()?.takeIf { it.isFinite() && it in 0.0..1.0 }
         else -> null
     }
 
