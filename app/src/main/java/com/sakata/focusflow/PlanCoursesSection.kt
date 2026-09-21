@@ -100,8 +100,20 @@ private fun PendingCourses(
         Text("待确认课程", fontWeight = FontWeight.Bold)
         TextButton(onClick = onClear) { Text("全部忽略") }
     }
+    val blockedDirectConfirmationIds = remember(awaiting, confirmed) {
+        CourseConfirmationSafety.blockedDirectConfirmationIds(awaiting + confirmed)
+    }
+    if (blockedDirectConfirmationIds.isNotEmpty()) {
+        Text(
+            "检测到多门课程占用完全相同的星期和节次。为避免错误课表生效，这些课程只能逐门“编辑并确认”。",
+            color = CONFLICT_TEXT_COLOR,
+            style = MaterialTheme.typography.bodySmall,
+            fontWeight = FontWeight.SemiBold
+        )
+    }
     awaiting.forEach { course ->
         val conflictWith = confirmed.firstOrNull { coursesOverlap(course, it) }
+        val directConfirmationBlocked = course.id in blockedDirectConfirmationIds
         // 收编：带冲突描边的 Card → FocusCard。border 原样传入（null 时与原来一样不描边）；
         // 底色不变；Card 默认阴影 Level0 = 0dp，与 FocusCard 默认一致。
         FocusCard(
@@ -121,8 +133,19 @@ private fun PendingCourses(
                         fontWeight = FontWeight.SemiBold
                     )
                 }
+                if (directConfirmationBlocked) {
+                    Text(
+                        "星期和节次需要手动核对；编辑器会保留课程名与地点供修正。",
+                        color = CONFLICT_TEXT_COLOR,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextButton(onClick = { onConfirm(course) }) { Text("确认") }
+                    TextButton(
+                        enabled = !directConfirmationBlocked,
+                        onClick = { onConfirm(course) }
+                    ) { Text(if (directConfirmationBlocked) "需先编辑" else "确认") }
                     TextButton(onClick = { onEdit(course) }) { Text("编辑并确认") }
                     TextButton(onClick = { onIgnore(course) }) { Text("忽略") }
                 }

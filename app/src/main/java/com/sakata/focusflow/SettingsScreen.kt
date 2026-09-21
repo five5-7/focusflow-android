@@ -1264,7 +1264,7 @@ private data class BaselineVariantDraft(val name: String)
                                 singleLine = true,
                                 modifier = Modifier.fillMaxWidth()
                             )
-                            Text("默认 Qwen/Qwen3-VL-8B-Instruct（在线免费，识别课表足够）；识别率不满意可换 Qwen/Qwen3-VL-32B-Instruct（是否计费以硅基流动为准）。旧版 Qwen2.5-VL 系列已下线，保存过旧模型名会自动迁移。key 仅存本机，只发往 api.siliconflow.cn，关闭开关后导入课表不再联网。", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("默认 Qwen/Qwen3-VL-8B-Instruct（在线免费，适合先试；复杂网格、拍屏摩尔纹或透视图片可能识别错误）；可换 32B／30B-A3B，或像自定义模型工具一样在上方直接填写硅基流动支持的其他视觉模型 ID。识别结果会校验星期与节次，明显塌缩的整批结果不会导入。旧版 Qwen2.5-VL 系列已下线。key 仅存本机，只发往 api.siliconflow.cn。", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                     SettingsSubPage.APP_DETECTION -> {

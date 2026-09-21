@@ -16,7 +16,8 @@ enum class CourseImportSource(val label: String) {
 data class CourseImportBatch(
     val source: CourseImportSource,
     val courses: List<Course>,
-    val newPlaces: List<String> = emptyList()
+    val newPlaces: List<String> = emptyList(),
+    val warnings: List<String> = emptyList()
 )
 
 /** 导入边界统一收紧，避免不同来源把无效或已确认状态的数据直接写进课表。 */
@@ -40,9 +41,25 @@ object CourseImportPolicy {
 
         return batch.copy(
             courses = courses,
-            newPlaces = batch.newPlaces.map { it.trim() }.filter { it.isNotBlank() }.distinct().take(50)
+            newPlaces = batch.newPlaces.map { it.trim() }.filter { it.isNotBlank() }.distinct().take(50),
+            warnings = batch.warnings.map { it.trim() }.filter { it.isNotBlank() }.distinct().take(10)
         )
     }
+}
+
+/** 同一星期与完整节次完全相同却出现不同课程时，必须逐门打开编辑器核对后才能确认。 */
+internal object CourseConfirmationSafety {
+    fun blockedDirectConfirmationIds(courses: List<Course>): Set<Long> = courses
+        .filter { it.enabled }
+        .groupBy { Triple(it.weekday, it.startPeriod, it.endPeriod) }
+        .values
+        .filter { group -> group.map { it.title.trim() }.distinct().size >= 2 }
+        .flatten()
+        .filter { it.needsConfirmation }
+        .mapTo(mutableSetOf()) { it.id }
+
+    fun isDirectConfirmationBlocked(course: Course, courses: List<Course>): Boolean =
+        course.id in blockedDirectConfirmationIds(courses)
 }
 
 

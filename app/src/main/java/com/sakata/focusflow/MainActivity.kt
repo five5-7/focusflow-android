@@ -730,6 +730,9 @@ private fun FocusFlowApp(store: PrototypeStore, startup: FocusFlowStartupSnapsho
             }
             courseImportMessage = "${batch.source.label}：${merge.message}"
         }
+        if (batch.warnings.isNotEmpty()) {
+            courseImportMessage = courseImportMessage.orEmpty() + " " + batch.warnings.joinToString("；") + "。"
+        }
         courseImportRunning = false
         globalLoading = false
     }
@@ -1420,9 +1423,13 @@ private fun FocusFlowApp(store: PrototypeStore, startup: FocusFlowStartupSnapsho
                         saveItemsWithEvent(result.items, result.event)
                     },
                     onConfirmCourse = { course ->
-                        courseImportMessage = null
-                        courses = courses.map { if (it == course) it.copy(needsConfirmation = false) else it }
-                        store.saveCourses(courses)
+                        if (CourseConfirmationSafety.isDirectConfirmationBlocked(course, courses)) {
+                            courseImportMessage = "这门课与另一门待确认或已确认课程被识别到完全相同的星期和节次。请点“编辑并确认”核对坐标，避免错误课表直接生效。"
+                        } else {
+                            courseImportMessage = null
+                            courses = courses.map { if (it == course) it.copy(needsConfirmation = false) else it }
+                            store.saveCourses(courses)
+                        }
                     },
                     onIgnoreCourse = { course ->
                         courseImportMessage = null

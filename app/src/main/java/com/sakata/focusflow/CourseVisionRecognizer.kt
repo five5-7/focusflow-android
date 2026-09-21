@@ -44,9 +44,19 @@ object CourseVisionRecognizer {
     private const val MAX_BYTES = 256 * 1024
 
     sealed class RecognizeResult {
-        class Success(val courses: List<Course>, val newPlaces: List<String> = emptyList()) : RecognizeResult()
+        class Success(
+            val courses: List<Course>,
+            val newPlaces: List<String> = emptyList(),
+            val warnings: List<String> = emptyList()
+        ) : RecognizeResult()
         class Error(val message: String) : RecognizeResult()
     }
+
+    internal data class ParseReport(
+        val courses: List<Course>,
+        val warnings: List<String> = emptyList(),
+        val rejectionReason: String? = null
+    )
 
     fun recognize(
         context: Context,
@@ -68,7 +78,8 @@ object CourseVisionRecognizer {
                             CourseImportBatch(
                                 source = CourseImportSource.VISION_SCREENSHOT,
                                 courses = result.courses,
-                                newPlaces = result.newPlaces
+                                newPlaces = result.newPlaces,
+                                warnings = result.warnings
                             )
                         )
                     }
@@ -81,15 +92,7 @@ object CourseVisionRecognizer {
     private fun request(context: Context, uri: Uri, apiKey: String, model: String, places: List<CampusPlace>): RecognizeResult {
         val imageBase64 = compressToBase64(context, uri)
             ?: return RecognizeResult.Error("无法读取这张图片，请换一张清晰的课表截图。")
-        val placeNames = places.map { it.name }.distinct().take(80).joinToString("、")
-        val prompt = buildString {
-            append("你是课表识别助手。这张图片是课程表截图。只识别课表网格里的课程格子，忽略页面其他文字（页脚、备注、提示、按钮文字等，例如“隐藏课程信息”“学分”“教师名单”）。")
-            append("只返回一个 JSON 数组，不要输出其他任何内容（不要代码围栏、不要解释）。数组每个元素格式：{\"name\":\"课程名称\",\"day\":1,\"startPeriod\":1,\"endPeriod\":2,\"location\":\"教室或楼名\"}。")
-            append("规则：name 只填课程名称文字（如“高等数学”），不要包含教室、楼名、教师、时间；day 用 1-7 表示周一至周日；")
-            append("startPeriod、endPeriod 用数字表示第几节，截图里只给一个节次时 endPeriod 与 startPeriod 相同；")
-            append("location 只填教室或楼名（如“东1B-213”“西2教学楼”），照抄截图文字，没有就留空字符串；只写截图里明确出现的信息，不要推测、不要补全。")
-            if (placeNames.isNotBlank()) append("location 可优先使用以下地点名：$placeNames。")
-        }
+        val prompt = buildPrompt(places)
         val content = JSONArray().apply {
             put(JSONObject().apply {
                 put("type", "image_url")
@@ -152,7 +155,9 @@ object CourseVisionRecognizer {
                 else -> ""
             }
             if (contentText.isBlank()) return RecognizeResult.Error("没有返回内容，请检查模型名或稍后再试")
-            val courses = parseCourses(contentText, places)
+            val parsed = parseCourses(contentText, places)
+            parsed.rejectionReason?.let { return RecognizeResult.Error(it) }
+            val courses = parsed.courses
             if (courses.isEmpty()) return RecognizeResult.Error("模型没有解析出课程，请换一张能看清课程名称、星期和节次的截图")
             // 识别出的新地点（不在已有地点目录里的教室/楼名文字）交给调用方记入“地点待用”。
             val newPlaces = courses.map { it.building }
@@ -163,7 +168,7 @@ object CourseVisionRecognizer {
                     }
                 }
                 .distinct()
-            return RecognizeResult.Success(courses, newPlaces)
+            return RecognizeResult.Success(courses, newPlaces, parsed.warnings)
         } catch (e: Exception) {
             return RecognizeResult.Error(e.message ?: "网络不可用")
         } finally {
@@ -174,26 +179,52 @@ object CourseVisionRecognizer {
     /** 说明性文字（页脚/备注等）关键词，命中则丢弃，避免把“隐藏课程信息”等当成课程。 */
     private val noiseKeywords = listOf("隐藏课程信息", "课程信息", "学分", "备注", "说明", "教师", "老师", "节次")
 
-    /** 剥 ```json 围栏后取首个 [ 到末个 ] 再解析为待确认课程。 */
-    private fun parseCourses(content: String, places: List<CampusPlace>): List<Course> = runCatching {
+    internal fun buildPrompt(places: List<CampusPlace>): String {
+        val placeNames = places.map { it.name }.distinct().take(80).joinToString("、")
+        return buildString {
+            append("你是课表网格识别助手。图片可能有透视、摩尔纹或很小的文字。只识别课表网格内的课程色块，忽略考试时间、备注、教师名单、按钮和网格外说明。")
+            append("先根据顶部的星期表头确定列：周一到周日分别输出 day=1 到 day=7；再根据最左侧的节次标号确定行。")
+            append("课程色块跨越多行时，startPeriod 是色块覆盖的第一节，endPeriod 是最后一节；同一个合并色块只输出一次。")
+            append("day、startPeriod、endPeriod 必须来自色块在网格中的位置，不能从课程文字、周次、考试日期或上一门课推测。看不清表头或节次的课程直接省略，绝不能默认填 1。")
+            append("只返回一个 JSON 数组，不要代码围栏、解释或额外对象。每项严格使用：{\"name\":\"课程名称\",\"day\":1,\"startPeriod\":1,\"endPeriod\":2,\"location\":\"教室或楼名\"}。")
+            append("name 只含课程名；location 只抄图片中明确出现的地点，没有则填空字符串。所有数字必须是 JSON 整数，范围为 day 1-7、节次 1-20，且 endPeriod 不小于 startPeriod。")
+            append("如果无法可靠看清星期列和节次行，返回 []，不要生成看似完整的猜测结果。")
+            if (placeNames.isNotBlank()) append("可用于规范地点的已有名称：$placeNames。")
+        }
+    }
+
+    /** 剥 JSON 围栏后解析；未知坐标不再钳制成第 1 节，并拒绝明显塌缩到同一格的整批结果。 */
+    internal fun parseCourses(content: String, places: List<CampusPlace>): ParseReport = runCatching {
         val cleaned = content.trim()
             .removePrefix("```json").removePrefix("```")
             .removeSuffix("```")
             .trim()
         val start = cleaned.indexOf('[')
         val end = cleaned.lastIndexOf(']')
-        if (start < 0 || end <= start) emptyList()
+        if (start < 0 || end <= start) ParseReport(emptyList(), rejectionReason = "模型返回的不是课程数组，已停止导入。")
         else {
             val values = JSONArray(cleaned.substring(start, end + 1))
-            List(values.length()) { index ->
-                val value = values.optJSONObject(index) ?: return@List null
-                val day = value.optInt("day", 0)
-                if (day !in 1..7) return@List null
+            var invalidCoordinates = 0
+            var invalidContents = 0
+            val parsed = List(values.length()) { index ->
+                val value = values.optJSONObject(index) ?: run {
+                    invalidContents += 1
+                    return@List null
+                }
+                val day = value.strictInteger("day")
+                val startPeriod = value.strictInteger("startPeriod")
+                val endPeriod = value.strictInteger("endPeriod")
+                if (day == null || day !in 1..7 || startPeriod == null || startPeriod !in 1..20 ||
+                    endPeriod == null || endPeriod !in 1..20 || endPeriod < startPeriod
+                ) {
+                    invalidCoordinates += 1
+                    return@List null
+                }
                 val title = value.optString("name", "").trim()
-                if (title.length < 2) return@List null
-                if (noiseKeywords.any { title.contains(it) }) return@List null
-                val startPeriod = value.optInt("startPeriod", 0).coerceIn(1, 13)
-                val endPeriod = value.optInt("endPeriod", startPeriod).coerceIn(startPeriod, 13)
+                if (title.length < 2 || title.length > 80 || noiseKeywords.any { title.contains(it) }) {
+                    invalidContents += 1
+                    return@List null
+                }
                 val (building, zone) = matchLocation(value.optString("location", ""), places)
                 Course(
                     title = title,
@@ -205,10 +236,42 @@ object CourseVisionRecognizer {
                     needsConfirmation = true
                 )
             }.filterNotNull()
-                .distinctBy { Triple(it.weekday, it.startPeriod, it.title) }
+
+            val distinct = parsed
+                .distinctBy { listOf(it.weekday, it.startPeriod, it.endPeriod, it.title) }
                 .sortedWith(compareBy<Course> { it.weekday }.thenBy { it.startPeriod })
+            val collapsed = distinct.groupBy { Triple(it.weekday, it.startPeriod, it.endPeriod) }
+                .values
+                .firstOrNull { group -> group.map { it.title.trim() }.distinct().size >= 3 }
+            val mostlyUnknown = values.length() >= 3 && invalidCoordinates * 2 >= values.length()
+            when {
+                collapsed != null -> ParseReport(
+                    emptyList(),
+                    rejectionReason = "识别结果把 ${collapsed.size} 门不同课程放在同一个星期和节次，坐标明显异常，已停止导入。请换更清晰、能完整看到星期表头和左侧节次的截图，或更换视觉模型。"
+                )
+                mostlyUnknown -> ParseReport(
+                    emptyList(),
+                    rejectionReason = "模型返回的 ${values.length()} 条结果中有 $invalidCoordinates 条缺少可靠的星期或节次，已停止导入，避免错误课程进入待确认列表。"
+                )
+                else -> ParseReport(
+                    courses = distinct,
+                    warnings = buildList {
+                        if (invalidCoordinates > 0) add("$invalidCoordinates 条课程缺少可靠的星期或节次，未导入")
+                        if (invalidContents > 0) add("$invalidContents 条非课程或课程名异常的内容，未导入")
+                    }
+                )
+            }
         }
-    }.getOrDefault(emptyList())
+    }.getOrElse { ParseReport(emptyList(), rejectionReason = "无法解析模型返回的课程 JSON，已停止导入。") }
+
+    private fun JSONObject.strictInteger(key: String): Int? = when (val value = opt(key)) {
+        is Byte, is Short, is Int, is Long -> (value as Number).toLong()
+            .takeIf { it >= Int.MIN_VALUE.toLong() && it <= Int.MAX_VALUE.toLong() }
+            ?.toInt()
+        is Float, is Double -> (value as Number).toDouble().takeIf { it.isFinite() && it % 1.0 == 0.0 }?.toInt()
+        is String -> value.trim().toIntOrNull()
+        else -> null
+    }
 
     /**
      * 地点匹配：先剥校区前缀（“紫金港东1A-213”→“东1A-213”），再按楼级归并（“东1A-213”→“东1教学楼”），
