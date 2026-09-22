@@ -229,7 +229,10 @@ class CoreDataActivationCoordinatorTest {
                 CoreDataActivationRecord(fingerprint, 100L)
             )
         )
-        val changed = coreSnapshot().copy(items = coreSnapshot().items.reversed())
+        val original = coreSnapshot()
+        val changed = original.copy(
+            items = original.items.map { item -> item.copy(title = "changed during verification") }
+        )
         val coordinator = coordinator(
             marker = marker,
             migration = RecordingMigrationRunner(reportFor(fingerprint)),
