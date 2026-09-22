@@ -3,10 +3,11 @@ package com.sakata.focusflow
 import com.sakata.focusflow.data.CoreDataConsistencyChecker
 import com.sakata.focusflow.data.CoreDataConsistencyReport
 import com.sakata.focusflow.data.CoreDataReadResult
-import com.sakata.focusflow.data.LegacyCoreDataReadRepository
+import com.sakata.focusflow.data.CoreDataRepository
+import com.sakata.focusflow.data.CoreDataRepositoryOperations
 
 /**
- * 首次组合需要的较重本地数据。只负责把 JSON/历史解析移出主线程；保存与前台恢复仍走原有 Store。
+ * 首次组合需要的较重本地数据。核心任务快照通过统一 Repository 读取，其他设置域仍由 Store 提供。
  */
 internal data class FocusFlowStartupSnapshot(
     val gameSessions: List<GameSessionRecord>,
@@ -78,11 +79,12 @@ internal data class FocusFlowStartupSnapshot(
     companion object {
         fun load(
             store: PrototypeStore,
+            coreDataRepository: CoreDataRepository,
             shadowReader: (() -> CoreDataReadResult)? = null
         ): FocusFlowStartupSnapshot {
             // 恢复错过目标可能追加任务事件，必须先于 taskEvents 读取。
-            val items = store.recoverMissedGoalTasks()
-            val coreData = (LegacyCoreDataReadRepository(store) { items }.read() as CoreDataReadResult.Ready).snapshot
+            val coreData = (CoreDataRepositoryOperations.recoverMissedGoalTasks(coreDataRepository)
+                as CoreDataReadResult.Ready).snapshot
             val consistency = shadowReader?.invoke()?.let { room ->
                 CoreDataConsistencyChecker.compare(coreData, room)
             }

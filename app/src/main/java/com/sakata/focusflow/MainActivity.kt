@@ -41,6 +41,10 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.lifecycleScope
 import com.sakata.focusflow.data.ExistingRoomCoreDataReader
+import com.sakata.focusflow.data.CoreDataReadResult
+import com.sakata.focusflow.data.CoreDataRepository
+import com.sakata.focusflow.data.CoreDataRepositoryOperations
+import com.sakata.focusflow.data.CoreDataRuntimeRepositoryProvider
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.input.pointer.PointerEventPass
@@ -107,10 +111,11 @@ class MainActivity : ComponentActivity() {
         // 8.1.0：判断本次开机系统是否把开机广播送给了我们（ColorOS 会推迟），设置页据此如实提示。
         BootRecovery.noteLaunch(this)
         val startupStore = PrototypeStore(this)
+        val coreDataRepository = CoreDataRuntimeRepositoryProvider.legacyLocked(startupStore)
         FrameTimingRecorder.beginStartupSnapshot()
         lifecycleScope.launch {
             val startupSnapshot = withContext(Dispatchers.IO) {
-                FocusFlowStartupSnapshot.load(startupStore) {
+                FocusFlowStartupSnapshot.load(startupStore, coreDataRepository) {
                     ExistingRoomCoreDataReader.read(this@MainActivity)
                 }
             }
@@ -123,7 +128,7 @@ class MainActivity : ComponentActivity() {
             FrameTimingRecorder.recordStartupFrames()
             setContent {
                 LaunchedEffect(Unit) { startupBackFallback.isEnabled = false }
-                FocusFlowApp(startupStore, startupSnapshot, startupPageBackdropBitmap, statusCheckInRequested, mealPromptRequested, mealFinishRequested, quickCaptureRequested, permissionOnboardingPending) {
+                FocusFlowApp(startupStore, coreDataRepository, startupSnapshot, startupPageBackdropBitmap, statusCheckInRequested, mealPromptRequested, mealFinishRequested, quickCaptureRequested, permissionOnboardingPending) {
                     statusCheckInRequested = false
                     mealPromptRequested = null
                     mealFinishRequested = null
@@ -206,8 +211,9 @@ private fun loadStartupPageBackdrop(context: Context, appearance: AppearanceSpec
 }
 
 @Composable
-private fun FocusFlowApp(store: PrototypeStore, startup: FocusFlowStartupSnapshot, startupPageBackdropBitmap: ImageBitmap?, statusCheckInRequested: Boolean, mealPromptRequested: MealType?, mealFinishRequested: MealType?, quickCaptureRequested: Boolean, permissionOnboardingPending: Boolean, onRequestHandled: () -> Unit) {
+private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepository, startup: FocusFlowStartupSnapshot, startupPageBackdropBitmap: ImageBitmap?, statusCheckInRequested: Boolean, mealPromptRequested: MealType?, mealFinishRequested: MealType?, quickCaptureRequested: Boolean, permissionOnboardingPending: Boolean, onRequestHandled: () -> Unit) {
     val context = LocalContext.current
+    fun readCoreData() = (coreDataRepository.read() as CoreDataReadResult.Ready).snapshot
     var tab by remember { mutableIntStateOf(0) }
     var todayInboxOpen by remember { mutableStateOf(false) }
     var addOpen by remember { mutableStateOf(false) }
@@ -265,7 +271,8 @@ private fun FocusFlowApp(store: PrototypeStore, startup: FocusFlowStartupSnapsho
                     initialStartObserved = true
                 } else {
                     notificationForegroundCheck++
-                    items = store.loadItems()
+                    val refreshedCoreData = readCoreData()
+                    items = refreshedCoreData.items
                     gameSessions = store.loadGameSessions()
                     activeSession = store.loadLatestActiveSession()
                     activityHistory = store.loadRecentActivitySessions()
@@ -278,7 +285,7 @@ private fun FocusFlowApp(store: PrototypeStore, startup: FocusFlowStartupSnapsho
                     convertTarget = null
                     attachTarget = null
                     // 通知栏里完成/最低版本/延后/跳过是后台 Receiver 写的，回到前台时重读事件，让今日统计与记录卡同步。
-                    taskEvents = store.loadTaskEvents()
+                    taskEvents = refreshedCoreData.taskEvents
                     statusPromptTrace = store.loadStatusPromptTrace()
                     nextStatusPromptAt = store.loadNextStatusPromptAt()
                     foregroundDetectionTrace = store.loadForegroundDetectionTrace()
@@ -393,7 +400,7 @@ private fun FocusFlowApp(store: PrototypeStore, startup: FocusFlowStartupSnapsho
     var completionTarget by remember { mutableStateOf<Item?>(null) }
     LaunchedEffect(notificationForegroundCheck) {
         if (notificationForegroundCheck <= 1) return@LaunchedEffect
-        goals = store.loadGoals()
+        goals = readCoreData().goals
         completionTarget = null
         editGoalTarget = null
         goalScheduleTarget = null
@@ -779,14 +786,14 @@ private fun FocusFlowApp(store: PrototypeStore, startup: FocusFlowStartupSnapsho
     }
     fun saveItems(updated: List<Item>): Boolean {
         val previous = items
-        if (!store.saveItemsIfUnchanged(updated, previous)) {
-            items = store.loadItems()
+        if (!coreDataRepository.replaceTasks(updated, previous).applied) {
+            items = readCoreData().items
             scope.launch { snackbarHostState.showSnackbar("条目已在通知或其他操作中更新，请重新打开后操作。") }
             return false
         }
         items = updated
         ReminderScheduler.syncTaskReminders(context, previous, updated)
-        taskEvents = store.loadTaskEvents()
+        taskEvents = readCoreData().taskEvents
         navHistory.markWorkedHere()
         return true
     }
@@ -797,14 +804,14 @@ private fun FocusFlowApp(store: PrototypeStore, startup: FocusFlowStartupSnapsho
             return false
         }
         val previous = items
-        if (!store.saveItemsAndTaskEvents(updated, events, expectedItems = previous)) {
-            items = store.loadItems()
+        if (!coreDataRepository.replaceTasksAndAppendEvents(updated, events, previous).applied) {
+            items = readCoreData().items
             scope.launch { snackbarHostState.showSnackbar("保存失败，尚未确认此次操作；请检查存储空间或数据保护提示。") }
             return false
         }
         items = updated
         ReminderScheduler.syncTaskReminders(context, previous, updated)
-        taskEvents = store.loadTaskEvents()
+        taskEvents = readCoreData().taskEvents
         navHistory.markWorkedHere()
         return true
     }
@@ -817,8 +824,8 @@ private fun FocusFlowApp(store: PrototypeStore, startup: FocusFlowStartupSnapsho
 
     fun saveGoals(updated: List<Goal>): Boolean {
         val previous = goals
-        if (!store.saveGoalsIfUnchanged(updated, previous)) {
-            goals = store.loadGoals()
+        if (!coreDataRepository.replacePlans(updated, previous).applied) {
+            goals = readCoreData().goals
             scope.launch { snackbarHostState.showSnackbar("目标已在其他操作中更新，请重新打开后操作。") }
             return false
         }
@@ -831,19 +838,19 @@ private fun FocusFlowApp(store: PrototypeStore, startup: FocusFlowStartupSnapsho
         if (event == null) return false
         val previousItems = items
         val previousGoals = goals
-        if (!store.saveItemsTaskEventsAndGoals(
-                updatedItems, listOf(event), updatedGoals,
-                expectedItems = previousItems, expectedGoals = previousGoals
-            )) {
-            items = store.loadItems()
-            goals = store.loadGoals()
+        if (!coreDataRepository.replaceTasksAppendEventsAndPlans(
+                updatedItems, listOf(event), updatedGoals, previousItems, previousGoals
+            ).applied) {
+            val current = readCoreData()
+            items = current.items
+            goals = current.goals
             scope.launch { snackbarHostState.showSnackbar("任务或目标已发生变化，请重新打开后操作。") }
             return false
         }
         items = updatedItems
         goals = updatedGoals
         ReminderScheduler.syncTaskReminders(context, previousItems, updatedItems)
-        taskEvents = store.loadTaskEvents()
+        taskEvents = readCoreData().taskEvents
         return true
     }
 
@@ -1422,7 +1429,7 @@ private fun FocusFlowApp(store: PrototypeStore, startup: FocusFlowStartupSnapsho
                     campusLifeEnabled = campusLifeEnabled,
                     onCampusLifeRequired = { scope.launch { snackbarHostState.showSnackbar(CampusLifePolicy.disabledMessage()) } },
                     page = planPage,
-                                    onPageChange = { goTo(pageSnapshot().copy(planPage = it)); if (it == PlanPage.REVIEW) gameSessions = store.loadGameSessions(); if (it == PlanPage.HISTORY) taskEvents = store.loadTaskEvents() },
+                                    onPageChange = { goTo(pageSnapshot().copy(planPage = it)); if (it == PlanPage.REVIEW) gameSessions = store.loadGameSessions(); if (it == PlanPage.HISTORY) taskEvents = readCoreData().taskEvents },
                     onResume = { item ->
                         val result = TaskActions.resume(items, item)
                         saveItemsWithEvent(result.items, result.event)
@@ -1545,7 +1552,7 @@ private fun FocusFlowApp(store: PrototypeStore, startup: FocusFlowStartupSnapsho
                     checkIns = statusCheckIns,
                     taskEvents = taskEvents,
                     onReplaceTaskEvents = { updated ->
-                        if (store.replaceTaskEvents(updated)) {
+                        if (coreDataRepository.replaceTaskEvents(updated).applied) {
                             taskEvents = updated
                             true
                         } else false
@@ -1989,8 +1996,11 @@ private fun FocusFlowApp(store: PrototypeStore, startup: FocusFlowStartupSnapsho
                 store.finishSession(session.id, ActivitySession.STATUS_SKIPPED, "replan")
                 store.appendBaselineEvent(BaselineRecorder.event(BaselineEventType.ACTIVITY_SKIPPED, session.name))
                 ReminderScheduler.cancelActivityReminders(context, session.id)
-                store.addReplanItem(session.nextStep.ifBlank { session.name })
-                items = store.loadItems()
+                CoreDataRepositoryOperations.addReplanItem(
+                    coreDataRepository,
+                    session.nextStep.ifBlank { session.name }
+                )
+                items = readCoreData().items
                 activeSession = null
                 transitionTarget = null
             }
@@ -2161,22 +2171,23 @@ private fun FocusFlowApp(store: PrototypeStore, startup: FocusFlowStartupSnapsho
             val updatedGoals = goals + goal.copy(sourceNotes = item.editableNote())
             val previousItems = items
             val previousGoals = goals
-            if (store.saveGoalConversion(
-                    updatedGoals,
+            if (coreDataRepository.replaceTasksAppendEventsAndPlans(
                     result.items,
-                    result.event!!,
-                    expectedGoals = previousGoals,
-                    expectedItems = previousItems
-                )) {
+                    listOf(result.event!!),
+                    updatedGoals,
+                    previousItems,
+                    previousGoals
+                ).applied) {
                 goals = updatedGoals
                 items = result.items
                 ReminderScheduler.syncTaskReminders(context, previousItems, result.items)
-                taskEvents = store.loadTaskEvents()
+                taskEvents = readCoreData().taskEvents
                 removeScheduledActivity(item.id)
                 convertTarget = null
             } else {
-                goals = store.loadGoals()
-                items = store.loadItems()
+                val current = readCoreData()
+                goals = current.goals
+                items = current.items
                 scope.launch { snackbarHostState.showSnackbar("任务或目标已发生变化，请重新打开后操作。") }
             }
         } }

@@ -5,6 +5,8 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import com.sakata.focusflow.data.CoreDataReadResult
+import com.sakata.focusflow.data.CoreDataRuntimeRepositoryProvider
 import java.util.Calendar
 
 object ReminderScheduler {
@@ -287,7 +289,9 @@ object ReminderScheduler {
     fun restoreTaskReminders(context: Context) {
         val store = PrototypeStore(context)
         val settings = store.loadActivityReminderSettings()
-        store.loadItems().filter { !it.done && it.scheduledAt != null && it.scheduledAt > System.currentTimeMillis() }
+        val coreData = CoreDataRuntimeRepositoryProvider.legacyLocked(store).read()
+        if (coreData !is CoreDataReadResult.Ready) return
+        coreData.snapshot.items.filter { !it.done && it.scheduledAt != null && it.scheduledAt > System.currentTimeMillis() }
             .forEach { scheduleTaskReminder(context, it, settings) }
     }
 

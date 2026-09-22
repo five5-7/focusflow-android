@@ -9,6 +9,8 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import androidx.core.app.NotificationCompat
+import com.sakata.focusflow.data.CoreDataRepositoryOperations
+import com.sakata.focusflow.data.CoreDataRuntimeRepositoryProvider
 import java.util.Calendar
 
 class ReminderReceiver : BroadcastReceiver() {
@@ -19,6 +21,7 @@ class ReminderReceiver : BroadcastReceiver() {
         var activityName = intent.getStringExtra(EXTRA_ACTIVITY_NAME) ?: "当前活动"
         var nextStep = intent.getStringExtra(EXTRA_NEXT_STEP).orEmpty()
         val store = PrototypeStore(context)
+        val coreDataRepository = CoreDataRuntimeRepositoryProvider.legacyLocked(store)
         when (intent.action) {
             ACTION_STATUS_CHECK_IN -> {
                 val settings = store.loadStatusCheckInSettings()
@@ -78,7 +81,10 @@ class ReminderReceiver : BroadcastReceiver() {
                     val active = requireNotNull(current)
                     store.finishSession(sessionId, ActivitySession.STATUS_SKIPPED, "replan")
                     ReminderScheduler.cancelActivityReminders(context, sessionId)
-                    store.addReplanItem(active.nextStep.ifBlank { active.name })
+                    CoreDataRepositoryOperations.addReplanItem(
+                        coreDataRepository,
+                        active.nextStep.ifBlank { active.name }
+                    )
                 }
                 return
             }
@@ -192,13 +198,13 @@ class ReminderReceiver : BroadcastReceiver() {
                 if (notificationId >= 0) manager.cancel(notificationId)
                 val taskId = intent.getLongExtra(EXTRA_TASK_ID, -1L)
                 val mutation = taskId.takeIf { it >= 0 }?.let {
-                    store.mutateScheduledTask(
+                    coreDataRepository.mutateScheduledTask(
                         id = taskId,
                         expectedScheduledAt = intent.getLongExtra(EXTRA_TASK_START_AT, -1L),
                         completionMinimum = false,
                         transform = { current -> current.copy(done = true, completionLevel = "完整完成", completedAt = System.currentTimeMillis()) },
                         event = { current, _ -> TaskRecorder.event(TaskEventType.TASK_COMPLETED, current.id, current.title, extra = "完整完成") }
-                    )
+                    ).taskMutation
                 }
                 mutation?.let { (current, _) ->
                     ReminderScheduler.cancelTaskReminder(context, taskId)
@@ -214,13 +220,13 @@ class ReminderReceiver : BroadcastReceiver() {
                 if (notificationId >= 0) manager.cancel(notificationId)
                 val taskId = intent.getLongExtra(EXTRA_TASK_ID, -1L)
                 val mutation = taskId.takeIf { it >= 0 }?.let {
-                    store.mutateScheduledTask(
+                    coreDataRepository.mutateScheduledTask(
                         id = taskId,
                         expectedScheduledAt = intent.getLongExtra(EXTRA_TASK_START_AT, -1L),
                         completionMinimum = true,
                         transform = { current -> current.copy(done = true, completionLevel = "最低版本", completedAt = System.currentTimeMillis()) },
                         event = { current, _ -> TaskRecorder.event(TaskEventType.TASK_COMPLETED, current.id, current.title, extra = "最低版本") }
-                    )
+                    ).taskMutation
                 }
                 mutation?.let {
                     ReminderScheduler.cancelTaskReminder(context, taskId)
@@ -233,7 +239,7 @@ class ReminderReceiver : BroadcastReceiver() {
                 val now = System.currentTimeMillis()
                 val delayedAt = now + 60 * 60_000L
                 val mutation = taskId.takeIf { it >= 0 }?.let {
-                    store.mutateScheduledTask(
+                    coreDataRepository.mutateScheduledTask(
                         id = taskId,
                         expectedScheduledAt = intent.getLongExtra(EXTRA_TASK_START_AT, -1L),
                         transform = { current -> current.copy(
@@ -249,7 +255,7 @@ class ReminderReceiver : BroadcastReceiver() {
                             scheduledAt = delayed.scheduledAt ?: 0,
                             extra = "延后一小时"
                         ) }
-                    )
+                    ).taskMutation
                 }
                 mutation?.let { ReminderScheduler.scheduleTaskReminder(context, it.after) }
                 return
@@ -258,7 +264,7 @@ class ReminderReceiver : BroadcastReceiver() {
                 if (notificationId >= 0) manager.cancel(notificationId)
                 val taskId = intent.getLongExtra(EXTRA_TASK_ID, -1L)
                 val mutation = taskId.takeIf { it >= 0 }?.let {
-                    store.mutateScheduledTask(
+                    coreDataRepository.mutateScheduledTask(
                         id = taskId,
                         expectedScheduledAt = intent.getLongExtra(EXTRA_TASK_START_AT, -1L),
                         transform = { item -> item.copy(
@@ -274,7 +280,7 @@ class ReminderReceiver : BroadcastReceiver() {
                             updated.title.removePrefix("重新安排："),
                             extra = "跳过"
                         ) }
-                    )
+                    ).taskMutation
                 }
                 if (mutation != null) {
                     ReminderScheduler.cancelTaskReminder(context, taskId)
@@ -373,7 +379,10 @@ class ReminderReceiver : BroadcastReceiver() {
         if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
         val store = PrototypeStore(context)
         if (!store.loadActivityReminderSettings().scheduleRemindersEnabled) return
-        val task = store.findItem(taskId) ?: return
+        val task = CoreDataRepositoryOperations.findTask(
+            CoreDataRuntimeRepositoryProvider.legacyLocked(store),
+            taskId
+        ) ?: return
         // 改期与完成可能正好和旧广播交错；以当前存储状态为准，避免幽灵通知。
         if (task.done || task.scheduledAt != startsAt || task.kind in setOf("收集箱", "暂停", "游戏", "活动")) return
         ensureChannel(manager, CHANNEL_TASK, "FocusFlow 任务提醒")

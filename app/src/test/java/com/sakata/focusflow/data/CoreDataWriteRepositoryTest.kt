@@ -278,7 +278,7 @@ class CoreDataWriteRepositoryTest {
     }
 }
 
-private class FakeTransactionalCoreDataStore(
+internal class FakeTransactionalCoreDataStore(
     var state: MigrationStateEntity?,
     var taskRows: List<TaskEntity>,
     var eventRows: List<TaskEventEntity>,
