@@ -44,6 +44,7 @@ object TaskStatusKey {
 )
 data class TaskEntity(
     @PrimaryKey val id: Long,
+    @ColumnInfo(name = "source_order") val sourceOrder: Int,
     val title: String,
     val detail: String,
     @ColumnInfo(name = "legacy_kind") val legacyKind: String,
@@ -68,8 +69,9 @@ data class TaskEntity(
     @ColumnInfo(name = "parent_capture_id") val parentCaptureId: Long?
 ) {
     companion object {
-        fun fromLegacy(item: Item): TaskEntity = TaskEntity(
+        fun fromLegacy(item: Item, sourceOrder: Int = 0): TaskEntity = TaskEntity(
             id = item.id,
+            sourceOrder = sourceOrder,
             title = item.title,
             detail = item.detail,
             legacyKind = item.kind,
@@ -102,6 +104,7 @@ data class TaskEntity(
 )
 data class TaskEventEntity(
     @PrimaryKey val id: Long,
+    @ColumnInfo(name = "source_order") val sourceOrder: Int,
     @ColumnInfo(name = "task_id") val taskId: Long,
     val type: String,
     @ColumnInfo(name = "recorded_at") val recordedAt: Long,
@@ -110,8 +113,9 @@ data class TaskEventEntity(
     val extra: String
 ) {
     companion object {
-        fun fromLegacy(event: TaskEvent): TaskEventEntity = TaskEventEntity(
+        fun fromLegacy(event: TaskEvent, sourceOrder: Int = 0): TaskEventEntity = TaskEventEntity(
             id = event.id,
+            sourceOrder = sourceOrder,
             taskId = event.itemId,
             type = event.type.storageKey,
             recordedAt = event.recordedAt,
@@ -125,6 +129,7 @@ data class TaskEventEntity(
 @Entity(tableName = "plans", indices = [Index(value = ["state"])])
 data class PlanEntity(
     @PrimaryKey val id: Long,
+    @ColumnInfo(name = "source_order") val sourceOrder: Int,
     val title: String,
     val state: String,
     @ColumnInfo(name = "weekly_target") val weeklyTarget: Int,
@@ -144,8 +149,9 @@ data class PlanEntity(
     companion object {
         const val ACTIVE = "active"
 
-        fun fromLegacy(goal: Goal): PlanEntity = PlanEntity(
+        fun fromLegacy(goal: Goal, sourceOrder: Int = 0): PlanEntity = PlanEntity(
             id = goal.id,
+            sourceOrder = sourceOrder,
             title = goal.title,
             state = ACTIVE,
             weeklyTarget = goal.weeklyTarget,

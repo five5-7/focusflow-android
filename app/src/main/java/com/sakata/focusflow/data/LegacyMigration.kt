@@ -119,7 +119,7 @@ class LegacyPreferencesReader(
                 "Blank task titles were preserved for manual review"
             )
         }
-        return decoded.items.map(TaskEntity::fromLegacy)
+        return decoded.items.mapIndexed { index, item -> TaskEntity.fromLegacy(item, index) }
     }
 
     private fun decodeTaskEvents(
@@ -149,7 +149,7 @@ class LegacyPreferencesReader(
                 "$detached historical events refer to deleted tasks and were preserved"
             )
         }
-        return decoded.map(TaskEventEntity::fromLegacy)
+        return decoded.mapIndexed { index, event -> TaskEventEntity.fromLegacy(event, index) }
     }
 
     private fun decodePlans(raw: String?): List<PlanEntity> {
@@ -158,7 +158,7 @@ class LegacyPreferencesReader(
         validatePositiveUniqueIds(KEY_GOALS, values)
         val decoded = StoredGoalsCodec.decodeGoals(normalizedRaw)
         if (decoded.size != values.length()) fail(KEY_GOALS, "Not every goal could be decoded")
-        return decoded.map(PlanEntity::fromLegacy)
+        return decoded.mapIndexed { index, goal -> PlanEntity.fromLegacy(goal, index) }
     }
 
     private fun appendRelationshipDiagnostics(

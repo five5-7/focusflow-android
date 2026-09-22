@@ -1,5 +1,10 @@
 package com.sakata.focusflow
 
+import com.sakata.focusflow.data.CoreDataConsistencyChecker
+import com.sakata.focusflow.data.CoreDataConsistencyReport
+import com.sakata.focusflow.data.CoreDataReadResult
+import com.sakata.focusflow.data.LegacyCoreDataReadRepository
+
 /**
  * 首次组合需要的较重本地数据。只负责把 JSON/历史解析移出主线程；保存与前台恢复仍走原有 Store。
  */
@@ -18,6 +23,7 @@ internal data class FocusFlowStartupSnapshot(
     val hiddenApps: Set<String>,
     val items: List<Item>,
     val taskEvents: List<TaskEvent>,
+    val coreDataConsistency: CoreDataConsistencyReport?,
     val activeSession: ActivitySession?,
     val activityHistory: List<ActivitySession>,
     val statusCheckIns: List<StatusCheckIn>,
@@ -70,9 +76,16 @@ internal data class FocusFlowStartupSnapshot(
     val latestStatusCheckIn: StatusCheckIn? get() = statusCheckIns.lastOrNull()
 
     companion object {
-        fun load(store: PrototypeStore): FocusFlowStartupSnapshot {
+        fun load(
+            store: PrototypeStore,
+            shadowReader: (() -> CoreDataReadResult)? = null
+        ): FocusFlowStartupSnapshot {
             // 恢复错过目标可能追加任务事件，必须先于 taskEvents 读取。
             val items = store.recoverMissedGoalTasks()
+            val coreData = (LegacyCoreDataReadRepository(store) { items }.read() as CoreDataReadResult.Ready).snapshot
+            val consistency = shadowReader?.invoke()?.let { room ->
+                CoreDataConsistencyChecker.compare(coreData, room)
+            }
             val statusCheckIns = store.loadStatusCheckIns(365)
             val themeOption = store.loadTheme()
             val featureIntroShown = store.loadFeatureIntroShown()
@@ -90,8 +103,9 @@ internal data class FocusFlowStartupSnapshot(
                 windDownEnabled = store.loadWindDownEnabled(),
                 appCategories = store.loadAppCategories(),
                 hiddenApps = store.loadHiddenApps(),
-                items = items,
-                taskEvents = store.loadTaskEvents(),
+                items = coreData.items,
+                taskEvents = coreData.taskEvents,
+                coreDataConsistency = consistency,
                 activeSession = store.loadLatestActiveSession(),
                 activityHistory = store.loadRecentActivitySessions(),
                 statusCheckIns = statusCheckIns,
@@ -126,7 +140,7 @@ internal data class FocusFlowStartupSnapshot(
                 coursePeriodTableConfigured = store.hasCoursePeriodTable(),
                 courseTimetableCompact = store.loadCourseTimetableCompact(),
                 courseTimetableTrailingDaysExpanded = store.loadCourseTimetableTrailingDaysExpanded(),
-                goals = store.loadGoals(),
+                goals = coreData.goals,
                 resources = store.loadResources(),
                 feedback = store.loadFeedback(),
                 improvementNotes = store.loadImprovementNotes(),

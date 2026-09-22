@@ -15,6 +15,9 @@ interface TaskDao {
 
     @Query("SELECT id FROM tasks ORDER BY id")
     fun allIds(): List<Long>
+
+    @Query("SELECT * FROM tasks ORDER BY source_order, id")
+    fun all(): List<TaskEntity>
 }
 
 @Dao
@@ -27,6 +30,9 @@ interface TaskEventDao {
 
     @Query("SELECT id FROM task_events ORDER BY id")
     fun allIds(): List<Long>
+
+    @Query("SELECT * FROM task_events ORDER BY source_order, id")
+    fun all(): List<TaskEventEntity>
 }
 
 @Dao
@@ -39,6 +45,9 @@ interface PlanDao {
 
     @Query("SELECT id FROM plans ORDER BY id")
     fun allIds(): List<Long>
+
+    @Query("SELECT * FROM plans ORDER BY source_order, id")
+    fun all(): List<PlanEntity>
 }
 
 @Dao

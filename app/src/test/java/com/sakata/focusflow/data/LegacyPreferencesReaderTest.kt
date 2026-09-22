@@ -19,11 +19,13 @@ class LegacyPreferencesReaderTest {
         val result = LegacyPreferencesReader(source) { _, _ -> true }.read() as LegacyReadResult.Success
 
         assertEquals(listOf(101L, 102L), result.snapshot.tasks.map { it.id })
+        assertEquals(listOf(0, 1), result.snapshot.tasks.map { it.sourceOrder })
         assertEquals(TaskStatusKey.CAPTURED, result.snapshot.tasks[0].status)
         assertEquals(TaskStatusKey.SCHEDULED, result.snapshot.tasks[1].status)
         assertEquals("mid", result.snapshot.tasks[0].priority)
         assertEquals(201L, result.snapshot.tasks[1].planId)
         assertEquals(listOf(201L), result.snapshot.plans.map { it.id })
+        assertEquals(listOf(0), result.snapshot.plans.map { it.sourceOrder })
         assertTrue(result.snapshot.taskEvents.isEmpty())
     }
 
@@ -46,6 +48,7 @@ class LegacyPreferencesReaderTest {
         assertEquals("high", task.priority)
         assertEquals(2, task.rescheduleCount)
         assertEquals(listOf(501L, 502L), result.snapshot.taskEvents.map { it.id })
+        assertEquals(listOf(0, 1), result.snapshot.taskEvents.map { it.sourceOrder })
         assertTrue(result.snapshot.diagnostics.any { it.message.contains("deleted tasks") })
         assertFalse(result.snapshot.sourceFingerprint.isBlank())
     }
