@@ -33,6 +33,10 @@ android {
 
     buildFeatures { compose = true; buildConfig = true }
 
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
+    }
+
     signingConfigs {
         if (!focusFlowSigningStore.isNullOrBlank()) {
             create("focusFlowStable") {
@@ -78,4 +82,6 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")
     testImplementation(libs.androidx.room.testing)
+    testImplementation(libs.androidx.test.core)
+    testImplementation(libs.robolectric)
 }
