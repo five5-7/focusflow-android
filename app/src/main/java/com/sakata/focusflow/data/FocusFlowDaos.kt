@@ -18,6 +18,9 @@ interface TaskDao {
 
     @Query("SELECT * FROM tasks ORDER BY source_order, id")
     fun all(): List<TaskEntity>
+
+    @Query("DELETE FROM tasks")
+    fun deleteAll()
 }
 
 @Dao
@@ -33,6 +36,9 @@ interface TaskEventDao {
 
     @Query("SELECT * FROM task_events ORDER BY source_order, id")
     fun all(): List<TaskEventEntity>
+
+    @Query("DELETE FROM task_events")
+    fun deleteAll()
 }
 
 @Dao
@@ -48,6 +54,9 @@ interface PlanDao {
 
     @Query("SELECT * FROM plans ORDER BY source_order, id")
     fun all(): List<PlanEntity>
+
+    @Query("DELETE FROM plans")
+    fun deleteAll()
 }
 
 @Dao
@@ -57,4 +66,13 @@ interface MigrationStateDao {
 
     @Query("SELECT * FROM migration_states WHERE migration_key = :key")
     fun find(key: String): MigrationStateEntity?
+
+    @Query(
+        """UPDATE migration_states
+           SET task_count = :taskCount,
+               task_event_count = :taskEventCount,
+               plan_count = :planCount
+           WHERE migration_key = :key"""
+    )
+    fun updateCounts(key: String, taskCount: Int, taskEventCount: Int, planCount: Int): Int
 }

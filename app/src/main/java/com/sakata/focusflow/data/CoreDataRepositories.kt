@@ -214,7 +214,7 @@ object ExistingRoomCoreDataReader {
     }
 }
 
-private fun TaskEntity.toLegacy(): Item = Item(
+internal fun TaskEntity.toLegacy(): Item = Item(
     id = id,
     title = title,
     detail = detail,
@@ -239,7 +239,7 @@ private fun TaskEntity.toLegacy(): Item = Item(
     parentCaptureId = parentCaptureId
 )
 
-private fun TaskEventEntity.toLegacy(type: TaskEventType): TaskEvent = TaskEvent(
+internal fun TaskEventEntity.toLegacy(type: TaskEventType): TaskEvent = TaskEvent(
     id = id,
     itemId = taskId,
     type = type,
@@ -249,7 +249,7 @@ private fun TaskEventEntity.toLegacy(type: TaskEventType): TaskEvent = TaskEvent
     extra = extra
 )
 
-private fun PlanEntity.toLegacy(): Goal = Goal(
+internal fun PlanEntity.toLegacy(): Goal = Goal(
     id = id,
     title = title,
     weeklyTarget = weeklyTarget,
