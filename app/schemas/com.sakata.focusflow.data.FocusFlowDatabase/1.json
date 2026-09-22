@@ -2,15 +2,21 @@
   "formatVersion": 1,
   "database": {
     "version": 1,
-    "identityHash": "b3ac55796bcce91aa6bdaa19a9e28b08",
+    "identityHash": "a4797b9fba496d6abd22b3f536ee3fe7",
     "entities": [
       {
         "tableName": "tasks",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER NOT NULL, `title` TEXT NOT NULL, `detail` TEXT NOT NULL, `legacy_kind` TEXT NOT NULL, `status` TEXT NOT NULL, `done` INTEGER NOT NULL, `scheduled_at` INTEGER, `day_only` INTEGER NOT NULL, `plan_id` INTEGER, `completion_level` TEXT NOT NULL, `completed_at` INTEGER, `duration_minutes` INTEGER NOT NULL, `window_start_at` INTEGER, `window_end_at` INTEGER, `reschedule_count` INTEGER NOT NULL, `last_rescheduled_at` INTEGER, `recovery_source_scheduled_at` INTEGER, `priority` TEXT NOT NULL, `capture_route` TEXT NOT NULL, `source_detail` TEXT NOT NULL, `user_note` TEXT, `next_action` TEXT NOT NULL, `parent_capture_id` INTEGER, PRIMARY KEY(`id`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER NOT NULL, `source_order` INTEGER NOT NULL, `title` TEXT NOT NULL, `detail` TEXT NOT NULL, `legacy_kind` TEXT NOT NULL, `status` TEXT NOT NULL, `done` INTEGER NOT NULL, `scheduled_at` INTEGER, `day_only` INTEGER NOT NULL, `plan_id` INTEGER, `completion_level` TEXT NOT NULL, `completed_at` INTEGER, `duration_minutes` INTEGER NOT NULL, `window_start_at` INTEGER, `window_end_at` INTEGER, `reschedule_count` INTEGER NOT NULL, `last_rescheduled_at` INTEGER, `recovery_source_scheduled_at` INTEGER, `priority` TEXT NOT NULL, `capture_route` TEXT NOT NULL, `source_detail` TEXT NOT NULL, `user_note` TEXT, `next_action` TEXT NOT NULL, `parent_capture_id` INTEGER, PRIMARY KEY(`id`))",
         "fields": [
           {
             "fieldPath": "id",
             "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceOrder",
+            "columnName": "source_order",
             "affinity": "INTEGER",
             "notNull": true
           },
@@ -185,11 +191,17 @@
       },
       {
         "tableName": "task_events",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER NOT NULL, `task_id` INTEGER NOT NULL, `type` TEXT NOT NULL, `recorded_at` INTEGER NOT NULL, `title` TEXT NOT NULL, `scheduled_at` INTEGER NOT NULL, `extra` TEXT NOT NULL, PRIMARY KEY(`id`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER NOT NULL, `source_order` INTEGER NOT NULL, `task_id` INTEGER NOT NULL, `type` TEXT NOT NULL, `recorded_at` INTEGER NOT NULL, `title` TEXT NOT NULL, `scheduled_at` INTEGER NOT NULL, `extra` TEXT NOT NULL, PRIMARY KEY(`id`))",
         "fields": [
           {
             "fieldPath": "id",
             "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceOrder",
+            "columnName": "source_order",
             "affinity": "INTEGER",
             "notNull": true
           },
@@ -259,11 +271,17 @@
       },
       {
         "tableName": "plans",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER NOT NULL, `title` TEXT NOT NULL, `state` TEXT NOT NULL, `weekly_target` INTEGER NOT NULL, `duration_minutes` INTEGER NOT NULL, `metric_type` TEXT NOT NULL, `metric_target` TEXT NOT NULL, `minimum_version` TEXT NOT NULL, `resource_title` TEXT NOT NULL, `resource_unit` TEXT NOT NULL, `completed_this_week` INTEGER NOT NULL, `minimum_completions_this_week` INTEGER NOT NULL, `completion_week_key` INTEGER NOT NULL, `desired_outcome` TEXT NOT NULL, `first_action` TEXT NOT NULL, `source_notes` TEXT NOT NULL, PRIMARY KEY(`id`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER NOT NULL, `source_order` INTEGER NOT NULL, `title` TEXT NOT NULL, `state` TEXT NOT NULL, `weekly_target` INTEGER NOT NULL, `duration_minutes` INTEGER NOT NULL, `metric_type` TEXT NOT NULL, `metric_target` TEXT NOT NULL, `minimum_version` TEXT NOT NULL, `resource_title` TEXT NOT NULL, `resource_unit` TEXT NOT NULL, `completed_this_week` INTEGER NOT NULL, `minimum_completions_this_week` INTEGER NOT NULL, `completion_week_key` INTEGER NOT NULL, `desired_outcome` TEXT NOT NULL, `first_action` TEXT NOT NULL, `source_notes` TEXT NOT NULL, PRIMARY KEY(`id`))",
         "fields": [
           {
             "fieldPath": "id",
             "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceOrder",
+            "columnName": "source_order",
             "affinity": "INTEGER",
             "notNull": true
           },
@@ -433,7 +451,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'b3ac55796bcce91aa6bdaa19a9e28b08')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'a4797b9fba496d6abd22b3f536ee3fe7')"
     ]
   }
 }
