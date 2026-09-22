@@ -44,7 +44,9 @@ import com.sakata.focusflow.data.ExistingRoomCoreDataReader
 import com.sakata.focusflow.data.CoreDataReadResult
 import com.sakata.focusflow.data.CoreDataRepository
 import com.sakata.focusflow.data.CoreDataRepositoryOperations
-import com.sakata.focusflow.data.CoreDataRuntimeRepositoryProvider
+import com.sakata.focusflow.data.CoreDataRuntimeAccess
+import com.sakata.focusflow.data.CoreDataRuntimeResolution
+import com.sakata.focusflow.data.CoreDataRuntimeSource
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.input.pointer.PointerEventPass
@@ -111,13 +113,29 @@ class MainActivity : ComponentActivity() {
         // 8.1.0：判断本次开机系统是否把开机广播送给了我们（ColorOS 会推迟），设置页据此如实提示。
         BootRecovery.noteLaunch(this)
         val startupStore = PrototypeStore(this)
-        val coreDataRepository = CoreDataRuntimeRepositoryProvider.legacyLocked(startupStore)
         FrameTimingRecorder.beginStartupSnapshot()
         lifecycleScope.launch {
-            val startupSnapshot = withContext(Dispatchers.IO) {
-                FocusFlowStartupSnapshot.load(startupStore, coreDataRepository) {
-                    ExistingRoomCoreDataReader.read(this@MainActivity)
+            val runtime = withContext(Dispatchers.IO) {
+                CoreDataRuntimeAccess.resolve(this@MainActivity)
+            }
+            if (runtime is CoreDataRuntimeResolution.Blocked) {
+                FrameTimingRecorder.endStartupSnapshot()
+                FrameTimingRecorder.recordStartupFrames()
+                setContent {
+                    LaunchedEffect(Unit) { startupBackFallback.isEnabled = false }
+                    CoreDataBlockedScreen(runtime.decision)
                 }
+                return@launch
+            }
+            val coreDataRepository = (runtime as CoreDataRuntimeResolution.Ready).repository
+            val startupSnapshot = withContext(Dispatchers.IO) {
+                FocusFlowStartupSnapshot.load(
+                    store = startupStore,
+                    coreDataRepository = coreDataRepository,
+                    shadowReader = if (coreDataRepository.source == CoreDataRuntimeSource.LEGACY) {
+                        { ExistingRoomCoreDataReader.read(this@MainActivity) }
+                    } else null
+                )
             }
             // 图片背景在首个 Compose 树建立前完成后台解码。旧路径先显示主题底色，再把整屏位图
             // 塞进已组合好的页面与全部亚克力卡片，首次 GPU 上传会正好撞上用户的第一个动画。
@@ -1559,7 +1577,7 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                     },
                     store = store
                 )
-                else -> SettingsScreen(pageModifier, settingsScrollState, themeOption, commuteProfile, campusLifeEnabled, campusMapPackage, currentCampusPlace, improvementNotes, activitySettings, statusCheckInSettings, statusPromptTrace = statusPromptTrace, nextStatusPromptAt = nextStatusPromptAt, onStatusPromptTest = {
+                else -> SettingsScreen(pageModifier, coreDataRepository, settingsScrollState, themeOption, commuteProfile, campusLifeEnabled, campusMapPackage, currentCampusPlace, improvementNotes, activitySettings, statusCheckInSettings, statusPromptTrace = statusPromptTrace, nextStatusPromptAt = nextStatusPromptAt, onStatusPromptTest = {
                     if (!statusCheckInSettings.enabled) {
                         scope.launch { snackbarHostState.showSnackbar("请先开启每日精力询问") }
                     } else {

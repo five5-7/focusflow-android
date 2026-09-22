@@ -13,7 +13,7 @@ import java.io.File
 
 class CoreDataRepositoryTest {
     @Test
-    fun `legacy adapter exposes the same snapshot and is the locked runtime source`() {
+    fun `legacy adapter exposes the same snapshot and source`() {
         val snapshot = sampleSnapshot()
         val repository = LegacyCoreDataRepository(FakeLegacyPersistence(snapshot))
 
@@ -175,7 +175,8 @@ class CoreDataRepositoryTest {
             "FocusFlowStartupSnapshot.kt",
             "ReminderReceiver.kt",
             "ReminderScheduler.kt",
-            "SettingsScreen.kt"
+            "SettingsScreen.kt",
+            "BootReceiver.kt"
         )
 
         files.forEach { name ->

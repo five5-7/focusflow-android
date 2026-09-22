@@ -23,10 +23,7 @@ fun interface CoreDataReadRepository {
     fun read(): CoreDataReadResult
 }
 
-/**
- * Read boundary for the current source of truth. Writes deliberately remain in [PrototypeStore]
- * until the Room shadow has passed the consistency gate.
- */
+/** Read boundary used when the runtime composition root selects the Legacy source. */
 class LegacyCoreDataReadRepository(
     private val store: PrototypeStore,
     private val itemsLoader: () -> List<Item> = store::loadItems

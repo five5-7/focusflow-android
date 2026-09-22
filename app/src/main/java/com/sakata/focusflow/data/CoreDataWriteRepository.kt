@@ -80,9 +80,9 @@ class DatabaseRoomCoreDataWriteStore(private val database: FocusFlowDatabase) : 
 /**
  * Room equivalent of the current PrototypeStore atomic task/plan operations.
  *
- * This class is intentionally not wired into UI, receivers or schedulers yet. Every mutation is a
- * complete-list transaction so source order and the legacy optimistic-concurrency contract remain
- * observable while the cutover design is still under test.
+ * The runtime composition root may construct this writer only after Room is selected. Every
+ * mutation is a complete-list transaction so source order and the legacy optimistic-concurrency
+ * contract remain observable while the cutover gate is still disabled.
  */
 class RoomCoreDataWriteRepository(
     private val store: RoomCoreDataWriteStore,

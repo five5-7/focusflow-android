@@ -10,9 +10,8 @@ import com.sakata.focusflow.TaskRecorder
 /**
  * Single runtime boundary for Task, TaskEvent and Plan data.
  *
- * The current product assembly is deliberately locked to [CoreDataRuntimeSource.LEGACY]. Room has
- * an adapter so both implementations expose the same contract, but source activation remains a
- * separate checkpoint and is not connected here.
+ * Runtime construction is owned by [CoreDataRuntimeCompositionRoot]. Room and Legacy expose the
+ * same contract, while the composition root guarantees that only the selected writer is created.
  */
 interface CoreDataRepository : CoreDataReadRepository {
     val source: CoreDataRuntimeSource
@@ -47,11 +46,6 @@ interface CoreDataRepository : CoreDataReadRepository {
 
     /** Runs the pre-Room task-history bootstrap only when the selected source still needs it. */
     fun ensureTaskHistoryMigrated(): CoreDataWriteResult
-}
-
-/** The only product assembly entry point in this checkpoint. It cannot select or open Room. */
-object CoreDataRuntimeRepositoryProvider {
-    fun legacyLocked(store: PrototypeStore): CoreDataRepository = LegacyCoreDataRepository(store)
 }
 
 internal interface LegacyCoreDataPersistence {
@@ -255,7 +249,7 @@ class LegacyCoreDataRepository internal constructor(
     )
 }
 
-/** Room adapter exists for contract testing only; the product provider above never constructs it. */
+/** Room adapter is constructed only after the activation coordinator selects Room. */
 class RoomCoreDataRepository(
     private val reader: CoreDataReadRepository,
     private val writer: RoomCoreDataWriteRepository

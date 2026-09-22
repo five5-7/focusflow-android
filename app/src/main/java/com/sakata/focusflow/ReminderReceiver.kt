@@ -9,19 +9,40 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import androidx.core.app.NotificationCompat
+import com.sakata.focusflow.data.CoreDataRepository
 import com.sakata.focusflow.data.CoreDataRepositoryOperations
-import com.sakata.focusflow.data.CoreDataRuntimeRepositoryProvider
+import com.sakata.focusflow.data.CoreDataRuntimeAccess
+import com.sakata.focusflow.data.CoreDataRuntimeResolution
 import java.util.Calendar
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 class ReminderReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
+        val pendingResult = goAsync()
+        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+            try {
+                handleReceive(context.applicationContext, intent)
+            } finally {
+                pendingResult.finish()
+            }
+        }
+    }
+
+    private fun handleReceive(context: Context, intent: Intent) {
         val manager = context.getSystemService(NotificationManager::class.java)
         val notificationId = intent.getIntExtra(EXTRA_NOTIFICATION_ID, -1)
         val sessionId = intent.getLongExtra(EXTRA_SESSION_ID, -1L)
         var activityName = intent.getStringExtra(EXTRA_ACTIVITY_NAME) ?: "当前活动"
         var nextStep = intent.getStringExtra(EXTRA_NEXT_STEP).orEmpty()
         val store = PrototypeStore(context)
-        val coreDataRepository = CoreDataRuntimeRepositoryProvider.legacyLocked(store)
+        val coreDataRepository = if (intent.action in CORE_DATA_ACTIONS) {
+            val runtime = CoreDataRuntimeAccess.resolve(context)
+            if (runtime !is CoreDataRuntimeResolution.Ready) return
+            runtime.repository
+        } else null
         when (intent.action) {
             ACTION_STATUS_CHECK_IN -> {
                 val settings = store.loadStatusCheckInSettings()
@@ -82,7 +103,7 @@ class ReminderReceiver : BroadcastReceiver() {
                     store.finishSession(sessionId, ActivitySession.STATUS_SKIPPED, "replan")
                     ReminderScheduler.cancelActivityReminders(context, sessionId)
                     CoreDataRepositoryOperations.addReplanItem(
-                        coreDataRepository,
+                        requireNotNull(coreDataRepository),
                         active.nextStep.ifBlank { active.name }
                     )
                 }
@@ -112,6 +133,7 @@ class ReminderReceiver : BroadcastReceiver() {
                 showTaskNotification(
                     context,
                     manager,
+                    requireNotNull(coreDataRepository),
                     intent.getLongExtra(EXTRA_TASK_ID, -1L),
                     intent.getLongExtra(EXTRA_TASK_START_AT, 0L),
                     dueNow = intent.action == ACTION_TASK_DUE
@@ -198,7 +220,7 @@ class ReminderReceiver : BroadcastReceiver() {
                 if (notificationId >= 0) manager.cancel(notificationId)
                 val taskId = intent.getLongExtra(EXTRA_TASK_ID, -1L)
                 val mutation = taskId.takeIf { it >= 0 }?.let {
-                    coreDataRepository.mutateScheduledTask(
+                    requireNotNull(coreDataRepository).mutateScheduledTask(
                         id = taskId,
                         expectedScheduledAt = intent.getLongExtra(EXTRA_TASK_START_AT, -1L),
                         completionMinimum = false,
@@ -220,7 +242,7 @@ class ReminderReceiver : BroadcastReceiver() {
                 if (notificationId >= 0) manager.cancel(notificationId)
                 val taskId = intent.getLongExtra(EXTRA_TASK_ID, -1L)
                 val mutation = taskId.takeIf { it >= 0 }?.let {
-                    coreDataRepository.mutateScheduledTask(
+                    requireNotNull(coreDataRepository).mutateScheduledTask(
                         id = taskId,
                         expectedScheduledAt = intent.getLongExtra(EXTRA_TASK_START_AT, -1L),
                         completionMinimum = true,
@@ -239,7 +261,7 @@ class ReminderReceiver : BroadcastReceiver() {
                 val now = System.currentTimeMillis()
                 val delayedAt = now + 60 * 60_000L
                 val mutation = taskId.takeIf { it >= 0 }?.let {
-                    coreDataRepository.mutateScheduledTask(
+                    requireNotNull(coreDataRepository).mutateScheduledTask(
                         id = taskId,
                         expectedScheduledAt = intent.getLongExtra(EXTRA_TASK_START_AT, -1L),
                         transform = { current -> current.copy(
@@ -264,7 +286,7 @@ class ReminderReceiver : BroadcastReceiver() {
                 if (notificationId >= 0) manager.cancel(notificationId)
                 val taskId = intent.getLongExtra(EXTRA_TASK_ID, -1L)
                 val mutation = taskId.takeIf { it >= 0 }?.let {
-                    coreDataRepository.mutateScheduledTask(
+                    requireNotNull(coreDataRepository).mutateScheduledTask(
                         id = taskId,
                         expectedScheduledAt = intent.getLongExtra(EXTRA_TASK_START_AT, -1L),
                         transform = { item -> item.copy(
@@ -375,12 +397,19 @@ class ReminderReceiver : BroadcastReceiver() {
             .build())
     }
 
-    private fun showTaskNotification(context: Context, manager: NotificationManager, taskId: Long, startsAt: Long, dueNow: Boolean) {
+    private fun showTaskNotification(
+        context: Context,
+        manager: NotificationManager,
+        repository: CoreDataRepository,
+        taskId: Long,
+        startsAt: Long,
+        dueNow: Boolean
+    ) {
         if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
         val store = PrototypeStore(context)
         if (!store.loadActivityReminderSettings().scheduleRemindersEnabled) return
         val task = CoreDataRepositoryOperations.findTask(
-            CoreDataRuntimeRepositoryProvider.legacyLocked(store),
+            repository,
             taskId
         ) ?: return
         // 改期与完成可能正好和旧广播交错；以当前存储状态为准，避免幽灵通知。
@@ -744,6 +773,15 @@ class ReminderReceiver : BroadcastReceiver() {
         const val ACTION_MEAL_END_REMINDER = "com.sakata.focusflow.MEAL_END_REMINDER"
         const val ACTION_MEAL_STILL_EATING = "com.sakata.focusflow.MEAL_STILL_EATING"
         const val ACTION_DAILY_MEAL_REFRESH = "com.sakata.focusflow.DAILY_MEAL_REFRESH"
+        private val CORE_DATA_ACTIONS = setOf(
+            ACTION_SKIP,
+            ACTION_TASK_ADVANCE,
+            ACTION_TASK_DUE,
+            ACTION_TASK_COMPLETE,
+            ACTION_TASK_SNOOZE,
+            ACTION_TASK_SKIP,
+            ACTION_TASK_MINIMUM
+        )
         const val EXTRA_ACTIVITY_NAME = "activity_name"
         const val EXTRA_NEXT_STEP = "next_step"
         const val EXTRA_SESSION_ID = "session_id"
