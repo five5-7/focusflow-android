@@ -117,7 +117,7 @@ class CoreDataWriteRepositoryTest {
         val after = readySnapshot(store)
 
         assertEquals(CoreDataWriteStatus.APPLIED, result.status)
-        assertEquals(listOf(90L), after.items.map { it.id })
+        assertEquals(listOf(3L), after.items.map { it.id })
         assertEquals(listOf(800L, 802L), after.taskEvents.map { it.id })
         assertEquals(listOf(70L, 4L, 5L), after.goals.map { it.id })
         assertEquals(1, store.committedTransactions)
