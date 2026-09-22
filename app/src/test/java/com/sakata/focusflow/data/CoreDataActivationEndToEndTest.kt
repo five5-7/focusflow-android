@@ -135,7 +135,7 @@ class CoreDataActivationEndToEndTest {
     }
 
     @Test
-    fun `closed active Room fails closed without constructing either writer`() {
+    fun `active Room query failure fails closed without constructing either writer`() {
         installFixture("8.3-rc.12")
         val database = newDatabase()
         val activationStore = SharedPreferencesCoreDataActivationStore(context)
@@ -147,7 +147,7 @@ class CoreDataActivationEndToEndTest {
             now = sequenceOf(100L, 200L)
         ).resolve()
         assertTrue(activated is CoreDataRuntimeResolution.Ready)
-        database.close()
+        database.openHelper.writableDatabase.execSQL("DROP TABLE tasks")
 
         var legacyFactories = 0
         var roomFactories = 0
@@ -161,7 +161,7 @@ class CoreDataActivationEndToEndTest {
             selectSource = { coordinator.selectSource(activationEnabled = false) },
             legacyRepositoryFactory = {
                 legacyFactories++
-                error("closed active Room must not fall back to Legacy")
+                error("invalid active Room must not fall back to Legacy")
             },
             roomRepositoryFactory = {
                 roomFactories++
