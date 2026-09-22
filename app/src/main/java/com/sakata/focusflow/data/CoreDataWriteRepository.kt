@@ -94,7 +94,7 @@ class RoomCoreDataWriteRepository(
             validate(tasks, current.taskEvents, current.goals)?.let {
                 return@transact invalidInput(it)
             }
-            store.replaceTasks(tasks.toEntities())
+            store.replaceTasks(tasks.toTaskEntities())
             applied()
         }
 
@@ -108,8 +108,8 @@ class RoomCoreDataWriteRepository(
         validate(tasks, updatedEvents, current.goals)?.let {
             return@transact invalidInput(it)
         }
-        store.replaceTasks(tasks.toEntities())
-        store.replaceTaskEvents(updatedEvents.toEntities())
+        store.replaceTasks(tasks.toTaskEntities())
+        store.replaceTaskEvents(updatedEvents.toTaskEventEntities())
         applied()
     }
 
@@ -126,9 +126,9 @@ class RoomCoreDataWriteRepository(
         validate(tasks, updatedEvents, plans)?.let {
             return@transact invalidInput(it)
         }
-        store.replaceTasks(tasks.toEntities())
-        store.replaceTaskEvents(updatedEvents.toEntities())
-        store.replacePlans(plans.toEntities())
+        store.replaceTasks(tasks.toTaskEntities())
+        store.replaceTaskEvents(updatedEvents.toTaskEventEntities())
+        store.replacePlans(plans.toPlanEntities())
         applied()
     }
 
@@ -141,7 +141,7 @@ class RoomCoreDataWriteRepository(
             validate(current.items, current.taskEvents, plans)?.let {
                 return@transact invalidInput(it)
             }
-            store.replacePlans(plans.toEntities())
+            store.replacePlans(plans.toPlanEntities())
             applied()
         }
 
@@ -150,7 +150,7 @@ class RoomCoreDataWriteRepository(
         validate(current.items, updatedEvents, current.goals)?.let {
             return@transact invalidInput(it)
         }
-        store.replaceTaskEvents(updatedEvents.toEntities())
+        store.replaceTaskEvents(updatedEvents.toTaskEventEntities())
         applied()
     }
 
@@ -158,7 +158,7 @@ class RoomCoreDataWriteRepository(
         validate(current.items, events, current.goals)?.let {
             return@transact invalidInput(it)
         }
-        store.replaceTaskEvents(events.toEntities())
+        store.replaceTaskEvents(events.toTaskEventEntities())
         applied()
     }
 
@@ -184,9 +184,9 @@ class RoomCoreDataWriteRepository(
         validate(updatedTasks, updatedEvents, updatedPlans)?.let {
             return@transact invalidInput(it)
         }
-        store.replaceTasks(updatedTasks.toEntities())
-        store.replaceTaskEvents(updatedEvents.toEntities())
-        if (updatedPlans !== current.goals) store.replacePlans(updatedPlans.toEntities())
+        store.replaceTasks(updatedTasks.toTaskEntities())
+        store.replaceTaskEvents(updatedEvents.toTaskEventEntities())
+        if (updatedPlans !== current.goals) store.replacePlans(updatedPlans.toPlanEntities())
         applied(CoreDataTaskMutation(before, after))
     }
 
@@ -253,13 +253,13 @@ class RoomCoreDataWriteRepository(
         }
     }
 
-    private fun List<Item>.toEntities(): List<TaskEntity> =
+    private fun List<Item>.toTaskEntities(): List<TaskEntity> =
         mapIndexed { index, item -> TaskEntity.fromLegacy(item, index) }
 
-    private fun List<TaskEvent>.toEntities(): List<TaskEventEntity> =
+    private fun List<TaskEvent>.toTaskEventEntities(): List<TaskEventEntity> =
         mapIndexed { index, event -> TaskEventEntity.fromLegacy(event, index) }
 
-    private fun List<Goal>.toEntities(): List<PlanEntity> =
+    private fun List<Goal>.toPlanEntities(): List<PlanEntity> =
         mapIndexed { index, goal -> PlanEntity.fromLegacy(goal, index) }
 
     private fun applied(mutation: CoreDataTaskMutation? = null) =
