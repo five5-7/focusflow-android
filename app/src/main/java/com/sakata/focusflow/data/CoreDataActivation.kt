@@ -436,7 +436,8 @@ class CoreDataActivationCoordinator(
                 snapshot = CoreDataSnapshot(
                     items = snapshot.tasks.map(TaskEntity::toLegacy),
                     taskEvents = events,
-                    goals = snapshot.plans.map(PlanEntity::toLegacy)
+                    goals = snapshot.plans.map(PlanEntity::toLegacy),
+                    activitySessions = snapshot.activitySessions.map(ActivitySessionEntity::toLegacy)
                 )
             )
         } catch (error: Exception) {
