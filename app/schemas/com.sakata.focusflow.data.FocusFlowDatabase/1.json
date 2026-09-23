@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 1,
-    "identityHash": "fdd2589c22d6ae52f9a6153352bdd58c",
+    "identityHash": "9c23a097b8d72d186c224f41a09dc053",
     "entities": [
       {
         "tableName": "tasks",
@@ -726,8 +726,131 @@
         ]
       },
       {
+        "tableName": "courses",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER NOT NULL, `source_order` INTEGER NOT NULL, `title` TEXT NOT NULL, `needs_confirmation` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceOrder",
+            "columnName": "source_order",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "needsConfirmation",
+            "columnName": "needs_confirmation",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "course_meeting_rules",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER NOT NULL, `course_id` INTEGER NOT NULL, `source_order` INTEGER NOT NULL, `weekday` INTEGER NOT NULL, `start_period` INTEGER NOT NULL, `end_period` INTEGER NOT NULL, `building` TEXT NOT NULL, `zone` TEXT NOT NULL, `enabled` INTEGER NOT NULL, `effective_from_epoch_day` INTEGER, `effective_until_epoch_day` INTEGER, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "courseId",
+            "columnName": "course_id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceOrder",
+            "columnName": "source_order",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "weekday",
+            "columnName": "weekday",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "startPeriod",
+            "columnName": "start_period",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "endPeriod",
+            "columnName": "end_period",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "building",
+            "columnName": "building",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "zone",
+            "columnName": "zone",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "enabled",
+            "columnName": "enabled",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "effectiveFromEpochDay",
+            "columnName": "effective_from_epoch_day",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "effectiveUntilEpochDay",
+            "columnName": "effective_until_epoch_day",
+            "affinity": "INTEGER"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_course_meeting_rules_course_id",
+            "unique": false,
+            "columnNames": [
+              "course_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_course_meeting_rules_course_id` ON `${TABLE_NAME}` (`course_id`)"
+          }
+        ]
+      },
+      {
         "tableName": "migration_states",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`migration_key` TEXT NOT NULL, `source_data_version` INTEGER NOT NULL, `source_fingerprint` TEXT NOT NULL, `task_count` INTEGER NOT NULL, `task_event_count` INTEGER NOT NULL, `plan_count` INTEGER NOT NULL, `completed_at` INTEGER NOT NULL, `recurrence_rule_count` INTEGER NOT NULL, `task_occurrence_count` INTEGER NOT NULL, `activity_session_count` INTEGER NOT NULL, PRIMARY KEY(`migration_key`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`migration_key` TEXT NOT NULL, `source_data_version` INTEGER NOT NULL, `source_fingerprint` TEXT NOT NULL, `task_count` INTEGER NOT NULL, `task_event_count` INTEGER NOT NULL, `plan_count` INTEGER NOT NULL, `completed_at` INTEGER NOT NULL, `recurrence_rule_count` INTEGER NOT NULL, `task_occurrence_count` INTEGER NOT NULL, `activity_session_count` INTEGER NOT NULL, `course_count` INTEGER NOT NULL, `course_meeting_rule_count` INTEGER NOT NULL, PRIMARY KEY(`migration_key`))",
         "fields": [
           {
             "fieldPath": "migrationKey",
@@ -788,6 +911,18 @@
             "columnName": "activity_session_count",
             "affinity": "INTEGER",
             "notNull": true
+          },
+          {
+            "fieldPath": "courseCount",
+            "columnName": "course_count",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "courseMeetingRuleCount",
+            "columnName": "course_meeting_rule_count",
+            "affinity": "INTEGER",
+            "notNull": true
           }
         ],
         "primaryKey": {
@@ -800,7 +935,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'fdd2589c22d6ae52f9a6153352bdd58c')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '9c23a097b8d72d186c224f41a09dc053')"
     ]
   }
 }
