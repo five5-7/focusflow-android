@@ -2,6 +2,7 @@ package com.sakata.focusflow.data
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.sakata.focusflow.ActivitySession
 import com.sakata.focusflow.CorruptionBackup
 import com.sakata.focusflow.ItemsCodec
 import com.sakata.focusflow.ProtectedPreferences
@@ -50,6 +51,9 @@ data class LegacySnapshot(
     val tasks: List<TaskEntity>,
     val taskEvents: List<TaskEventEntity>,
     val plans: List<PlanEntity>,
+    val recurrenceRules: List<RecurrenceRuleEntity>,
+    val taskOccurrences: List<TaskOccurrenceEntity>,
+    val activitySessions: List<ActivitySessionEntity>,
     val diagnostics: List<MigrationDiagnostic>
 )
 
@@ -64,7 +68,7 @@ sealed interface LegacyReadResult {
 
 /**
  * Reads, validates and maps the old SharedPreferences payload without modifying it.
- * All three core domains are parsed before Room is touched, so malformed input cannot produce a
+ * All migrated domains are parsed before Room is touched, so malformed input cannot produce a
  * partially populated database that looks successful.
  */
 class LegacyPreferencesReader(
@@ -75,21 +79,26 @@ class LegacyPreferencesReader(
         val itemsRaw = source.getString(KEY_ITEMS)
         val eventsRaw = source.getString(KEY_TASK_EVENTS)
         val goalsRaw = source.getString(KEY_GOALS)
+        val sessionsRaw = source.getString(KEY_SESSIONS)
         val diagnostics = mutableListOf<MigrationDiagnostic>()
 
         return try {
             val tasks = decodeTasks(itemsRaw, diagnostics)
             val events = decodeTaskEvents(eventsRaw, tasks, diagnostics)
             val plans = decodePlans(goalsRaw)
+            val sessions = decodeActivitySessions(sessionsRaw)
             appendRelationshipDiagnostics(itemsRaw, tasks, plans, diagnostics)
             LegacyReadResult.Success(
                 LegacySnapshot(
                     sourceDataVersion = source.getInt(KEY_DATA_VERSION, 1),
-                    sourceFingerprint = fingerprint(itemsRaw, eventsRaw, goalsRaw),
-                    hadLegacyPayload = itemsRaw != null || eventsRaw != null || goalsRaw != null,
+                    sourceFingerprint = fingerprint(itemsRaw, eventsRaw, goalsRaw, sessionsRaw),
+                    hadLegacyPayload = itemsRaw != null || eventsRaw != null || goalsRaw != null || sessionsRaw != null,
                     tasks = tasks,
                     taskEvents = events,
                     plans = plans,
+                    recurrenceRules = emptyList(),
+                    taskOccurrences = emptyList(),
+                    activitySessions = sessions,
                     diagnostics = diagnostics
                 )
             )
@@ -98,6 +107,7 @@ class LegacyPreferencesReader(
                 KEY_ITEMS -> itemsRaw
                 KEY_TASK_EVENTS -> eventsRaw
                 KEY_GOALS -> goalsRaw
+                KEY_SESSIONS -> sessionsRaw
                 else -> null
             }
             val backedUp = raw == null || !CorruptionBackup.shouldBackup(raw) || backup.backup(error.domain, raw)
@@ -159,6 +169,53 @@ class LegacyPreferencesReader(
         val decoded = StoredGoalsCodec.decodeGoals(normalizedRaw)
         if (decoded.size != values.length()) fail(KEY_GOALS, "Not every goal could be decoded")
         return decoded.mapIndexed { index, goal -> PlanEntity.fromLegacy(goal, index) }
+    }
+
+    private fun decodeActivitySessions(raw: String?): List<ActivitySessionEntity> {
+        val normalizedRaw = raw?.ifBlank { "[]" } ?: "[]"
+        val values = strictArray(KEY_SESSIONS, normalizedRaw)
+        validatePositiveUniqueIds(KEY_SESSIONS, values)
+        return List(values.length()) { index ->
+            val value = values.optJSONObject(index) ?: fail(KEY_SESSIONS, "Entry $index is not an object")
+            try {
+                val id = value.getLong("id")
+                val name = value.getString("name")
+                val endsAt = value.getLong("endsAt")
+                if (endsAt <= 0L) fail(KEY_SESSIONS, "Entry $index has an invalid endsAt")
+                val plannedStartAt = value.optLong("plannedStartAt", id)
+                val actualStartAt = value.optLong("actualStartAt", id)
+                if (plannedStartAt <= 0L || actualStartAt <= 0L) {
+                    fail(KEY_SESSIONS, "Entry $index has an invalid start time")
+                }
+                val status = value.optString("status", ActivitySession.STATUS_ACTIVE)
+                if (status !in ACTIVITY_SESSION_STATUSES) {
+                    fail(KEY_SESSIONS, "Entry $index has an unknown status")
+                }
+                val extensionCount = value.optInt("extensionCount")
+                if (extensionCount < 0) fail(KEY_SESSIONS, "Entry $index has a negative extension count")
+                ActivitySessionEntity.fromLegacy(
+                    ActivitySession(
+                        id = id,
+                        name = name,
+                        category = value.optString("category", name),
+                        plannedStartAt = plannedStartAt,
+                        actualStartAt = actualStartAt,
+                        endsAt = endsAt,
+                        nextStep = value.optString("nextStep"),
+                        status = status,
+                        extensionCount = extensionCount,
+                        extensionReason = value.optString("extensionReason"),
+                        actualEndAt = value.optLong("actualEndAt").takeIf { it > 0L },
+                        endChoice = value.optString("endChoice")
+                    ),
+                    sourceOrder = index
+                )
+            } catch (error: LegacyDecodeException) {
+                throw error
+            } catch (error: Exception) {
+                fail(KEY_SESSIONS, "Entry $index could not be decoded", error)
+            }
+        }
     }
 
     private fun appendRelationshipDiagnostics(
@@ -224,7 +281,16 @@ class LegacyPreferencesReader(
         const val KEY_ITEMS = "items"
         const val KEY_TASK_EVENTS = "task_events"
         const val KEY_GOALS = "goals"
+        const val KEY_SESSIONS = "sessions"
         const val KEY_DATA_VERSION = "data_version"
+
+        private val ACTIVITY_SESSION_STATUSES = setOf(
+            ActivitySession.STATUS_ACTIVE,
+            ActivitySession.STATUS_EXTENDED,
+            ActivitySession.STATUS_AWAITING_CONFIRMATION,
+            ActivitySession.STATUS_COMPLETED,
+            ActivitySession.STATUS_SKIPPED
+        )
 
         fun fromContext(context: Context): LegacyPreferencesReader {
             val appContext = context.applicationContext
@@ -246,12 +312,19 @@ private fun fail(domain: String, message: String, cause: Throwable? = null): Not
 data class DatabaseMigrationSummary(
     val taskIds: List<Long>,
     val taskEventIds: List<Long>,
-    val planIds: List<Long>
+    val planIds: List<Long>,
+    val recurrenceRuleIds: List<Long> = emptyList(),
+    val taskOccurrenceIds: List<Long> = emptyList(),
+    val activitySessionIds: List<Long> = emptyList()
 ) {
     val taskCount: Int get() = taskIds.size
     val taskEventCount: Int get() = taskEventIds.size
     val planCount: Int get() = planIds.size
-    val isEmpty: Boolean get() = taskCount == 0 && taskEventCount == 0 && planCount == 0
+    val recurrenceRuleCount: Int get() = recurrenceRuleIds.size
+    val taskOccurrenceCount: Int get() = taskOccurrenceIds.size
+    val activitySessionCount: Int get() = activitySessionIds.size
+    val isEmpty: Boolean get() = taskCount == 0 && taskEventCount == 0 && planCount == 0 &&
+        recurrenceRuleCount == 0 && taskOccurrenceCount == 0 && activitySessionCount == 0
 }
 
 enum class AtomicImportOutcome { INSERTED, ALREADY_PRESENT, DATABASE_NOT_EMPTY }
@@ -268,7 +341,10 @@ class RoomLegacyMigrationStore(private val database: FocusFlowDatabase) : Legacy
     override fun summary(): DatabaseMigrationSummary = DatabaseMigrationSummary(
         taskIds = database.taskDao().allIds(),
         taskEventIds = database.taskEventDao().allIds(),
-        planIds = database.planDao().allIds()
+        planIds = database.planDao().allIds(),
+        recurrenceRuleIds = database.recurrenceRuleDao().allIds(),
+        taskOccurrenceIds = database.taskOccurrenceDao().allIds(),
+        activitySessionIds = database.activitySessionDao().allIds()
     )
 
     override fun importAtomically(
@@ -289,6 +365,9 @@ class RoomLegacyMigrationStore(private val database: FocusFlowDatabase) : Legacy
             database.planDao().insertAll(snapshot.plans)
             database.taskDao().insertAll(snapshot.tasks)
             database.taskEventDao().insertAll(snapshot.taskEvents)
+            database.recurrenceRuleDao().insertAll(snapshot.recurrenceRules)
+            database.taskOccurrenceDao().insertAll(snapshot.taskOccurrences)
+            database.activitySessionDao().insertAll(snapshot.activitySessions)
             database.migrationStateDao().insert(state)
         }
         return outcome
@@ -329,6 +408,9 @@ data class MigrationReport(
     val taskCount: Int = 0,
     val taskEventCount: Int = 0,
     val planCount: Int = 0,
+    val recurrenceRuleCount: Int = 0,
+    val taskOccurrenceCount: Int = 0,
+    val activitySessionCount: Int = 0,
     val diagnostics: List<MigrationDiagnostic> = emptyList(),
     val message: String = ""
 )
@@ -359,6 +441,9 @@ class LegacyDataImporter(
             if (existing.sourceFingerprint != snapshot.sourceFingerprint) {
                 return report(snapshot, MigrationStatus.BLOCKED_SOURCE_CHANGED, "Legacy payload changed after import")
             }
+            if (!stateMatches(snapshot, existing)) {
+                return report(snapshot, MigrationStatus.VERIFICATION_FAILED, "Migration state counts do not match the source")
+            }
             if (!matches(expected, store.summary())) {
                 return report(snapshot, MigrationStatus.VERIFICATION_FAILED, "Stored IDs or counts do not match the source")
             }
@@ -378,7 +463,10 @@ class LegacyDataImporter(
             taskCount = snapshot.tasks.size,
             taskEventCount = snapshot.taskEvents.size,
             planCount = snapshot.plans.size,
-            completedAt = now()
+            completedAt = now(),
+            recurrenceRuleCount = snapshot.recurrenceRules.size,
+            taskOccurrenceCount = snapshot.taskOccurrences.size,
+            activitySessionCount = snapshot.activitySessions.size
         )
         val outcome = try {
             store.importAtomically(snapshot, state)
@@ -403,6 +491,9 @@ class LegacyDataImporter(
         taskCount = snapshot.tasks.size,
         taskEventCount = snapshot.taskEvents.size,
         planCount = snapshot.plans.size,
+        recurrenceRuleCount = snapshot.recurrenceRules.size,
+        taskOccurrenceCount = snapshot.taskOccurrences.size,
+        activitySessionCount = snapshot.activitySessions.size,
         diagnostics = snapshot.diagnostics,
         message = message
     )
@@ -410,15 +501,29 @@ class LegacyDataImporter(
     private fun expectedSummary(snapshot: LegacySnapshot) = DatabaseMigrationSummary(
         taskIds = snapshot.tasks.map { it.id }.sorted(),
         taskEventIds = snapshot.taskEvents.map { it.id }.sorted(),
-        planIds = snapshot.plans.map { it.id }.sorted()
+        planIds = snapshot.plans.map { it.id }.sorted(),
+        recurrenceRuleIds = snapshot.recurrenceRules.map { it.id }.sorted(),
+        taskOccurrenceIds = snapshot.taskOccurrences.map { it.id }.sorted(),
+        activitySessionIds = snapshot.activitySessions.map { it.id }.sorted()
     )
 
     private fun matches(expected: DatabaseMigrationSummary, actual: DatabaseMigrationSummary): Boolean =
         expected == actual.copy(
             taskIds = actual.taskIds.sorted(),
             taskEventIds = actual.taskEventIds.sorted(),
-            planIds = actual.planIds.sorted()
+            planIds = actual.planIds.sorted(),
+            recurrenceRuleIds = actual.recurrenceRuleIds.sorted(),
+            taskOccurrenceIds = actual.taskOccurrenceIds.sorted(),
+            activitySessionIds = actual.activitySessionIds.sorted()
         )
+
+    private fun stateMatches(snapshot: LegacySnapshot, state: MigrationStateEntity): Boolean =
+        state.taskCount == snapshot.tasks.size &&
+            state.taskEventCount == snapshot.taskEvents.size &&
+            state.planCount == snapshot.plans.size &&
+            state.recurrenceRuleCount == snapshot.recurrenceRules.size &&
+            state.taskOccurrenceCount == snapshot.taskOccurrences.size &&
+            state.activitySessionCount == snapshot.activitySessions.size
 
     companion object {
         const val MIGRATION_KEY = "room_migration_v9_0_task_plan_complete"

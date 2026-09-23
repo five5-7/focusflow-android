@@ -1,5 +1,6 @@
 package com.sakata.focusflow.data
 
+import com.sakata.focusflow.ActivitySession
 import com.sakata.focusflow.Goal
 import com.sakata.focusflow.Item
 import com.sakata.focusflow.TaskEvent
@@ -21,6 +22,7 @@ class CoreDataRepositoriesTest {
         assertEquals(listOf(90L, 3L), result.snapshot.items.map { it.id })
         assertEquals(listOf(800L, 2L), result.snapshot.taskEvents.map { it.id })
         assertEquals(listOf(70L, 4L), result.snapshot.goals.map { it.id })
+        assertEquals(listOf(600L), result.snapshot.activitySessions.map { it.id })
         assertEquals(
             CoreDataConsistencyStatus.CONSISTENT,
             CoreDataConsistencyChecker.compare(legacy, result).status
@@ -119,6 +121,9 @@ class CoreDataRepositoriesTest {
         val tasks = snapshot.items.mapIndexed { index, item -> TaskEntity.fromLegacy(item, index) }
         val events = snapshot.taskEvents.mapIndexed { index, event -> TaskEventEntity.fromLegacy(event, index) }
         val plans = snapshot.goals.mapIndexed { index, goal -> PlanEntity.fromLegacy(goal, index) }
+        val sessions = snapshot.activitySessions.mapIndexed { index, session ->
+            ActivitySessionEntity.fromLegacy(session, index)
+        }
         return FakeRoomCoreDataSource(
             state = MigrationStateEntity(
                 migrationKey = LegacyDataImporter.MIGRATION_KEY,
@@ -127,11 +132,13 @@ class CoreDataRepositoriesTest {
                 taskCount = tasks.size,
                 taskEventCount = events.size,
                 planCount = plans.size,
-                completedAt = 1L
+                completedAt = 1L,
+                activitySessionCount = sessions.size
             ),
             taskRows = tasks,
             eventRows = events,
-            planRows = plans
+            planRows = plans,
+            sessionRows = sessions
         )
     }
 
@@ -162,7 +169,19 @@ class CoreDataRepositoriesTest {
             Goal(70L, "plan one", 3, 25, desiredOutcome = "outcome"),
             Goal(4L, "plan two", 1, 10, minimumVersion = "minimum")
         )
-        return CoreDataSnapshot(listOf(first, second), events, goals)
+        val sessions = listOf(
+            ActivitySession(
+                id = 600L,
+                name = "session",
+                plannedStartAt = 1_000L,
+                actualStartAt = 1_100L,
+                endsAt = 2_000L,
+                status = ActivitySession.STATUS_COMPLETED,
+                actualEndAt = 1_900L,
+                endChoice = "done"
+            )
+        )
+        return CoreDataSnapshot(listOf(first, second), events, goals, sessions)
     }
 }
 
@@ -170,10 +189,12 @@ private class FakeRoomCoreDataSource(
     var state: MigrationStateEntity? = null,
     var taskRows: List<TaskEntity> = emptyList(),
     var eventRows: List<TaskEventEntity> = emptyList(),
-    var planRows: List<PlanEntity> = emptyList()
+    var planRows: List<PlanEntity> = emptyList(),
+    var sessionRows: List<ActivitySessionEntity> = emptyList()
 ) : RoomCoreDataSource {
     override fun migrationState(): MigrationStateEntity? = state
     override fun tasks(): List<TaskEntity> = taskRows
     override fun taskEvents(): List<TaskEventEntity> = eventRows
     override fun plans(): List<PlanEntity> = planRows
+    override fun activitySessions(): List<ActivitySessionEntity> = sessionRows
 }

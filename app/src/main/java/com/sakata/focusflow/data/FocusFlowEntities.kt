@@ -4,6 +4,7 @@ import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
+import com.sakata.focusflow.ActivitySession
 import com.sakata.focusflow.Goal
 import com.sakata.focusflow.Item
 import com.sakata.focusflow.TaskEvent
@@ -171,6 +172,111 @@ data class PlanEntity(
     }
 }
 
+/**
+ * A recurrence rule is a future 9.0 concept and therefore has no legacy migration source.
+ *
+ * Dates are stored as local epoch days and the wall-clock minute is paired with an explicit
+ * time-zone ID. This keeps generation deterministic across daylight-saving changes without
+ * turning an old one-off task or a weekly Goal target into an invented rule.
+ */
+@Entity(
+    tableName = "recurrence_rules",
+    indices = [Index(value = ["template_task_id"]), Index(value = ["enabled"])]
+)
+data class RecurrenceRuleEntity(
+    @PrimaryKey val id: Long,
+    @ColumnInfo(name = "template_task_id") val templateTaskId: Long,
+    val frequency: String,
+    val interval: Int,
+    @ColumnInfo(name = "days_of_week_mask") val daysOfWeekMask: Int,
+    @ColumnInfo(name = "starts_on_epoch_day") val startsOnEpochDay: Long,
+    @ColumnInfo(name = "ends_on_epoch_day") val endsOnEpochDay: Long?,
+    @ColumnInfo(name = "local_time_minutes") val localTimeMinutes: Int,
+    @ColumnInfo(name = "time_zone_id") val timeZoneId: String,
+    val enabled: Boolean,
+    @ColumnInfo(name = "created_at") val createdAt: Long,
+    @ColumnInfo(name = "updated_at") val updatedAt: Long
+)
+
+/** One generated date of a recurrence rule; the template and materialized task remain distinct. */
+@Entity(
+    tableName = "task_occurrences",
+    indices = [
+        Index(value = ["recurrence_rule_id", "occurrence_epoch_day"], unique = true),
+        Index(value = ["template_task_id"]),
+        Index(value = ["materialized_task_id"]),
+        Index(value = ["status"])
+    ]
+)
+data class TaskOccurrenceEntity(
+    @PrimaryKey val id: Long,
+    @ColumnInfo(name = "recurrence_rule_id") val recurrenceRuleId: Long,
+    @ColumnInfo(name = "template_task_id") val templateTaskId: Long,
+    @ColumnInfo(name = "materialized_task_id") val materializedTaskId: Long?,
+    @ColumnInfo(name = "occurrence_epoch_day") val occurrenceEpochDay: Long,
+    @ColumnInfo(name = "scheduled_at") val scheduledAt: Long,
+    val status: String,
+    @ColumnInfo(name = "completed_at") val completedAt: Long?,
+    @ColumnInfo(name = "skipped_at") val skippedAt: Long?,
+    @ColumnInfo(name = "rescheduled_to") val rescheduledTo: Long?,
+    @ColumnInfo(name = "created_at") val createdAt: Long,
+    @ColumnInfo(name = "updated_at") val updatedAt: Long
+)
+
+@Entity(
+    tableName = "activity_sessions",
+    indices = [Index(value = ["status"]), Index(value = ["planned_start_at"])]
+)
+data class ActivitySessionEntity(
+    @PrimaryKey val id: Long,
+    @ColumnInfo(name = "source_order") val sourceOrder: Int,
+    val name: String,
+    val category: String,
+    @ColumnInfo(name = "planned_start_at") val plannedStartAt: Long,
+    @ColumnInfo(name = "actual_start_at") val actualStartAt: Long,
+    @ColumnInfo(name = "ends_at") val endsAt: Long,
+    @ColumnInfo(name = "next_step") val nextStep: String,
+    val status: String,
+    @ColumnInfo(name = "extension_count") val extensionCount: Int,
+    @ColumnInfo(name = "extension_reason") val extensionReason: String,
+    @ColumnInfo(name = "actual_end_at") val actualEndAt: Long?,
+    @ColumnInfo(name = "end_choice") val endChoice: String
+) {
+    companion object {
+        fun fromLegacy(session: ActivitySession, sourceOrder: Int = 0): ActivitySessionEntity =
+            ActivitySessionEntity(
+                id = session.id,
+                sourceOrder = sourceOrder,
+                name = session.name,
+                category = session.category,
+                plannedStartAt = session.plannedStartAt,
+                actualStartAt = session.actualStartAt,
+                endsAt = session.endsAt,
+                nextStep = session.nextStep,
+                status = session.status,
+                extensionCount = session.extensionCount,
+                extensionReason = session.extensionReason,
+                actualEndAt = session.actualEndAt,
+                endChoice = session.endChoice
+            )
+    }
+
+    fun toLegacy(): ActivitySession = ActivitySession(
+        id = id,
+        name = name,
+        category = category,
+        plannedStartAt = plannedStartAt,
+        actualStartAt = actualStartAt,
+        endsAt = endsAt,
+        nextStep = nextStep,
+        status = status,
+        extensionCount = extensionCount,
+        extensionReason = extensionReason,
+        actualEndAt = actualEndAt,
+        endChoice = endChoice
+    )
+}
+
 @Entity(tableName = "migration_states")
 data class MigrationStateEntity(
     @PrimaryKey @ColumnInfo(name = "migration_key") val migrationKey: String,
@@ -179,5 +285,8 @@ data class MigrationStateEntity(
     @ColumnInfo(name = "task_count") val taskCount: Int,
     @ColumnInfo(name = "task_event_count") val taskEventCount: Int,
     @ColumnInfo(name = "plan_count") val planCount: Int,
-    @ColumnInfo(name = "completed_at") val completedAt: Long
+    @ColumnInfo(name = "completed_at") val completedAt: Long,
+    @ColumnInfo(name = "recurrence_rule_count") val recurrenceRuleCount: Int = 0,
+    @ColumnInfo(name = "task_occurrence_count") val taskOccurrenceCount: Int = 0,
+    @ColumnInfo(name = "activity_session_count") val activitySessionCount: Int = 0
 )

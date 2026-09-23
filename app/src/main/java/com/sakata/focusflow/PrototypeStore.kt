@@ -1142,7 +1142,7 @@ class PrototypeStore(context: Context) {
         preferences.edit().putString("meal_skip_days", StringArrayCodec.encode(skipDays)).apply()
     }
 
-    private fun loadSessions(): List<ActivitySession> =
+    fun loadSessions(): List<ActivitySession> =
         decodeGuarded("sessions", emptyList(), { json ->
             val values = JSONArray(json)
             List(values.length()) { index ->

@@ -11,7 +11,8 @@ class LegacyPreferencesReaderTest {
         val source = MapLegacySource(
             strings = mapOf(
                 LegacyPreferencesReader.KEY_ITEMS to fixture("migration/8.2.1/items.json"),
-                LegacyPreferencesReader.KEY_GOALS to fixture("migration/8.2.1/goals.json")
+                LegacyPreferencesReader.KEY_GOALS to fixture("migration/8.2.1/goals.json"),
+                LegacyPreferencesReader.KEY_SESSIONS to fixture("migration/8.2.1/sessions.json")
             ),
             dataVersion = 1
         )
@@ -27,6 +28,11 @@ class LegacyPreferencesReaderTest {
         assertEquals(listOf(201L), result.snapshot.plans.map { it.id })
         assertEquals(listOf(0), result.snapshot.plans.map { it.sourceOrder })
         assertTrue(result.snapshot.taskEvents.isEmpty())
+        assertTrue(result.snapshot.recurrenceRules.isEmpty())
+        assertTrue(result.snapshot.taskOccurrences.isEmpty())
+        assertEquals(listOf(701L), result.snapshot.activitySessions.map { it.id })
+        assertEquals("旧版专注", result.snapshot.activitySessions.single().category)
+        assertEquals(701L, result.snapshot.activitySessions.single().plannedStartAt)
     }
 
     @Test
@@ -35,7 +41,8 @@ class LegacyPreferencesReaderTest {
             strings = mapOf(
                 LegacyPreferencesReader.KEY_ITEMS to fixture("migration/8.3-rc.12/items.json"),
                 LegacyPreferencesReader.KEY_TASK_EVENTS to fixture("migration/8.3-rc.12/task_events.json"),
-                LegacyPreferencesReader.KEY_GOALS to fixture("migration/8.3-rc.12/goals.json")
+                LegacyPreferencesReader.KEY_GOALS to fixture("migration/8.3-rc.12/goals.json"),
+                LegacyPreferencesReader.KEY_SESSIONS to fixture("migration/8.3-rc.12/sessions.json")
             ),
             dataVersion = 1
         )
@@ -51,6 +58,12 @@ class LegacyPreferencesReaderTest {
         assertEquals(listOf(0, 1), result.snapshot.taskEvents.map { it.sourceOrder })
         assertTrue(result.snapshot.diagnostics.any { it.message.contains("deleted tasks") })
         assertFalse(result.snapshot.sourceFingerprint.isBlank())
+        assertEquals(listOf(801L, 802L), result.snapshot.activitySessions.map { it.id })
+        assertEquals(listOf(0, 1), result.snapshot.activitySessions.map { it.sourceOrder })
+        assertEquals(1789996200000L, result.snapshot.activitySessions.first().actualEndAt)
+        assertEquals(null, result.snapshot.activitySessions.last().actualEndAt)
+        assertTrue(result.snapshot.recurrenceRules.isEmpty())
+        assertTrue(result.snapshot.taskOccurrences.isEmpty())
     }
 
     @Test
@@ -98,6 +111,22 @@ class LegacyPreferencesReaderTest {
 
         assertTrue(result is LegacyReadResult.Failure)
         assertEquals(LegacyPreferencesReader.KEY_TASK_EVENTS, (result as LegacyReadResult.Failure).domain)
+    }
+
+    @Test
+    fun `invalid activity session blocks the whole import and is backed up`() {
+        val backups = mutableListOf<Pair<String, String>>()
+        val sessions = """[{"id":4,"name":"bad","endsAt":20,"status":"future_status"}]"""
+        val result = LegacyPreferencesReader(
+            MapLegacySource(mapOf(LegacyPreferencesReader.KEY_SESSIONS to sessions))
+        ) { key, raw ->
+            backups += key to raw
+            true
+        }.read()
+
+        assertTrue(result is LegacyReadResult.Failure)
+        assertEquals(LegacyPreferencesReader.KEY_SESSIONS, (result as LegacyReadResult.Failure).domain)
+        assertEquals(listOf(LegacyPreferencesReader.KEY_SESSIONS to sessions), backups)
     }
 
     private fun fixture(path: String): String = requireNotNull(javaClass.classLoader?.getResource(path))

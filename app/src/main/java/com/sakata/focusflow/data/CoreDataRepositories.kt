@@ -1,6 +1,7 @@
 package com.sakata.focusflow.data
 
 import android.content.Context
+import com.sakata.focusflow.ActivitySession
 import com.sakata.focusflow.Goal
 import com.sakata.focusflow.Item
 import com.sakata.focusflow.PrototypeStore
@@ -10,7 +11,8 @@ import com.sakata.focusflow.TaskEventType
 data class CoreDataSnapshot(
     val items: List<Item>,
     val taskEvents: List<TaskEvent>,
-    val goals: List<Goal>
+    val goals: List<Goal>,
+    val activitySessions: List<ActivitySession> = emptyList()
 )
 
 sealed interface CoreDataReadResult {
@@ -32,7 +34,8 @@ class LegacyCoreDataReadRepository(
         CoreDataSnapshot(
             items = itemsLoader(),
             taskEvents = store.loadTaskEvents(),
-            goals = store.loadGoals()
+            goals = store.loadGoals(),
+            activitySessions = store.loadSessions()
         )
     )
 }
@@ -42,6 +45,9 @@ interface RoomCoreDataSource {
     fun tasks(): List<TaskEntity>
     fun taskEvents(): List<TaskEventEntity>
     fun plans(): List<PlanEntity>
+    fun recurrenceRuleIds(): List<Long> = emptyList()
+    fun taskOccurrenceIds(): List<Long> = emptyList()
+    fun activitySessions(): List<ActivitySessionEntity> = emptyList()
 }
 
 class DatabaseRoomCoreDataSource(private val database: FocusFlowDatabase) : RoomCoreDataSource {
@@ -51,6 +57,9 @@ class DatabaseRoomCoreDataSource(private val database: FocusFlowDatabase) : Room
     override fun tasks(): List<TaskEntity> = database.taskDao().all()
     override fun taskEvents(): List<TaskEventEntity> = database.taskEventDao().all()
     override fun plans(): List<PlanEntity> = database.planDao().all()
+    override fun recurrenceRuleIds(): List<Long> = database.recurrenceRuleDao().allIds()
+    override fun taskOccurrenceIds(): List<Long> = database.taskOccurrenceDao().allIds()
+    override fun activitySessions(): List<ActivitySessionEntity> = database.activitySessionDao().all()
 }
 
 /** Reads Room without mutating it. Invalid rows are reported instead of being dropped or fixed. */
@@ -66,9 +75,20 @@ class RoomCoreDataReadRepository(private val source: RoomCoreDataSource) : CoreD
             val tasks = source.tasks()
             val events = source.taskEvents()
             val plans = source.plans()
-            val countProblem = countProblem(state, tasks, events, plans)
+            val recurrenceRuleIds = source.recurrenceRuleIds()
+            val taskOccurrenceIds = source.taskOccurrenceIds()
+            val sessions = source.activitySessions()
+            val countProblem = countProblem(
+                state,
+                tasks,
+                events,
+                plans,
+                recurrenceRuleIds,
+                taskOccurrenceIds,
+                sessions
+            )
             if (countProblem != null) return CoreDataReadResult.Invalid(countProblem)
-            val orderProblem = orderProblem(tasks, events, plans)
+            val orderProblem = orderProblem(tasks, events, plans, sessions)
             if (orderProblem != null) return CoreDataReadResult.Invalid(orderProblem)
 
             val mappedTasks = tasks.map(TaskEntity::toLegacy)
@@ -88,7 +108,8 @@ class RoomCoreDataReadRepository(private val source: RoomCoreDataSource) : CoreD
                 CoreDataSnapshot(
                     items = mappedTasks,
                     taskEvents = mappedEvents,
-                    goals = plans.map(PlanEntity::toLegacy)
+                    goals = plans.map(PlanEntity::toLegacy),
+                    activitySessions = sessions.map(ActivitySessionEntity::toLegacy)
                 )
             )
         } catch (error: Exception) {
@@ -100,18 +121,27 @@ class RoomCoreDataReadRepository(private val source: RoomCoreDataSource) : CoreD
         state: MigrationStateEntity,
         tasks: List<TaskEntity>,
         events: List<TaskEventEntity>,
-        plans: List<PlanEntity>
+        plans: List<PlanEntity>,
+        recurrenceRuleIds: List<Long>,
+        taskOccurrenceIds: List<Long>,
+        sessions: List<ActivitySessionEntity>
     ): String? = when {
         tasks.size != state.taskCount -> "tasks count does not match migration state"
         events.size != state.taskEventCount -> "task_events count does not match migration state"
         plans.size != state.planCount -> "plans count does not match migration state"
+        recurrenceRuleIds.size != state.recurrenceRuleCount ->
+            "recurrence_rules count does not match migration state"
+        taskOccurrenceIds.size != state.taskOccurrenceCount ->
+            "task_occurrences count does not match migration state"
+        sessions.size != state.activitySessionCount -> "activity_sessions count does not match migration state"
         else -> null
     }
 
     private fun orderProblem(
         tasks: List<TaskEntity>,
         events: List<TaskEventEntity>,
-        plans: List<PlanEntity>
+        plans: List<PlanEntity>,
+        sessions: List<ActivitySessionEntity>
     ): String? = when {
         tasks.any { it.sourceOrder < 0 } || tasks.map { it.sourceOrder }.toSet().size != tasks.size ->
             "tasks contains invalid source order"
@@ -119,6 +149,8 @@ class RoomCoreDataReadRepository(private val source: RoomCoreDataSource) : CoreD
             "task_events contains invalid source order"
         plans.any { it.sourceOrder < 0 } || plans.map { it.sourceOrder }.toSet().size != plans.size ->
             "plans contains invalid source order"
+        sessions.any { it.sourceOrder < 0 } || sessions.map { it.sourceOrder }.toSet().size != sessions.size ->
+            "activity_sessions contains invalid source order"
         else -> null
     }
 }
@@ -155,6 +187,12 @@ object CoreDataConsistencyChecker {
                 difference("tasks", legacy.items, room.snapshot.items, Item::id)?.let(::add)
                 difference("task_events", legacy.taskEvents, room.snapshot.taskEvents, TaskEvent::id)?.let(::add)
                 difference("plans", legacy.goals, room.snapshot.goals, Goal::id)?.let(::add)
+                difference(
+                    "activity_sessions",
+                    legacy.activitySessions,
+                    room.snapshot.activitySessions,
+                    ActivitySession::id
+                )?.let(::add)
             }
             CoreDataConsistencyReport(
                 status = if (differences.isEmpty()) CoreDataConsistencyStatus.CONSISTENT

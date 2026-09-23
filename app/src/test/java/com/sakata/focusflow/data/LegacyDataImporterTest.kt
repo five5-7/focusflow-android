@@ -19,6 +19,9 @@ class LegacyDataImporterTest {
         assertEquals(1, first.taskCount)
         assertEquals(2, first.taskEventCount)
         assertEquals(1, first.planCount)
+        assertEquals(0, first.recurrenceRuleCount)
+        assertEquals(0, first.taskOccurrenceCount)
+        assertEquals(2, first.activitySessionCount)
         assertEquals(MigrationStatus.ALREADY_IMPORTED, second.status)
         assertEquals(1, store.importCalls)
         assertEquals(2, marker.reports.size)
@@ -108,7 +111,8 @@ class LegacyDataImporterTest {
             mapOf(
                 LegacyPreferencesReader.KEY_ITEMS to fixture("migration/8.3-rc.12/items.json"),
                 LegacyPreferencesReader.KEY_TASK_EVENTS to fixture("migration/8.3-rc.12/task_events.json"),
-                LegacyPreferencesReader.KEY_GOALS to fixture("migration/8.3-rc.12/goals.json")
+                LegacyPreferencesReader.KEY_GOALS to fixture("migration/8.3-rc.12/goals.json"),
+                LegacyPreferencesReader.KEY_SESSIONS to fixture("migration/8.3-rc.12/sessions.json")
             )
         )
     ) { _, _ -> true }
@@ -130,6 +134,9 @@ private class FakeMigrationStore : LegacyMigrationStore {
     val taskIds = mutableListOf<Long>()
     val taskEventIds = mutableListOf<Long>()
     val planIds = mutableListOf<Long>()
+    val recurrenceRuleIds = mutableListOf<Long>()
+    val taskOccurrenceIds = mutableListOf<Long>()
+    val activitySessionIds = mutableListOf<Long>()
     var importCalls = 0
 
     override fun findState(key: String): MigrationStateEntity? = state?.takeIf { it.migrationKey == key }
@@ -137,7 +144,10 @@ private class FakeMigrationStore : LegacyMigrationStore {
     override fun summary(): DatabaseMigrationSummary = DatabaseMigrationSummary(
         taskIds.sorted(),
         taskEventIds.sorted(),
-        planIds.sorted()
+        planIds.sorted(),
+        recurrenceRuleIds.sorted(),
+        taskOccurrenceIds.sorted(),
+        activitySessionIds.sorted()
     )
 
     override fun importAtomically(
@@ -150,6 +160,9 @@ private class FakeMigrationStore : LegacyMigrationStore {
         planIds += snapshot.plans.map { it.id }
         taskIds += snapshot.tasks.map { it.id }
         taskEventIds += snapshot.taskEvents.map { it.id }
+        recurrenceRuleIds += snapshot.recurrenceRules.map { it.id }
+        taskOccurrenceIds += snapshot.taskOccurrences.map { it.id }
+        activitySessionIds += snapshot.activitySessions.map { it.id }
         this.state = state
         return AtomicImportOutcome.INSERTED
     }

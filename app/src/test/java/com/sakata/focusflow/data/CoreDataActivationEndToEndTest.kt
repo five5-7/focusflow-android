@@ -71,6 +71,7 @@ class CoreDataActivationEndToEndTest {
         assertEquals(listOf(301L), database.taskDao().allIds())
         assertEquals(listOf(501L, 502L), database.taskEventDao().allIds())
         assertEquals(listOf(401L), database.planDao().allIds())
+        assertEquals(listOf(801L, 802L), database.activitySessionDao().allIds())
 
         failingMarker.succeeds = true
         val restarted = runtime(
@@ -88,6 +89,7 @@ class CoreDataActivationEndToEndTest {
         assertEquals(listOf(301L), database.taskDao().allIds())
         assertEquals(listOf(501L, 502L), database.taskEventDao().allIds())
         assertEquals(listOf(401L), database.planDao().allIds())
+        assertEquals(listOf(801L, 802L), database.activitySessionDao().allIds())
         assertEquals(2, failingMarker.calls)
     }
 
@@ -197,6 +199,9 @@ class CoreDataActivationEndToEndTest {
         assertEquals(expected.items.map(Item::id).sorted(), database.taskDao().allIds())
         assertEquals(expected.taskEvents.map(TaskEvent::id).sorted(), database.taskEventDao().allIds())
         assertEquals(expected.goals.map { it.id }.sorted(), database.planDao().allIds())
+        assertEquals(expected.activitySessions.map { it.id }.sorted(), database.activitySessionDao().allIds())
+        assertTrue(database.recurrenceRuleDao().allIds().isEmpty())
+        assertTrue(database.taskOccurrenceDao().allIds().isEmpty())
         assertFalse(CoreDataRuntimePolicy.ACTIVATION_ENABLED)
     }
 
@@ -258,6 +263,10 @@ class CoreDataActivationEndToEndTest {
         val events = javaClass.classLoader?.getResource("migration/$name/task_events.json")
         if (events == null) editor.remove(LegacyPreferencesReader.KEY_TASK_EVENTS)
         else editor.putString(LegacyPreferencesReader.KEY_TASK_EVENTS, events.readText(Charsets.UTF_8))
+        editor.putString(
+            LegacyPreferencesReader.KEY_SESSIONS,
+            fixture("migration/$name/sessions.json")
+        )
         check(editor.commit())
     }
 
@@ -268,14 +277,16 @@ class CoreDataActivationEndToEndTest {
             taskEvents = snapshot.taskEvents.map { entity ->
                 entity.toLegacy(requireNotNull(TaskEventType.fromKey(entity.type)))
             },
-            goals = snapshot.plans.map(PlanEntity::toLegacy)
+            goals = snapshot.plans.map(PlanEntity::toLegacy),
+            activitySessions = snapshot.activitySessions.map(ActivitySessionEntity::toLegacy)
         )
     }
 
     private fun corePayload(): Map<String, String?> = listOf(
         LegacyPreferencesReader.KEY_ITEMS,
         LegacyPreferencesReader.KEY_TASK_EVENTS,
-        LegacyPreferencesReader.KEY_GOALS
+        LegacyPreferencesReader.KEY_GOALS,
+        LegacyPreferencesReader.KEY_SESSIONS
     ).associateWith { key -> preferences.getString(key, null) }
 
     private fun fixture(path: String): String = requireNotNull(javaClass.classLoader?.getResource(path))

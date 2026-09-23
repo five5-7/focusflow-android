@@ -60,6 +60,42 @@ interface PlanDao {
 }
 
 @Dao
+interface RecurrenceRuleDao {
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    fun insertAll(rules: List<RecurrenceRuleEntity>)
+
+    @Query("SELECT id FROM recurrence_rules ORDER BY id")
+    fun allIds(): List<Long>
+
+    @Query("SELECT * FROM recurrence_rules ORDER BY id")
+    fun all(): List<RecurrenceRuleEntity>
+}
+
+@Dao
+interface TaskOccurrenceDao {
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    fun insertAll(occurrences: List<TaskOccurrenceEntity>)
+
+    @Query("SELECT id FROM task_occurrences ORDER BY id")
+    fun allIds(): List<Long>
+
+    @Query("SELECT * FROM task_occurrences ORDER BY occurrence_epoch_day, id")
+    fun all(): List<TaskOccurrenceEntity>
+}
+
+@Dao
+interface ActivitySessionDao {
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    fun insertAll(sessions: List<ActivitySessionEntity>)
+
+    @Query("SELECT id FROM activity_sessions ORDER BY id")
+    fun allIds(): List<Long>
+
+    @Query("SELECT * FROM activity_sessions ORDER BY source_order, id")
+    fun all(): List<ActivitySessionEntity>
+}
+
+@Dao
 interface MigrationStateDao {
     @Insert(onConflict = OnConflictStrategy.ABORT)
     fun insert(state: MigrationStateEntity)
