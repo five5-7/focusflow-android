@@ -1,3 +1,6 @@
+Warning: truncated output (original token count: 13625)
+Total output lines: 466
+
 package com.sakata.focusflow
 
 import androidx.compose.foundation.layout.*
@@ -21,7 +24,8 @@ object RoadmapData {
     /** 已实现版本演进（1.0 → 当前版本），每版本浓缩 1–3 条，与 CHANGELOG.md 对应。 */
     val evolution: List<RoadmapVersion> = listOf(
         RoadmapVersion("8.3.0", listOf(
-            RoadmapEntry("8.3.0-rc.12", "课表截图识别防错", "延续权限中心、浙大课表自动导入、首次动画优化与验收反馈修复；截图识别严格校验网格中的星期和节次，拒绝多数坐标缺失或明显塌缩的整批结果，完全重叠的不同课程必须逐门编辑后确认。仍待稳定签名 CI 与 OPPO 真机复测。", RoadmapStatus.CANDIDATE)
+            RoadmapEntry("8.3.0-rc.13", "玻璃卡面不透明度", "延续 rc.12 的课表识别防错；外观设置可统一调节亚克力与毛玻璃卡面不透明度 40%–95%，旧设置仍保留 60%／48% 默认值。等待 OPPO 真机验收。", RoadmapStatus.CANDIDATE),
+            RoadmapEntry("8.3.0-rc.12", "课表截图识别防错", "延续权限中心、浙大课表自动导入、首次动画优化与验收反馈修复；截图识别严格校验网格中的星期和节次，拒绝多数坐标缺失或明显塌缩的整批结果，完全重叠的不同课程必须逐门编辑后确认。已由 rc.13 替代。", RoadmapStatus.DONE)
         )),
         RoadmapVersion("8.2.2", listOf(
             RoadmapEntry("8.2.2-rc.4", "通勤、文字对比与权限提醒", "三种校内出行方式可分别设置预留；玻璃卡片深色文字对比修复；今日页始终显示权限入口，关闭后可在设置中查看和恢复。", RoadmapStatus.CANDIDATE)
@@ -181,50 +185,7 @@ object RoadmapData {
             RoadmapEntry("5.6.1", "深色模式＋应用列表打磨", "深色模式（当前主题基础上调暗）；应用分类 chips 可横滑（“其他”不再被挤占）；应用增加「忽略」隐藏与恢复", RoadmapStatus.DONE)
         )),
         RoadmapVersion("5.6", listOf(
-            RoadmapEntry("5.6", "安排空闲活动＋空挡内容建议", "「想玩游戏」泛化为「安排空闲活动」（游戏/视频/学习/休息/运动/自定义，游戏视频走前台检测，其余到点提醒收尾），统计改为活动自律；空挡页给每个≥30分钟空挡/自由时段「适合做什么」内容建议并一键排入；作息分组向导星期可横滑；应用分类补 <queries> 扫全本机应用", RoadmapStatus.DONE)
-        )),
-        RoadmapVersion("5.5.2", listOf(
-            RoadmapEntry("5.5.2", "修复闪退/权限/分组/扫描", "常驻快速记录前台服务类型修复（Android14+）；补 PACKAGE_USAGE_STATS 使系统显示使用情况访问入口；作息分组编辑同步回当前方案不再丢失；分组向导改为每组显式选星期；应用分类列出本机全部应用", RoadmapStatus.DONE)
-        )),
-        RoadmapVersion("5.5.1", listOf(
-            RoadmapEntry("5.5.1", "开学自动开校园＋多项修复", "切回上学自动重开校园生活；教程按钮两行排布与折叠标题同行；视频分析只依赖 key；学习路径解析再加固（键名变体＋主题兜底＋严格重试）；作息分组严格随方案切换并显示“当前”；应用分类改为按本机应用生成；前台检测说明移入帮助；开启功能时申请使用情况访问权限", RoadmapStatus.DONE)
-        )),
-        RoadmapVersion("5.5", listOf(
-            RoadmapEntry("5.5", "一站式视频分析＋多轮打磨", "假期自动关校园生活；教程资料折叠；视频分析一站式整理（粘贴字幕→AI 要点→保存教程，模型入口同前）；游戏安排自定义时间与开始提醒可选；作息方案切换同步作息分组；应用清单显示应用名并支持添加本机应用；周回顾 AI 周总结", RoadmapStatus.DONE)
-        )),
-        RoadmapVersion("5.4", listOf(
-            RoadmapEntry("5.4", "前台应用检测与游戏自律", "建立空闲活动、应用分类和收尾提醒基础；旧版曾由检测推断结束，7.2 起改为只增强提醒、必须由用户确认结束，历史统计按已确认记录计算。", RoadmapStatus.DONE)
-        )),
-        RoadmapVersion("5.3", listOf(
-            RoadmapEntry("5.3", "新建目标 AI 教程查找", "「搜学习教程」替换生成学习路径按钮：手动三平台搜索＋AI 生成“去哪个平台搜什么”建议，保存即设为标准并回到目标对话框（预填目标名＋预期结果）", RoadmapStatus.DONE)
-        )),
-        RoadmapVersion("5.2.1", listOf(
-            RoadmapEntry("5.2.1", "今日页餐点位置上移＋标准横幅可展开", "餐点卡片移到收集箱上方；「当前标准」横幅具体内容改为点击展开", RoadmapStatus.DONE)
-        )),
-        RoadmapVersion("5.2", listOf(
-            RoadmapEntry("5.2", "教程标准可感知＋现在做什么/精力拆分", "教程标准横幅与未设依据目标可见、切换即时提示、一键把当前标准关联到未设依据目标；「现在做什么」回归活动记录（娱乐类可设收尾提醒），精力独立为今日页「当前精力」卡", RoadmapStatus.DONE)
-        )),
-        RoadmapVersion("5.1", listOf(
-            RoadmapEntry("5.1", "空挡感知日程已有安排", "课间空挡与自由时段扣除日程里已排任务/事项的占用段（自由时段按占用切分成剩余子段显示）；目标建议、自动排与新增目标的空挡统计避开已占时段；同一次自动排内目标任务互相避让，防止重复占用", RoadmapStatus.DONE)
-        )),
-        RoadmapVersion("5.0", listOf(
-            RoadmapEntry("5.0", "自由时段与作息分组向导", "安排纳入课后/整天的自由时段（不只课间空挡），空挡页单独列出并参与目标排入；作息分组改为向导式：设定作息→选星期→重复→按星期自动命名保存", RoadmapStatus.DONE),
-            RoadmapEntry("5.0", "AI 总结防退化与教程标准可见", "AI 总结增加退化检测与严格重试（防“1111…”式输出）；“设为标准”效果可见：目标卡可一键打开教程链接", RoadmapStatus.DONE)
-        )),
-        RoadmapVersion("4.3", listOf(
-            RoadmapEntry("4.3", "今日页行动化", "首页按“状态→安排→行动→目标→捕获→反馈”重排：生活阶段（假期/上学/考试周）一键切换置顶；新增“今天接下来”摘要卡（课程+任务按时间合并，点进日程）；精力与“下一件合适的事”合并为“现在做什么”行动卡（含自由开始）；新增“今天的目标”卡（带教程/最低版本指引，可直接开始，未安排时引导去排）；校园生活开关移至页尾", RoadmapStatus.DONE)
-        )),
-        RoadmapVersion("4.2", listOf(
-            RoadmapEntry("4.2", "教程标准可管理＋执行生效", "教程资料可删除、取消标准、重选；搜索结果保存后自动设为“当前标准”；手动安排或自动排计划的目标任务详情自动带上教程与最低版本指引，教程真正参与执行（解决“收藏了教程但没实际效果”）", RoadmapStatus.DONE),
-            RoadmapEntry("4.2", "识别表格＋本地判断自动排计划", "“按空挡自动排本周目标”：把本周未完成的目标次数排进课程空挡（本地判断避开课程与已有安排、优先更长空档），一键生成带提醒的任务并进入日程，可随时改期", RoadmapStatus.DONE)
-        )),
-        RoadmapVersion("4.1", listOf(
-            RoadmapEntry("4.1", "生活模式多方案", "同一生活阶段下可另存多套作息方案（命名、最多 8 套），一键切换/删除；已开启的饭点与睡前减速按当前方案计算时间，但切换阶段不会自动开启提醒", RoadmapStatus.DONE),
-            RoadmapEntry("4.1", "提醒打扰控制＋常驻快速记录", "免打扰时段（可跨天）静音状态询问/饭点/睡前减速，活动到点与任务提醒保持时间敏感；一次性静音 1 小时/3 小时/到明早；通知栏常驻一条静音通知，一键快速记录到收集箱", RoadmapStatus.DONE),
-            RoadmapEntry("4.1", "自动决策与习惯识别", "询问时刻按签到数据自动采纳（设置页标注“已自动调整”，手动调整后不再自动）；今日首页校园生活一键开关；电动车电量偏低时在空挡页给出充电空档建议；睡前减速结合深夜活跃/娱乐时段记录给出更贴合的建议", RoadmapStatus.DONE)
-        )),
-        RoadmapVersion("4.0.2", listOf(
-            RoadmapEntry("4.0.2", "key 申请引导", "首次开启课表视觉模型且未填 key 时自动弹出“如何获取硅基流动 API key”三步引导（只弹一次），可一键跳转硅基流动 API 密钥页；设置页与帮助（小问号）里也有入口，降低新用户使用门槛（免费模型注册无需充值）", RoadmapStatus.DONE)
+            RoadmapEntry("5.6", "安排空闲活动＋空挡内容建议", "「想玩游戏」泛化为「安排空闲活动」（游戏/视频/学习/休息/运动/自定义，游戏视频走前台检测，其余到点提醒收尾），统计改为活动自律；空挡页给每个≥30分钟空挡/自由时段「适合做什么」内容建议并一键排入；作息分组向导星期可…1625 tokens truncated…有入口，降低新用户使用门槛（免费模型注册无需充值）", RoadmapStatus.DONE)
         )),
         RoadmapVersion("4.0.1", listOf(
             RoadmapEntry("4.0.1", "移除本地 OCR，导入只走视觉模型", "本地 OCR（ML Kit/Tesseract）效果差已整体移除：课表导入仅使用硅基流动视觉模型，识别失败直接提示原因（检查 key/模型名/网络），不再出低质量兜底结果；移除 OCR 依赖与 tessdata，APK 体积明显减小；未开启视觉模型时导入前给出引导", RoadmapStatus.DONE),

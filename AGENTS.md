@@ -35,7 +35,7 @@
 - 应用内更新说明必须在发版时展示该版本核心变化：为每个新版本在 `QuickStartDialog.updateHighlightsFor` 写 2–3 条用户可感知的变化，禁止落入兜底文案；与 `CHANGELOG.md`、`RoadmapData.kt` 同步。
 - Follow `VERSIONING.md`; a CI `run-N` is not a product version and a successful build is not a release.
 - The current official release is `8.2.1` / versionCode 534 (the fifth formal release). It extends the optional appearance system with acrylic and frosted-glass profiles plus non-destructive image crop controls; rich appearance remains disabled by default.
-- The current development candidate is `8.3.0-rc.12` / versionCode 546: all rc.11 work remains; screenshot timetable recognition now requires reliable grid-derived weekday and period coordinates, rejects mostly invalid or obviously collapsed batches, reports skipped rows, and requires editing before confirming different courses in the exact same slot. It requires stable-signed CI and OPPO verification and is not merged or released; rc.11 is superseded.
+- The current development candidate is `8.3.0-rc.13` / versionCode 547: all rc.12 work remains; appearance settings add one shared 40%–95% opacity control for acrylic and frosted card faces, while older settings retain the 60%/48% defaults. It requires stable-signed CI and OPPO verification and is not merged or released; rc.12 is superseded.
 - The previous official release is `8.2.0` / versionCode 525.
 - Do not allocate a new version merely to record an idea; keep uncommitted ideas in the future-candidate section until a coherent scope is frozen.
 - Do not merge a pull request without explicit user confirmation.
