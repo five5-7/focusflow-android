@@ -10,6 +10,7 @@ import com.sakata.focusflow.Item
 import com.sakata.focusflow.PrototypeStore
 import com.sakata.focusflow.TaskEvent
 import com.sakata.focusflow.TaskEventType
+import com.sakata.focusflow.TaskReminderPolicy
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -93,6 +94,59 @@ class CoreDataActivationEndToEndTest {
         assertEquals(MigrationStatus.BLOCKED_CORRUPT_SOURCE, result.status)
         assertEquals(raw, preferences.getString(LegacyPreferencesReader.KEY_COURSES, null))
         assertTrue(RoomLegacyMigrationStore(database).summary().isEmpty)
+    }
+
+    @Test
+    fun `reminder preferences stay live and never change the core migration fingerprint`() {
+        installFixture("8.2.1")
+        check(preferences.edit()
+            .putBoolean("activity_notifications", false)
+            .putInt("activity_preview_minutes", 5)
+            .putBoolean("schedule_reminders_enabled", false)
+            .putInt("schedule_reminders_advance_minutes", 25)
+            .putBoolean("status_checkin_enabled", true)
+            .putInt("status_checkin_hour", 16)
+            .putBoolean("meal_reminder_enabled", true)
+            .putBoolean("quiet_hours_enabled", true)
+            .putInt("quiet_hours_start", 1320)
+            .putBoolean("wind_down_enabled", false)
+            .commit())
+        val keys = listOf(
+            "activity_notifications", "activity_preview_minutes", "schedule_reminders_enabled",
+            "schedule_reminders_advance_minutes", "status_checkin_enabled", "status_checkin_hour",
+            "meal_reminder_enabled", "quiet_hours_enabled", "quiet_hours_start", "wind_down_enabled"
+        )
+        val before = keys.associateWith { preferences.all[it] }
+        val sourceFingerprint = (LegacyPreferencesReader.fromContext(context).read() as LegacyReadResult.Success)
+            .snapshot.sourceFingerprint
+        val database = newDatabase()
+        val activationStore = SharedPreferencesCoreDataActivationStore(context)
+        val ready = runtime(
+            database, activationStore, SharedPreferencesMigrationMarker(context), true,
+            sequenceOf(100L, 200L)
+        ).resolve() as CoreDataRuntimeResolution.Ready
+
+        assertEquals(before, keys.associateWith { preferences.all[it] })
+        val store = PrototypeStore(context)
+        assertFalse(store.loadActivityReminderSettings().notificationsEnabled)
+        assertEquals(25, store.loadActivityReminderSettings().scheduleAdvanceMinutes)
+        assertTrue(store.loadStatusCheckInSettings().enabled)
+        assertTrue(store.loadMealReminderEnabled())
+        assertTrue(store.loadQuietHoursSettings().enabled)
+        assertFalse(store.loadWindDownEnabled())
+        val tasks = (ready.repository.read() as CoreDataReadResult.Ready).snapshot.items
+        assertTrue(TaskReminderPolicy.pendingReminders(tasks, store.loadActivityReminderSettings(), 0L).isEmpty())
+
+        check(preferences.edit().putBoolean("schedule_reminders_enabled", true).commit())
+        assertTrue(TaskReminderPolicy.pendingReminders(tasks, store.loadActivityReminderSettings(), 0L).isNotEmpty())
+        assertEquals(sourceFingerprint,
+            (LegacyPreferencesReader.fromContext(context).read() as LegacyReadResult.Success)
+                .snapshot.sourceFingerprint)
+        val restarted = runtime(
+            database, activationStore, SharedPreferencesMigrationMarker(context), false,
+            sequenceOf(300L)
+        ).resolve() as CoreDataRuntimeResolution.Ready
+        assertEquals(CoreDataRuntimeSource.ROOM, restarted.repository.source)
     }
 
     @Test
