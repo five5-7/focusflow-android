@@ -92,7 +92,8 @@ class FocusCardMaterialTest {
         val scheme = lightColorScheme()
         val base = scheme.surfaceContainerLow
         assertEquals(0.60f, acrylicStops(base, scheme)[1].second.alpha, 0.001f)
-        assertEquals(0.48f, frostedStops(base)[1].second.alpha, 0.001f)
+        // Compose stores alpha in 8 bits here: 48% is represented as 122/255.
+        assertEquals(0.48f, frostedStops(base)[1].second.alpha, 0.002f)
 
         for (opacity in listOf(40, 60, 95)) {
             val acrylic = acrylicStops(base, scheme, opacity = opacity / 100f)
