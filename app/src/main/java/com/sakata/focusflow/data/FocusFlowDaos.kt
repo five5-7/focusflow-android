@@ -99,6 +99,30 @@ interface ActivitySessionDao {
 }
 
 @Dao
+interface CourseDao {
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    fun insertAll(courses: List<CourseEntity>)
+
+    @Query("SELECT id FROM courses ORDER BY id")
+    fun allIds(): List<Long>
+
+    @Query("SELECT * FROM courses ORDER BY source_order, id")
+    fun all(): List<CourseEntity>
+}
+
+@Dao
+interface CourseMeetingRuleDao {
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    fun insertAll(rules: List<CourseMeetingRuleEntity>)
+
+    @Query("SELECT id FROM course_meeting_rules ORDER BY id")
+    fun allIds(): List<Long>
+
+    @Query("SELECT * FROM course_meeting_rules ORDER BY source_order, id")
+    fun all(): List<CourseMeetingRuleEntity>
+}
+
+@Dao
 interface MigrationStateDao {
     @Insert(onConflict = OnConflictStrategy.ABORT)
     fun insert(state: MigrationStateEntity)

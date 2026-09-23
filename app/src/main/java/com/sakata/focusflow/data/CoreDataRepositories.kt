@@ -2,6 +2,7 @@ package com.sakata.focusflow.data
 
 import android.content.Context
 import com.sakata.focusflow.ActivitySession
+import com.sakata.focusflow.Course
 import com.sakata.focusflow.Goal
 import com.sakata.focusflow.Item
 import com.sakata.focusflow.PrototypeStore
@@ -12,7 +13,8 @@ data class CoreDataSnapshot(
     val items: List<Item>,
     val taskEvents: List<TaskEvent>,
     val goals: List<Goal>,
-    val activitySessions: List<ActivitySession> = emptyList()
+    val activitySessions: List<ActivitySession> = emptyList(),
+    val courses: List<Course> = emptyList()
 )
 
 sealed interface CoreDataReadResult {
@@ -35,7 +37,8 @@ class LegacyCoreDataReadRepository(
             items = itemsLoader(),
             taskEvents = store.loadTaskEvents(),
             goals = store.loadGoals(),
-            activitySessions = store.loadSessions()
+            activitySessions = store.loadSessions(),
+            courses = store.loadCourses()
         )
     )
 }
@@ -48,6 +51,8 @@ interface RoomCoreDataSource {
     fun recurrenceRuleIds(): List<Long> = emptyList()
     fun taskOccurrenceIds(): List<Long> = emptyList()
     fun activitySessions(): List<ActivitySessionEntity> = emptyList()
+    fun courses(): List<CourseEntity> = emptyList()
+    fun courseMeetingRules(): List<CourseMeetingRuleEntity> = emptyList()
 }
 
 class DatabaseRoomCoreDataSource(private val database: FocusFlowDatabase) : RoomCoreDataSource {
@@ -60,6 +65,8 @@ class DatabaseRoomCoreDataSource(private val database: FocusFlowDatabase) : Room
     override fun recurrenceRuleIds(): List<Long> = database.recurrenceRuleDao().allIds()
     override fun taskOccurrenceIds(): List<Long> = database.taskOccurrenceDao().allIds()
     override fun activitySessions(): List<ActivitySessionEntity> = database.activitySessionDao().all()
+    override fun courses(): List<CourseEntity> = database.courseDao().all()
+    override fun courseMeetingRules(): List<CourseMeetingRuleEntity> = database.courseMeetingRuleDao().all()
 }
 
 /** Reads Room without mutating it. Invalid rows are reported instead of being dropped or fixed. */
@@ -78,6 +85,8 @@ class RoomCoreDataReadRepository(private val source: RoomCoreDataSource) : CoreD
             val recurrenceRuleIds = source.recurrenceRuleIds()
             val taskOccurrenceIds = source.taskOccurrenceIds()
             val sessions = source.activitySessions()
+            val courses = source.courses()
+            val courseMeetingRules = source.courseMeetingRules()
             val countProblem = countProblem(
                 state,
                 tasks,
@@ -85,11 +94,18 @@ class RoomCoreDataReadRepository(private val source: RoomCoreDataSource) : CoreD
                 plans,
                 recurrenceRuleIds,
                 taskOccurrenceIds,
-                sessions
+                sessions, courses, courseMeetingRules
             )
             if (countProblem != null) return CoreDataReadResult.Invalid(countProblem)
-            val orderProblem = orderProblem(tasks, events, plans, sessions)
+            val orderProblem = orderProblem(tasks, events, plans, sessions, courses, courseMeetingRules)
             if (orderProblem != null) return CoreDataReadResult.Invalid(orderProblem)
+            if (courses.map { it.id } != courseMeetingRules.map { it.courseId } ||
+                courses.zip(courseMeetingRules).any { (parent, rule) ->
+                    parent.id != rule.id || parent.sourceOrder != rule.sourceOrder ||
+                        rule.weekday !in 1..7 || rule.startPeriod !in 1..20 ||
+                        rule.endPeriod !in rule.startPeriod..20
+                }
+            ) return CoreDataReadResult.Invalid("courses and meeting rules disagree")
 
             val mappedTasks = tasks.map(TaskEntity::toLegacy)
             if (tasks.zip(mappedTasks).any { (entity, item) -> entity.status != TaskStatusKey.fromLegacy(item) }) {
@@ -109,7 +125,8 @@ class RoomCoreDataReadRepository(private val source: RoomCoreDataSource) : CoreD
                     items = mappedTasks,
                     taskEvents = mappedEvents,
                     goals = plans.map(PlanEntity::toLegacy),
-                    activitySessions = sessions.map(ActivitySessionEntity::toLegacy)
+                    activitySessions = sessions.map(ActivitySessionEntity::toLegacy),
+                    courses = courses.zip(courseMeetingRules).map { (parent, rule) -> rule.toLegacy(parent) }
                 )
             )
         } catch (error: Exception) {
@@ -124,7 +141,9 @@ class RoomCoreDataReadRepository(private val source: RoomCoreDataSource) : CoreD
         plans: List<PlanEntity>,
         recurrenceRuleIds: List<Long>,
         taskOccurrenceIds: List<Long>,
-        sessions: List<ActivitySessionEntity>
+        sessions: List<ActivitySessionEntity>,
+        courses: List<CourseEntity>,
+        courseMeetingRules: List<CourseMeetingRuleEntity>
     ): String? = when {
         tasks.size != state.taskCount -> "tasks count does not match migration state"
         events.size != state.taskEventCount -> "task_events count does not match migration state"
@@ -134,6 +153,8 @@ class RoomCoreDataReadRepository(private val source: RoomCoreDataSource) : CoreD
         taskOccurrenceIds.size != state.taskOccurrenceCount ->
             "task_occurrences count does not match migration state"
         sessions.size != state.activitySessionCount -> "activity_sessions count does not match migration state"
+        courses.size != state.courseCount -> "courses count does not match migration state"
+        courseMeetingRules.size != state.courseMeetingRuleCount -> "course_meeting_rules count does not match migration state"
         else -> null
     }
 
@@ -141,7 +162,9 @@ class RoomCoreDataReadRepository(private val source: RoomCoreDataSource) : CoreD
         tasks: List<TaskEntity>,
         events: List<TaskEventEntity>,
         plans: List<PlanEntity>,
-        sessions: List<ActivitySessionEntity>
+        sessions: List<ActivitySessionEntity>,
+        courses: List<CourseEntity>,
+        courseMeetingRules: List<CourseMeetingRuleEntity>
     ): String? = when {
         tasks.any { it.sourceOrder < 0 } || tasks.map { it.sourceOrder }.toSet().size != tasks.size ->
             "tasks contains invalid source order"
@@ -151,6 +174,10 @@ class RoomCoreDataReadRepository(private val source: RoomCoreDataSource) : CoreD
             "plans contains invalid source order"
         sessions.any { it.sourceOrder < 0 } || sessions.map { it.sourceOrder }.toSet().size != sessions.size ->
             "activity_sessions contains invalid source order"
+        courses.any { it.sourceOrder < 0 } || courses.map { it.sourceOrder }.toSet().size != courses.size ->
+            "courses contains invalid source order"
+        courseMeetingRules.any { it.sourceOrder < 0 } || courseMeetingRules.map { it.sourceOrder }.toSet().size != courseMeetingRules.size ->
+            "course_meeting_rules contains invalid source order"
         else -> null
     }
 }
@@ -193,6 +220,7 @@ object CoreDataConsistencyChecker {
                     room.snapshot.activitySessions,
                     ActivitySession::id
                 )?.let(::add)
+                difference("courses", legacy.courses, room.snapshot.courses, Course::id)?.let(::add)
             }
             CoreDataConsistencyReport(
                 status = if (differences.isEmpty()) CoreDataConsistencyStatus.CONSISTENT

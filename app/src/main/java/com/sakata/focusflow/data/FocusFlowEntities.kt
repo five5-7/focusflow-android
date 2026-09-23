@@ -5,6 +5,8 @@ import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
 import com.sakata.focusflow.ActivitySession
+import com.sakata.focusflow.Course
+import com.sakata.focusflow.CampusZone
 import com.sakata.focusflow.Goal
 import com.sakata.focusflow.Item
 import com.sakata.focusflow.TaskEvent
@@ -277,6 +279,52 @@ data class ActivitySessionEntity(
     )
 }
 
+/** Legacy rows have no stable course code, so each row keeps its own parent ID until reviewed. */
+@Entity(tableName = "courses")
+data class CourseEntity(
+    @PrimaryKey val id: Long,
+    @ColumnInfo(name = "source_order") val sourceOrder: Int,
+    val title: String,
+    @ColumnInfo(name = "needs_confirmation") val needsConfirmation: Boolean
+) {
+    companion object {
+        fun fromLegacy(course: Course, sourceOrder: Int) = CourseEntity(
+            course.id, sourceOrder, course.title, course.needsConfirmation
+        )
+    }
+}
+
+@Entity(tableName = "course_meeting_rules", indices = [Index(value = ["course_id"])])
+data class CourseMeetingRuleEntity(
+    @PrimaryKey val id: Long,
+    @ColumnInfo(name = "course_id") val courseId: Long,
+    @ColumnInfo(name = "source_order") val sourceOrder: Int,
+    val weekday: Int,
+    @ColumnInfo(name = "start_period") val startPeriod: Int,
+    @ColumnInfo(name = "end_period") val endPeriod: Int,
+    val building: String,
+    val zone: String,
+    val enabled: Boolean,
+    @ColumnInfo(name = "effective_from_epoch_day") val effectiveFromEpochDay: Long?,
+    @ColumnInfo(name = "effective_until_epoch_day") val effectiveUntilEpochDay: Long?
+) {
+    companion object {
+        fun fromLegacy(course: Course, sourceOrder: Int) = CourseMeetingRuleEntity(
+            course.id, course.id, sourceOrder, course.weekday, course.startPeriod,
+            course.endPeriod, course.building, course.zone.name, course.enabled,
+            course.effectiveFromEpochDay, course.effectiveUntilEpochDay
+        )
+    }
+
+    fun toLegacy(parent: CourseEntity): Course = Course(
+        id = parent.id, title = parent.title, needsConfirmation = parent.needsConfirmation,
+        weekday = weekday, startPeriod = startPeriod, endPeriod = endPeriod,
+        building = building, zone = CampusZone.valueOf(zone), enabled = enabled,
+        effectiveFromEpochDay = effectiveFromEpochDay,
+        effectiveUntilEpochDay = effectiveUntilEpochDay
+    )
+}
+
 @Entity(tableName = "migration_states")
 data class MigrationStateEntity(
     @PrimaryKey @ColumnInfo(name = "migration_key") val migrationKey: String,
@@ -288,5 +336,7 @@ data class MigrationStateEntity(
     @ColumnInfo(name = "completed_at") val completedAt: Long,
     @ColumnInfo(name = "recurrence_rule_count") val recurrenceRuleCount: Int = 0,
     @ColumnInfo(name = "task_occurrence_count") val taskOccurrenceCount: Int = 0,
-    @ColumnInfo(name = "activity_session_count") val activitySessionCount: Int = 0
+    @ColumnInfo(name = "activity_session_count") val activitySessionCount: Int = 0,
+    @ColumnInfo(name = "course_count") val courseCount: Int = 0,
+    @ColumnInfo(name = "course_meeting_rule_count") val courseMeetingRuleCount: Int = 0
 )

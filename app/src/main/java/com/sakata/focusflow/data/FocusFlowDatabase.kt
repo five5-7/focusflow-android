@@ -13,6 +13,8 @@ import androidx.room.RoomDatabase
         RecurrenceRuleEntity::class,
         TaskOccurrenceEntity::class,
         ActivitySessionEntity::class,
+        CourseEntity::class,
+        CourseMeetingRuleEntity::class,
         MigrationStateEntity::class
     ],
     version = 1,
@@ -25,6 +27,8 @@ abstract class FocusFlowDatabase : RoomDatabase() {
     abstract fun recurrenceRuleDao(): RecurrenceRuleDao
     abstract fun taskOccurrenceDao(): TaskOccurrenceDao
     abstract fun activitySessionDao(): ActivitySessionDao
+    abstract fun courseDao(): CourseDao
+    abstract fun courseMeetingRuleDao(): CourseMeetingRuleDao
     abstract fun migrationStateDao(): MigrationStateDao
 
     companion object {

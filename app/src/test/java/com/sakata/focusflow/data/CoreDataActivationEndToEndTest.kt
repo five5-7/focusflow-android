@@ -54,6 +54,48 @@ class CoreDataActivationEndToEndTest {
     }
 
     @Test
+    fun `same named courses retain separate parents and complete meeting details`() {
+        installFixture("8.3-rc.12")
+        val raw = """[{"id":93,"title":"高数","weekday":1,"startPeriod":1,"endPeriod":2,"building":"东一","zone":"CAMPUS","needsConfirmation":false},{"id":17,"title":"高数","weekday":4,"startPeriod":3,"endPeriod":4,"building":"东二","zone":"CAMPUS","enabled":false,"effectiveFromEpochDay":21000,"effectiveUntilEpochDay":21100}]"""
+        // Use an existing enum value to keep this test independent of campus presets.
+        val zone = com.sakata.focusflow.CampusZone.entries.first().name
+        check(preferences.edit().putString(LegacyPreferencesReader.KEY_COURSES, raw.replace("CAMPUS", zone)).commit())
+        val before = corePayload()
+        val database = newDatabase()
+        val ready = runtime(
+            database, SharedPreferencesCoreDataActivationStore(context),
+            SharedPreferencesMigrationMarker(context), true, sequenceOf(100L, 200L)
+        ).resolve() as CoreDataRuntimeResolution.Ready
+
+        val courses = (ready.repository.read() as CoreDataReadResult.Ready).snapshot.courses
+        assertEquals(listOf(93L, 17L), courses.map { it.id })
+        assertEquals(listOf("东一", "东二"), courses.map { it.building })
+        assertEquals(listOf(true, false), courses.map { it.enabled })
+        assertEquals(21000L, courses[1].effectiveFromEpochDay)
+        assertEquals(listOf(17L, 93L), database.courseDao().allIds())
+        assertEquals(listOf(17L, 93L), database.courseMeetingRuleDao().allIds())
+        assertEquals(2, database.migrationStateDao().find(LegacyDataImporter.MIGRATION_KEY)?.courseCount)
+        assertEquals(2, database.migrationStateDao().find(LegacyDataImporter.MIGRATION_KEY)?.courseMeetingRuleCount)
+        assertEquals(before, corePayload())
+    }
+
+    @Test
+    fun `invalid course fails before Room import and leaves source intact`() {
+        installFixture("8.3-rc.12")
+        val raw = """[{"id":6,"title":"bad","weekday":9,"startPeriod":1,"endPeriod":2,"building":"A","zone":"X"}]"""
+        check(preferences.edit().putString(LegacyPreferencesReader.KEY_COURSES, raw).commit())
+        val database = newDatabase()
+        val result = LegacyDataImporter(
+            LegacyPreferencesReader.fromContext(context), RoomLegacyMigrationStore(database),
+            SharedPreferencesMigrationMarker(context)
+        ).importIfNeeded()
+
+        assertEquals(MigrationStatus.BLOCKED_CORRUPT_SOURCE, result.status)
+        assertEquals(raw, preferences.getString(LegacyPreferencesReader.KEY_COURSES, null))
+        assertTrue(RoomLegacyMigrationStore(database).summary().isEmpty)
+    }
+
+    @Test
     fun `activating restart resumes the committed import without duplicate rows`() {
         installFixture("8.3-rc.12")
         val database = newDatabase()
@@ -258,6 +300,7 @@ class CoreDataActivationEndToEndTest {
         assertEquals(expected.taskEvents.map(TaskEvent::id).sorted(), database.taskEventDao().allIds())
         assertEquals(expected.goals.map { it.id }.sorted(), database.planDao().allIds())
         assertEquals(expected.activitySessions.map { it.id }.sorted(), database.activitySessionDao().allIds())
+        assertEquals(expected.courses.map { it.id }.sorted(), database.courseDao().allIds())
         assertTrue(database.recurrenceRuleDao().allIds().isEmpty())
         assertTrue(database.taskOccurrenceDao().allIds().isEmpty())
         assertFalse(CoreDataRuntimePolicy.ACTIVATION_ENABLED)
@@ -336,7 +379,8 @@ class CoreDataActivationEndToEndTest {
                 entity.toLegacy(requireNotNull(TaskEventType.fromKey(entity.type)))
             },
             goals = snapshot.plans.map(PlanEntity::toLegacy),
-            activitySessions = snapshot.activitySessions.map(ActivitySessionEntity::toLegacy)
+            activitySessions = snapshot.activitySessions.map(ActivitySessionEntity::toLegacy),
+            courses = snapshot.courses.zip(snapshot.courseMeetingRules).map { (parent, rule) -> rule.toLegacy(parent) }
         )
     }
 
@@ -344,7 +388,8 @@ class CoreDataActivationEndToEndTest {
         LegacyPreferencesReader.KEY_ITEMS,
         LegacyPreferencesReader.KEY_TASK_EVENTS,
         LegacyPreferencesReader.KEY_GOALS,
-        LegacyPreferencesReader.KEY_SESSIONS
+        LegacyPreferencesReader.KEY_SESSIONS,
+        LegacyPreferencesReader.KEY_COURSES
     ).associateWith { key -> preferences.getString(key, null) }
 
     private fun fixture(path: String): String = requireNotNull(javaClass.classLoader?.getResource(path))

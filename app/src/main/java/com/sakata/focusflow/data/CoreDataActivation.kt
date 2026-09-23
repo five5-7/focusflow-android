@@ -437,7 +437,10 @@ class CoreDataActivationCoordinator(
                     items = snapshot.tasks.map(TaskEntity::toLegacy),
                     taskEvents = events,
                     goals = snapshot.plans.map(PlanEntity::toLegacy),
-                    activitySessions = snapshot.activitySessions.map(ActivitySessionEntity::toLegacy)
+                    activitySessions = snapshot.activitySessions.map(ActivitySessionEntity::toLegacy),
+                    courses = snapshot.courses.zip(snapshot.courseMeetingRules).map { (parent, rule) ->
+                        rule.toLegacy(parent)
+                    }
                 )
             )
         } catch (error: Exception) {

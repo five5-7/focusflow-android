@@ -3,6 +3,8 @@ package com.sakata.focusflow.data
 import android.content.Context
 import android.content.SharedPreferences
 import com.sakata.focusflow.ActivitySession
+import com.sakata.focusflow.Course
+import com.sakata.focusflow.CampusZone
 import com.sakata.focusflow.CorruptionBackup
 import com.sakata.focusflow.ItemsCodec
 import com.sakata.focusflow.ProtectedPreferences
@@ -54,6 +56,8 @@ data class LegacySnapshot(
     val recurrenceRules: List<RecurrenceRuleEntity>,
     val taskOccurrences: List<TaskOccurrenceEntity>,
     val activitySessions: List<ActivitySessionEntity>,
+    val courses: List<CourseEntity> = emptyList(),
+    val courseMeetingRules: List<CourseMeetingRuleEntity> = emptyList(),
     val diagnostics: List<MigrationDiagnostic>
 )
 
@@ -80,6 +84,7 @@ class LegacyPreferencesReader(
         val eventsRaw = source.getString(KEY_TASK_EVENTS)
         val goalsRaw = source.getString(KEY_GOALS)
         val sessionsRaw = source.getString(KEY_SESSIONS)
+        val coursesRaw = source.getString(KEY_COURSES)
         val diagnostics = mutableListOf<MigrationDiagnostic>()
 
         return try {
@@ -87,18 +92,21 @@ class LegacyPreferencesReader(
             val events = decodeTaskEvents(eventsRaw, tasks, diagnostics)
             val plans = decodePlans(goalsRaw)
             val sessions = decodeActivitySessions(sessionsRaw)
+            val courses = decodeCourses(coursesRaw)
             appendRelationshipDiagnostics(itemsRaw, tasks, plans, diagnostics)
             LegacyReadResult.Success(
                 LegacySnapshot(
                     sourceDataVersion = source.getInt(KEY_DATA_VERSION, 1),
-                    sourceFingerprint = fingerprint(itemsRaw, eventsRaw, goalsRaw, sessionsRaw),
-                    hadLegacyPayload = itemsRaw != null || eventsRaw != null || goalsRaw != null || sessionsRaw != null,
+                    sourceFingerprint = fingerprint(itemsRaw, eventsRaw, goalsRaw, sessionsRaw, coursesRaw),
+                    hadLegacyPayload = itemsRaw != null || eventsRaw != null || goalsRaw != null || sessionsRaw != null || coursesRaw != null,
                     tasks = tasks,
                     taskEvents = events,
                     plans = plans,
                     recurrenceRules = emptyList(),
                     taskOccurrences = emptyList(),
                     activitySessions = sessions,
+                    courses = courses.mapIndexed { index, course -> CourseEntity.fromLegacy(course, index) },
+                    courseMeetingRules = courses.mapIndexed { index, course -> CourseMeetingRuleEntity.fromLegacy(course, index) },
                     diagnostics = diagnostics
                 )
             )
@@ -108,6 +116,7 @@ class LegacyPreferencesReader(
                 KEY_TASK_EVENTS -> eventsRaw
                 KEY_GOALS -> goalsRaw
                 KEY_SESSIONS -> sessionsRaw
+                KEY_COURSES -> coursesRaw
                 else -> null
             }
             val backedUp = raw == null || !CorruptionBackup.shouldBackup(raw) || backup.backup(error.domain, raw)
@@ -218,6 +227,40 @@ class LegacyPreferencesReader(
         }
     }
 
+    private fun decodeCourses(raw: String?): List<Course> {
+        val values = strictArray(KEY_COURSES, raw?.ifBlank { "[]" } ?: "[]")
+        validatePositiveUniqueIds(KEY_COURSES, values)
+        return List(values.length()) { index ->
+            val value = values.optJSONObject(index) ?: fail(KEY_COURSES, "Entry $index is not an object")
+            try {
+                val weekday = value.getInt("weekday")
+                val startPeriod = value.getInt("startPeriod")
+                val endPeriod = value.getInt("endPeriod")
+                if (weekday !in 1..7 || startPeriod !in 1..20 || endPeriod !in startPeriod..20) {
+                    fail(KEY_COURSES, "Entry $index has invalid weekday or periods")
+                }
+                val from = value.optLong("effectiveFromEpochDay", Long.MIN_VALUE).takeUnless { it == Long.MIN_VALUE }
+                val until = value.optLong("effectiveUntilEpochDay", Long.MIN_VALUE).takeUnless { it == Long.MIN_VALUE }
+                if (from != null && until != null && from > until) {
+                    fail(KEY_COURSES, "Entry $index has an inverted effective range")
+                }
+                Course(
+                    id = value.getLong("id"), title = value.getString("title"),
+                    weekday = weekday, startPeriod = startPeriod, endPeriod = endPeriod,
+                    building = value.getString("building"),
+                    zone = CampusZone.valueOf(value.getString("zone")),
+                    needsConfirmation = value.optBoolean("needsConfirmation", false),
+                    enabled = value.optBoolean("enabled", true),
+                    effectiveFromEpochDay = from, effectiveUntilEpochDay = until
+                )
+            } catch (error: LegacyDecodeException) {
+                throw error
+            } catch (error: Exception) {
+                fail(KEY_COURSES, "Entry $index could not be decoded", error)
+            }
+        }
+    }
+
     private fun appendRelationshipDiagnostics(
         raw: String?,
         tasks: List<TaskEntity>,
@@ -282,6 +325,7 @@ class LegacyPreferencesReader(
         const val KEY_TASK_EVENTS = "task_events"
         const val KEY_GOALS = "goals"
         const val KEY_SESSIONS = "sessions"
+        const val KEY_COURSES = "courses"
         const val KEY_DATA_VERSION = "data_version"
 
         private val ACTIVITY_SESSION_STATUSES = setOf(
@@ -315,7 +359,9 @@ data class DatabaseMigrationSummary(
     val planIds: List<Long>,
     val recurrenceRuleIds: List<Long> = emptyList(),
     val taskOccurrenceIds: List<Long> = emptyList(),
-    val activitySessionIds: List<Long> = emptyList()
+    val activitySessionIds: List<Long> = emptyList(),
+    val courseIds: List<Long> = emptyList(),
+    val courseMeetingRuleIds: List<Long> = emptyList()
 ) {
     val taskCount: Int get() = taskIds.size
     val taskEventCount: Int get() = taskEventIds.size
@@ -323,8 +369,11 @@ data class DatabaseMigrationSummary(
     val recurrenceRuleCount: Int get() = recurrenceRuleIds.size
     val taskOccurrenceCount: Int get() = taskOccurrenceIds.size
     val activitySessionCount: Int get() = activitySessionIds.size
+    val courseCount: Int get() = courseIds.size
+    val courseMeetingRuleCount: Int get() = courseMeetingRuleIds.size
     val isEmpty: Boolean get() = taskCount == 0 && taskEventCount == 0 && planCount == 0 &&
-        recurrenceRuleCount == 0 && taskOccurrenceCount == 0 && activitySessionCount == 0
+        recurrenceRuleCount == 0 && taskOccurrenceCount == 0 && activitySessionCount == 0 &&
+        courseCount == 0 && courseMeetingRuleCount == 0
 }
 
 enum class AtomicImportOutcome { INSERTED, ALREADY_PRESENT, DATABASE_NOT_EMPTY }
@@ -344,7 +393,9 @@ class RoomLegacyMigrationStore(private val database: FocusFlowDatabase) : Legacy
         planIds = database.planDao().allIds(),
         recurrenceRuleIds = database.recurrenceRuleDao().allIds(),
         taskOccurrenceIds = database.taskOccurrenceDao().allIds(),
-        activitySessionIds = database.activitySessionDao().allIds()
+        activitySessionIds = database.activitySessionDao().allIds(),
+        courseIds = database.courseDao().allIds(),
+        courseMeetingRuleIds = database.courseMeetingRuleDao().allIds()
     )
 
     override fun importAtomically(
@@ -368,6 +419,8 @@ class RoomLegacyMigrationStore(private val database: FocusFlowDatabase) : Legacy
             database.recurrenceRuleDao().insertAll(snapshot.recurrenceRules)
             database.taskOccurrenceDao().insertAll(snapshot.taskOccurrences)
             database.activitySessionDao().insertAll(snapshot.activitySessions)
+            database.courseDao().insertAll(snapshot.courses)
+            database.courseMeetingRuleDao().insertAll(snapshot.courseMeetingRules)
             database.migrationStateDao().insert(state)
         }
         return outcome
@@ -411,6 +464,8 @@ data class MigrationReport(
     val recurrenceRuleCount: Int = 0,
     val taskOccurrenceCount: Int = 0,
     val activitySessionCount: Int = 0,
+    val courseCount: Int = 0,
+    val courseMeetingRuleCount: Int = 0,
     val diagnostics: List<MigrationDiagnostic> = emptyList(),
     val message: String = ""
 )
@@ -466,7 +521,9 @@ class LegacyDataImporter(
             completedAt = now(),
             recurrenceRuleCount = snapshot.recurrenceRules.size,
             taskOccurrenceCount = snapshot.taskOccurrences.size,
-            activitySessionCount = snapshot.activitySessions.size
+            activitySessionCount = snapshot.activitySessions.size,
+            courseCount = snapshot.courses.size,
+            courseMeetingRuleCount = snapshot.courseMeetingRules.size
         )
         val outcome = try {
             store.importAtomically(snapshot, state)
@@ -494,6 +551,8 @@ class LegacyDataImporter(
         recurrenceRuleCount = snapshot.recurrenceRules.size,
         taskOccurrenceCount = snapshot.taskOccurrences.size,
         activitySessionCount = snapshot.activitySessions.size,
+        courseCount = snapshot.courses.size,
+        courseMeetingRuleCount = snapshot.courseMeetingRules.size,
         diagnostics = snapshot.diagnostics,
         message = message
     )
@@ -504,7 +563,9 @@ class LegacyDataImporter(
         planIds = snapshot.plans.map { it.id }.sorted(),
         recurrenceRuleIds = snapshot.recurrenceRules.map { it.id }.sorted(),
         taskOccurrenceIds = snapshot.taskOccurrences.map { it.id }.sorted(),
-        activitySessionIds = snapshot.activitySessions.map { it.id }.sorted()
+        activitySessionIds = snapshot.activitySessions.map { it.id }.sorted(),
+        courseIds = snapshot.courses.map { it.id }.sorted(),
+        courseMeetingRuleIds = snapshot.courseMeetingRules.map { it.id }.sorted()
     )
 
     private fun matches(expected: DatabaseMigrationSummary, actual: DatabaseMigrationSummary): Boolean =
@@ -514,7 +575,9 @@ class LegacyDataImporter(
             planIds = actual.planIds.sorted(),
             recurrenceRuleIds = actual.recurrenceRuleIds.sorted(),
             taskOccurrenceIds = actual.taskOccurrenceIds.sorted(),
-            activitySessionIds = actual.activitySessionIds.sorted()
+            activitySessionIds = actual.activitySessionIds.sorted(),
+            courseIds = actual.courseIds.sorted(),
+            courseMeetingRuleIds = actual.courseMeetingRuleIds.sorted()
         )
 
     private fun stateMatches(snapshot: LegacySnapshot, state: MigrationStateEntity): Boolean =
@@ -523,7 +586,9 @@ class LegacyDataImporter(
             state.planCount == snapshot.plans.size &&
             state.recurrenceRuleCount == snapshot.recurrenceRules.size &&
             state.taskOccurrenceCount == snapshot.taskOccurrences.size &&
-            state.activitySessionCount == snapshot.activitySessions.size
+            state.activitySessionCount == snapshot.activitySessions.size &&
+            state.courseCount == snapshot.courses.size &&
+            state.courseMeetingRuleCount == snapshot.courseMeetingRules.size
 
     companion object {
         const val MIGRATION_KEY = "room_migration_v9_0_task_plan_complete"

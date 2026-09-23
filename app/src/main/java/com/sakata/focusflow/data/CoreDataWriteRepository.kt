@@ -63,6 +63,8 @@ class DatabaseRoomCoreDataWriteStore(private val database: FocusFlowDatabase) : 
     override fun recurrenceRuleIds(): List<Long> = database.recurrenceRuleDao().allIds()
     override fun taskOccurrenceIds(): List<Long> = database.taskOccurrenceDao().allIds()
     override fun activitySessions(): List<ActivitySessionEntity> = database.activitySessionDao().all()
+    override fun courses(): List<CourseEntity> = database.courseDao().all()
+    override fun courseMeetingRules(): List<CourseMeetingRuleEntity> = database.courseMeetingRuleDao().all()
 
     override fun replaceTasks(tasks: List<TaskEntity>) {
         database.taskDao().deleteAll()
