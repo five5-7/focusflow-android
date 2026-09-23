@@ -98,6 +98,20 @@ class ThemePresetCodecTest {
         assertEquals(AppearanceSpec.DEFAULT.cardMaterial, decoded.cardMaterial)
         assertEquals(0, decoded.gradientTop)
         assertTrue(!decoded.gradientFollowsContent)
+        assertNull(decoded.glassSurfaceOpacity)
+    }
+
+    @Test
+    fun glassOpacitySurvivesPresetRoundTripAndOldPresetsKeepLegacyDefaults() {
+        val oldJson = ThemePresetCodec.encodeAppearance(look)
+        assertTrue(!oldJson.has("glassSurfaceOpacity"))
+        assertNull(ThemePresetCodec.decodeAppearance(oldJson).glassSurfaceOpacity)
+
+        val saved = look.copy(cardMaterial = CardMaterial.FROSTED, glassSurfaceOpacity = 95)
+        val decoded = ThemePresetCodec.decode(ThemePresetCodec.encode(listOf(ThemePreset("玻璃", colors, saved))))
+        assertEquals(saved, decoded.single().appearance)
+        assertEquals(95, decoded.single().appearance?.glassSurfaceOpacity)
+        assertNull(ThemePresetCodec.decodeAppearance(JSONObject().put("glassSurfaceOpacity", "bad")).glassSurfaceOpacity)
     }
 
     @Test

@@ -505,6 +505,25 @@ internal fun CardMaterialControls(
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
+        if (appearance.cardMaterial.samplesPageBackdrop) {
+            val selectedOpacity = glassSurfaceOpacityPercent(appearance.cardMaterial, appearance.glassSurfaceOpacity)
+            Text("玻璃卡面不透明度 $selectedOpacity%", style = MaterialTheme.typography.labelMedium)
+            Slider(
+                value = selectedOpacity.toFloat(),
+                onValueChange = { value ->
+                    onAppearanceChange(appearance.copy(glassSurfaceOpacity = value.toInt().coerceIn(
+                        GLASS_SURFACE_OPACITY_MIN, GLASS_SURFACE_OPACITY_MAX
+                    )))
+                },
+                valueRange = GLASS_SURFACE_OPACITY_MIN.toFloat()..GLASS_SURFACE_OPACITY_MAX.toFloat(),
+                modifier = Modifier.fillMaxWidth()
+            )
+            Text(
+                "卡片、弹窗和底栏共用；只调整玻璃卡面的染色层，不改变背景图片的不透明度。",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
         // 卡片渐变方向（维护者口径：卡片的渐变要能选上→下 / 下→上）。
         // 只在柔光下有意义——渐变材质的走向是主题派生的，不跟这个开关。
         // 「卡面渐变方向」只对**真正有方向**的两档显示：渐变（上/下染色）与柔光（顶亮底沉）。

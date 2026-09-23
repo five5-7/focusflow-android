@@ -150,8 +150,9 @@ private fun Modifier.cardMaterialFill(
     softReversed: Boolean,
     shape: Shape
 ): Modifier {
-    val layer = remember(material, containerColor, scheme, softReversed) {
-        materialBrush(material, containerColor, scheme, softReversed)
+    val glassSurfaceOpacity = LocalAppearance.current.glassSurfaceOpacity
+    val layer = remember(material, containerColor, scheme, softReversed, glassSurfaceOpacity) {
+        materialBrush(material, containerColor, scheme, softReversed, glassSurfaceOpacity)
     }
     val edge = remember(scheme) { scheme.onSurface.copy(alpha = 0.03f) }
     val rim = remember(material, containerColor) { materialRimColor(material, containerColor) }

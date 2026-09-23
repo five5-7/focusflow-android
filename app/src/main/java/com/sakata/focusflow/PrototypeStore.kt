@@ -116,6 +116,9 @@ class PrototypeStore(context: Context) {
         gradientTop = preferences.getInt("appearance_gradient_top", 0),
         gradientBottom = preferences.getInt("appearance_gradient_bottom", 0),
         cardMaterial = preferences.getString("appearance_card_material", null),
+        glassSurfaceOpacity = if (preferences.contains("appearance_glass_surface_opacity")) {
+            runCatching { preferences.getInt("appearance_glass_surface_opacity", ACRYLIC_LEGACY_OPACITY) }.getOrNull()
+        } else null,
         timetableBackdrop = preferences.getString("appearance_timetable_backdrop", null),
         timetableColor = preferences.getInt("appearance_timetable_color", 0),
         timetableImage = preferences.getString("appearance_timetable_image", null),
@@ -144,6 +147,11 @@ class PrototypeStore(context: Context) {
             .putInt("appearance_gradient_top", spec.gradientTop)
             .putInt("appearance_gradient_bottom", spec.gradientBottom)
             .putString("appearance_card_material", spec.cardMaterial.storageKey)
+            .also { editor ->
+                val requested = spec.glassSurfaceOpacity
+                if (requested == null) editor.remove("appearance_glass_surface_opacity")
+                else editor.putInt("appearance_glass_surface_opacity", requested.coerceIn(GLASS_SURFACE_OPACITY_MIN, GLASS_SURFACE_OPACITY_MAX))
+            }
             .putString("appearance_timetable_backdrop", spec.timetableBackdrop.storageKey)
             .putInt("appearance_timetable_color", spec.timetableColor)
             .putString("appearance_timetable_image", spec.timetableImage)

@@ -2,6 +2,7 @@ package com.sakata.focusflow
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -18,6 +19,20 @@ class AppearanceSpecTest {
         assertFalse(spec.hasTimetableImage)
         assertFalse(spec.timetableUsesColor)
         assertTrue(spec.extractedColors.isEmpty())
+        assertNull(spec.glassSurfaceOpacity)
+        assertEquals(60, glassSurfaceOpacityPercent(CardMaterial.ACRYLIC, spec.glassSurfaceOpacity))
+        assertEquals(48, glassSurfaceOpacityPercent(CardMaterial.FROSTED, spec.glassSurfaceOpacity))
+    }
+
+    @Test
+    fun glassOpacityIsSharedAndClampedWithoutChangingImageAlpha() {
+        val spec = AppearanceSpec(glassSurfaceOpacity = 95, backdropOpacity = 40, timetableOpacity = 70)
+        assertEquals(95, glassSurfaceOpacityPercent(CardMaterial.ACRYLIC, spec.glassSurfaceOpacity))
+        assertEquals(95, glassSurfaceOpacityPercent(CardMaterial.FROSTED, spec.glassSurfaceOpacity))
+        assertEquals(40, glassSurfaceOpacityPercent(CardMaterial.ACRYLIC, 2))
+        assertEquals(95, glassSurfaceOpacityPercent(CardMaterial.FROSTED, 120))
+        assertEquals(0.4f, spec.imageAlpha, 0.001f)
+        assertEquals(0.7f, spec.timetableAlpha, 0.001f)
     }
 
     @Test

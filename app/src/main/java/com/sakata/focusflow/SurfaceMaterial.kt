@@ -792,7 +792,10 @@ internal fun DrawScope.drawImageCover(
  */
 @Composable
 internal fun cardMaterialBrush(material: CardMaterial): Brush? =
-    materialBrush(material, MaterialTheme.colorScheme.surfaceContainerLow, MaterialTheme.colorScheme)
+    materialBrush(
+        material, MaterialTheme.colorScheme.surfaceContainerLow, MaterialTheme.colorScheme,
+        glassSurfaceOpacity = LocalAppearance.current.glassSurfaceOpacity
+    )
 /**
  * 材质叠层（通用）：给定**底色**，返回该材质要在它上面画的一层；[CardMaterial.TONAL] 返回 null。
  *
@@ -806,7 +809,8 @@ internal fun materialBrush(
     base: Color,
     scheme: ColorScheme,
     /** 柔光渐变方向：false = 上→下（顶亮底沉），true = 下→上。维护者口径的两个方向。 */
-    softReversed: Boolean = false
+    softReversed: Boolean = false,
+    glassSurfaceOpacity: Int? = null
 ): Brush? =
     when (material) {
         CardMaterial.TONAL -> null
@@ -824,8 +828,12 @@ internal fun materialBrush(
         }
         CardMaterial.SOFT -> softLightBrush(base, softReversed)
         // 玻璃类材质的高光固定来自顶部；隐藏的「卡面渐变方向」旧值不能影响它们。
-        CardMaterial.ACRYLIC -> acrylicBrush(base, scheme)
-        CardMaterial.FROSTED -> frostedBrush(base)
+        CardMaterial.ACRYLIC -> acrylicBrush(
+            base, scheme, opacity = glassSurfaceOpacityPercent(material, glassSurfaceOpacity) / 100f
+        )
+        CardMaterial.FROSTED -> frostedBrush(
+            base, opacity = glassSurfaceOpacityPercent(material, glassSurfaceOpacity) / 100f
+        )
     }
 
 /** 材质的内描边宽度（dp）。亚克力靠染色和模糊成边，不画独立描边。 */
@@ -880,7 +888,11 @@ internal const val FROSTED_BAND = 0.18f
  * 把面积补回来，即 `a · band / 2 = b · (1 - band) / 2` ⇒ `b = a · band / (1 - band)`。
  * 于是高光是窄而亮的、压深是宽而浅的——这正是"光泽面"与"整体变暗"的区别。
  */
-internal fun frostedStops(base: Color, reversed: Boolean = false): List<Pair<Float, Color>> {
+internal fun frostedStops(
+    base: Color,
+    reversed: Boolean = false,
+    opacity: Float = FROSTED_LEGACY_OPACITY / 100f
+): List<Pair<Float, Color>> {
     val top = shiftGreyLevels(base, softLightAmplitude(base))
     // **按实际涨幅镜像**（与 softLightStops 同一个道理）：
     // 近白底片的顶站会被纯白夹住，实际涨幅小于 softLightAmplitude；
@@ -894,7 +906,7 @@ internal fun frostedStops(base: Color, reversed: Boolean = false): List<Pair<Flo
     )
     // 毛玻璃使用低染色的白纱：背景结构由 30dp 扩散负责，面层只负责压住杂色与保正文。
     // 透明度刻意低于亚克力，让玻璃更通透；顶部高光和 1dp 内描边负责读出玻璃边缘。
-    val veil = 0.48f
+    val veil = opacity.coerceIn(GLASS_SURFACE_OPACITY_MIN / 100f, GLASS_SURFACE_OPACITY_MAX / 100f)
     val stops = listOf(
         0f to top.copy(alpha = veil),
         FROSTED_BAND to base.copy(alpha = veil),
@@ -904,8 +916,11 @@ internal fun frostedStops(base: Color, reversed: Boolean = false): List<Pair<Flo
     return if (reversed) stops.map { (f, c) -> (1f - f) to c }.reversed() else stops
 }
 
-internal fun frostedBrush(base: Color, reversed: Boolean = false): Brush =
-    Brush.verticalGradient(*frostedStops(base, reversed).toTypedArray())
+internal fun frostedBrush(
+    base: Color,
+    reversed: Boolean = false,
+    opacity: Float = FROSTED_LEGACY_OPACITY / 100f
+): Brush = Brush.verticalGradient(*frostedStops(base, reversed, opacity).toTypedArray())
 
 /**
  * 亚克力：一整块**平**的哑光板 + 顶部极窄的一条环境光，并带一点主题染色。
@@ -917,7 +932,8 @@ internal fun frostedBrush(base: Color, reversed: Boolean = false): Brush =
 internal fun acrylicStops(
     base: Color,
     scheme: ColorScheme,
-    reversed: Boolean = false
+    reversed: Boolean = false,
+    opacity: Float = ACRYLIC_LEGACY_OPACITY / 100f
 ): List<Pair<Float, Color>> {
     // 染色 6% → 10% → **16%**：维护者口径是「亚克力和**渐变**的差别有点小了」。
     // 渐变材质是"7% 主题色 → 底色"的平滑斜坡，平均浓度只有 3.5%；
@@ -930,7 +946,7 @@ internal fun acrylicStops(
     val edge = shiftGreyLevels(tinted, 9f)
     // 亚克力使用较厚的有色塑料板：比毛玻璃染色更强、不透明度更高，同时只做 18dp 模糊，
     // 因而能保留更多背景轮廓，避免两档只换了名字。
-    val veil = 0.60f
+    val veil = opacity.coerceIn(GLASS_SURFACE_OPACITY_MIN / 100f, GLASS_SURFACE_OPACITY_MAX / 100f)
     val stops = listOf(
         0f to edge.copy(alpha = veil),
         0.012f to tinted.copy(alpha = veil),
@@ -939,8 +955,12 @@ internal fun acrylicStops(
     return if (reversed) stops.map { (f, c) -> (1f - f) to c }.reversed() else stops
 }
 
-internal fun acrylicBrush(base: Color, scheme: ColorScheme, reversed: Boolean = false): Brush =
-    Brush.verticalGradient(*acrylicStops(base, scheme, reversed).toTypedArray())
+internal fun acrylicBrush(
+    base: Color,
+    scheme: ColorScheme,
+    reversed: Boolean = false,
+    opacity: Float = ACRYLIC_LEGACY_OPACITY / 100f
+): Brush = Brush.verticalGradient(*acrylicStops(base, scheme, reversed, opacity).toTypedArray())
 
 /**
  * 真背景模糊的性能／光学参数。把数值留在纯 Kotlin 模型里，单测可以直接锁住两种材质的差异，
@@ -1043,11 +1063,13 @@ internal fun Modifier.surfaceMaterialFill(
     alpha: Float = 1f
 ): Modifier {
     val scheme = MaterialTheme.colorScheme
-    val reversed = LocalAppearance.current.cardGradientReversed
+    val appearance = LocalAppearance.current
+    val reversed = appearance.cardGradientReversed
+    val glassSurfaceOpacity = appearance.glassSurfaceOpacity
     // 与 FocusCard.cardMaterialFill 同一个理由：渐变画刷必须跨帧复用。
     // 建在 drawBehind 里 = 每帧新建 Brush 并重编 shader（底栏与弹窗都是常驻/频繁重绘的）。
-    val layer = remember(material, base, scheme, reversed) {
-        materialBrush(material, base, scheme, reversed)
+    val layer = remember(material, base, scheme, reversed, glassSurfaceOpacity) {
+        materialBrush(material, base, scheme, reversed, glassSurfaceOpacity)
     }
     // 「玻璃的边」与卡片共用同一份判定：材质是全局的，底栏/弹窗也要有。
     val rim = remember(material, base) { materialRimColor(material, base) }

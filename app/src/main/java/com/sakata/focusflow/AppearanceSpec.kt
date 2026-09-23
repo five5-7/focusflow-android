@@ -104,6 +104,19 @@ internal enum class CardMaterial(val storageKey: String) {
     }
 }
 
+internal const val GLASS_SURFACE_OPACITY_MIN = 40
+internal const val GLASS_SURFACE_OPACITY_MAX = 95
+internal const val ACRYLIC_LEGACY_OPACITY = 60
+internal const val FROSTED_LEGACY_OPACITY = 48
+
+/** A missing override retains each glass material's original appearance. */
+internal fun glassSurfaceOpacityPercent(material: CardMaterial, requested: Int?): Int =
+    requested?.coerceIn(GLASS_SURFACE_OPACITY_MIN, GLASS_SURFACE_OPACITY_MAX) ?: when (material) {
+        CardMaterial.ACRYLIC -> ACRYLIC_LEGACY_OPACITY
+        CardMaterial.FROSTED -> FROSTED_LEGACY_OPACITY
+        else -> 100
+    }
+
 /** 背景图的非破坏性取景参数：保留原图，只记录焦点位置与放大倍数。 */
 internal data class ImageCrop(
     val centerX: Float = 0.5f,
@@ -142,6 +155,8 @@ internal data class AppearanceSpec(
     val gradientTop: Int = 0,
     val gradientBottom: Int = 0,
     val cardMaterial: CardMaterial = CardMaterial.TONAL,
+    /** Null means each glass material keeps its pre-9.0 opacity. */
+    val glassSurfaceOpacity: Int? = null,
     val timetableBackdrop: BackdropKind = BackdropKind.THEME,
     val timetableColor: Int = 0,
     val timetableImage: String = "",
@@ -324,7 +339,8 @@ internal data class AppearanceSpec(
             pageCropZoom: Float = 1f,
             timetableCropX: Float = 0.5f,
             timetableCropY: Float = 0.5f,
-            timetableCropZoom: Float = 1f
+            timetableCropZoom: Float = 1f,
+            glassSurfaceOpacity: Int? = null
         ): AppearanceSpec = AppearanceSpec(
             pageBackdrop = BackdropKind.fromKey(pageBackdrop),
             pageImage = pageImage.orEmpty(),
@@ -336,6 +352,7 @@ internal data class AppearanceSpec(
             gradientTop = gradientTop,
             gradientBottom = gradientBottom,
             cardMaterial = CardMaterial.fromKey(cardMaterial),
+            glassSurfaceOpacity = glassSurfaceOpacity?.coerceIn(GLASS_SURFACE_OPACITY_MIN, GLASS_SURFACE_OPACITY_MAX),
             timetableBackdrop = BackdropKind.fromKey(timetableBackdrop),
             timetableColor = timetableColor,
             timetableImage = timetableImage.orEmpty(),
