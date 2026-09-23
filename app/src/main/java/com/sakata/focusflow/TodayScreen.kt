@@ -725,7 +725,7 @@ private fun TodayPermissionReminder(now: Long) {
         onDismiss = { detailsOpen = false },
         onRestoreTodayReminder = {}
     )
-    if (confirmDismissOpen) AlertDialog(
+    if (confirmDismissOpen) AppDialog(
         onDismissRequest = { confirmDismissOpen = false },
         title = { Text("不再在今日页提示？") },
         text = { Text("之后可在 设置 → 检查更新 上方的“权限与提醒”查看和恢复。") },
