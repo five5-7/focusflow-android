@@ -97,6 +97,34 @@ class CoreDataActivationEndToEndTest {
     }
 
     @Test
+    fun `orphan deletion event survives activation without recreating a deleted task`() {
+        installFixture("8.3-rc.12")
+        val original = corePayload()
+        val database = newDatabase()
+        val ready = runtime(
+            database, SharedPreferencesCoreDataActivationStore(context),
+            SharedPreferencesMigrationMarker(context), true, sequenceOf(100L, 200L)
+        ).resolve() as CoreDataRuntimeResolution.Ready
+
+        val snapshot = (ready.repository.read() as CoreDataReadResult.Ready).snapshot
+        val deletion = snapshot.taskEvents.single { it.id == 502L }
+        assertEquals(TaskEventType.TASK_DELETED, deletion.type)
+        assertEquals(999L, deletion.itemId)
+        assertEquals("已删除任务", deletion.title)
+        assertFalse(snapshot.items.any { it.id == deletion.itemId })
+        assertEquals(listOf(301L), database.taskDao().allIds())
+        assertEquals(listOf(501L, 502L), database.taskEventDao().allIds())
+        assertEquals(original, corePayload())
+
+        val resumed = runtime(
+            database, SharedPreferencesCoreDataActivationStore(context),
+            SharedPreferencesMigrationMarker(context), false, sequenceOf(300L)
+        ).resolve() as CoreDataRuntimeResolution.Ready
+        val afterRestart = (resumed.repository.read() as CoreDataReadResult.Ready).snapshot
+        assertEquals(snapshot, afterRestart)
+    }
+
+    @Test
     fun `reminder preferences stay live and never change the core migration fingerprint`() {
         installFixture("8.2.1")
         check(preferences.edit()
