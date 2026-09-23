@@ -81,6 +81,34 @@ class CoreDataActivationEndToEndTest {
     }
 
     @Test
+    fun `course edits through the legacy screen diverge after Room activation`() {
+        installFixture("8.3-rc.12")
+        val store = PrototypeStore(context)
+        val original = com.sakata.focusflow.Course(
+            title = "高数", weekday = 1, startPeriod = 1, endPeriod = 2,
+            building = "东一", zone = com.sakata.focusflow.CampusZone.entries.first(),
+            needsConfirmation = false, id = 93L
+        )
+        store.saveCourses(listOf(original))
+        val database = newDatabase()
+        val ready = runtime(
+            database, SharedPreferencesCoreDataActivationStore(context),
+            SharedPreferencesMigrationMarker(context), true, sequenceOf(100L, 200L)
+        ).resolve() as CoreDataRuntimeResolution.Ready
+
+        assertEquals(listOf(original), (ready.repository.read() as CoreDataReadResult.Ready).snapshot.courses)
+        store.saveCourses(listOf(original.copy(building = "东二")))
+
+        assertEquals("东二", store.loadCourses().single().building)
+        val room = ready.repository.read() as CoreDataReadResult.Ready
+        assertEquals("东一", room.snapshot.courses.single().building)
+        val report = CoreDataConsistencyChecker.compare(legacySnapshot(), room)
+        assertEquals(CoreDataConsistencyStatus.MISMATCH, report.status)
+        assertEquals(listOf("courses"), report.differences.map { it.domain })
+        assertFalse(CoreDataRuntimePolicy.ACTIVATION_ENABLED)
+    }
+
+    @Test
     fun `invalid course fails before Room import and leaves source intact`() {
         installFixture("8.3-rc.12")
         val raw = """[{"id":6,"title":"bad","weekday":9,"startPeriod":1,"endPeriod":2,"building":"A","zone":"X"}]"""

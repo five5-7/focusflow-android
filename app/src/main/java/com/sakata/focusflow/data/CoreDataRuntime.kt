@@ -58,7 +58,14 @@ class CoreDataRuntimeCompositionRoot(
         if (repository.source != decision.source) {
             return blocked("selected source and repository source disagree")
         }
-        repository.ensureTaskHistoryMigrated()
+        val history = try {
+            repository.ensureTaskHistoryMigrated()
+        } catch (error: Exception) {
+            return blocked("task history migration failed: ${error.javaClass.simpleName}")
+        }
+        if (!history.applied) {
+            return blocked("task history migration failed: ${history.status}")
+        }
         return CoreDataRuntimeResolution.Ready(decision, repository)
     }
 

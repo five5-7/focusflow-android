@@ -144,6 +144,57 @@ class CoreDataRuntimeCompositionRootTest {
     }
 
     @Test
+    fun `failed history bootstrap blocks the selected source and never falls back`() {
+        var roomFactories = 0
+        val legacy = RecordingRepository(
+            CoreDataRuntimeSource.LEGACY,
+            historyResult = CoreDataWriteResult(CoreDataWriteStatus.WRITE_FAILED)
+        )
+        val root = CoreDataRuntimeCompositionRoot(
+            selectSource = {
+                decision(CoreDataRuntimeSource.LEGACY, CoreDataActivationStatus.LEGACY_ACTIVATION_DISABLED)
+            },
+            legacyRepositoryFactory = { legacy },
+            roomRepositoryFactory = {
+                roomFactories++
+                RecordingRepository(CoreDataRuntimeSource.ROOM)
+            }
+        )
+
+        val blocked = root.resolve() as CoreDataRuntimeResolution.Blocked
+        assertSame(blocked, root.resolve())
+        assertEquals(CoreDataRuntimeSource.NONE, blocked.decision.source)
+        assertEquals(CoreDataActivationStatus.BLOCKED_RUNTIME_ASSEMBLY, blocked.decision.status)
+        assertEquals("task history migration failed: WRITE_FAILED", blocked.decision.message)
+        assertEquals(1, legacy.historyMigrationCalls)
+        assertEquals(0, roomFactories)
+    }
+
+    @Test
+    fun `history bootstrap exception blocks Room instead of escaping resolution`() {
+        var legacyFactories = 0
+        val room = RecordingRepository(CoreDataRuntimeSource.ROOM, historyFailure = true)
+        val root = CoreDataRuntimeCompositionRoot(
+            selectSource = {
+                decision(CoreDataRuntimeSource.ROOM, CoreDataActivationStatus.ROOM_ALREADY_ACTIVE)
+            },
+            legacyRepositoryFactory = {
+                legacyFactories++
+                RecordingRepository(CoreDataRuntimeSource.LEGACY)
+            },
+            roomRepositoryFactory = { room }
+        )
+
+        val blocked = root.resolve() as CoreDataRuntimeResolution.Blocked
+        assertSame(blocked, root.resolve())
+        assertEquals(CoreDataRuntimeSource.NONE, blocked.decision.source)
+        assertEquals(CoreDataActivationStatus.BLOCKED_RUNTIME_ASSEMBLY, blocked.decision.status)
+        assertEquals("task history migration failed: IllegalStateException", blocked.decision.message)
+        assertEquals(1, room.historyMigrationCalls)
+        assertEquals(0, legacyFactories)
+    }
+
+    @Test
     fun `product writers are assembled only behind the application composition root`() {
         val sourceRoot = File("src/main/java/com/sakata/focusflow")
         val kotlinFiles = sourceRoot.walkTopDown().filter { it.isFile && it.extension == "kt" }.toList()
@@ -169,7 +220,9 @@ class CoreDataRuntimeCompositionRootTest {
 }
 
 private class RecordingRepository(
-    override val source: CoreDataRuntimeSource
+    override val source: CoreDataRuntimeSource,
+    private val historyResult: CoreDataWriteResult = CoreDataWriteResult(CoreDataWriteStatus.APPLIED),
+    private val historyFailure: Boolean = false
 ) : CoreDataRepository {
     var historyMigrationCalls = 0
 
@@ -219,7 +272,8 @@ private class RecordingRepository(
 
     override fun ensureTaskHistoryMigrated(): CoreDataWriteResult {
         historyMigrationCalls++
-        return applied()
+        if (historyFailure) throw IllegalStateException("test history bootstrap failure")
+        return historyResult
     }
 
     private fun applied() = CoreDataWriteResult(CoreDataWriteStatus.APPLIED)
