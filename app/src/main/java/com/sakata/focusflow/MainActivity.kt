@@ -292,8 +292,8 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                     val refreshedCoreData = readCoreData()
                     items = refreshedCoreData.items
                     gameSessions = store.loadGameSessions()
-                    activeSession = store.loadLatestActiveSession()
-                    activityHistory = store.loadRecentActivitySessions()
+                    activeSession = refreshedCoreData.activitySessions.lastOrNull(ActivitySession::isOpen)
+                    activityHistory = refreshedCoreData.activitySessions.takeLast(20).reversed()
                     // 弹窗可能持有通知操作前的任务快照，返回前台后重新打开。
                     rescheduleTarget = null
                     inboxScheduleTarget = null
@@ -1010,7 +1010,8 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
         delay(1_000)
         while (true) {
             val (restored, recentHistory) = withContext(Dispatchers.IO) {
-                store.loadLatestActiveSession() to store.loadRecentActivitySessions()
+                CoreDataRepositoryOperations.latestActiveSession(coreDataRepository) to
+                    CoreDataRepositoryOperations.recentActivitySessions(coreDataRepository)
             }
             activeSession = restored
             activityHistory = recentHistory
@@ -1925,12 +1926,13 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
         if (activityOpen) ActivityDialog(suggestedNextStepName, activityPreset, activityHistory, upcomingCommitment, planningEnergyLevel, onDismiss = { activityOpen = false; activityPreset = null }) { category, name, endsAt, nextStep ->
             val now = System.currentTimeMillis()
             val session = ActivitySession(name = name, category = category, plannedStartAt = now, actualStartAt = now, endsAt = endsAt, nextStep = nextStep)
-            store.saveSession(session)
-            activeSession = session
-            store.appendBaselineEvent(BaselineRecorder.event(BaselineEventType.ACTIVITY_STARTED, name))
-            ReminderScheduler.scheduleActivityReminders(context, session, activitySettings)
-            activityOpen = false
-            activityPreset = null
+            if (CoreDataRepositoryOperations.saveActivitySession(coreDataRepository, session).applied) {
+                activeSession = session
+                store.appendBaselineEvent(BaselineRecorder.event(BaselineEventType.ACTIVITY_STARTED, name))
+                ReminderScheduler.scheduleActivityReminders(context, session, activitySettings)
+                activityOpen = false
+                activityPreset = null
+            }
         }
         if (statusCheckInOpen) StatusCheckInDialog(
             initialEnergy = planningEnergyLevel,
@@ -1967,10 +1969,11 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                 if (remindMinutes != null) {
                     val now = System.currentTimeMillis()
                     val session = ActivitySession(name = "游戏／娱乐", category = "游戏／娱乐", plannedStartAt = now, actualStartAt = now, endsAt = now + remindMinutes * 60_000L, nextStep = "")
-                    store.saveSession(session)
-                    activeSession = session
-                    store.appendBaselineEvent(BaselineRecorder.event(BaselineEventType.ACTIVITY_STARTED, "游戏／娱乐"))
-                    ReminderScheduler.scheduleActivityReminders(context, session, activitySettings)
+                    if (CoreDataRepositoryOperations.saveActivitySession(coreDataRepository, session).applied) {
+                        activeSession = session
+                        store.appendBaselineEvent(BaselineRecorder.event(BaselineEventType.ACTIVITY_STARTED, "游戏／娱乐"))
+                        ReminderScheduler.scheduleActivityReminders(context, session, activitySettings)
+                    }
                 }
             }
         )
@@ -1979,24 +1982,59 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
             maxExtensions = activitySettings.maxExtensions,
             upcomingCommitment = upcomingCommitment,
             onDismiss = { transitionTarget = null },
-            onFinish = { actualEndAt ->
-                store.finishSession(session.id, ActivitySession.STATUS_COMPLETED, "finished_now", actualEndAt)
+            onFinish = onFinish@ { actualEndAt ->
+                val result = CoreDataRepositoryOperations.finishActivitySession(
+                    coreDataRepository,
+                    session.id,
+                    ActivitySession.STATUS_COMPLETED,
+                    "finished_now",
+                    actualEndAt,
+                    session.endsAt
+                )
+                if (!result.applied) return@onFinish
                 store.appendBaselineEvent(BaselineRecorder.event(BaselineEventType.ACTIVITY_ENDED, session.name))
                 ReminderScheduler.cancelActivityReminders(context, session.id)
                 activeSession = null
                 transitionTarget = null
             },
-            onStartNext = {
+            onStartNext = onStartNext@ {
                 val now = System.currentTimeMillis()
-                store.finishSession(session.id, ActivitySession.STATUS_COMPLETED, "started_next", now)
                 val nextName = session.nextStep.ifBlank { suggestedNextStepName }
+                val nextSession = if (nextName.isNotBlank()) {
+                    val courseDuration = courses.firstOrNull { nextName.startsWith(it.title) }
+                        ?.let { CourseGapPlanner.periodEnd(it.endPeriod) - CourseGapPlanner.periodStart(it.startPeriod) }
+                    val duration = items.firstOrNull { it.title == nextName }?.durationMinutes
+                        ?: courseDuration ?: 30
+                    ActivitySession(
+                        name = nextName,
+                        category = "下一步",
+                        plannedStartAt = now,
+                        actualStartAt = now,
+                        endsAt = now + duration * 60_000L
+                    )
+                } else null
+                val finished = if (nextSession == null) {
+                    CoreDataRepositoryOperations.finishActivitySession(
+                        coreDataRepository,
+                        session.id,
+                        ActivitySession.STATUS_COMPLETED,
+                        "started_next",
+                        now,
+                        session.endsAt
+                    )
+                } else {
+                    CoreDataRepositoryOperations.finishAndStartNextActivitySession(
+                        coreDataRepository,
+                        session.id,
+                        nextSession,
+                        now,
+                        session.endsAt
+                    )
+                }
+                if (!finished.applied) return@onStartNext
                 store.appendBaselineEvent(BaselineRecorder.event(BaselineEventType.ACTIVITY_ENDED, nextName.takeIf { it.isNotBlank() }?.let { "${session.name} → $it" } ?: session.name))
                 ReminderScheduler.cancelActivityReminders(context, session.id)
-                if (nextName.isNotBlank()) {
-                    val courseDuration = courses.firstOrNull { nextName.startsWith(it.title) }?.let { CourseGapPlanner.periodEnd(it.endPeriod) - CourseGapPlanner.periodStart(it.startPeriod) }
-                    val duration = items.firstOrNull { it.title == nextName }?.durationMinutes ?: courseDuration ?: 30
-                    val nextSession = ActivitySession(name = nextName, category = "下一步", plannedStartAt = now, actualStartAt = now, endsAt = now + duration * 60_000L)
-                    store.saveSession(nextSession)
+                if (nextSession != null) {
                     activeSession = nextSession
                     store.appendBaselineEvent(BaselineRecorder.event(BaselineEventType.ACTIVITY_STARTED, nextName))
                     ReminderScheduler.scheduleActivityReminders(context, nextSession, activitySettings)
@@ -2004,14 +2042,28 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                 transitionTarget = null
             },
             onExtend = { minutes, reason ->
-                store.extendSession(session.id, minutes, reason)?.let { extended ->
+                CoreDataRepositoryOperations.extendActivitySession(
+                    coreDataRepository,
+                    session.id,
+                    minutes,
+                    activitySettings.maxExtensions,
+                    reason,
+                    session.endsAt
+                ).activityMutation?.after?.let { extended ->
                     activeSession = extended
                     ReminderScheduler.scheduleActivityReminders(context, extended, activitySettings)
                 }
                 transitionTarget = null
             },
-            onReplan = {
-                store.finishSession(session.id, ActivitySession.STATUS_SKIPPED, "replan")
+            onReplan = onReplan@ {
+                val skipped = CoreDataRepositoryOperations.finishActivitySession(
+                    coreDataRepository,
+                    session.id,
+                    ActivitySession.STATUS_SKIPPED,
+                    "replan",
+                    expectedEndsAt = session.endsAt
+                )
+                if (!skipped.applied) return@onReplan
                 store.appendBaselineEvent(BaselineRecorder.event(BaselineEventType.ACTIVITY_SKIPPED, session.name))
                 ReminderScheduler.cancelActivityReminders(context, session.id)
                 CoreDataRepositoryOperations.addReplanItem(

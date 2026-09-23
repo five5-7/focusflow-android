@@ -1,5 +1,6 @@
 package com.sakata.focusflow.data
 
+import com.sakata.focusflow.ActivitySession
 import com.sakata.focusflow.Goal
 import com.sakata.focusflow.Item
 import com.sakata.focusflow.TaskEvent
@@ -162,12 +163,123 @@ class CoreDataRepositoryTest {
     }
 
     @Test
+    fun `activity operations enforce freshness extension cap and terminal state`() {
+        val session = ActivitySession(
+            id = 41L,
+            name = "deep work",
+            plannedStartAt = 1_000L,
+            actualStartAt = 1_000L,
+            endsAt = 61_000L
+        )
+        val persistence = FakeLegacyPersistence(
+            sampleSnapshot().copy(activitySessions = listOf(session))
+        )
+        val repository = LegacyCoreDataRepository(persistence)
+
+        val stale = CoreDataRepositoryOperations.extendActivitySession(
+            repository, session.id, 10, 1, expectedEndsAt = 60_999L, now = 2_000L
+        )
+        val extended = CoreDataRepositoryOperations.extendActivitySession(
+            repository, session.id, 10, 1, expectedEndsAt = 61_000L, now = 2_000L
+        )
+        val extendedSession = requireNotNull(extended.activityMutation).after
+        val capped = CoreDataRepositoryOperations.extendActivitySession(
+            repository,
+            session.id,
+            10,
+            1,
+            expectedEndsAt = extendedSession.endsAt,
+            now = 3_000L
+        )
+        val finished = CoreDataRepositoryOperations.finishActivitySession(
+            repository,
+            session.id,
+            ActivitySession.STATUS_COMPLETED,
+            "notification_finish",
+            endedAt = 4_000L,
+            expectedEndsAt = extendedSession.endsAt
+        )
+        val skippedAfterFinish = CoreDataRepositoryOperations.finishActivitySession(
+            repository,
+            session.id,
+            ActivitySession.STATUS_SKIPPED,
+            "replan"
+        )
+
+        assertEquals(CoreDataWriteStatus.CONDITION_NOT_MET, stale.status)
+        assertTrue(extended.applied)
+        assertEquals(1, extendedSession.extensionCount)
+        assertEquals(CoreDataWriteStatus.CONDITION_NOT_MET, capped.status)
+        assertTrue(finished.applied)
+        assertEquals(ActivitySession.STATUS_COMPLETED, finished.activityMutation?.after?.status)
+        assertEquals(CoreDataWriteStatus.CONDITION_NOT_MET, skippedAfterFinish.status)
+    }
+
+    @Test
+    fun `activity history is not capped at fifty records`() {
+        val persistence = FakeLegacyPersistence(sampleSnapshot())
+        val repository = LegacyCoreDataRepository(persistence)
+
+        (1L..60L).forEach { id ->
+            assertTrue(
+                CoreDataRepositoryOperations.saveActivitySession(
+                    repository,
+                    ActivitySession(id, "session-$id", actualStartAt = id, endsAt = id + 60_000L)
+                ).applied
+            )
+        }
+
+        assertEquals(60, persistence.snapshot.activitySessions.size)
+        assertEquals(60, CoreDataRepositoryOperations.recentActivitySessions(repository, 60).size)
+    }
+
+    @Test
+    fun `finish and start next commit together or leave both unchanged`() {
+        val current = ActivitySession(
+            id = 41L,
+            name = "current",
+            plannedStartAt = 1_000L,
+            actualStartAt = 1_000L,
+            endsAt = 61_000L
+        )
+        val next = ActivitySession(
+            id = 42L,
+            name = "next",
+            plannedStartAt = 50_000L,
+            actualStartAt = 50_000L,
+            endsAt = 110_000L
+        )
+        val persistence = FakeLegacyPersistence(
+            sampleSnapshot().copy(activitySessions = listOf(current))
+        )
+        val repository = LegacyCoreDataRepository(persistence)
+        persistence.failWrites = true
+
+        val rejected = CoreDataRepositoryOperations.finishAndStartNextActivitySession(
+            repository, current.id, next, endedAt = 50_000L, expectedEndsAt = current.endsAt
+        )
+        assertEquals(CoreDataWriteStatus.WRITE_FAILED, rejected.status)
+        assertEquals(listOf(current), persistence.snapshot.activitySessions)
+
+        persistence.failWrites = false
+        val applied = CoreDataRepositoryOperations.finishAndStartNextActivitySession(
+            repository, current.id, next, endedAt = 50_000L, expectedEndsAt = current.endsAt
+        )
+        assertTrue(applied.applied)
+        assertEquals(1, persistence.commits)
+        assertEquals(ActivitySession.STATUS_COMPLETED, persistence.snapshot.activitySessions[0].status)
+        assertEquals(next, persistence.snapshot.activitySessions[1])
+    }
+
+    @Test
     fun `runtime call sites do not bypass the core repository`() {
         val forbidden = Regex(
             "\\b(?:store|settingsStore|startupStore)\\.(?:loadItems|loadTaskEvents|loadGoals|" +
                 "saveItemsIfUnchanged|saveItemsAndTaskEvents|saveItemsTaskEventsAndGoals|" +
                 "saveGoalsIfUnchanged|replaceTaskEvents|saveGoalConversion|recoverMissedGoalTasks|" +
-                "addReplanItem|findItem|mutateScheduledTask|migrateTaskHistory)\\b"
+                "addReplanItem|findItem|mutateScheduledTask|migrateTaskHistory|" +
+                "saveSession|updateSession|finishSession|extendSession|markSessionAwaitingConfirmation|" +
+                "loadLatestActiveSession|findActivitySession|loadRecentActivitySessions|loadSessions)\\b"
         )
         val files = listOf(
             "MainActivity.kt",
@@ -270,6 +382,16 @@ private class FakeLegacyPersistence(
     override fun replaceTaskEvents(events: List<TaskEvent>): Boolean {
         if (failWrites) return false
         snapshot = snapshot.copy(taskEvents = events)
+        commits++
+        return true
+    }
+
+    override fun saveActivitySessionsIfUnchanged(
+        sessions: List<ActivitySession>,
+        expectedSessions: List<ActivitySession>
+    ): Boolean {
+        if (failWrites || snapshot.activitySessions != expectedSessions) return false
+        snapshot = snapshot.copy(activitySessions = sessions)
         commits++
         return true
     }

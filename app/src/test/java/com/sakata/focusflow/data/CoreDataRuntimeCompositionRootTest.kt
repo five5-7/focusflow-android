@@ -1,5 +1,6 @@
 package com.sakata.focusflow.data
 
+import com.sakata.focusflow.ActivitySession
 import com.sakata.focusflow.Goal
 import com.sakata.focusflow.Item
 import com.sakata.focusflow.TaskEvent
@@ -202,6 +203,11 @@ private class RecordingRepository(
 
     override fun appendTaskEvent(event: TaskEvent): CoreDataWriteResult = applied()
     override fun replaceTaskEvents(events: List<TaskEvent>): CoreDataWriteResult = applied()
+
+    override fun replaceActivitySessions(
+        sessions: List<ActivitySession>,
+        expectedSessions: List<ActivitySession>
+    ): CoreDataWriteResult = applied()
 
     override fun mutateScheduledTask(
         id: Long,

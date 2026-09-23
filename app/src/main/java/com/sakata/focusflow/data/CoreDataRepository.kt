@@ -1,5 +1,6 @@
 package com.sakata.focusflow.data
 
+import com.sakata.focusflow.ActivitySession
 import com.sakata.focusflow.Goal
 import com.sakata.focusflow.Item
 import com.sakata.focusflow.PrototypeStore
@@ -36,6 +37,11 @@ interface CoreDataRepository : CoreDataReadRepository {
     fun appendTaskEvent(event: TaskEvent): CoreDataWriteResult
     fun replaceTaskEvents(events: List<TaskEvent>): CoreDataWriteResult
 
+    fun replaceActivitySessions(
+        sessions: List<ActivitySession>,
+        expectedSessions: List<ActivitySession>
+    ): CoreDataWriteResult
+
     fun mutateScheduledTask(
         id: Long,
         expectedScheduledAt: Long,
@@ -62,6 +68,10 @@ internal interface LegacyCoreDataPersistence {
     fun saveGoalsIfUnchanged(goals: List<Goal>, expectedGoals: List<Goal>): Boolean
     fun appendTaskEvent(event: TaskEvent)
     fun replaceTaskEvents(events: List<TaskEvent>): Boolean
+    fun saveActivitySessionsIfUnchanged(
+        sessions: List<ActivitySession>,
+        expectedSessions: List<ActivitySession>
+    ): Boolean
     fun mutateScheduledTask(
         id: Long,
         expectedScheduledAt: Long,
@@ -107,6 +117,11 @@ private class PrototypeStoreCoreDataPersistence(
     override fun appendTaskEvent(event: TaskEvent) = store.appendTaskEvent(event)
 
     override fun replaceTaskEvents(events: List<TaskEvent>): Boolean = store.replaceTaskEvents(events)
+
+    override fun saveActivitySessionsIfUnchanged(
+        sessions: List<ActivitySession>,
+        expectedSessions: List<ActivitySession>
+    ): Boolean = store.saveActivitySessionsIfUnchanged(sessions, expectedSessions)
 
     override fun mutateScheduledTask(
         id: Long,
@@ -191,6 +206,19 @@ class LegacyCoreDataRepository internal constructor(
         if (persistence.replaceTaskEvents(events)) applied()
         else CoreDataWriteResult(CoreDataWriteStatus.WRITE_FAILED, "legacy write failed")
 
+    override fun replaceActivitySessions(
+        sessions: List<ActivitySession>,
+        expectedSessions: List<ActivitySession>
+    ): CoreDataWriteResult {
+        val beforeById = expectedSessions.associateBy(ActivitySession::id)
+        val changed = sessions.firstOrNull { beforeById[it.id] != it }
+        return resultAfterWrite(
+            applied = persistence.saveActivitySessionsIfUnchanged(sessions, expectedSessions),
+            expectedActivitySessions = expectedSessions,
+            activityMutation = changed?.let { CoreDataActivityMutation(beforeById[it.id], it) }
+        )
+    }
+
     override fun mutateScheduledTask(
         id: Long,
         expectedScheduledAt: Long,
@@ -223,9 +251,11 @@ class LegacyCoreDataRepository internal constructor(
     private fun resultAfterWrite(
         applied: Boolean,
         expectedTasks: List<Item>? = null,
-        expectedPlans: List<Goal>? = null
+        expectedPlans: List<Goal>? = null,
+        expectedActivitySessions: List<ActivitySession>? = null,
+        activityMutation: CoreDataActivityMutation? = null
     ): CoreDataWriteResult {
-        if (applied) return applied()
+        if (applied) return applied(activityMutation = activityMutation)
         val current = persistence.read()
         return when {
             expectedTasks != null && current.items != expectedTasks -> CoreDataWriteResult(
@@ -236,12 +266,23 @@ class LegacyCoreDataRepository internal constructor(
                 CoreDataWriteStatus.STALE_PLANS,
                 "plan snapshot changed"
             )
+            expectedActivitySessions != null && current.activitySessions != expectedActivitySessions ->
+                CoreDataWriteResult(
+                    CoreDataWriteStatus.STALE_ACTIVITY_SESSIONS,
+                    "activity session snapshot changed"
+                )
             else -> CoreDataWriteResult(CoreDataWriteStatus.WRITE_FAILED, "legacy write failed")
         }
     }
 
-    private fun applied(mutation: CoreDataTaskMutation? = null) =
-        CoreDataWriteResult(CoreDataWriteStatus.APPLIED, taskMutation = mutation)
+    private fun applied(
+        mutation: CoreDataTaskMutation? = null,
+        activityMutation: CoreDataActivityMutation? = null
+    ) = CoreDataWriteResult(
+        CoreDataWriteStatus.APPLIED,
+        taskMutation = mutation,
+        activityMutation = activityMutation
+    )
 
     private fun failed(error: Exception) = CoreDataWriteResult(
         CoreDataWriteStatus.WRITE_FAILED,
@@ -286,6 +327,11 @@ class RoomCoreDataRepository(
     override fun appendTaskEvent(event: TaskEvent): CoreDataWriteResult = writer.appendTaskEvent(event)
     override fun replaceTaskEvents(events: List<TaskEvent>): CoreDataWriteResult = writer.replaceTaskEvents(events)
 
+    override fun replaceActivitySessions(
+        sessions: List<ActivitySession>,
+        expectedSessions: List<ActivitySession>
+    ): CoreDataWriteResult = writer.replaceActivitySessions(sessions, expectedSessions)
+
     override fun mutateScheduledTask(
         id: Long,
         expectedScheduledAt: Long,
@@ -307,6 +353,98 @@ class RoomCoreDataRepository(
 
 /** Cross-source operations that must behave identically before and after eventual activation. */
 object CoreDataRepositoryOperations {
+    fun latestActiveSession(repository: CoreDataRepository): ActivitySession? =
+        snapshot(repository)?.activitySessions?.lastOrNull(ActivitySession::isOpen)
+
+    fun findActivitySession(repository: CoreDataRepository, id: Long): ActivitySession? =
+        snapshot(repository)?.activitySessions?.firstOrNull { it.id == id }
+
+    fun recentActivitySessions(
+        repository: CoreDataRepository,
+        limit: Int = 20
+    ): List<ActivitySession> = snapshot(repository)?.activitySessions
+        ?.takeLast(limit.coerceAtLeast(1))
+        ?.reversed()
+        .orEmpty()
+
+    fun saveActivitySession(
+        repository: CoreDataRepository,
+        session: ActivitySession
+    ): CoreDataWriteResult {
+        val read = repository.read()
+        val current = (read as? CoreDataReadResult.Ready)?.snapshot ?: return invalidRead(read)
+        val updated = current.activitySessions.filterNot { it.id == session.id } + session
+        return repository.replaceActivitySessions(updated, current.activitySessions)
+    }
+
+    fun finishAndStartNextActivitySession(
+        repository: CoreDataRepository,
+        id: Long,
+        nextSession: ActivitySession,
+        endedAt: Long = System.currentTimeMillis(),
+        expectedEndsAt: Long? = null
+    ): CoreDataWriteResult {
+        val read = repository.read()
+        val current = (read as? CoreDataReadResult.Ready)?.snapshot ?: return invalidRead(read)
+        val before = current.activitySessions.firstOrNull { it.id == id }
+            ?: return CoreDataWriteResult(CoreDataWriteStatus.CONDITION_NOT_MET, "activity session is missing")
+        if (!before.isOpen() || (expectedEndsAt != null && expectedEndsAt > 0L &&
+                before.endsAt != expectedEndsAt)) {
+            return CoreDataWriteResult(CoreDataWriteStatus.CONDITION_NOT_MET, "activity session changed")
+        }
+        if (nextSession.id == id || current.activitySessions.any { it.id == nextSession.id }) {
+            return CoreDataWriteResult(CoreDataWriteStatus.INVALID_INPUT, "next activity ID already exists")
+        }
+        val finished = before.copy(
+            status = ActivitySession.STATUS_COMPLETED,
+            actualEndAt = endedAt,
+            endChoice = "started_next"
+        )
+        val updated = current.activitySessions.filterNot { it.id == id } + finished + nextSession
+        return repository.replaceActivitySessions(updated, current.activitySessions)
+    }
+
+    fun finishActivitySession(
+        repository: CoreDataRepository,
+        id: Long,
+        status: String,
+        choice: String,
+        endedAt: Long = System.currentTimeMillis(),
+        expectedEndsAt: Long? = null
+    ): CoreDataWriteResult = mutateActivitySession(repository, id, expectedEndsAt) { current ->
+        if (!current.isOpen()) null
+        else current.copy(status = status, actualEndAt = endedAt, endChoice = choice)
+    }
+
+    fun extendActivitySession(
+        repository: CoreDataRepository,
+        id: Long,
+        minutes: Int,
+        maxExtensions: Int,
+        reason: String = "",
+        expectedEndsAt: Long? = null,
+        now: Long = System.currentTimeMillis()
+    ): CoreDataWriteResult = mutateActivitySession(repository, id, expectedEndsAt) { current ->
+        if (!current.isOpen() || current.extensionCount >= maxExtensions) null
+        else current.copy(
+            endsAt = now + minutes.coerceIn(1, 180) * 60_000L,
+            status = ActivitySession.STATUS_EXTENDED,
+            extensionCount = current.extensionCount + 1,
+            extensionReason = reason,
+            actualEndAt = null,
+            endChoice = ""
+        )
+    }
+
+    fun markActivitySessionAwaitingConfirmation(
+        repository: CoreDataRepository,
+        id: Long,
+        expectedEndsAt: Long? = null
+    ): CoreDataWriteResult = mutateActivitySession(repository, id, expectedEndsAt) { current ->
+        if (!current.isOpen()) null
+        else current.copy(status = ActivitySession.STATUS_AWAITING_CONFIRMATION)
+    }
+
     fun recoverMissedGoalTasks(
         repository: CoreDataRepository,
         now: Long = System.currentTimeMillis()
@@ -357,6 +495,38 @@ object CoreDataRepositoryOperations {
 
     fun findTask(repository: CoreDataRepository, id: Long): Item? =
         (repository.read() as? CoreDataReadResult.Ready)?.snapshot?.items?.firstOrNull { it.id == id }
+
+    private fun mutateActivitySession(
+        repository: CoreDataRepository,
+        id: Long,
+        expectedEndsAt: Long?,
+        transform: (ActivitySession) -> ActivitySession?
+    ): CoreDataWriteResult {
+        val read = repository.read()
+        val current = (read as? CoreDataReadResult.Ready)?.snapshot
+            ?: return invalidRead(read)
+        val before = current.activitySessions.firstOrNull { it.id == id }
+            ?: return CoreDataWriteResult(CoreDataWriteStatus.CONDITION_NOT_MET, "activity session is missing")
+        if (expectedEndsAt != null && expectedEndsAt > 0L && before.endsAt != expectedEndsAt) {
+            return CoreDataWriteResult(CoreDataWriteStatus.CONDITION_NOT_MET, "activity session end changed")
+        }
+        val after = transform(before)
+            ?: return CoreDataWriteResult(CoreDataWriteStatus.CONDITION_NOT_MET, "activity session is closed or capped")
+        if (after.id != before.id) {
+            return CoreDataWriteResult(CoreDataWriteStatus.INVALID_INPUT, "activity transform changed its ID")
+        }
+        val updated = current.activitySessions.filterNot { it.id == id } + after
+        return repository.replaceActivitySessions(updated, current.activitySessions)
+    }
+
+    private fun snapshot(repository: CoreDataRepository): CoreDataSnapshot? =
+        (repository.read() as? CoreDataReadResult.Ready)?.snapshot
+
+    private fun invalidRead(read: CoreDataReadResult): CoreDataWriteResult = when (read) {
+        is CoreDataReadResult.NotReady -> CoreDataWriteResult(CoreDataWriteStatus.NOT_READY, read.reason)
+        is CoreDataReadResult.Invalid -> CoreDataWriteResult(CoreDataWriteStatus.INVALID_STATE, read.reason)
+        is CoreDataReadResult.Ready -> CoreDataWriteResult(CoreDataWriteStatus.WRITE_FAILED, "snapshot unavailable")
+    }
 
     private fun CoreDataReadResult.toWriteResult(): CoreDataWriteResult = when (this) {
         is CoreDataReadResult.NotReady -> CoreDataWriteResult(CoreDataWriteStatus.NOT_READY, reason)

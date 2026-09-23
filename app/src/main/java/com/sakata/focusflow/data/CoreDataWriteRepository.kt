@@ -1,5 +1,6 @@
 package com.sakata.focusflow.data
 
+import com.sakata.focusflow.ActivitySession
 import com.sakata.focusflow.Goal
 import com.sakata.focusflow.GoalPlanner
 import com.sakata.focusflow.Item
@@ -15,16 +16,19 @@ enum class CoreDataWriteStatus {
     INVALID_INPUT,
     STALE_TASKS,
     STALE_PLANS,
+    STALE_ACTIVITY_SESSIONS,
     CONDITION_NOT_MET,
     WRITE_FAILED
 }
 
 data class CoreDataTaskMutation(val before: Item, val after: Item)
+data class CoreDataActivityMutation(val before: ActivitySession?, val after: ActivitySession)
 
 data class CoreDataWriteResult(
     val status: CoreDataWriteStatus,
     val message: String = "",
-    val taskMutation: CoreDataTaskMutation? = null
+    val taskMutation: CoreDataTaskMutation? = null,
+    val activityMutation: CoreDataActivityMutation? = null
 ) {
     val applied: Boolean get() = status == CoreDataWriteStatus.APPLIED
 }
@@ -38,7 +42,13 @@ interface RoomCoreDataWriteStore : RoomCoreDataSource {
     fun replaceTasks(tasks: List<TaskEntity>)
     fun replaceTaskEvents(events: List<TaskEventEntity>)
     fun replacePlans(plans: List<PlanEntity>)
-    fun updateMigrationCounts(taskCount: Int, taskEventCount: Int, planCount: Int)
+    fun replaceActivitySessions(sessions: List<ActivitySessionEntity>)
+    fun updateMigrationCounts(
+        taskCount: Int,
+        taskEventCount: Int,
+        planCount: Int,
+        activitySessionCount: Int
+    )
 }
 
 class DatabaseRoomCoreDataWriteStore(private val database: FocusFlowDatabase) : RoomCoreDataWriteStore {
@@ -69,12 +79,23 @@ class DatabaseRoomCoreDataWriteStore(private val database: FocusFlowDatabase) : 
         if (plans.isNotEmpty()) database.planDao().insertAll(plans)
     }
 
-    override fun updateMigrationCounts(taskCount: Int, taskEventCount: Int, planCount: Int) {
+    override fun replaceActivitySessions(sessions: List<ActivitySessionEntity>) {
+        database.activitySessionDao().deleteAll()
+        if (sessions.isNotEmpty()) database.activitySessionDao().insertAll(sessions)
+    }
+
+    override fun updateMigrationCounts(
+        taskCount: Int,
+        taskEventCount: Int,
+        planCount: Int,
+        activitySessionCount: Int
+    ) {
         val updated = database.migrationStateDao().updateCounts(
             LegacyDataImporter.MIGRATION_KEY,
             taskCount,
             taskEventCount,
-            planCount
+            planCount,
+            activitySessionCount
         )
         check(updated == 1) { "migration state disappeared during transaction" }
     }
@@ -165,6 +186,22 @@ class RoomCoreDataWriteRepository(
         applied()
     }
 
+    fun replaceActivitySessions(
+        sessions: List<ActivitySession>,
+        expectedSessions: List<ActivitySession>
+    ): CoreDataWriteResult = transact { current ->
+        if (current.activitySessions != expectedSessions) return@transact staleActivitySessions()
+        validate(current.items, current.taskEvents, current.goals, sessions)?.let {
+            return@transact invalidInput(it)
+        }
+        store.replaceActivitySessions(sessions.toActivitySessionEntities())
+        val beforeById = expectedSessions.associateBy(ActivitySession::id)
+        val changed = sessions.firstOrNull { beforeById[it.id] != it }
+        applied(
+            activityMutation = changed?.let { CoreDataActivityMutation(beforeById[it.id], it) }
+        )
+    }
+
     fun mutateScheduledTask(
         id: Long,
         expectedScheduledAt: Long,
@@ -210,7 +247,8 @@ class RoomCoreDataWriteRepository(
                         store.updateMigrationCounts(
                             taskCount = store.tasks().size,
                             taskEventCount = store.taskEvents().size,
-                            planCount = store.plans().size
+                            planCount = store.plans().size,
+                            activitySessionCount = store.activitySessions().size
                         )
                     }
                     result
@@ -224,12 +262,28 @@ class RoomCoreDataWriteRepository(
         )
     }
 
-    private fun validate(tasks: List<Item>, events: List<TaskEvent>, plans: List<Goal>): String? {
+    private fun validate(
+        tasks: List<Item>,
+        events: List<TaskEvent>,
+        plans: List<Goal>,
+        sessions: List<ActivitySession> = emptyList()
+    ): String? {
         positiveUniqueIds(tasks.map { it.id }, "tasks")?.let { return it }
         positiveUniqueIds(events.map { it.id }, "task_events")?.let { return it }
         positiveUniqueIds(plans.map { it.id }, "plans")?.let { return it }
+        positiveUniqueIds(sessions.map { it.id }, "activity_sessions")?.let { return it }
         if (events.any { it.itemId <= 0L }) return "task_events contains an invalid task ID"
         if (events.any { it.recordedAt <= 0L }) return "task_events contains an invalid timestamp"
+        if (sessions.any { it.name.isBlank() }) return "activity_sessions contains a blank name"
+        if (sessions.any { it.actualStartAt <= 0L || it.endsAt <= 0L }) {
+            return "activity_sessions contains an invalid timestamp"
+        }
+        if (sessions.any { it.extensionCount < 0 }) {
+            return "activity_sessions contains a negative extension count"
+        }
+        if (sessions.any { it.status !in SUPPORTED_ACTIVITY_STATUSES }) {
+            return "activity_sessions contains an unknown status"
+        }
         return null
     }
 
@@ -265,8 +319,17 @@ class RoomCoreDataWriteRepository(
     private fun List<Goal>.toPlanEntities(): List<PlanEntity> =
         mapIndexed { index, goal -> PlanEntity.fromLegacy(goal, index) }
 
-    private fun applied(mutation: CoreDataTaskMutation? = null) =
-        CoreDataWriteResult(CoreDataWriteStatus.APPLIED, taskMutation = mutation)
+    private fun List<ActivitySession>.toActivitySessionEntities(): List<ActivitySessionEntity> =
+        mapIndexed { index, session -> ActivitySessionEntity.fromLegacy(session, index) }
+
+    private fun applied(
+        mutation: CoreDataTaskMutation? = null,
+        activityMutation: CoreDataActivityMutation? = null
+    ) = CoreDataWriteResult(
+        CoreDataWriteStatus.APPLIED,
+        taskMutation = mutation,
+        activityMutation = activityMutation
+    )
 
     private fun staleTasks() = CoreDataWriteResult(
         CoreDataWriteStatus.STALE_TASKS,
@@ -278,9 +341,24 @@ class RoomCoreDataWriteRepository(
         "plan snapshot changed"
     )
 
+    private fun staleActivitySessions() = CoreDataWriteResult(
+        CoreDataWriteStatus.STALE_ACTIVITY_SESSIONS,
+        "activity session snapshot changed"
+    )
+
     private fun invalidInput(message: String) =
         CoreDataWriteResult(CoreDataWriteStatus.INVALID_INPUT, message)
 
     private fun conditionNotMet(message: String) =
         CoreDataWriteResult(CoreDataWriteStatus.CONDITION_NOT_MET, message)
+
+    private companion object {
+        val SUPPORTED_ACTIVITY_STATUSES = setOf(
+            ActivitySession.STATUS_ACTIVE,
+            ActivitySession.STATUS_EXTENDED,
+            ActivitySession.STATUS_AWAITING_CONFIRMATION,
+            ActivitySession.STATUS_COMPLETED,
+            ActivitySession.STATUS_SKIPPED
+        )
+    }
 }

@@ -5,7 +5,9 @@ import android.content.Context
 import android.content.SharedPreferences
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
+import com.sakata.focusflow.ActivitySession
 import com.sakata.focusflow.Item
+import com.sakata.focusflow.PrototypeStore
 import com.sakata.focusflow.TaskEvent
 import com.sakata.focusflow.TaskEventType
 import org.junit.After
@@ -134,6 +136,62 @@ class CoreDataActivationEndToEndTest {
         assertEquals("完整完成", completed.completionLevel)
         assertNotNull(room.snapshot.taskEvents.singleOrNull { it.id == 9_001L })
         assertEquals(1, room.snapshot.goals.single { it.id == 201L }.completedThisWeek)
+    }
+
+    @Test
+    fun `legacy session persistence retains more than fifty entries`() {
+        val repository = LegacyCoreDataRepository(PrototypeStore(context))
+
+        (1L..60L).forEach { id ->
+            val session = ActivitySession(
+                id = id,
+                name = "session-$id",
+                plannedStartAt = id,
+                actualStartAt = id,
+                endsAt = id + 60_000L
+            )
+            assertTrue(CoreDataRepositoryOperations.saveActivitySession(repository, session).applied)
+        }
+
+        val reloaded = LegacyCoreDataRepository(PrototypeStore(context))
+        val sessions = (reloaded.read() as CoreDataReadResult.Ready).snapshot.activitySessions
+        assertEquals(60, sessions.size)
+        assertEquals((1L..60L).toList(), sessions.map(ActivitySession::id))
+        assertEquals(60, CoreDataRepositoryOperations.recentActivitySessions(reloaded, 60).size)
+    }
+
+    @Test
+    fun `activated Room session write updates only Room and its count`() {
+        installFixture("8.3-rc.12")
+        val legacyBefore = corePayload()
+        val database = newDatabase()
+        val ready = runtime(
+            database = database,
+            activationStore = SharedPreferencesCoreDataActivationStore(context),
+            migrationMarker = SharedPreferencesMigrationMarker(context),
+            activationEnabled = true,
+            now = sequenceOf(100L, 200L)
+        ).resolve() as CoreDataRuntimeResolution.Ready
+        val initialCount = database.activitySessionDao().all().size
+        val newSession = ActivitySession(
+            id = 9_001L,
+            name = "next activity",
+            plannedStartAt = 1_000L,
+            actualStartAt = 1_000L,
+            endsAt = 61_000L
+        )
+
+        val result = CoreDataRepositoryOperations.saveActivitySession(ready.repository, newSession)
+
+        assertTrue(result.applied)
+        assertEquals(legacyBefore, corePayload())
+        assertEquals(initialCount + 1, database.activitySessionDao().all().size)
+        assertEquals(
+            initialCount + 1,
+            requireNotNull(database.migrationStateDao().find(LegacyDataImporter.MIGRATION_KEY))
+                .activitySessionCount
+        )
+        assertEquals(newSession, CoreDataRepositoryOperations.findActivitySession(ready.repository, newSession.id))
     }
 
     @Test

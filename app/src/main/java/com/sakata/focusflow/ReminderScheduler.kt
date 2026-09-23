@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import com.sakata.focusflow.data.CoreDataReadResult
+import com.sakata.focusflow.data.CoreDataRepositoryOperations
 import com.sakata.focusflow.data.CoreDataRuntimeAccess
 import com.sakata.focusflow.data.CoreDataRuntimeResolution
 import java.util.Calendar
@@ -34,17 +35,25 @@ object ReminderScheduler {
 
     fun restoreActivityReminders(context: Context) {
         val store = PrototypeStore(context)
-        store.loadLatestActiveSession()?.let { session ->
+        val runtime = CoreDataRuntimeAccess.resolve(context)
+        val repository = (runtime as? CoreDataRuntimeResolution.Ready)?.repository ?: return
+        CoreDataRepositoryOperations.latestActiveSession(repository)?.let { session ->
             if (session.endsAt <= System.currentTimeMillis()) {
                 if (session.status != ActivitySession.STATUS_AWAITING_CONFIRMATION) {
-                    store.markSessionAwaitingConfirmation(session.id)
-                    context.sendBroadcast(Intent(context, ReminderReceiver::class.java).apply {
-                        action = ReminderReceiver.ACTION_ACTIVITY_END
-                        putExtra(ReminderReceiver.EXTRA_ACTIVITY_NAME, session.name)
-                        putExtra(ReminderReceiver.EXTRA_SESSION_ID, session.id)
-                        putExtra(ReminderReceiver.EXTRA_NEXT_STEP, session.nextStep)
-                        putExtra(ReminderReceiver.EXTRA_ACTIVITY_ENDS_AT, session.endsAt)
-                    })
+                    val marked = CoreDataRepositoryOperations.markActivitySessionAwaitingConfirmation(
+                        repository,
+                        session.id,
+                        session.endsAt
+                    )
+                    if (marked.applied) {
+                        context.sendBroadcast(Intent(context, ReminderReceiver::class.java).apply {
+                            action = ReminderReceiver.ACTION_ACTIVITY_END
+                            putExtra(ReminderReceiver.EXTRA_ACTIVITY_NAME, session.name)
+                            putExtra(ReminderReceiver.EXTRA_SESSION_ID, session.id)
+                            putExtra(ReminderReceiver.EXTRA_NEXT_STEP, session.nextStep)
+                            putExtra(ReminderReceiver.EXTRA_ACTIVITY_ENDS_AT, session.endsAt)
+                        })
+                    }
                 }
             } else scheduleActivityReminders(context, session, store.loadActivityReminderSettings())
         }

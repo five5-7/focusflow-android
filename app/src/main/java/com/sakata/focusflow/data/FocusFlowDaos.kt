@@ -93,6 +93,9 @@ interface ActivitySessionDao {
 
     @Query("SELECT * FROM activity_sessions ORDER BY source_order, id")
     fun all(): List<ActivitySessionEntity>
+
+    @Query("DELETE FROM activity_sessions")
+    fun deleteAll()
 }
 
 @Dao
@@ -107,8 +110,15 @@ interface MigrationStateDao {
         """UPDATE migration_states
            SET task_count = :taskCount,
                task_event_count = :taskEventCount,
-               plan_count = :planCount
+               plan_count = :planCount,
+               activity_session_count = :activitySessionCount
            WHERE migration_key = :key"""
     )
-    fun updateCounts(key: String, taskCount: Int, taskEventCount: Int, planCount: Int): Int
+    fun updateCounts(
+        key: String,
+        taskCount: Int,
+        taskEventCount: Int,
+        planCount: Int,
+        activitySessionCount: Int
+    ): Int
 }

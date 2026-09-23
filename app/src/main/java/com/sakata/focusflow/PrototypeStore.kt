@@ -22,6 +22,7 @@ internal data class ThemePreset(
 )
 
 private val taskHistoryLock = Any()
+private val activitySessionLock = Any()
 
 internal data class StoredTaskMutation(val before: Item, val after: Item)
 
@@ -390,10 +391,17 @@ class PrototypeStore(context: Context) {
         if (editor.commit()) StoredTaskMutation(before, after) else null
     }
 
-    fun saveSession(session: ActivitySession) {
-        val sessions = loadSessions().filterNot { it.id == session.id } + session
+    internal fun saveActivitySessionsIfUnchanged(
+        sessions: List<ActivitySession>,
+        expectedSessions: List<ActivitySession>
+    ): Boolean = synchronized(activitySessionLock) {
+        if (loadSessions() != expectedSessions) return@synchronized false
+        saveActivitySessions(sessions)
+    }
+
+    private fun saveActivitySessions(sessions: List<ActivitySession>): Boolean {
         val values = JSONArray()
-        sessions.takeLast(50).forEach { value -> values.put(JSONObject().apply {
+        sessions.forEach { value -> values.put(JSONObject().apply {
             put("id", value.id)
             put("name", value.name)
             put("category", value.category)
@@ -407,48 +415,8 @@ class PrototypeStore(context: Context) {
             put("actualEndAt", value.actualEndAt ?: 0)
             put("endChoice", value.endChoice)
         }) }
-        preferences.edit().putString("sessions", values.toString()).apply()
+        return preferences.edit().putString("sessions", values.toString()).commit()
     }
-
-    fun updateSession(id: Long, status: String, endsAt: Long? = null) {
-        val current = loadSessions().firstOrNull { it.id == id } ?: return
-        saveSession(current.copy(status = status, endsAt = endsAt ?: current.endsAt))
-    }
-
-    fun finishSession(id: Long, status: String, choice: String, endedAt: Long = System.currentTimeMillis()) {
-        val current = loadSessions().firstOrNull { it.id == id } ?: return
-        saveSession(current.copy(status = status, actualEndAt = endedAt, endChoice = choice))
-    }
-
-    fun extendSession(id: Long, minutes: Int, reason: String = ""): ActivitySession? {
-        val current = loadSessions().firstOrNull { it.id == id } ?: return null
-        if (!current.isOpen()) return null
-        if (current.extensionCount >= loadActivityReminderSettings().maxExtensions) return null
-        val extended = current.copy(
-            endsAt = System.currentTimeMillis() + minutes.coerceIn(1, 180) * 60_000L,
-            status = ActivitySession.STATUS_EXTENDED,
-            extensionCount = current.extensionCount + 1,
-            extensionReason = reason,
-            actualEndAt = null,
-            endChoice = ""
-        )
-        saveSession(extended)
-        return extended
-    }
-
-    fun markSessionAwaitingConfirmation(id: Long): ActivitySession? {
-        val current = loadSessions().firstOrNull { it.id == id } ?: return null
-        if (!current.isOpen()) return current
-        val pending = current.copy(status = ActivitySession.STATUS_AWAITING_CONFIRMATION)
-        saveSession(pending)
-        return pending
-    }
-
-    fun loadLatestActiveSession(): ActivitySession? = loadSessions().lastOrNull(ActivitySession::isOpen)
-
-    fun findActivitySession(id: Long): ActivitySession? = loadSessions().firstOrNull { it.id == id }
-
-    fun loadRecentActivitySessions(limit: Int = 20): List<ActivitySession> = loadSessions().takeLast(limit.coerceIn(1, 50)).reversed()
 
     fun loadActivityReminderSettings(): ActivityReminderSettings = ActivityReminderSettings(
         notificationsEnabled = preferences.getBoolean("activity_notifications", true),

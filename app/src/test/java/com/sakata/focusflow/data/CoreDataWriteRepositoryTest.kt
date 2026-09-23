@@ -1,5 +1,6 @@
 package com.sakata.focusflow.data
 
+import com.sakata.focusflow.ActivitySession
 import com.sakata.focusflow.Goal
 import com.sakata.focusflow.Item
 import com.sakata.focusflow.TaskEvent
@@ -225,6 +226,82 @@ class CoreDataWriteRepositoryTest {
         assertEquals(0, store.committedTransactions)
     }
 
+    @Test
+    fun `activity session replacement is atomic keeps full history and updates its count`() {
+        val history = (1L..60L).map { id ->
+            ActivitySession(
+                id = id,
+                name = "session-$id",
+                plannedStartAt = id,
+                actualStartAt = id,
+                endsAt = id + 60_000L,
+                status = ActivitySession.STATUS_COMPLETED,
+                actualEndAt = id + 60_000L
+            )
+        }
+        val store = storeFor(sampleSnapshot())
+
+        val result = RoomCoreDataWriteRepository(store).replaceActivitySessions(history, emptyList())
+
+        assertEquals(CoreDataWriteStatus.APPLIED, result.status)
+        assertEquals(60, readySnapshot(store).activitySessions.size)
+        assertEquals((0 until 60).toList(), store.sessionRows.map { it.sourceOrder })
+        assertEquals(60, requireNotNull(store.state).activitySessionCount)
+        assertEquals(1, store.committedTransactions)
+    }
+
+    @Test
+    fun `stale activity session snapshot cannot overwrite a concurrent notification write`() {
+        val session = ActivitySession(
+            id = 11L,
+            name = "focus",
+            plannedStartAt = 10L,
+            actualStartAt = 10L,
+            endsAt = 70_000L
+        )
+        val store = storeFor(sampleSnapshot().copy(activitySessions = listOf(session)))
+        val repository = RoomCoreDataWriteRepository(store)
+        val stale = readySnapshot(store).activitySessions
+
+        val first = repository.replaceActivitySessions(
+            listOf(session.copy(status = ActivitySession.STATUS_COMPLETED, actualEndAt = 50L)),
+            stale
+        )
+        val second = repository.replaceActivitySessions(
+            listOf(session.copy(status = ActivitySession.STATUS_SKIPPED, actualEndAt = 60L)),
+            stale
+        )
+
+        assertTrue(first.applied)
+        assertEquals(CoreDataWriteStatus.STALE_ACTIVITY_SESSIONS, second.status)
+        assertEquals(ActivitySession.STATUS_COMPLETED, readySnapshot(store).activitySessions.single().status)
+        assertEquals(1, store.committedTransactions)
+    }
+
+    @Test
+    fun `activity session and migration count roll back together on failure`() {
+        val store = storeFor(sampleSnapshot()).apply { failOnCounts = true }
+        val session = ActivitySession(
+            id = 7L,
+            name = "focus",
+            plannedStartAt = 1_000L,
+            actualStartAt = 1_000L,
+            endsAt = 61_000L
+        )
+        val before = readySnapshot(store)
+        val stateBefore = store.state
+
+        val result = RoomCoreDataWriteRepository(store).replaceActivitySessions(
+            listOf(session),
+            before.activitySessions
+        )
+
+        assertEquals(CoreDataWriteStatus.WRITE_FAILED, result.status)
+        assertEquals(before, readySnapshot(store))
+        assertEquals(stateBefore, store.state)
+        assertEquals(0, store.committedTransactions)
+    }
+
     private fun sampleSnapshot(): CoreDataSnapshot = CoreDataSnapshot(
         items = listOf(
             Item(90L, "capture", "", "收集箱"),
@@ -251,6 +328,9 @@ class CoreDataWriteRepositoryTest {
         val tasks = snapshot.items.mapIndexed { index, item -> TaskEntity.fromLegacy(item, index) }
         val events = snapshot.taskEvents.mapIndexed { index, event -> TaskEventEntity.fromLegacy(event, index) }
         val plans = snapshot.goals.mapIndexed { index, goal -> PlanEntity.fromLegacy(goal, index) }
+        val sessions = snapshot.activitySessions.mapIndexed { index, session ->
+            ActivitySessionEntity.fromLegacy(session, index)
+        }
         return FakeTransactionalCoreDataStore(
             state = MigrationStateEntity(
                 LegacyDataImporter.MIGRATION_KEY,
@@ -259,11 +339,13 @@ class CoreDataWriteRepositoryTest {
                 tasks.size,
                 events.size,
                 plans.size,
-                1L
+                1L,
+                activitySessionCount = sessions.size
             ),
             taskRows = tasks,
             eventRows = events,
-            planRows = plans
+            planRows = plans,
+            sessionRows = sessions
         )
     }
 
@@ -275,6 +357,7 @@ class CoreDataWriteRepositoryTest {
         assertEquals(store.taskRows.size, state.taskCount)
         assertEquals(store.eventRows.size, state.taskEventCount)
         assertEquals(store.planRows.size, state.planCount)
+        assertEquals(store.sessionRows.size, state.activitySessionCount)
     }
 }
 
@@ -282,7 +365,8 @@ internal class FakeTransactionalCoreDataStore(
     var state: MigrationStateEntity?,
     var taskRows: List<TaskEntity>,
     var eventRows: List<TaskEventEntity>,
-    var planRows: List<PlanEntity>
+    var planRows: List<PlanEntity>,
+    var sessionRows: List<ActivitySessionEntity> = emptyList()
 ) : RoomCoreDataWriteStore {
     var failOnEvents = false
     var failOnCounts = false
@@ -293,6 +377,7 @@ internal class FakeTransactionalCoreDataStore(
         val originalTasks = taskRows
         val originalEvents = eventRows
         val originalPlans = planRows
+        val originalSessions = sessionRows
         return try {
             block().also { result ->
                 if (result is CoreDataWriteResult && result.applied) committedTransactions++
@@ -302,6 +387,7 @@ internal class FakeTransactionalCoreDataStore(
             taskRows = originalTasks
             eventRows = originalEvents
             planRows = originalPlans
+            sessionRows = originalSessions
             throw error
         }
     }
@@ -310,6 +396,7 @@ internal class FakeTransactionalCoreDataStore(
     override fun tasks(): List<TaskEntity> = taskRows
     override fun taskEvents(): List<TaskEventEntity> = eventRows
     override fun plans(): List<PlanEntity> = planRows
+    override fun activitySessions(): List<ActivitySessionEntity> = sessionRows
 
     override fun replaceTasks(tasks: List<TaskEntity>) {
         taskRows = tasks
@@ -324,13 +411,23 @@ internal class FakeTransactionalCoreDataStore(
         planRows = plans
     }
 
-    override fun updateMigrationCounts(taskCount: Int, taskEventCount: Int, planCount: Int) {
+    override fun replaceActivitySessions(sessions: List<ActivitySessionEntity>) {
+        sessionRows = sessions
+    }
+
+    override fun updateMigrationCounts(
+        taskCount: Int,
+        taskEventCount: Int,
+        planCount: Int,
+        activitySessionCount: Int
+    ) {
         if (failOnCounts) error("injected count update failure")
         val current = requireNotNull(state) { "migration state missing" }
         state = current.copy(
             taskCount = taskCount,
             taskEventCount = taskEventCount,
-            planCount = planCount
+            planCount = planCount,
+            activitySessionCount = activitySessionCount
         )
     }
 }

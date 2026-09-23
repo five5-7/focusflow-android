@@ -52,7 +52,9 @@ class ReminderReceiver : BroadcastReceiver() {
                 ReminderScheduler.scheduleDailyStatusCheckIn(context, settings)
                 val now = System.currentTimeMillis()
                 val quiet = store.loadQuietHoursSettings()
-                val active = store.loadLatestActiveSession()
+                val active = CoreDataRepositoryOperations.latestActiveSession(
+                    requireNotNull(coreDataRepository)
+                )
                 val todayRecords = store.loadStatusCheckIns(365).filter { MealLearning.sameDay(it.recordedAt, now) }
                 val recentRecords = store.loadStatusCheckIns(365).filter { it.recordedAt >= now - 30L * 24 * 60 * 60_000L }
                 val outcome = StatusPromptPolicy.decide(
@@ -87,23 +89,38 @@ class ReminderReceiver : BroadcastReceiver() {
             ACTION_COMPLETE -> {
                 if (notificationId >= 0) manager.cancel(notificationId)
                 if (sessionId >= 0) {
-                    val current = store.findActivitySession(sessionId)
+                    val repository = requireNotNull(coreDataRepository)
+                    val current = CoreDataRepositoryOperations.findActivitySession(repository, sessionId)
                     if (!ActivityReminderFreshness.matches(current, intent.getLongExtra(EXTRA_ACTIVITY_ENDS_AT, -1L))) return
-                    store.finishSession(sessionId, ActivitySession.STATUS_COMPLETED, "notification_finish")
-                    ReminderScheduler.cancelActivityReminders(context, sessionId)
+                    val result = CoreDataRepositoryOperations.finishActivitySession(
+                        repository,
+                        sessionId,
+                        ActivitySession.STATUS_COMPLETED,
+                        "notification_finish",
+                        expectedEndsAt = intent.getLongExtra(EXTRA_ACTIVITY_ENDS_AT, -1L)
+                    )
+                    if (result.applied) ReminderScheduler.cancelActivityReminders(context, sessionId)
                 }
                 return
             }
             ACTION_SKIP -> {
                 if (notificationId >= 0) manager.cancel(notificationId)
                 if (sessionId >= 0) {
-                    val current = store.findActivitySession(sessionId)
+                    val repository = requireNotNull(coreDataRepository)
+                    val current = CoreDataRepositoryOperations.findActivitySession(repository, sessionId)
                     if (!ActivityReminderFreshness.matches(current, intent.getLongExtra(EXTRA_ACTIVITY_ENDS_AT, -1L))) return
                     val active = requireNotNull(current)
-                    store.finishSession(sessionId, ActivitySession.STATUS_SKIPPED, "replan")
+                    val result = CoreDataRepositoryOperations.finishActivitySession(
+                        repository,
+                        sessionId,
+                        ActivitySession.STATUS_SKIPPED,
+                        "replan",
+                        expectedEndsAt = intent.getLongExtra(EXTRA_ACTIVITY_ENDS_AT, -1L)
+                    )
+                    if (!result.applied) return
                     ReminderScheduler.cancelActivityReminders(context, sessionId)
                     CoreDataRepositoryOperations.addReplanItem(
-                        requireNotNull(coreDataRepository),
+                        repository,
                         active.nextStep.ifBlank { active.name }
                     )
                 }
@@ -111,21 +128,40 @@ class ReminderReceiver : BroadcastReceiver() {
             }
             ACTION_SNOOZE -> {
                 if (notificationId >= 0) manager.cancel(notificationId)
-                if (!ActivityReminderFreshness.matches(store.findActivitySession(sessionId), intent.getLongExtra(EXTRA_ACTIVITY_ENDS_AT, -1L))) return
-                val delayed = sessionId.takeIf { it >= 0 }?.let { store.extendSession(it, 10, "通知中延长") }
+                val repository = requireNotNull(coreDataRepository)
+                val expectedEndsAt = intent.getLongExtra(EXTRA_ACTIVITY_ENDS_AT, -1L)
+                if (!ActivityReminderFreshness.matches(CoreDataRepositoryOperations.findActivitySession(repository, sessionId), expectedEndsAt)) return
+                val delayed = sessionId.takeIf { it >= 0 }?.let {
+                    CoreDataRepositoryOperations.extendActivitySession(
+                        repository,
+                        it,
+                        10,
+                        store.loadActivityReminderSettings().maxExtensions,
+                        "通知中延长",
+                        expectedEndsAt
+                    ).activityMutation?.after
+                }
                 delayed?.let { ReminderScheduler.scheduleActivityReminders(context, it) }
                 return
             }
             ACTION_ACTIVITY_PREVIEW -> {
-                val current = store.findActivitySession(sessionId)
+                val current = CoreDataRepositoryOperations.findActivitySession(
+                    requireNotNull(coreDataRepository),
+                    sessionId
+                )
                 if (!ActivityReminderFreshness.matches(current, intent.getLongExtra(EXTRA_ACTIVITY_ENDS_AT, -1L))) return
                 showActivityPreview(context, manager, requireNotNull(current))
                 return
             }
             ACTION_ACTIVITY_END -> {
-                val current = store.findActivitySession(sessionId)
+                val repository = requireNotNull(coreDataRepository)
+                val current = CoreDataRepositoryOperations.findActivitySession(repository, sessionId)
                 if (!ActivityReminderFreshness.matches(current, intent.getLongExtra(EXTRA_ACTIVITY_ENDS_AT, -1L))) return
-                val pending = store.markSessionAwaitingConfirmation(sessionId) ?: return
+                val pending = CoreDataRepositoryOperations.markActivitySessionAwaitingConfirmation(
+                    repository,
+                    sessionId,
+                    intent.getLongExtra(EXTRA_ACTIVITY_ENDS_AT, -1L)
+                ).activityMutation?.after ?: return
                 activityName = pending.name
                 nextStep = pending.nextStep
             }
@@ -194,7 +230,7 @@ class ReminderReceiver : BroadcastReceiver() {
             ACTION_WIND_DOWN -> {
                 if (suppressNow(store, intent.action)) return
                 if (!store.loadWindDownEnabled() || store.loadBaselineProfile().lifeStage == null) return
-                showWindDownNotification(context, manager)
+                showWindDownNotification(context, manager, requireNotNull(coreDataRepository))
                 return
             }
             ACTION_MEAL_STILL_EATING -> {
@@ -353,7 +389,10 @@ class ReminderReceiver : BroadcastReceiver() {
         val id = (System.currentTimeMillis() % Int.MAX_VALUE).toInt()
         val text = if (nextStep.isBlank()) "预计时间已到。现在结束、延长，或打开 FocusFlow 决定下一步。" else "预计时间已到。下一步：$nextStep"
         val openApp = PendingIntent.getActivity(context, id + 9, Intent(context, MainActivity::class.java), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        val current = store.findActivitySession(sessionId) ?: return
+        val current = CoreDataRepositoryOperations.findActivitySession(
+            requireNotNull(coreDataRepository),
+            sessionId
+        ) ?: return
         val notification = NotificationCompat.Builder(context, endChannel)
             .setSmallIcon(android.R.drawable.ic_popup_reminder)
             .setContentTitle("$activityName 时间到了")
@@ -537,7 +576,11 @@ class ReminderReceiver : BroadcastReceiver() {
             .build())
     }
 
-    private fun showWindDownNotification(context: Context, manager: NotificationManager) {
+    private fun showWindDownNotification(
+        context: Context,
+        manager: NotificationManager,
+        coreDataRepository: CoreDataRepository
+    ) {
         if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
         ensureChannel(manager, CHANNEL_WIND_DOWN, "睡前减速")
         val id = WIND_DOWN_NOTIFICATION_ID
@@ -552,7 +595,10 @@ class ReminderReceiver : BroadcastReceiver() {
         val profile = PrototypeStore(context).loadBaselineProfile()
         val sleepText = WindDownInsights.formatMinute(profile.sleepMinute.coerceAtLeast(0))
         val store2 = PrototypeStore(context)
-        val lateNightCount = LifestyleInsights.lateNightActiveCount(store2.loadStatusCheckIns(90), store2.loadRecentActivitySessions())
+        val lateNightCount = LifestyleInsights.lateNightActiveCount(
+            store2.loadStatusCheckIns(90),
+            CoreDataRepositoryOperations.recentActivitySessions(coreDataRepository)
+        )
         val text = if (lateNightCount >= 3) {
             "按你的习惯 ${sleepText} 睡觉。你最近 $lateNightCount 次在深夜（22 点后）仍活跃，今晚建议比平时更早收尾、放下手机。"
         } else {
@@ -774,7 +820,13 @@ class ReminderReceiver : BroadcastReceiver() {
         const val ACTION_MEAL_STILL_EATING = "com.sakata.focusflow.MEAL_STILL_EATING"
         const val ACTION_DAILY_MEAL_REFRESH = "com.sakata.focusflow.DAILY_MEAL_REFRESH"
         private val CORE_DATA_ACTIONS = setOf(
+            ACTION_STATUS_CHECK_IN,
+            ACTION_COMPLETE,
             ACTION_SKIP,
+            ACTION_SNOOZE,
+            ACTION_ACTIVITY_PREVIEW,
+            ACTION_ACTIVITY_END,
+            ACTION_WIND_DOWN,
             ACTION_TASK_ADVANCE,
             ACTION_TASK_DUE,
             ACTION_TASK_COMPLETE,
