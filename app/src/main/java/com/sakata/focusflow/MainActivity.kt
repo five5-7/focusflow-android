@@ -871,11 +871,6 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
         return true
     }
 
-    fun saveItemsAndGoalsWithEvent(updatedItems: List<Item>, updatedGoals: List<Goal>, event: TaskEvent?): Boolean {
-        if (event == null) return false
-        return saveItemsAndGoalsWithEvents(updatedItems, updatedGoals, listOf(event))
-    }
-
     fun saveItemsAndGoalsWithEvents(updatedItems: List<Item>, updatedGoals: List<Goal>, events: List<TaskEvent>): Boolean {
         if (events.isEmpty()) return false
         val previousItems = items
@@ -894,6 +889,11 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
         ReminderScheduler.syncTaskReminders(context, previousItems, updatedItems)
         taskEvents = readCoreData().taskEvents
         return true
+    }
+
+    fun saveItemsAndGoalsWithEvent(updatedItems: List<Item>, updatedGoals: List<Goal>, event: TaskEvent?): Boolean {
+        if (event == null) return false
+        return saveItemsAndGoalsWithEvents(updatedItems, updatedGoals, listOf(event))
     }
 
     /**
