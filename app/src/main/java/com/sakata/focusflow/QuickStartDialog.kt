@@ -105,6 +105,11 @@ internal fun CampusLifeChoiceDialog(onEnable: () -> Unit, onSkip: () -> Unit) {
 
 /** 覆盖安装后每个版本只展示一次的更新说明；版本名来自 BuildConfig，路线图是唯一详情入口。 */
 internal fun updateHighlightsFor(version: String): List<String> = when {
+    version == "8.3.0-rc.22" -> listOf(
+        "完整收集箱按真实记录时间区分最近和之前内容，旧记录不会被误标为过时。",
+        "待整理事项默认只显示单行标题，点击展开一条后再查看详情和操作。",
+        "编辑和删除收进更多菜单；今日页仍可直接记录新内容。"
+    )
     version == "8.3.0-rc.21" -> listOf(
         "今日页收集箱可直接输入标题保存，保存成功后继续记录下一件事。",
         "最近两条收集箱内容以单行标题显示，点击进入完整列表查看和整理。",

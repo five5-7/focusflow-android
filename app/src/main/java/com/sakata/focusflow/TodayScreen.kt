@@ -135,6 +135,10 @@ import kotlinx.coroutines.delay
     }
     val overviewScrollState = rememberScrollState()
     var inboxFilter by remember { mutableStateOf("全部") }
+    var expandedInboxId by remember { mutableStateOf<Long?>(null) }
+    val pendingAgeGroups = remember(pendingInboxItems, capturedAt, now / 60_000L) {
+        groupInboxByAge(pendingInboxItems, capturedAt, now)
+    }
     Box(modifier.fillMaxSize()) {
         AnimatedVisibility(
             visible = !inboxOpen,
@@ -462,7 +466,30 @@ import kotlinx.coroutines.delay
                 } else {
                     if ((inboxFilter == "全部" || inboxFilter == "待整理") && pendingInboxItems.isNotEmpty()) {
                         Text("待整理 · ${pendingInboxItems.size}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                        pendingInboxItems.forEach { item -> InboxItemCard(item, onPickTime, onEdit, onOrganize, onShrink, onPause, onAbandon) }
+                        listOf(
+                            "最近记录" to pendingAgeGroups.recent,
+                            "之前记录" to pendingAgeGroups.earlier,
+                            "记录时间未标记" to pendingAgeGroups.undated
+                        ).forEach { (label, group) ->
+                            if (group.isNotEmpty()) {
+                                Text("$label · ${group.size}", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                group.forEach { item ->
+                                    InboxItemCard(
+                                        item = item,
+                                        recordedAt = capturedAt[item.id],
+                                        now = now,
+                                        expanded = expandedInboxId == item.id,
+                                        onToggle = { expandedInboxId = if (expandedInboxId == item.id) null else item.id },
+                                        onPickTime = onPickTime,
+                                        onEdit = onEdit,
+                                        onOrganize = onOrganize,
+                                        onShrink = onShrink,
+                                        onPause = onPause,
+                                        onAbandon = onAbandon
+                                    )
+                                }
+                            }
+                        }
                     }
                     if ((inboxFilter == "全部" || inboxFilter == "推进") && progressItems.isNotEmpty()) {
                         Text("逐步推进 · ${progressItems.size}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
@@ -647,35 +674,63 @@ private fun StatusChoiceRow(label: String, options: List<String>, selected: Stri
     }
 }
 
-@Composable internal fun InboxItemCard(item: Item, onPickTime: (Item) -> Unit, onEdit: (Item) -> Unit, onOrganize: (Item) -> Unit, onShrink: (Item) -> Unit, onPause: (Item) -> Unit, onAbandon: (Item) -> Unit) {
-    // 收编进 FocusCard（维护者反馈"收集箱等没有渲染"）：ElevatedCard 不读卡片材质，
-    // 所以选柔光/纸感时收集箱卡片毫无反应。FocusCard 在默认材质下与原生 Card 渲染一致。
+@Composable internal fun InboxItemCard(
+    item: Item,
+    recordedAt: Long?,
+    now: Long,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+    onPickTime: (Item) -> Unit,
+    onEdit: (Item) -> Unit,
+    onOrganize: (Item) -> Unit,
+    onShrink: (Item) -> Unit,
+    onPause: (Item) -> Unit,
+    onAbandon: (Item) -> Unit
+) {
+    var moreOpen by remember(item.id) { mutableStateOf(false) }
     FocusCard(
         modifier = Modifier.fillMaxWidth(),
         containerColor = MaterialTheme.colorScheme.surfaceContainerLow
-    ) { Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text(item.title, fontWeight = FontWeight.SemiBold)
-        Text(item.detail)
-        if (item.userNote != null && item.userNote.isNotBlank() && item.userNote != item.detail) {
-            Text("备注：${item.userNote}", style = MaterialTheme.typography.bodySmall)
+    ) { Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp)) {
+        Row(
+            Modifier.fillMaxWidth().clickable(onClick = onToggle).padding(vertical = 5.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(item.title, Modifier.weight(1f), fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            recordedAt?.takeIf { it > 0 }?.let {
+                Text(captureAgeLabel(it, now), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Text(if (expanded) "收起" else "展开", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
         }
-        Text("预计 ${item.durationMinutes} 分钟 · 优先级 ${ItemPriority.fromKey(item.priority).label}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        if (!item.title.startsWith("重新安排：")) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = { onPickTime(item) }) { Text("安排时间") }
-                OutlinedButton(onClick = { onEdit(item) }) { Text("编辑") }
-                OutlinedButton(onClick = { onOrganize(item) }) { Text("整理") }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TextButton(onClick = { onAbandon(item) }, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("删除") }
-            }
-        } else {
-            Text("接下来", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                TextButton(onClick = { onPickTime(item) }) { Text("改期") }
-                TextButton(onClick = { onShrink(item) }) { Text("缩短") }
-                TextButton(onClick = { onPause(item) }) { Text("暂停") }
-                TextButton(onClick = { onAbandon(item) }) { Text("放弃") }
+        AnimatedVisibility(visible = expanded, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
+            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (item.detail.isNotBlank()) Text(item.detail)
+                if (item.userNote != null && item.userNote.isNotBlank() && item.userNote != item.detail) {
+                    Text("备注：${item.userNote}", style = MaterialTheme.typography.bodySmall)
+                }
+                Text("预计 ${item.durationMinutes} 分钟 · 优先级 ${ItemPriority.fromKey(item.priority).label}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (!item.title.startsWith("重新安排：")) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        TextButton(onClick = { onPickTime(item) }) { Text("安排时间") }
+                        TextButton(onClick = { onOrganize(item) }) { Text("整理") }
+                        Box {
+                            TextButton(onClick = { moreOpen = true }) { Text("更多") }
+                            DropdownMenu(expanded = moreOpen, onDismissRequest = { moreOpen = false }) {
+                                DropdownMenuItem(text = { Text("编辑") }, onClick = { moreOpen = false; onEdit(item) })
+                                DropdownMenuItem(text = { Text("删除") }, onClick = { moreOpen = false; onAbandon(item) })
+                            }
+                        }
+                    }
+                } else {
+                    Text("接下来", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        TextButton(onClick = { onPickTime(item) }) { Text("改期") }
+                        TextButton(onClick = { onShrink(item) }) { Text("缩短") }
+                        TextButton(onClick = { onPause(item) }) { Text("暂停") }
+                        TextButton(onClick = { onAbandon(item) }) { Text("放弃") }
+                    }
+                }
             }
         }
     } }
