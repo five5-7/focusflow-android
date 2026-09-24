@@ -21,7 +21,8 @@ object RoadmapData {
     /** 已实现版本演进（1.0 → 当前版本），每版本浓缩 1–3 条，与 CHANGELOG.md 对应。 */
     val evolution: List<RoadmapVersion> = listOf(
         RoadmapVersion("8.3.0", listOf(
-            RoadmapEntry("8.3.0-rc.14", "独立入口外观对齐", "今日页权限提示确认改用统一弹窗；浙江大学教务导入页的背景与卡片跟随外观。延续 rc.13 的玻璃卡面不透明度及课表识别防错，等待 OPPO 真机验收。", RoadmapStatus.CANDIDATE),
+            RoadmapEntry("8.3.0-rc.15", "设置等权选项布局", "页面背景与动画速度的四项选择改用自适应均衡布局，常见手机宽度 2×2，大字体与窄屏回流。延续 rc.14 的导入页外观与统一确认框，待 OPPO 真机验收。", RoadmapStatus.CANDIDATE),
+            RoadmapEntry("8.3.0-rc.14", "独立入口外观对齐", "今日页权限提示确认改用统一弹窗；浙江大学教务导入页的背景与卡片跟随外观。延续 rc.13 的玻璃卡面不透明度及课表识别防错，已通过 OPPO 真机验收。", RoadmapStatus.DONE),
             RoadmapEntry("8.3.0-rc.13", "玻璃卡面不透明度", "延续 rc.12 的课表识别防错；外观设置可统一调节亚克力与毛玻璃卡面不透明度 40%–95%，旧设置仍保留 60%／48% 默认值。已通过 OPPO 真机验收。", RoadmapStatus.DONE),
             RoadmapEntry("8.3.0-rc.12", "课表截图识别防错", "延续权限中心、浙大课表自动导入、首次动画优化与验收反馈修复；截图识别严格校验网格中的星期和节次，拒绝多数坐标缺失或明显塌缩的整批结果，完全重叠的不同课程必须逐门编辑后确认。已由 rc.13 替代。", RoadmapStatus.DONE)
         )),

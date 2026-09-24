@@ -105,6 +105,10 @@ internal fun CampusLifeChoiceDialog(onEnable: () -> Unit, onSkip: () -> Unit) {
 
 /** 覆盖安装后每个版本只展示一次的更新说明；版本名来自 BuildConfig，路线图是唯一详情入口。 */
 internal fun updateHighlightsFor(version: String): List<String> = when {
+    version == "8.3.0-rc.15" -> listOf(
+        "设置中的页面背景与动画速度选项改为均衡排列，窄屏和大字体下会自动回流。",
+        "延续 rc.14 的教务导入页外观与今日页统一确认框，以及玻璃卡面调节。"
+    )
     version == "8.3.0-rc.14" -> listOf(
         "今日页“权限与提醒”选择“不再提示”时，确认框使用统一弹窗，仍可取消或返回。",
         "浙江大学教务导入页的背景与卡片跟随外观设置，亚克力和毛玻璃也使用你选择的卡面不透明度。",
