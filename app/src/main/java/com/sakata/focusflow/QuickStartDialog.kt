@@ -105,6 +105,11 @@ internal fun CampusLifeChoiceDialog(onEnable: () -> Unit, onSkip: () -> Unit) {
 
 /** 覆盖安装后每个版本只展示一次的更新说明；版本名来自 BuildConfig，路线图是唯一详情入口。 */
 internal fun updateHighlightsFor(version: String): List<String> = when {
+    version == "8.3.0-rc.17" -> listOf(
+        "外观页把主题配色、页面背景、卡片材质和课表底色分组收纳，先显示当前选择摘要。",
+        "卡片材质的五个选项改成均衡排列，常见手机宽度下会自动排成 2+3，窄屏和大字体会继续回流。",
+        "自定义主题编辑器共用同一套外观控件，禁用丰富外观时仍会说明已保存的卡片和课表底色设置。"
+    )
     version == "8.3.0-rc.16" -> listOf(
         "历史记录批量管理把已选数量、全选当前和删除所选放在同一个卡片中。",
         "进入或退出批量管理时，勾选区与按钮平滑切换；关闭动画时会立即切换。",
