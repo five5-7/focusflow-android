@@ -16,6 +16,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 
@@ -24,6 +28,7 @@ import kotlinx.coroutines.delay
     items: List<Item>,
     inboxOpen: Boolean,
     onInboxOpenChange: (Boolean) -> Unit,
+    onCaptureToInbox: (String) -> Boolean,
     energyLevel: String,
     energyRecordedAt: Long,
     onEnergyLevelChange: (String) -> Unit,
@@ -74,6 +79,7 @@ import kotlinx.coroutines.delay
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     var helpOpen by remember { mutableStateOf(false) }
     var statusPanelOpen by remember { mutableStateOf(false) }
+    var captureText by remember { mutableStateOf("") }
     LaunchedEffect(activeSession?.id, activeSession?.endsAt) {
         while (true) {
             now = System.currentTimeMillis()
@@ -84,6 +90,10 @@ import kotlinx.coroutines.delay
     // 切换页签/返回前台时会在动画开始前掉一帧；这里按输入缓存，输入不变就不再计算。
     val inboxItems = remember(items) { items.filter { !it.done && it.kind == "收集箱" } }
     val pendingInboxItems = remember(inboxItems) { inboxItems.filter { CaptureRoute.fromKey(it.captureRoute) == CaptureRoute.INBOX } }
+    val capturedAt = remember(taskEvents) {
+        taskEvents.filter { it.type == TaskEventType.TASK_CREATED }
+            .groupBy { it.itemId }.mapValues { (_, events) -> events.minOf { it.recordedAt } }
+    }
     val progressItems = remember(inboxItems) { inboxItems.filter { CaptureRoute.fromKey(it.captureRoute) == CaptureRoute.PROGRESS } }
     val referenceItems = remember(inboxItems) { inboxItems.filter { CaptureRoute.fromKey(it.captureRoute) == CaptureRoute.REFERENCE } }
     val energyIsCurrent = StatusFreshnessPolicy.isCurrent(energyRecordedAt, now)
@@ -269,14 +279,46 @@ import kotlinx.coroutines.delay
                 }
             }
         }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Text("收集箱", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-            TextButton(onClick = { onInboxOpenChange(true) }) { Text("${inboxItems.size} 项  ›") }
-        }
-        if (inboxItems.isEmpty()) {
-            Text("暂时没有新想法，点底部 ＋ 随手记录。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        } else {
-            pendingInboxItems.take(2).forEach { item -> InboxItemCard(item, onPickTime, onEdit, onOrganize, onShrink, onPause, onAbandon) }
+        FocusCard(containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
+            Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (inboxItems.isNotEmpty()) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                        Text("收集箱 · ${inboxItems.size}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        TextButton(onClick = { onInboxOpenChange(true) }) { Text("查看全部 ›") }
+                    }
+                }
+                fun saveCapture() {
+                    val title = captureText.trim()
+                    if (title.isNotEmpty() && onCaptureToInbox(title)) captureText = ""
+                }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(
+                        value = captureText,
+                        onValueChange = { captureText = it },
+                        modifier = Modifier.weight(1f),
+                        placeholder = { Text("随手记一件事") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                        keyboardActions = KeyboardActions(onDone = { saveCapture() })
+                    )
+                    Button(onClick = { saveCapture() }, enabled = captureText.isNotBlank()) { Text("保存") }
+                }
+                if (inboxItems.isNotEmpty()) {
+                    pendingInboxItems.sortedWith(compareByDescending<Item> { capturedAt[it.id] ?: Long.MIN_VALUE })
+                        .take(2).forEach { item ->
+                            Row(
+                                Modifier.fillMaxWidth().clickable { onInboxOpenChange(true) }.padding(vertical = 4.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(item.title, Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                capturedAt[item.id]?.let { recordedAt ->
+                                    Text(captureAgeLabel(recordedAt, now), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+                        }
+                }
+            }
         }
         if (visibility.energy && !statusCheckInEnabled) {
             TextButton(onClick = onEnableStatusCheckIn) { Text("开启每日精力询问") }
@@ -446,6 +488,17 @@ import kotlinx.coroutines.delay
             }
         }
         if (helpOpen) HelpDialog(title = HelpCatalog.today.title, sections = HelpCatalog.today.sections, onDismiss = { helpOpen = false })
+    }
+}
+
+/** 只对有创建事件的条目显示记录年龄；旧条目不猜测创建时间。 */
+internal fun captureAgeLabel(recordedAt: Long, now: Long): String {
+    val minutes = ((now - recordedAt).coerceAtLeast(0) / 60_000L)
+    return when {
+        minutes < 1 -> "刚刚"
+        minutes < 60 -> "${minutes}分钟前"
+        minutes < 1_440 -> "${minutes / 60}小时前"
+        else -> "${minutes / 1_440}天前"
     }
 }
 
