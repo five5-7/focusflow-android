@@ -105,6 +105,11 @@ internal fun CampusLifeChoiceDialog(onEnable: () -> Unit, onSkip: () -> Unit) {
 
 /** 覆盖安装后每个版本只展示一次的更新说明；版本名来自 BuildConfig，路线图是唯一详情入口。 */
 internal fun updateHighlightsFor(version: String): List<String> = when {
+    version == "8.3.0-rc.20" -> listOf(
+        "同一天同地点、节次紧邻的同名课程会连成一个时段，原有每段仍能编辑。",
+        "缩小课表收纳周五至周日且时段不重叠时，会显示课程名称、星期和节次。",
+        "课程保存改走统一数据源入口，保存失败时保留原有课程记录。"
+    )
     version == "8.3.0-rc.19" -> listOf(
         "课程待确认列表可一键确认无冲突时段；同名课程排在一起，仍能逐个编辑。",
         "缩小课表的周五至周日格可展开查看真实星期与节次，周五早课不会混在错误的位置。",

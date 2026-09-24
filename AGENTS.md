@@ -35,7 +35,7 @@
 - 应用内更新说明必须在发版时展示该版本核心变化：为每个新版本在 `QuickStartDialog.updateHighlightsFor` 写 2–3 条用户可感知的变化，禁止落入兜底文案；与 `CHANGELOG.md`、`RoadmapData.kt` 同步。
 - Follow `VERSIONING.md`; a CI `run-N` is not a product version and a successful build is not a release.
 - The current official release is `8.2.1` / versionCode 534 (the fifth formal release). It extends the optional appearance system with acrylic and frosted-glass profiles plus non-destructive image crop controls; rich appearance remains disabled by default.
-- The current development candidate is `8.3.0-rc.19` / versionCode 553: rc.18 ZJU timetable import passed device acceptance; course management gains safe bulk confirmation and ordered same-title meeting display, and the compact timetable expands Friday–Sunday to show real positions. The schedule mode selector adapts to width and font scale. It requires stable-signed CI and OPPO interaction verification and is not merged or released; rc.18 is superseded.
+- The current development candidate is `8.3.0-rc.20` / versionCode 554: rc.19 passed device acceptance. Adjacent same-title, same-place periods form a visible span without dropping old IDs, and compact Friday–Sunday shows nonconflicting course summaries. Course writes now use the selected repository; Room product activation remains off. It requires stable-signed CI and OPPO interaction verification and is not merged or released; rc.19 is superseded.
 - The previous official release is `8.2.0` / versionCode 525.
 - Do not allocate a new version merely to record an idea; keep uncommitted ideas in the future-candidate section until a coherent scope is frozen.
 - Do not merge a pull request without explicit user confirmation.

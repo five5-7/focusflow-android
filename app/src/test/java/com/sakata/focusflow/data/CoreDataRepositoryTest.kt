@@ -1,6 +1,8 @@
 package com.sakata.focusflow.data
 
 import com.sakata.focusflow.ActivitySession
+import com.sakata.focusflow.CampusZone
+import com.sakata.focusflow.Course
 import com.sakata.focusflow.Goal
 import com.sakata.focusflow.Item
 import com.sakata.focusflow.TaskEvent
@@ -13,6 +15,16 @@ import org.junit.Test
 import java.io.File
 
 class CoreDataRepositoryTest {
+    @Test
+    fun `legacy course writer fails closed on stale snapshot`() {
+        val persistence = FakeLegacyPersistence(sampleSnapshot())
+        val repository = LegacyCoreDataRepository(persistence)
+        val course = Course("材料力学", 5, 1, 2, "东1", CampusZone.OTHER, id = 201L)
+        assertEquals(CoreDataWriteStatus.APPLIED, repository.replaceCourses(listOf(course), emptyList()).status)
+        assertEquals(CoreDataWriteStatus.STALE_COURSES, repository.replaceCourses(emptyList(), emptyList()).status)
+        assertEquals(listOf(course), persistence.snapshot.courses)
+    }
+
     @Test
     fun `legacy adapter exposes the same snapshot and source`() {
         val snapshot = sampleSnapshot()
@@ -392,6 +404,16 @@ private class FakeLegacyPersistence(
     ): Boolean {
         if (failWrites || snapshot.activitySessions != expectedSessions) return false
         snapshot = snapshot.copy(activitySessions = sessions)
+        commits++
+        return true
+    }
+
+    override fun saveCoursesIfUnchanged(
+        courses: List<com.sakata.focusflow.Course>,
+        expectedCourses: List<com.sakata.focusflow.Course>
+    ): Boolean {
+        if (failWrites || snapshot.courses != expectedCourses) return false
+        snapshot = snapshot.copy(courses = courses)
         commits++
         return true
     }

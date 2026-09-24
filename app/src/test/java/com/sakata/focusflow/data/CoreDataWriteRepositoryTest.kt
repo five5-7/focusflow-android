@@ -1,6 +1,8 @@
 package com.sakata.focusflow.data
 
 import com.sakata.focusflow.ActivitySession
+import com.sakata.focusflow.CampusZone
+import com.sakata.focusflow.Course
 import com.sakata.focusflow.Goal
 import com.sakata.focusflow.Item
 import com.sakata.focusflow.TaskEvent
@@ -12,6 +14,33 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CoreDataWriteRepositoryTest {
+    @Test
+    fun `course write preserves ids order and confirmation and rejects stale snapshot`() {
+        val store = storeFor(sampleSnapshot())
+        val first = Course("高等数学", 1, 1, 2, "东1", CampusZone.OTHER, id = 201L)
+        val second = Course("材料力学", 5, 3, 4, "东2", CampusZone.OTHER, id = 202L)
+        val repository = RoomCoreDataWriteRepository(store)
+
+        assertEquals(CoreDataWriteStatus.APPLIED, repository.replaceCourses(listOf(second, first), emptyList()).status)
+        assertEquals(listOf(202L, 201L), readySnapshot(store).courses.map { it.id })
+        assertTrue(readySnapshot(store).courses.all { it.needsConfirmation })
+        assertEquals(2, requireNotNull(store.state).courseMeetingRuleCount)
+        assertEquals(CoreDataWriteStatus.STALE_COURSES,
+            repository.replaceCourses(emptyList(), emptyList()).status)
+        assertEquals(listOf(202L, 201L), readySnapshot(store).courses.map { it.id })
+    }
+
+    @Test
+    fun `failed course count update rolls back both course tables`() {
+        val store = storeFor(sampleSnapshot()).apply { failOnCounts = true }
+        val row = Course("材料力学", 5, 1, 2, "东1", CampusZone.OTHER, id = 201L)
+        val before = readySnapshot(store)
+        assertEquals(CoreDataWriteStatus.WRITE_FAILED,
+            RoomCoreDataWriteRepository(store).replaceCourses(listOf(row), emptyList()).status)
+        assertEquals(before, readySnapshot(store))
+        assertEquals(0, store.committedTransactions)
+    }
+
     @Test
     fun `task snapshot write rejects a stale expected snapshot without mutation`() {
         val store = storeFor(sampleSnapshot())
@@ -331,6 +360,8 @@ class CoreDataWriteRepositoryTest {
         val sessions = snapshot.activitySessions.mapIndexed { index, session ->
             ActivitySessionEntity.fromLegacy(session, index)
         }
+        val courses = snapshot.courses.mapIndexed { index, course -> CourseEntity.fromLegacy(course, index) }
+        val rules = snapshot.courses.mapIndexed { index, course -> CourseMeetingRuleEntity.fromLegacy(course, index) }
         return FakeTransactionalCoreDataStore(
             state = MigrationStateEntity(
                 LegacyDataImporter.MIGRATION_KEY,
@@ -340,12 +371,16 @@ class CoreDataWriteRepositoryTest {
                 events.size,
                 plans.size,
                 1L,
-                activitySessionCount = sessions.size
+                activitySessionCount = sessions.size,
+                courseCount = courses.size,
+                courseMeetingRuleCount = rules.size
             ),
             taskRows = tasks,
             eventRows = events,
             planRows = plans,
-            sessionRows = sessions
+            sessionRows = sessions,
+            courseRows = courses,
+            ruleRows = rules
         )
     }
 
@@ -358,6 +393,8 @@ class CoreDataWriteRepositoryTest {
         assertEquals(store.eventRows.size, state.taskEventCount)
         assertEquals(store.planRows.size, state.planCount)
         assertEquals(store.sessionRows.size, state.activitySessionCount)
+        assertEquals(store.courseRows.size, state.courseCount)
+        assertEquals(store.ruleRows.size, state.courseMeetingRuleCount)
     }
 }
 
@@ -366,7 +403,9 @@ internal class FakeTransactionalCoreDataStore(
     var taskRows: List<TaskEntity>,
     var eventRows: List<TaskEventEntity>,
     var planRows: List<PlanEntity>,
-    var sessionRows: List<ActivitySessionEntity> = emptyList()
+    var sessionRows: List<ActivitySessionEntity> = emptyList(),
+    var courseRows: List<CourseEntity> = emptyList(),
+    var ruleRows: List<CourseMeetingRuleEntity> = emptyList()
 ) : RoomCoreDataWriteStore {
     var failOnEvents = false
     var failOnCounts = false
@@ -378,6 +417,8 @@ internal class FakeTransactionalCoreDataStore(
         val originalEvents = eventRows
         val originalPlans = planRows
         val originalSessions = sessionRows
+        val originalCourses = courseRows
+        val originalRules = ruleRows
         return try {
             block().also { result ->
                 if (result is CoreDataWriteResult && result.applied) committedTransactions++
@@ -388,6 +429,8 @@ internal class FakeTransactionalCoreDataStore(
             eventRows = originalEvents
             planRows = originalPlans
             sessionRows = originalSessions
+            courseRows = originalCourses
+            ruleRows = originalRules
             throw error
         }
     }
@@ -397,6 +440,8 @@ internal class FakeTransactionalCoreDataStore(
     override fun taskEvents(): List<TaskEventEntity> = eventRows
     override fun plans(): List<PlanEntity> = planRows
     override fun activitySessions(): List<ActivitySessionEntity> = sessionRows
+    override fun courses(): List<CourseEntity> = courseRows
+    override fun courseMeetingRules(): List<CourseMeetingRuleEntity> = ruleRows
 
     override fun replaceTasks(tasks: List<TaskEntity>) {
         taskRows = tasks
@@ -415,11 +460,18 @@ internal class FakeTransactionalCoreDataStore(
         sessionRows = sessions
     }
 
+    override fun replaceCourses(courses: List<CourseEntity>, rules: List<CourseMeetingRuleEntity>) {
+        courseRows = courses
+        ruleRows = rules
+    }
+
     override fun updateMigrationCounts(
         taskCount: Int,
         taskEventCount: Int,
         planCount: Int,
-        activitySessionCount: Int
+        activitySessionCount: Int,
+        courseCount: Int,
+        courseMeetingRuleCount: Int
     ) {
         if (failOnCounts) error("injected count update failure")
         val current = requireNotNull(state) { "migration state missing" }
@@ -427,7 +479,9 @@ internal class FakeTransactionalCoreDataStore(
             taskCount = taskCount,
             taskEventCount = taskEventCount,
             planCount = planCount,
-            activitySessionCount = activitySessionCount
+            activitySessionCount = activitySessionCount,
+            courseCount = courseCount,
+            courseMeetingRuleCount = courseMeetingRuleCount
         )
     }
 }

@@ -21,7 +21,8 @@ object RoadmapData {
     /** 已实现版本演进（1.0 → 当前版本），每版本浓缩 1–3 条，与 CHANGELOG.md 对应。 */
     val evolution: List<RoadmapVersion> = listOf(
         RoadmapVersion("8.3.0", listOf(
-            RoadmapEntry("8.3.0-rc.19", "课程确认与课表位置", "无冲突课程时段支持一键确认，同名时段按星期和节次汇集展示；缩小课表的周五至周日展开显示真实位置。安排时间模式选项适应宽度和字体；待CI与OPPO交互验收。", RoadmapStatus.CANDIDATE),
+            RoadmapEntry("8.3.0-rc.20", "连续课程与收纳摘要", "相邻同名同地点课程节次合并展示，原段可逐一编辑；周五至周日无节次重叠时仍显示课程摘要。课程写入经过统一数据源；Room产品激活关闭，待CI与OPPO验收。", RoadmapStatus.CANDIDATE),
+            RoadmapEntry("8.3.0-rc.19", "课程确认与课表位置", "无冲突课程时段支持一键确认，同名时段按星期和节次汇集展示；缩小课表的周五至周日展开显示真实位置。安排时间模式选项适应宽度和字体。Run 460与用户验收通过，已由rc.20替代。", RoadmapStatus.DONE),
             RoadmapEntry("8.3.0-rc.18", "指定教务学期与超时修复", "浙大教务导入可指定学年与学期，跳过当前学期页面；自动读取学期设总时限并提示失败。Run 459 与 OPPO 教务导入验收通过，已由rc.19替代。", RoadmapStatus.DONE),
             RoadmapEntry("8.3.0-rc.17", "外观页收纳与五项材质", "外观页将主题配色、页面背景、卡片材质与课表底色分组收纳；卡片材质五档使用均衡排列，自定义主题编辑器共用同一套外观控件。Run 456通过；在单独真机验收前由rc.18替代。", RoadmapStatus.DONE),
             RoadmapEntry("8.3.0-rc.16", "历史批量选择交互", "最近事件的批量选择工具栏共用卡片材质；勾选区、操作按钮与选中态按动画速度过渡。延续 rc.15 的设置布局，已通过 OPPO 真机验收，已由 rc.17 替代。", RoadmapStatus.DONE),

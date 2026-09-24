@@ -126,12 +126,14 @@ private fun PendingCourses(
                 Modifier.fillMaxWidth().padding(12.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Text(group.title + if (group.meetings.size > 1) " · 同名 ${group.meetings.size} 个时段" else "", fontWeight = FontWeight.SemiBold)
-                group.meetings.forEachIndexed { index, course ->
+                Text(group.title + if (group.meetings.size > 1) " · 同名 ${group.meetings.size} 条记录" else "", fontWeight = FontWeight.SemiBold)
+                connectedCourseSpans(group.meetings).forEachIndexed { index, span ->
+                    val course = span.display
                     if (index > 0) HorizontalDivider()
                     val conflictWith = confirmed.firstOrNull { coursesOverlap(course, it) }
-                    val directConfirmationBlocked = course.id in blockedDirectConfirmationIds
+                    val directConfirmationBlocked = span.records.any { it.id in blockedDirectConfirmationIds }
                     CourseMeetingDetails(course)
+                    if (span.records.size > 1) Text("相邻时段合并展示 · ${span.records.size} 条原记录", style = MaterialTheme.typography.labelSmall)
                     conflictWith?.let {
                         Text("⚠ 与已确认课程《${it.title}》时间冲突", color = CONFLICT_TEXT_COLOR, style = MaterialTheme.typography.labelSmall)
                     }
@@ -139,11 +141,14 @@ private fun PendingCourses(
                         Text("星期和节次需逐条核对，编辑后才能确认。", color = CONFLICT_TEXT_COLOR, style = MaterialTheme.typography.labelSmall)
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        TextButton(enabled = !directConfirmationBlocked, onClick = { onConfirm(course) }) {
+                        TextButton(enabled = !directConfirmationBlocked, onClick = { span.records.forEach(onConfirm) }) {
                             Text(if (directConfirmationBlocked) "需先编辑" else "确认")
                         }
-                        TextButton(onClick = { onEdit(course) }) { Text("编辑并确认") }
-                        TextButton(onClick = { onIgnore(course) }) { Text("忽略") }
+                        if (span.records.size == 1) TextButton(onClick = { onEdit(span.records.single()) }) { Text("编辑并确认") }
+                        TextButton(onClick = { span.records.forEach(onIgnore) }) { Text("忽略") }
+                    }
+                    if (span.records.size > 1) span.records.forEach { original ->
+                        TextButton(onClick = { onEdit(original) }) { Text("编辑第 ${original.startPeriod}–${original.endPeriod} 节") }
                     }
                 }
             }
@@ -238,18 +243,23 @@ private fun ConfirmedCourses(confirmed: List<Course>, onEdit: (Course) -> Unit, 
                 Modifier.fillMaxWidth().padding(12.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                Text(group.title + if (group.meetings.size > 1) " · 同名 ${group.meetings.size} 个时段" else "", fontWeight = FontWeight.SemiBold)
-                group.meetings.forEachIndexed { index, course ->
+                Text(group.title + if (group.meetings.size > 1) " · 同名 ${group.meetings.size} 条记录" else "", fontWeight = FontWeight.SemiBold)
+                connectedCourseSpans(group.meetings).forEachIndexed { index, span ->
+                    val course = span.display
                     if (index > 0) HorizontalDivider()
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        if (selecting) Checkbox(checked = course in selected, onCheckedChange = { checked -> selected = if (checked) selected + course else selected - course })
+                        if (selecting) Checkbox(checked = span.records.all { it in selected }, onCheckedChange = { checked -> selected = if (checked) selected + span.records else selected - span.records.toSet() })
                         Column(Modifier.weight(1f)) { CourseMeetingDetails(course) }
                     }
+                    if (span.records.size > 1) Text("相邻时段合并展示 · ${span.records.size} 条原记录", style = MaterialTheme.typography.labelSmall)
                     if (!selecting) {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                            TextButton(onClick = { onEdit(course) }) { Text("编辑") }
-                            TextButton(onClick = { onToggle(course) }) { Text(if (course.enabled) "停用" else "启用") }
-                            TextButton(onClick = { pendingDelete = setOf(course) }) { Text("删除", color = MaterialTheme.colorScheme.error) }
+                            if (span.records.size == 1) TextButton(onClick = { onEdit(span.records.single()) }) { Text("编辑") }
+                            TextButton(onClick = { span.records.forEach(onToggle) }) { Text(if (course.enabled) "停用" else "启用") }
+                            TextButton(onClick = { pendingDelete = span.records.toSet() }) { Text("删除", color = MaterialTheme.colorScheme.error) }
+                        }
+                        if (span.records.size > 1) span.records.forEach { original ->
+                            TextButton(onClick = { onEdit(original) }) { Text("编辑第 ${original.startPeriod}–${original.endPeriod} 节") }
                         }
                     }
                 }

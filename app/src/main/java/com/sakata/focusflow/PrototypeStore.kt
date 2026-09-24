@@ -747,6 +747,15 @@ class PrototypeStore(context: Context) {
         }, { it.isEmpty() })
 
     fun saveCourses(courses: List<Course>) {
+        preferences.edit().putBoolean("course_setup_done", true).putString("courses", encodeCourses(courses)).apply()
+    }
+
+    fun saveCoursesIfUnchanged(courses: List<Course>, expectedCourses: List<Course>): Boolean = synchronized(taskHistoryLock) {
+        if (StorageProtection.readOnly || loadCourses() != expectedCourses) return@synchronized false
+        preferences.edit().putBoolean("course_setup_done", true).putString("courses", encodeCourses(courses)).commit()
+    }
+
+    private fun encodeCourses(courses: List<Course>): String {
         val values = JSONArray()
         courses.forEach { course -> values.put(JSONObject().apply {
             put("title", course.title); put("weekday", course.weekday); put("startPeriod", course.startPeriod); put("endPeriod", course.endPeriod)
@@ -756,7 +765,7 @@ class PrototypeStore(context: Context) {
             course.effectiveUntilEpochDay?.let { put("effectiveUntilEpochDay", it) }
             put("id", course.id)
         }) }
-        preferences.edit().putBoolean("course_setup_done", true).putString("courses", values.toString()).apply()
+        return values.toString()
     }
 
     fun loadGoals(): List<Goal> =

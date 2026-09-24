@@ -262,6 +262,11 @@ private class RecordingRepository(
         expectedSessions: List<ActivitySession>
     ): CoreDataWriteResult = applied()
 
+    override fun replaceCourses(
+        courses: List<com.sakata.focusflow.Course>,
+        expectedCourses: List<com.sakata.focusflow.Course>
+    ): CoreDataWriteResult = applied()
+
     override fun mutateScheduledTask(
         id: Long,
         expectedScheduledAt: Long,

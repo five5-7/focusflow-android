@@ -1,6 +1,7 @@
 package com.sakata.focusflow.data
 
 import com.sakata.focusflow.ActivitySession
+import com.sakata.focusflow.Course
 import com.sakata.focusflow.Goal
 import com.sakata.focusflow.GoalPlanner
 import com.sakata.focusflow.Item
@@ -17,6 +18,7 @@ enum class CoreDataWriteStatus {
     STALE_TASKS,
     STALE_PLANS,
     STALE_ACTIVITY_SESSIONS,
+    STALE_COURSES,
     CONDITION_NOT_MET,
     WRITE_FAILED
 }
@@ -43,11 +45,14 @@ interface RoomCoreDataWriteStore : RoomCoreDataSource {
     fun replaceTaskEvents(events: List<TaskEventEntity>)
     fun replacePlans(plans: List<PlanEntity>)
     fun replaceActivitySessions(sessions: List<ActivitySessionEntity>)
+    fun replaceCourses(courses: List<CourseEntity>, rules: List<CourseMeetingRuleEntity>)
     fun updateMigrationCounts(
         taskCount: Int,
         taskEventCount: Int,
         planCount: Int,
-        activitySessionCount: Int
+        activitySessionCount: Int,
+        courseCount: Int,
+        courseMeetingRuleCount: Int
     )
 }
 
@@ -86,18 +91,29 @@ class DatabaseRoomCoreDataWriteStore(private val database: FocusFlowDatabase) : 
         if (sessions.isNotEmpty()) database.activitySessionDao().insertAll(sessions)
     }
 
+    override fun replaceCourses(courses: List<CourseEntity>, rules: List<CourseMeetingRuleEntity>) {
+        database.courseMeetingRuleDao().deleteAll()
+        database.courseDao().deleteAll()
+        if (courses.isNotEmpty()) database.courseDao().insertAll(courses)
+        if (rules.isNotEmpty()) database.courseMeetingRuleDao().insertAll(rules)
+    }
+
     override fun updateMigrationCounts(
         taskCount: Int,
         taskEventCount: Int,
         planCount: Int,
-        activitySessionCount: Int
+        activitySessionCount: Int,
+        courseCount: Int,
+        courseMeetingRuleCount: Int
     ) {
         val updated = database.migrationStateDao().updateCounts(
             LegacyDataImporter.MIGRATION_KEY,
             taskCount,
             taskEventCount,
             planCount,
-            activitySessionCount
+            activitySessionCount,
+            courseCount,
+            courseMeetingRuleCount
         )
         check(updated == 1) { "migration state disappeared during transaction" }
     }
@@ -204,6 +220,23 @@ class RoomCoreDataWriteRepository(
         )
     }
 
+    fun replaceCourses(courses: List<Course>, expectedCourses: List<Course>): CoreDataWriteResult = transact { current ->
+        if (current.courses != expectedCourses) return@transact CoreDataWriteResult(
+            CoreDataWriteStatus.STALE_COURSES, "course snapshot changed"
+        )
+        positiveUniqueIds(courses.map(Course::id), "courses")?.let { return@transact invalidInput(it) }
+        if (courses.any { it.title.isBlank() || it.weekday !in 1..7 || it.startPeriod !in 1..20 ||
+                it.endPeriod !in it.startPeriod..20 ||
+                (it.effectiveFromEpochDay != null && it.effectiveUntilEpochDay != null &&
+                    it.effectiveFromEpochDay > it.effectiveUntilEpochDay)
+            }) return@transact invalidInput("courses contains an invalid meeting")
+        store.replaceCourses(
+            courses.mapIndexed { index, course -> CourseEntity.fromLegacy(course, index) },
+            courses.mapIndexed { index, course -> CourseMeetingRuleEntity.fromLegacy(course, index) }
+        )
+        applied()
+    }
+
     fun mutateScheduledTask(
         id: Long,
         expectedScheduledAt: Long,
@@ -250,7 +283,9 @@ class RoomCoreDataWriteRepository(
                             taskCount = store.tasks().size,
                             taskEventCount = store.taskEvents().size,
                             planCount = store.plans().size,
-                            activitySessionCount = store.activitySessions().size
+                            activitySessionCount = store.activitySessions().size,
+                            courseCount = store.courses().size,
+                            courseMeetingRuleCount = store.courseMeetingRules().size
                         )
                     }
                     result

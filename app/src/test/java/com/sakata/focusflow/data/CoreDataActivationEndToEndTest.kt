@@ -81,7 +81,7 @@ class CoreDataActivationEndToEndTest {
     }
 
     @Test
-    fun `course edits through the legacy screen diverge after Room activation`() {
+    fun `selected Room course writer updates rules atomically without touching Legacy`() {
         installFixture("8.3-rc.12")
         val store = PrototypeStore(context)
         val original = com.sakata.focusflow.Course(
@@ -97,11 +97,15 @@ class CoreDataActivationEndToEndTest {
         ).resolve() as CoreDataRuntimeResolution.Ready
 
         assertEquals(listOf(original), (ready.repository.read() as CoreDataReadResult.Ready).snapshot.courses)
-        store.saveCourses(listOf(original.copy(building = "东二")))
+        val updated = original.copy(building = "东二", startPeriod = 3, endPeriod = 4)
+        assertEquals(CoreDataWriteStatus.APPLIED,
+            ready.repository.replaceCourses(listOf(updated), listOf(original)).status)
 
-        assertEquals("东二", store.loadCourses().single().building)
+        assertEquals("东一", store.loadCourses().single().building)
         val room = ready.repository.read() as CoreDataReadResult.Ready
-        assertEquals("东一", room.snapshot.courses.single().building)
+        assertEquals(updated, room.snapshot.courses.single())
+        assertEquals(listOf(3 to 4), database.courseMeetingRuleDao().all().map { it.startPeriod to it.endPeriod })
+        assertEquals(1, database.migrationStateDao().find(LegacyDataImporter.MIGRATION_KEY)?.courseCount)
         val report = CoreDataConsistencyChecker.compare(legacySnapshot(), room)
         assertEquals(CoreDataConsistencyStatus.MISMATCH, report.status)
         assertEquals(listOf("courses"), report.differences.map { it.domain })
