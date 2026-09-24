@@ -105,6 +105,11 @@ internal fun CampusLifeChoiceDialog(onEnable: () -> Unit, onSkip: () -> Unit) {
 
 /** 覆盖安装后每个版本只展示一次的更新说明；版本名来自 BuildConfig，路线图是唯一详情入口。 */
 internal fun updateHighlightsFor(version: String): List<String> = when {
+    version == "8.3.0-rc.16" -> listOf(
+        "历史记录批量管理把已选数量、全选当前和删除所选放在同一个卡片中。",
+        "进入或退出批量管理时，勾选区与按钮平滑切换；关闭动画时会立即切换。",
+        "延续 rc.15 已验收的页面背景与动画速度均衡排列。"
+    )
     version == "8.3.0-rc.15" -> listOf(
         "设置中的页面背景与动画速度选项改为均衡排列，窄屏和大字体下会自动回流。",
         "延续 rc.14 的教务导入页外观与今日页统一确认框，以及玻璃卡面调节。"
