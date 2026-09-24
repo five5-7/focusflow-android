@@ -67,7 +67,7 @@ private data class QuickCaptureEditorDraft(
     fun persist() = vault.save(draftKey, InboxEditDraft(title, detail, duration, durationValid, priority))
     AppDialog(
         onDismissRequest = onDismiss,
-        title = { Text("编辑收集箱项目") },
+        title = { Text(if (item.kind == "收集箱") "编辑收集箱项目" else "编辑待办") },
         text = { Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             OutlinedTextField(value = title, onValueChange = { title = it; persist() }, label = { Text("事情") }, singleLine = true)
             OutlinedTextField(value = detail, onValueChange = { detail = it; persist() }, label = { Text("备注（可选）") }, minLines = 2)
@@ -94,7 +94,7 @@ private data class QuickCaptureEditorDraft(
         } },
         confirmButton = { Button(enabled = title.isNotBlank() && durationValid, onClick = {
             vault.clear(draftKey)
-            onSave(title.trim(), detail.trim().ifBlank { "稍后决定安排" }, duration, priority)
+            onSave(title.trim(), detail.trim().ifBlank { if (item.kind == "收集箱") "稍后决定安排" else "尚未安排具体时间" }, duration, priority)
         }) { Text("保存") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }
     )

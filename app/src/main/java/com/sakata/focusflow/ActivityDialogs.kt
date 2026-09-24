@@ -21,8 +21,8 @@ private data class ActivityDialogDraft(val category: String, val customName: Str
 /** 活动转场草稿：关闭后重开恢复正在填写的内容（8.1.0 草稿保险箱）。 */
 private data class ActivityTransitionDraft(val extensionMinutes: Int, val reason: String, val endTimeChoice: String)
 
-/** 加号菜单：快速记录 / 安排空闲活动（触发方式，与原有入口不冲突）。 */
-@Composable internal fun AddMenuDialog(onDismiss: () -> Unit, onQuickCapture: () -> Unit, onGamePlan: () -> Unit) {
+/** 加号菜单：快速记录仍为首项，待办另有明确入口。 */
+@Composable internal fun AddMenuDialog(onDismiss: () -> Unit, onQuickCapture: () -> Unit, onAddTodo: () -> Unit, onGamePlan: () -> Unit) {
     AppDialog(
         onDismissRequest = onDismiss,
         title = { Text("添加") },
@@ -32,6 +32,12 @@ private data class ActivityTransitionDraft(val extensionMinutes: Int, val reason
                 Column(Modifier.fillMaxWidth().clickable(onClick = onQuickCapture).padding(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text("快速记录", fontWeight = FontWeight.SemiBold)
                     Text("记一个想法，稍后再安排。", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+            FocusCard(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest) {
+                Column(Modifier.fillMaxWidth().clickable(onClick = onAddTodo).padding(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text("新增待办", fontWeight = FontWeight.SemiBold)
+                    Text("先写标题，可以不定时间。", style = MaterialTheme.typography.bodySmall)
                 }
             }
             // 收编：无显式底色的 Card → FocusCard，显式保留 Card 默认底色 surfaceContainerHighest。

@@ -23,6 +23,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable internal fun TodayScreen(
     modifier: Modifier,
     items: List<Item>,
@@ -56,6 +57,7 @@ import kotlinx.coroutines.delay
     onPickTime: (Item) -> Unit,
     onEdit: (Item) -> Unit,
     onOrganize: (Item) -> Unit,
+    onBatchOrganize: (Set<Long>, InboxBatchAction) -> Boolean,
     onCreateNextAction: (Item) -> Unit,
     onRestoreCapture: (Item) -> Unit,
     onShrink: (Item) -> Unit,
@@ -93,6 +95,10 @@ import kotlinx.coroutines.delay
     val capturedAt = remember(taskEvents) {
         taskEvents.filter { it.type == TaskEventType.TASK_CREATED }
             .groupBy { it.itemId }.mapValues { (_, events) -> events.minOf { it.recordedAt } }
+    }
+    val lastReviewedAt = remember(taskEvents) {
+        taskEvents.filter { it.type == TaskEventType.CAPTURE_ROUTED && it.extra == InboxBatchAction.KEEP.label }
+            .groupBy { it.itemId }.mapValues { (_, events) -> events.maxOf { it.recordedAt } }
     }
     val progressItems = remember(inboxItems) { inboxItems.filter { CaptureRoute.fromKey(it.captureRoute) == CaptureRoute.PROGRESS } }
     val referenceItems = remember(inboxItems) { inboxItems.filter { CaptureRoute.fromKey(it.captureRoute) == CaptureRoute.REFERENCE } }
@@ -136,6 +142,13 @@ import kotlinx.coroutines.delay
     val overviewScrollState = rememberScrollState()
     var inboxFilter by remember { mutableStateOf("全部") }
     var expandedInboxId by remember { mutableStateOf<Long?>(null) }
+    var inboxSelecting by remember { mutableStateOf(false) }
+    var selectedInboxIds by remember { mutableStateOf(emptySet<Long>()) }
+    val selectableInboxItems = remember(pendingInboxItems) {
+        pendingInboxItems.filterNot { it.title.startsWith("重新安排：") }
+    }
+    val selectableIds = remember(selectableInboxItems) { selectableInboxItems.mapTo(mutableSetOf()) { it.id } }
+    val activeSelection = selectedInboxIds.intersect(selectableIds)
     val pendingAgeGroups = remember(pendingInboxItems, capturedAt, now / 60_000L) {
         groupInboxByAge(pendingInboxItems, capturedAt, now)
     }
@@ -454,7 +467,7 @@ import kotlinx.coroutines.delay
                     ).forEach { (label, count) ->
                         FilterChip(
                             selected = inboxFilter == label,
-                            onClick = { inboxFilter = label },
+                            onClick = { inboxFilter = label; inboxSelecting = false; selectedInboxIds = emptySet() },
                             label = { Text("$label $count") }
                         )
                     }
@@ -465,21 +478,62 @@ import kotlinx.coroutines.delay
                     }
                 } else {
                     if ((inboxFilter == "全部" || inboxFilter == "待整理") && pendingInboxItems.isNotEmpty()) {
-                        Text("待整理 · ${pendingInboxItems.size}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                        listOf(
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Text("待整理 · ${pendingInboxItems.size}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                            if (selectableInboxItems.isNotEmpty()) TextButton(onClick = {
+                                inboxSelecting = !inboxSelecting
+                                expandedInboxId = null
+                                selectedInboxIds = emptySet()
+                            }) { Text(if (inboxSelecting) "完成" else "整理多项") }
+                        }
+                        AnimatedVisibility(inboxSelecting) {
+                            FocusCard(containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
+                                Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                        Text("已选 ${activeSelection.size} 项", style = MaterialTheme.typography.titleSmall)
+                                        TextButton(onClick = {
+                                            selectedInboxIds = if (activeSelection.size == selectableIds.size) emptySet() else selectableIds
+                                        }) { Text(if (activeSelection.size == selectableIds.size) "清空" else "全选") }
+                                    }
+                                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp), maxItemsInEachRow = 2) {
+                                        InboxBatchAction.entries.forEach { action ->
+                                            OutlinedButton(onClick = {
+                                                if (onBatchOrganize(activeSelection, action)) {
+                                                    selectedInboxIds = emptySet()
+                                                    inboxSelecting = false
+                                                }
+                                            }, enabled = activeSelection.isNotEmpty()) { Text(action.label) }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        val displayGroups = if (inboxSelecting) listOf(
+                            "之前记录" to pendingAgeGroups.earlier.asReversed(),
+                            "最近记录" to pendingAgeGroups.recent.asReversed(),
+                            "记录时间未标记" to pendingAgeGroups.undated
+                        ) else listOf(
                             "最近记录" to pendingAgeGroups.recent,
                             "之前记录" to pendingAgeGroups.earlier,
                             "记录时间未标记" to pendingAgeGroups.undated
-                        ).forEach { (label, group) ->
+                        )
+                        displayGroups.forEach { (label, group) ->
                             if (group.isNotEmpty()) {
                                 Text("$label · ${group.size}", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 group.forEach { item ->
                                     InboxItemCard(
                                         item = item,
                                         recordedAt = capturedAt[item.id],
+                                        reviewedAt = lastReviewedAt[item.id],
                                         now = now,
-                                        expanded = expandedInboxId == item.id,
-                                        onToggle = { expandedInboxId = if (expandedInboxId == item.id) null else item.id },
+                                        expanded = !inboxSelecting && expandedInboxId == item.id,
+                                        selecting = inboxSelecting && item.id in selectableIds,
+                                        selected = item.id in activeSelection,
+                                        onToggle = {
+                                            if (inboxSelecting && item.id in selectableIds) selectedInboxIds =
+                                                if (item.id in activeSelection) activeSelection - item.id else activeSelection + item.id
+                                            else if (!inboxSelecting) expandedInboxId = if (expandedInboxId == item.id) null else item.id
+                                        },
                                         onPickTime = onPickTime,
                                         onEdit = onEdit,
                                         onOrganize = onOrganize,
@@ -677,8 +731,11 @@ private fun StatusChoiceRow(label: String, options: List<String>, selected: Stri
 @Composable internal fun InboxItemCard(
     item: Item,
     recordedAt: Long?,
+    reviewedAt: Long?,
     now: Long,
     expanded: Boolean,
+    selecting: Boolean,
+    selected: Boolean,
     onToggle: () -> Unit,
     onPickTime: (Item) -> Unit,
     onEdit: (Item) -> Unit,
@@ -697,11 +754,12 @@ private fun StatusChoiceRow(label: String, options: List<String>, selected: Stri
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            if (selecting) Checkbox(checked = selected, onCheckedChange = { onToggle() })
             Text(item.title, Modifier.weight(1f), fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             recordedAt?.takeIf { it > 0 }?.let {
                 Text(captureAgeLabel(it, now), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            Text(if (expanded) "收起" else "展开", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+            if (!selecting) Text(if (expanded) "收起" else "展开", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
         }
         AnimatedVisibility(visible = expanded, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
             Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -710,6 +768,7 @@ private fun StatusChoiceRow(label: String, options: List<String>, selected: Stri
                     Text("备注：${item.userNote}", style = MaterialTheme.typography.bodySmall)
                 }
                 Text("预计 ${item.durationMinutes} 分钟 · 优先级 ${ItemPriority.fromKey(item.priority).label}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                reviewedAt?.let { Text("上次回顾 ${captureAgeLabel(it, now)}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 if (!item.title.startsWith("重新安排：")) {
                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
                         TextButton(onClick = { onPickTime(item) }) { Text("安排时间") }

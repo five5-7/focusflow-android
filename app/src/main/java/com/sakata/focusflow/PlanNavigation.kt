@@ -1,6 +1,7 @@
 package com.sakata.focusflow
 
 internal enum class PlanPage(val title: String) {
+    TODOS("待办"),
     COURSES("课程"),
     GAPS("空挡建议"),
     GOALS("目标与执行"),
@@ -11,6 +12,7 @@ internal enum class PlanPage(val title: String) {
 }
 
 internal data class PlanHubSnapshot(
+    val pendingTodoCount: Int = 0,
     val confirmedCourseCount: Int = 0,
     val pendingCourseCount: Int = 0,
     val conflictingCourseCount: Int = 0,
@@ -26,6 +28,7 @@ internal data class PlanHubSnapshot(
 
 internal object PlanHubSummary {
     fun entries(snapshot: PlanHubSnapshot): List<Pair<PlanPage, String>> = listOf(
+        PlanPage.TODOS to if (snapshot.pendingTodoCount == 0) "暂无未完成待办" else "${snapshot.pendingTodoCount} 项未完成",
         PlanPage.COURSES to courseSummary(snapshot),
         PlanPage.GAPS to if (snapshot.gapCount == 0) {
             "暂无可用空挡"
