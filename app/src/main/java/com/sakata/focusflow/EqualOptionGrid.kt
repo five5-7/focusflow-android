@@ -25,6 +25,22 @@ internal fun equalOptionColumns(widthDp: Float, fontScale: Float, count: Int): I
     }
 }
 
+/** Fill every row for five choices, without leaving one narrow chip alone on the last row. */
+internal fun optionRowSizes(widthDp: Float, fontScale: Float, count: Int): List<Int> {
+    if (count <= 0) return emptyList()
+    if (count != 5) {
+        val columns = equalOptionColumns(widthDp, fontScale, count)
+        return List(count / columns) { columns } + listOf(count % columns).filter { it > 0 }
+    }
+    val scale = fontScale.coerceAtLeast(1f)
+    return when {
+        widthDp >= 5 * 136f * scale + 4 * 8f -> listOf(5)
+        widthDp >= 3 * 100f * scale + 2 * 8f -> listOf(2, 3)
+        widthDp >= 2 * 136f * scale + 8f -> listOf(1, 2, 2)
+        else -> List(5) { 1 }
+    }
+}
+
 @Composable
 internal fun <T> EqualOptionGrid(
     options: List<Pair<T, String>>,
@@ -34,9 +50,12 @@ internal fun <T> EqualOptionGrid(
 ) {
     if (options.isEmpty()) return
     BoxWithConstraints(modifier.fillMaxWidth()) {
-        val columns = equalOptionColumns(maxWidth.value, LocalDensity.current.fontScale, options.size)
+        val rowSizes = optionRowSizes(maxWidth.value, LocalDensity.current.fontScale, options.size)
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            options.chunked(columns).forEach { rowOptions ->
+            var next = 0
+            rowSizes.forEach { columns ->
+                val rowOptions = options.subList(next, next + columns)
+                next += columns
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     rowOptions.forEach { (value, label) ->
                         FilterChip(
@@ -46,7 +65,6 @@ internal fun <T> EqualOptionGrid(
                             label = { Text(label, Modifier.fillMaxWidth(), textAlign = TextAlign.Center) }
                         )
                     }
-                    repeat(columns - rowOptions.size) { androidx.compose.foundation.layout.Spacer(Modifier.weight(1f)) }
                 }
             }
         }
