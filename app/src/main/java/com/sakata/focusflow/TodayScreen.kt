@@ -129,7 +129,7 @@ import kotlinx.coroutines.delay
             baselineComplete = baselineProfile.isComplete,
             mealRecordCount = mealRecords.size,
             mealReminderEnabled = mealReminderEnabled,
-            goalCount = goals.size + if (items.any { !it.done && it.goalId != null }) 1 else 0,
+            goalCount = goals.count { it.state == PlanState.IN_PROGRESS } + if (items.any { !it.done && it.goalId != null }) 1 else 0,
             confirmedCourseCount = courses.count { !it.needsConfirmation },
             lifeStage = baselineProfile.lifeStage,
             campusLifeEnabled = campusLifeEnabled,

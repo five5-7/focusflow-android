@@ -4,6 +4,7 @@ import android.content.Context
 import com.sakata.focusflow.ActivitySession
 import com.sakata.focusflow.Course
 import com.sakata.focusflow.Goal
+import com.sakata.focusflow.PlanState
 import com.sakata.focusflow.Item
 import com.sakata.focusflow.PrototypeStore
 import com.sakata.focusflow.TaskEvent
@@ -111,7 +112,7 @@ class RoomCoreDataReadRepository(private val source: RoomCoreDataSource) : CoreD
             if (tasks.zip(mappedTasks).any { (entity, item) -> entity.status != TaskStatusKey.fromLegacy(item) }) {
                 return CoreDataReadResult.Invalid("tasks contains an inconsistent status")
             }
-            if (plans.any { it.state != PlanEntity.ACTIVE }) {
+            if (plans.any { PlanState.fromKey(it.state) == null }) {
                 return CoreDataReadResult.Invalid("plans contains an unsupported state")
             }
 
@@ -327,5 +328,6 @@ internal fun PlanEntity.toLegacy(): Goal = Goal(
     completionWeekKey = completionWeekKey,
     desiredOutcome = desiredOutcome,
     firstAction = firstAction,
-    sourceNotes = sourceNotes
+    sourceNotes = sourceNotes,
+    state = requireNotNull(PlanState.fromKey(state))
 )

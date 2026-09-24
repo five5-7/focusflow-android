@@ -2,6 +2,7 @@ package com.sakata.focusflow
 
 internal enum class InboxBatchAction(val label: String) {
     TO_TASK("转待办"),
+    TO_WANTED("合并为想做"),
     REFERENCE("留作参考"),
     KEEP("暂时保留"),
     DELETE("删除")
@@ -27,6 +28,8 @@ internal object InboxBatchActions {
             }) return InboxBatchResult(items, emptyList(), emptyList())
 
         val changed = when (action) {
+            // Plan creation needs a task + plan transaction; handled by WantedPlanActions.
+            InboxBatchAction.TO_WANTED -> return InboxBatchResult(items, emptyList(), emptyList())
             InboxBatchAction.TO_TASK -> items.map { item ->
                 if (item.id in selectedIds) item.preservingNote().copy(
                     kind = "任务", detail = "尚未安排具体时间", scheduledAt = null,

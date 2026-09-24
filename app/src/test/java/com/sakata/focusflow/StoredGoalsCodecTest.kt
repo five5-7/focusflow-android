@@ -19,6 +19,7 @@ class StoredGoalsCodecTest {
         assertEquals("", goal.desiredOutcome)
         assertEquals("", goal.firstAction)
         assertEquals(1234L, goal.completionWeekKey)
+        assertEquals(PlanState.IN_PROGRESS, goal.state)
     }
 
     @Test
@@ -65,6 +66,15 @@ class StoredGoalsCodecTest {
         assertEquals("线代课程", resource.title)
         assertFalse(resource.selected)
         assertEquals("", resource.summary)
+    }
+
+    @Test
+    fun `wanted and paused plans survive legacy JSON storage`() {
+        val plans = listOf(PlanState.WANTED, PlanState.PAUSED, PlanState.COMPLETED).mapIndexed { index, state ->
+            Goal(id = 31L + index, title = "计划$index", weeklyTarget = 1, durationMinutes = 30,
+                state = state, sourceNotes = "原始想法 $index")
+        }
+        assertEquals(plans, StoredGoalsCodec.decodeGoals(StoredGoalsCodec.encodeGoals(plans)))
     }
 
     @Test

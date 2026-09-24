@@ -11,7 +11,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 
-@Composable internal fun PlansScreen(modifier: Modifier, items: List<Item>, courses: List<Course>, profile: CommuteProfile, lifeStage: LifeStage?, campusLifeEnabled: Boolean, onCampusLifeRequired: () -> Unit, page: PlanPage?, onPageChange: (PlanPage?) -> Unit, onResume: (Item) -> Unit, onAddTodo: () -> Unit, onCompleteTodo: (Item) -> Unit, onTodoDetail: (Item) -> Unit, onConfirmCourse: (Course) -> Unit, onConfirmSafeCourses: () -> Unit, onIgnoreCourse: (Course) -> Unit, onClearAwaitingCourses: () -> Unit, onAddCourse: () -> Unit, courseImportRunning: Boolean, courseImportMessage: String?, onImportCourses: () -> Unit, onImportZju: () -> Unit, onEditCourse: (Course) -> Unit, onToggleCourse: (Course) -> Unit, onDeleteCourses: (Set<Course>) -> Unit, goals: List<Goal>, onAddGoal: () -> Unit, onEditGoal: (Goal) -> Unit, onDeleteGoal: (Goal) -> Unit, onScheduleGoal: (Goal, GoalSuggestion) -> Unit, onChooseGoalTime: (Goal) -> Unit, onScheduleFlexible: (Item, Int, Int) -> Unit, resources: List<LearningResource>, onAddResource: () -> Unit, onSelectResource: (LearningResource) -> Unit, onDeleteResource: (LearningResource) -> Unit, onDeselectResource: () -> Unit, onSummarizeResource: (LearningResource) -> Unit, onAutoPlanGoals: () -> Unit, autoPlanMessage: String?, tutorialSearch: TutorialSearchSettings, aiWeeklySummary: AiWeeklySummarySettings, courseVision: CourseVisionSettings, onSearchTutorial: () -> Unit, onVideoAnalysis: () -> Unit, feedback: List<TaskFeedback>, gameSessions: List<GameSessionRecord>, checkIns: List<StatusCheckIn>, taskEvents: List<TaskEvent>, onReplaceTaskEvents: (List<TaskEvent>) -> Boolean, store: PrototypeStore) {
+@Composable internal fun PlansScreen(modifier: Modifier, items: List<Item>, courses: List<Course>, profile: CommuteProfile, lifeStage: LifeStage?, campusLifeEnabled: Boolean, onCampusLifeRequired: () -> Unit, page: PlanPage?, onPageChange: (PlanPage?) -> Unit, onResume: (Item) -> Unit, onAddTodo: () -> Unit, onCompleteTodo: (Item) -> Unit, onTodoDetail: (Item) -> Unit, onConfirmCourse: (Course) -> Unit, onConfirmSafeCourses: () -> Unit, onIgnoreCourse: (Course) -> Unit, onClearAwaitingCourses: () -> Unit, onAddCourse: () -> Unit, courseImportRunning: Boolean, courseImportMessage: String?, onImportCourses: () -> Unit, onImportZju: () -> Unit, onEditCourse: (Course) -> Unit, onToggleCourse: (Course) -> Unit, onDeleteCourses: (Set<Course>) -> Unit, goals: List<Goal>, onAddGoal: () -> Unit, onEditGoal: (Goal) -> Unit, onDeleteGoal: (Goal) -> Unit, onScheduleGoal: (Goal, GoalSuggestion) -> Unit, onChooseGoalTime: (Goal) -> Unit, onScheduleFlexible: (Item, Int, Int) -> Unit, resources: List<LearningResource>, onAddResource: () -> Unit, onSelectResource: (LearningResource) -> Unit, onDeleteResource: (LearningResource) -> Unit, onDeselectResource: () -> Unit, onSummarizeResource: (LearningResource) -> Unit, onAutoPlanGoals: () -> Unit, onCreateWanted: (String) -> Boolean, onChangeGoalState: (Goal, PlanState) -> Unit, autoPlanMessage: String?, tutorialSearch: TutorialSearchSettings, aiWeeklySummary: AiWeeklySummarySettings, courseVision: CourseVisionSettings, onSearchTutorial: () -> Unit, onVideoAnalysis: () -> Unit, feedback: List<TaskFeedback>, gameSessions: List<GameSessionRecord>, checkIns: List<StatusCheckIn>, taskEvents: List<TaskEvent>, onReplaceTaskEvents: (List<TaskEvent>) -> Boolean, store: PrototypeStore) {
     // AI 周总结生效 key：独立 key 留空时沿用教程搜索的硅基流动 key。
     val weeklySummaryKey = aiWeeklySummary.apiKey.ifBlank { tutorialSearch.apiKey }
     // 假期阶段：空挡与目标建议不把课程当作安排（课程管理页仍用完整列表）。
@@ -30,6 +30,7 @@ import kotlinx.coroutines.launch
         CourseGapPlanner.gaps(planningCourses.filter { !it.needsConfirmation }, profile, occupiedByWeekday(items))
     }
     val paused = remember(items) { items.filter { it.kind == "暂停" } }
+    val activeGoals = remember(goals) { goals.filter { it.state == PlanState.IN_PROGRESS } }
     val historyDays = remember(taskEvents) { TaskHistory.lastDays(taskEvents, 7) }
     val historyCompletedCount = historyDays.sumOf { it.completedCount }
     val historyRescheduledCount = historyDays.sumOf { it.rescheduledCount }
@@ -51,10 +52,11 @@ import kotlinx.coroutines.launch
                     pendingCourseCount = awaitingCourses.size,
                     conflictingCourseCount = conflictingCourses.size,
                     gapCount = gaps.count { it.minutesFree >= 10 },
-                    goalCount = goals.size,
+                    goalCount = activeGoals.size,
+                    wantedCount = goals.count { it.state == PlanState.WANTED },
                     resourceCount = resources.size,
-                    completedThisWeek = goals.sumOf { GoalPlanner.completedThisWeek(it) },
-                    weeklyTarget = goals.sumOf { it.weeklyTarget },
+                    completedThisWeek = activeGoals.sumOf { GoalPlanner.completedThisWeek(it) },
+                    weeklyTarget = activeGoals.sumOf { it.weeklyTarget },
                     pausedCount = paused.size,
                     historyCompletedCount = historyCompletedCount,
                     historyRescheduledCount = historyRescheduledCount
@@ -102,7 +104,7 @@ import kotlinx.coroutines.launch
                 gaps = gaps,
                 planningCourses = planningCourses,
                 confirmedCourseCount = confirmedCourses.size,
-                goals = goals,
+                goals = activeGoals,
                 items = items,
                 checkIns = checkIns,
                 store = store,
@@ -127,7 +129,9 @@ import kotlinx.coroutines.launch
                 onDeleteGoal = onDeleteGoal,
                 onScheduleGoal = onScheduleGoal,
                 onChooseTime = onChooseGoalTime,
-                onAutoPlanGoals = onAutoPlanGoals
+                onAutoPlanGoals = onAutoPlanGoals,
+                onCreateWanted = onCreateWanted,
+                onChangeState = onChangeGoalState
             )
             PlanPage.TOOLBOX -> PlanToolboxSection(
                 resources = resources,
@@ -171,10 +175,10 @@ import kotlinx.coroutines.launch
                         }
                     }
                 }
-                if (goals.isEmpty()) Text("创建目标并积累完成记录后，这里会给出调整建议。", style = MaterialTheme.typography.bodySmall)
+                if (activeGoals.isEmpty()) Text("创建目标并积累完成记录后，这里会给出调整建议。", style = MaterialTheme.typography.bodySmall)
                 else {
-                    val totalFull = goals.sumOf { GoalPlanner.completedThisWeek(it) }
-                    val totalTarget = goals.sumOf { it.weeklyTarget }
+                    val totalFull = activeGoals.sumOf { GoalPlanner.completedThisWeek(it) }
+                    val totalTarget = activeGoals.sumOf { it.weeklyTarget }
                     Text(if (totalFull >= totalTarget) "本周累计 $totalFull / $totalTarget 次，目标全部达成。" else "本周累计 $totalFull / $totalTarget 次。", fontWeight = FontWeight.Bold)
                     FeedbackInsights.analyze(feedback)?.let { insight ->
                         // 收编：ElevatedCard → FocusCard，显式保留 surfaceContainerLow 底色与 1dp 默认阴影。
@@ -223,7 +227,7 @@ import kotlinx.coroutines.launch
                         weeklySummary = null
                         val dataText = buildString {
                             append("本周目标：\n")
-                            goals.forEach { g ->
+                            activeGoals.forEach { g ->
                                 append("- ${g.title}：完成 ${GoalPlanner.completedThisWeek(g)} / ${g.weeklyTarget} 次")
                                 val barrier = feedback.filter { it.goalId == g.id && it.barrier != "无" }.groupingBy { it.barrier }.eachCount().maxByOrNull { it.value }?.key
                                 if (barrier != null) append("，常见阻碍：$barrier")
@@ -240,7 +244,7 @@ import kotlinx.coroutines.launch
                     summaryError?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
                     weeklySummary?.let { FocusCard(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)) { Text(it, Modifier.fillMaxWidth().padding(12.dp), style = MaterialTheme.typography.bodySmall) } }
                 }
-                goals.forEach { goal ->
+                activeGoals.forEach { goal ->
                     val history = WeekReview.history(goal, feedback)
                     // 收编：ElevatedCard → FocusCard，显式保留 surfaceContainerLow 底色与 1dp 默认阴影。
                     FocusCard(

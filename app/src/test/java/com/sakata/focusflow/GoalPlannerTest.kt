@@ -103,6 +103,14 @@ class GoalPlannerTest {
         assertEquals("所有目标本周次数都已排满或完成，无需再排。", result.message)
     }
 
+    @Test fun autoPlan_doesNotScheduleWantedOrPausedPlans() {
+        val dormant = listOf(PlanState.WANTED, PlanState.PAUSED, PlanState.COMPLETED).map {
+            Goal(title = it.label, weeklyTarget = 2, durationMinutes = 30, state = it)
+        }
+        val result = GoalPlanner.autoPlan(dormant, emptyList(), emptyList(), CommuteProfile(), { _, _ -> null })
+        assertTrue(result.newItems.isEmpty())
+    }
+
     @Test fun autoPlan_noFreeSlotsReportsBusyWeek() {
         // 每天一门 1–13 节连堂课占满课堂时段 → 无 ≥60 分钟自由时段 → 无可排时段
         val tuesday = Calendar.getInstance().apply { clear(); set(2026, Calendar.SEPTEMBER, 1, 16, 45) }.timeInMillis
