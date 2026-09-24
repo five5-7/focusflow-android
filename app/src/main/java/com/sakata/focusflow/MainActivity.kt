@@ -873,10 +873,15 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
 
     fun saveItemsAndGoalsWithEvent(updatedItems: List<Item>, updatedGoals: List<Goal>, event: TaskEvent?): Boolean {
         if (event == null) return false
+        return saveItemsAndGoalsWithEvents(updatedItems, updatedGoals, listOf(event))
+    }
+
+    fun saveItemsAndGoalsWithEvents(updatedItems: List<Item>, updatedGoals: List<Goal>, events: List<TaskEvent>): Boolean {
+        if (events.isEmpty()) return false
         val previousItems = items
         val previousGoals = goals
         if (!coreDataRepository.replaceTasksAppendEventsAndPlans(
-                updatedItems, listOf(event), updatedGoals, previousItems, previousGoals
+                updatedItems, events, updatedGoals, previousItems, previousGoals
             ).applied) {
             val current = readCoreData()
             items = current.items
@@ -1370,6 +1375,16 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                     onEdit = { item -> inboxEditTarget = item },
                     onOrganize = { item -> organizeTarget = item },
                     onBatchOrganize = { selectedIds, action ->
+                        if (action == InboxBatchAction.TO_WANTED) {
+                            val converted = WantedPlanActions.fromInbox(items, goals, selectedIds)
+                            if (converted.created == null) {
+                                scope.launch { snackbarHostState.showSnackbar("所选条目已变化，请重新选择。") }
+                                false
+                            } else if (saveItemsAndGoalsWithEvents(converted.items, converted.plans, converted.events)) {
+                                scope.launch { snackbarHostState.showSnackbar("已合并为想做《${converted.created.title}》") }
+                                true
+                            } else false
+                        } else {
                         val before = items
                         val result = InboxBatchActions.apply(before, selectedIds, action)
                         if (result.events.isEmpty()) {
@@ -1388,6 +1403,7 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                                 scope.launch { snackbarHostState.showSnackbar("已${action.label} ${result.affected.size} 项") }
                             }
                             true
+                        }
                         }
                     },
                     onCreateNextAction = { parent ->
@@ -1576,6 +1592,16 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                     onDeleteGoal = { goal ->
                         if (saveGoals(goals.filterNot { it.id == goal.id })) {
                             scope.launch { snackbarHostState.showSnackbar("已删除目标《${goal.title}》") }
+                        }
+                    },
+                    onCreateWanted = { title ->
+                        val plan = WantedPlanActions.create(goals, title)
+                        plan != null && saveGoals(goals + plan)
+                    },
+                    onChangeGoalState = { goal, state ->
+                        val changed = WantedPlanActions.changeState(goal, state)
+                        if (changed != null && goals.any { it == goal }) {
+                            saveGoals(goals.map { if (it.id == goal.id) changed else it })
                         }
                     },
                     onScheduleGoal = { goal, suggestion ->
@@ -2321,6 +2347,13 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                 }
             },
             onConvertToGoal = { organizeTarget = null; convertTarget = item },
+            onWant = {
+                val converted = WantedPlanActions.fromInbox(items, goals, setOf(item.id))
+                if (converted.created != null && saveItemsAndGoalsWithEvents(converted.items, converted.plans, converted.events)) {
+                    organizeTarget = null
+                    scope.launch { snackbarHostState.showSnackbar("已记入想做《${converted.created.title}》") }
+                }
+            },
             onAttachToPlan = { organizeTarget = null; attachTarget = item }
         ) }
         convertTarget?.let { item -> GoalEditorDialog(
@@ -2365,7 +2398,7 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
             }
         } }
         attachTarget?.let { item -> AttachToPlanDialog(
-            goals = goals,
+            goals = goals.filter { it.state == PlanState.IN_PROGRESS },
             onDismiss = { attachTarget = null },
             onAttach = { goal ->
                 val result = TaskActions.attachToGoal(items, item, goal)

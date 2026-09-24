@@ -18,6 +18,7 @@ internal data class PlanHubSnapshot(
     val conflictingCourseCount: Int = 0,
     val gapCount: Int = 0,
     val goalCount: Int = 0,
+    val wantedCount: Int = 0,
     val resourceCount: Int = 0,
     val completedThisWeek: Int = 0,
     val weeklyTarget: Int = 0,
@@ -35,10 +36,10 @@ internal object PlanHubSummary {
         } else {
             "${snapshot.gapCount} 段可用空挡"
         },
-        PlanPage.GOALS to if (snapshot.goalCount == 0) {
-            "尚未创建目标"
+        PlanPage.GOALS to if (snapshot.goalCount == 0 && snapshot.wantedCount == 0) {
+            "尚未创建目标或想做"
         } else {
-            "${snapshot.goalCount} 个目标"
+            "${snapshot.goalCount} 个进行中 · ${snapshot.wantedCount} 个想做"
         },
         PlanPage.REVIEW to if (snapshot.goalCount == 0) {
             "有目标后生成建议"

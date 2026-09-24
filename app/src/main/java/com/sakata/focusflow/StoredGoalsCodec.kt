@@ -27,7 +27,9 @@ object StoredGoalsCodec {
                 completionWeekKey = goal.optLong("completionWeekKey", defaultWeekKey),
                 desiredOutcome = goal.optString("desiredOutcome", ""),
                 firstAction = goal.optString("firstAction", ""),
-                sourceNotes = goal.optString("sourceNotes", "")
+                sourceNotes = goal.optString("sourceNotes", ""),
+                state = PlanState.fromKey(goal.optString("state", PlanState.IN_PROGRESS.key))
+                    ?: PlanState.IN_PROGRESS
             )
         }
     }.getOrDefault(emptyList())
@@ -49,6 +51,7 @@ object StoredGoalsCodec {
             put("desiredOutcome", goal.desiredOutcome)
             put("firstAction", goal.firstAction)
             put("sourceNotes", goal.sourceNotes)
+            put("state", goal.state.key)
         }) }
     }.toString()
 

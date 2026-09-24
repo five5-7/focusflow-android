@@ -8,6 +8,7 @@ import com.sakata.focusflow.ActivitySession
 import com.sakata.focusflow.Course
 import com.sakata.focusflow.CampusZone
 import com.sakata.focusflow.Goal
+import com.sakata.focusflow.PlanState
 import com.sakata.focusflow.Item
 import com.sakata.focusflow.TaskEvent
 
@@ -156,7 +157,7 @@ data class PlanEntity(
             id = goal.id,
             sourceOrder = sourceOrder,
             title = goal.title,
-            state = ACTIVE,
+            state = goal.state.key,
             weeklyTarget = goal.weeklyTarget,
             durationMinutes = goal.durationMinutes,
             metricType = goal.metricType,
