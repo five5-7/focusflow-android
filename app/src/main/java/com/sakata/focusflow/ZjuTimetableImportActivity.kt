@@ -10,6 +10,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -30,6 +31,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.LocalContentColor
@@ -67,6 +69,8 @@ import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.util.Calendar
+import java.util.TimeZone
 
 internal enum class ZjuStepVisualState { COMPLETE, ACTIVE, UPCOMING, FAILED }
 
@@ -135,10 +139,26 @@ class ZjuTimetableImportActivity : ComponentActivity() {
                 var running by remember { mutableStateOf(false) }
                 var currentStage by remember { mutableStateOf<ZjuImportStage?>(null) }
                 var failure by remember { mutableStateOf<String?>(null) }
+                var specifySemester by remember { mutableStateOf(false) }
+                val initialYear = remember {
+                    Calendar.getInstance(TimeZone.getTimeZone("Asia/Shanghai")).let {
+                        it.get(Calendar.YEAR) - if (it.get(Calendar.MONTH) < Calendar.AUGUST) 1 else 0
+                    }
+                }
+                var selectedYear by remember { mutableStateOf(initialYear.toString()) }
+                var selectedTerm by remember { mutableStateOf(ZjuTerm.FALL_WINTER) }
 
                 fun beginImport() {
                     if (running) return
                     val trimmedUsername = username.trim()
+                    val manualSemester = if (specifySemester) {
+                        val year = selectedYear.toIntOrNull()
+                        if (year == null || year !in 2000..2100) {
+                            failure = "请填写有效的学年起始年份，如 2026。"
+                            return
+                        }
+                        ZjuManualSemester(year, selectedTerm)
+                    } else null
                     val passwordChars = password.toCharArray()
                     password = ""
                     if (trimmedUsername.isBlank() || passwordChars.isEmpty()) {
@@ -153,6 +173,7 @@ class ZjuTimetableImportActivity : ComponentActivity() {
                     ZjuTimetableClient.fetch(
                         username = trimmedUsername,
                         password = passwordChars,
+                        manualSemester = manualSemester,
                         onProgress = { stage ->
                             if (!isFinishing && !isDestroyed) currentStage = stage
                         },
@@ -215,6 +236,12 @@ class ZjuTimetableImportActivity : ComponentActivity() {
                                 running = running,
                                 currentStage = currentStage,
                                 failure = failure,
+                                specifySemester = specifySemester,
+                                onSpecifySemesterChange = { specifySemester = it; failure = null },
+                                selectedYear = selectedYear,
+                                onSelectedYearChange = { selectedYear = it.filter(Char::isDigit).take(4); failure = null },
+                                selectedTerm = selectedTerm,
+                                onSelectedTermChange = { selectedTerm = it },
                                 onBack = { finish() },
                                 onStart = ::beginImport
                             )
@@ -242,12 +269,19 @@ private fun ZjuTimetableImportScreen(
     running: Boolean,
     currentStage: ZjuImportStage?,
     failure: String?,
+    specifySemester: Boolean,
+    onSpecifySemesterChange: (Boolean) -> Unit,
+    selectedYear: String,
+    onSelectedYearChange: (String) -> Unit,
+    selectedTerm: ZjuTerm,
+    onSelectedTermChange: (ZjuTerm) -> Unit,
     onBack: () -> Unit,
     onStart: () -> Unit
 ) {
     val focusManager = LocalFocusManager.current
     var showPassword by remember { mutableStateOf(false) }
-    val canStart = username.isNotBlank() && password.isNotBlank() && !running
+    val canStart = username.isNotBlank() && password.isNotBlank() && !running &&
+        (!specifySemester || (selectedYear.toIntOrNull() ?: 0) in 2000..2100)
 
     Scaffold(
         containerColor = Color.Transparent,
@@ -286,6 +320,12 @@ private fun ZjuTimetableImportScreen(
                 onTogglePassword = { showPassword = !showPassword },
                 running = running,
                 canStart = canStart,
+                specifySemester = specifySemester,
+                onSpecifySemesterChange = onSpecifySemesterChange,
+                selectedYear = selectedYear,
+                onSelectedYearChange = onSelectedYearChange,
+                selectedTerm = selectedTerm,
+                onSelectedTermChange = onSelectedTermChange,
                 onStart = {
                     focusManager.clearFocus()
                     onStart()
@@ -294,7 +334,8 @@ private fun ZjuTimetableImportScreen(
             ImportProgressCard(
                 currentStage = currentStage,
                 running = running,
-                failed = failure != null
+                failed = failure != null,
+                specifySemester = specifySemester
             )
             if (failure != null) FailureCard(failure)
             ImportBoundaryNote()
@@ -331,7 +372,7 @@ private fun ImportHeader() {
                 color = MaterialTheme.colorScheme.primary
             )
             Text(
-                "自动读取当前学年与学期课表",
+                "自动读取当前学期，也可指定学期",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -349,6 +390,12 @@ private fun CredentialCard(
     onTogglePassword: () -> Unit,
     running: Boolean,
     canStart: Boolean,
+    specifySemester: Boolean,
+    onSpecifySemesterChange: (Boolean) -> Unit,
+    selectedYear: String,
+    onSelectedYearChange: (String) -> Unit,
+    selectedTerm: ZjuTerm,
+    onSelectedTermChange: (ZjuTerm) -> Unit,
     onStart: () -> Unit
 ) {
     FocusCard(
@@ -397,6 +444,48 @@ private fun CredentialCard(
                     }
                 }
             )
+            Text("选择学期", style = MaterialTheme.typography.labelLarge)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(
+                    selected = !specifySemester,
+                    onClick = { onSpecifySemesterChange(false) },
+                    enabled = !running,
+                    label = { Text("自动读取") }
+                )
+                FilterChip(
+                    selected = specifySemester,
+                    onClick = { onSpecifySemesterChange(true) },
+                    enabled = !running,
+                    label = { Text("指定学期") }
+                )
+            }
+            if (specifySemester) {
+                OutlinedTextField(
+                    value = selectedYear,
+                    onValueChange = onSelectedYearChange,
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !running,
+                    singleLine = true,
+                    label = { Text("学年起始年份") },
+                    supportingText = { Text("例如 2026 表示 2026—2027 学年") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                )
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ZjuTerm.entries.forEach { term ->
+                        FilterChip(
+                            selected = selectedTerm == term,
+                            onClick = { onSelectedTermChange(term) },
+                            enabled = !running,
+                            label = { Text(term.display) }
+                        )
+                    }
+                }
+                Text(
+                    "指定学期会跳过读取当前学期页面，仍需登录教务网并下载所选课表。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
             Surface(
                 color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.58f),
                 shape = RoundedCornerShape(16.dp)
@@ -423,7 +512,7 @@ private fun CredentialCard(
                 modifier = Modifier.fillMaxWidth().height(54.dp),
                 shape = RoundedCornerShape(17.dp)
             ) {
-                Text(if (running) "正在自动获取…" else "自动获取课表", fontWeight = FontWeight.SemiBold)
+                Text(if (running) "正在获取…" else "获取课表", fontWeight = FontWeight.SemiBold)
             }
         }
     }
@@ -433,7 +522,8 @@ private fun CredentialCard(
 private fun ImportProgressCard(
     currentStage: ZjuImportStage?,
     running: Boolean,
-    failed: Boolean
+    failed: Boolean,
+    specifySemester: Boolean
 ) {
     val stages = remember {
         listOf(
@@ -477,7 +567,7 @@ private fun ImportProgressCard(
             stages.forEachIndexed { index, (stage, label) ->
                 ImportStepRow(
                     number = index + 1,
-                    label = label,
+                    label = if (stage == ZjuImportStage.LOADING_SEMESTER && specifySemester) "使用指定学期" else label,
                     state = zjuStepVisualState(stage, currentStage, running, failed)
                 )
                 if (index != stages.lastIndex) {
