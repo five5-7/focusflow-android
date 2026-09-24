@@ -48,4 +48,14 @@ class ZjuTimetableClientTest {
         assertEquals("2026-2027", ZjuTimetableClient.parseSemesterOption(html, "xnm")?.value)
         assertEquals("1|冬", ZjuTimetableClient.parseSemesterOption(html, "xqm")?.value)
     }
+
+    @Test
+    fun `specified academic year and terms use timetable query codes`() {
+        val selected = ZjuManualSemester(2026, ZjuTerm.FALL_WINTER)
+        assertEquals("2026", selected.yearCode)
+        assertEquals("2026-2027", selected.yearDisplay)
+        assertEquals("3", selected.term.code)
+        assertEquals("12", ZjuTerm.SPRING_SUMMER.code)
+        assertEquals("16", ZjuTerm.SHORT.code)
+    }
 }

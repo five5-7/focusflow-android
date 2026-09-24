@@ -9,9 +9,13 @@ import java.math.BigInteger
 import java.net.CookieManager
 import java.net.CookiePolicy
 import java.net.HttpURLConnection
+import java.net.SocketTimeoutException
 import java.net.URI
 import java.net.URLEncoder
 import java.nio.CharBuffer
+import java.util.Timer
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 
 internal enum class ZjuImportStage(val percent: Int, val label: String) {
     CONNECTING(8, "正在连接浙江大学统一身份认证…"),
@@ -36,6 +40,16 @@ internal sealed interface ZjuTimetableFetchResult {
 
 internal data class ZjuCasFormField(val name: String, val value: String, val type: String)
 internal data class ZjuSemesterOption(val value: String, val text: String, val selected: Boolean)
+internal enum class ZjuTerm(val code: String, val display: String) {
+    FALL_WINTER("3", "秋冬"), SPRING_SUMMER("12", "春夏"), SHORT("16", "短学期")
+}
+
+internal data class ZjuManualSemester(val startYear: Int, val term: ZjuTerm) {
+    val yearCode: String get() = startYear.toString()
+    val yearDisplay: String get() = "$startYear-${startYear + 1}"
+
+    init { require(startYear in 2000..2100) }
+}
 
 /**
  * 浙江大学课表原生短链路。账号和密码不写入文件、SharedPreferences 或日志；
@@ -55,6 +69,7 @@ internal object ZjuTimetableClient {
     fun fetch(
         username: String,
         password: CharArray,
+        manualSemester: ZjuManualSemester? = null,
         onProgress: (ZjuImportStage) -> Unit,
         onComplete: (ZjuTimetableFetchResult) -> Unit
     ) {
@@ -62,7 +77,7 @@ internal object ZjuTimetableClient {
         Thread {
             var currentStage = ZjuImportStage.CONNECTING
             val result = try {
-                fetchBlocking(username.trim(), password) { stage ->
+                fetchBlocking(username.trim(), password, manualSemester) { stage ->
                     currentStage = stage
                     main.post { onProgress(stage) }
                 }
@@ -86,6 +101,7 @@ internal object ZjuTimetableClient {
     private fun fetchBlocking(
         username: String,
         password: CharArray,
+        manualSemester: ZjuManualSemester?,
         progress: (ZjuImportStage) -> Unit
     ): ZjuTimetableFetchResult {
         if (username.isBlank() || password.isEmpty()) {
@@ -154,14 +170,25 @@ internal object ZjuTimetableClient {
 
         progress(ZjuImportStage.LOADING_SEMESTER)
         val indexUrl = "$ZDBK_BASE/jwglxt/kbcx/xskbcx_cxXskbcxIndex.html?gnmkdm=N253508&layout=default&su=${encode(username)}"
-        val index = session.get(indexUrl)
-        if (!index.url.host.equals("zdbk.zju.edu.cn", ignoreCase = true)) {
-            return ZjuTimetableFetchResult.Failure("教务会话已失效，请重新导入。")
+        val year: ZjuSemesterOption
+        val term: ZjuSemesterOption
+        if (manualSemester != null) {
+            // The query endpoint accepts year and term codes without loading the index page.
+            year = ZjuSemesterOption(manualSemester.yearCode, manualSemester.yearDisplay, true)
+            term = ZjuSemesterOption(manualSemester.term.code, manualSemester.term.display, true)
+        } else {
+            val index = session.get(indexUrl, totalTimeoutMs = 40_000)
+            if (!index.url.host.equals("zdbk.zju.edu.cn", ignoreCase = true)) {
+                return ZjuTimetableFetchResult.Failure("教务会话已失效，请重新导入。")
+            }
+            if (index.code !in 200..299) {
+                return ZjuTimetableFetchResult.Failure("读取当前学期失败（HTTP ${index.code}），可改用指定学期重试。")
+            }
+            year = parseSemesterOption(index.body, "xnm")
+                ?: return ZjuTimetableFetchResult.Failure("无法读取当前学年，请改用指定学期重试。")
+            term = parseSemesterOption(index.body, "xqm")
+                ?: return ZjuTimetableFetchResult.Failure("无法读取当前学期，请改用指定学期重试。")
         }
-        val year = parseSemesterOption(index.body, "xnm")
-            ?: return ZjuTimetableFetchResult.Failure("无法读取当前学年，教务页面格式可能已变化。")
-        val term = parseSemesterOption(index.body, "xqm")
-            ?: return ZjuTimetableFetchResult.Failure("无法读取当前学期，教务页面格式可能已变化。")
         val termDisplay = term.value.substringAfter('|', term.text).ifBlank { term.text }
 
         progress(ZjuImportStage.FETCHING_TIMETABLE)
@@ -282,7 +309,7 @@ internal object ZjuTimetableClient {
         ZjuImportStage.ESTABLISHING_SESSION ->
             "账号已验证，但建立教务会话超时。请切换校园网或移动数据后重试。"
         ZjuImportStage.LOADING_SEMESTER ->
-            "读取学年与学期超时，请稍后重试。"
+            "读取学年与学期超时，可选择指定学期后重试。"
         ZjuImportStage.FETCHING_TIMETABLE ->
             "下载课表数据超时，请稍后重试。"
         else ->
@@ -307,7 +334,8 @@ internal object ZjuTimetableClient {
     private class HttpSession {
         private val cookies = CookieManager(null, CookiePolicy.ACCEPT_ALL)
 
-        fun get(url: String): HttpResponse = request("GET", url, null, emptyMap())
+        fun get(url: String, totalTimeoutMs: Long? = null): HttpResponse =
+            request("GET", url, null, emptyMap(), totalTimeoutMs = totalTimeoutMs)
 
         fun post(
             url: String,
@@ -333,12 +361,27 @@ internal object ZjuTimetableClient {
             headers: Map<String, String>,
             readTimeoutMs: Int = 18_000,
             skipResponseBodyAtHost: String? = null,
-            onRedirect: (URI) -> Unit = {}
+            onRedirect: (URI) -> Unit = {},
+            totalTimeoutMs: Long? = null
         ): HttpResponse {
             var method = initialMethod
             var uri = URI(initialUrl)
             var body = initialBody
+            val activeConnection = AtomicReference<HttpURLConnection?>()
+            val deadlineReached = AtomicBoolean(false)
+            val timer = totalTimeoutMs?.let { limit ->
+                Timer("FocusFlow-ZjuRequestDeadline", true).apply {
+                    schedule(object : java.util.TimerTask() {
+                        override fun run() {
+                            deadlineReached.set(true)
+                            activeConnection.getAndSet(null)?.disconnect()
+                        }
+                    }, limit)
+                }
+            }
+            try {
             repeat(10) {
+                if (deadlineReached.get()) throw SocketTimeoutException("教务请求已超过总时限")
                 requireOfficialHttps(uri)
                 val connection = (uri.toURL().openConnection() as HttpURLConnection).apply {
                     instanceFollowRedirects = false
@@ -358,6 +401,8 @@ internal object ZjuTimetableClient {
                         outputStream.use { it.write(body!!.toByteArray(Charsets.UTF_8)) }
                     }
                 }
+                activeConnection.set(connection)
+                if (deadlineReached.get()) throw SocketTimeoutException("教务请求已超过总时限")
                 val code = connection.responseCode
                 val responseHeaders = connection.headerFields.entries
                     .filter { it.key != null }
@@ -372,12 +417,14 @@ internal object ZjuTimetableClient {
                         body = null
                     }
                     connection.disconnect()
+                    activeConnection.compareAndSet(connection, null)
                     return@repeat
                 }
                 if (skipResponseBodyAtHost != null &&
                     uri.host.equals(skipResponseBodyAtHost, ignoreCase = true)
                 ) {
                     connection.disconnect()
+                    activeConnection.compareAndSet(connection, null)
                     return HttpResponse(code, uri, "")
                 }
                 val stream = if (code in 200..299) connection.inputStream else connection.errorStream
@@ -394,9 +441,18 @@ internal object ZjuTimetableClient {
                     }
                 }.orEmpty()
                 connection.disconnect()
+                activeConnection.compareAndSet(connection, null)
+                if (deadlineReached.get()) throw SocketTimeoutException("教务请求已超过总时限")
                 return HttpResponse(code, uri, responseBody)
             }
             throw IllegalStateException("浙江大学认证跳转次数过多，已停止登录。")
+            } catch (error: java.io.IOException) {
+                if (deadlineReached.get()) throw SocketTimeoutException("教务请求已超过总时限")
+                throw error
+            } finally {
+                timer?.cancel()
+                activeConnection.getAndSet(null)?.disconnect()
+            }
         }
 
         private fun requireOfficialHttps(uri: URI) {
