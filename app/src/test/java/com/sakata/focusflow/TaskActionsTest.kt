@@ -82,6 +82,19 @@ class TaskActionsTest {
         assertEquals(42L, result.items[0].goalId!!)
     }
 
+    @Test fun undoCompletionOnlyReopensTheSameCompletion() {
+        val completed = TaskActions.completeNow(listOf(item(id = 8)), item(id = 8), now = fixedNow).items
+        val stale = TaskActions.undoCompletion(completed, 8, fixedNow + 1)
+        assertEquals(completed, stale.items)
+        assertNull(stale.event)
+
+        val undone = TaskActions.undoCompletion(completed, 8, fixedNow)
+        assertEquals(false, undone.items.single().done)
+        assertNull(undone.items.single().completedAt)
+        assertEquals(TaskEventType.TASK_UNCOMPLETED, undone.event!!.type)
+        assertNull(TaskActions.undoCompletion(undone.items, 8, fixedNow).event)
+    }
+
     @Test fun completeWithLevel_forwardsLevelToItemAndEvent() {
         val result = TaskActions.completeWithLevel(listOf(item(id = 7)), item(id = 7), "最低版本", now = fixedNow)
         assertEquals("最低版本", result.items[0].completionLevel)

@@ -235,6 +235,7 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
     var tab by remember { mutableIntStateOf(0) }
     var todayInboxOpen by remember { mutableStateOf(false) }
     var addOpen by remember { mutableStateOf(false) }
+    var addTodoOpen by remember { mutableStateOf(false) }
     var addMenuOpen by remember { mutableStateOf(false) }
     // 历史导航可能只把加号弹窗收起，Boolean 仍为 true；请求序号保证再次点击会重建并注册弹窗。
     var addMenuRequestId by remember { mutableIntStateOf(0) }
@@ -248,6 +249,7 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
     var goalScheduleTarget by remember { mutableStateOf<Goal?>(null) }
     var flexiblePlanTarget by remember { mutableStateOf<Item?>(null) }
     var inboxEditTarget by remember { mutableStateOf<Item?>(null) }
+    var todoDetailTarget by remember { mutableStateOf<Item?>(null) }
     var organizeTarget by remember { mutableStateOf<Item?>(null) }
     var convertTarget by remember { mutableStateOf<Item?>(null) }
     var attachTarget by remember { mutableStateOf<Item?>(null) }
@@ -299,6 +301,7 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                     inboxScheduleTarget = null
                     flexiblePlanTarget = null
                     inboxEditTarget = null
+                    todoDetailTarget = null
                     organizeTarget = null
                     convertTarget = null
                     attachTarget = null
@@ -1366,6 +1369,27 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                     onPickTime = { item -> inboxScheduleTarget = item },
                     onEdit = { item -> inboxEditTarget = item },
                     onOrganize = { item -> organizeTarget = item },
+                    onBatchOrganize = { selectedIds, action ->
+                        val before = items
+                        val result = InboxBatchActions.apply(before, selectedIds, action)
+                        if (result.events.isEmpty()) {
+                            scope.launch { snackbarHostState.showSnackbar("选中的条目已变化，请重新选择。") }
+                            false
+                        } else if (!saveItemsWithEvents(result.items, result.events)) false
+                        else {
+                            if (action == InboxBatchAction.DELETE) {
+                                scope.launch {
+                                    if (snackbarHostState.showSnackbar("已删除 ${result.affected.size} 项", actionLabel = "撤回") == SnackbarResult.ActionPerformed) {
+                                        val undo = InboxBatchActions.undoDelete(items, before, result.affected)
+                                        if (undo.events.isNotEmpty()) saveItemsWithEvents(undo.items, undo.events)
+                                    }
+                                }
+                            } else {
+                                scope.launch { snackbarHostState.showSnackbar("已${action.label} ${result.affected.size} 项") }
+                            }
+                            true
+                        }
+                    },
                     onCreateNextAction = { parent ->
                         val result = TaskActions.createNextAction(items, parent)
                         if (result.created != null) {
@@ -1476,6 +1500,25 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                         val result = TaskActions.resume(items, item)
                         saveItemsWithEvent(result.items, result.event)
                     },
+                    onAddTodo = { addTodoOpen = true },
+                    onCompleteTodo = completeTodo@ { item ->
+                        if (items.none { it.id == item.id && it == item && !it.done }) return@completeTodo
+                        if (item.goalId != null) {
+                            completionTarget = item
+                            return@completeTodo
+                        }
+                        val result = TaskActions.completeNow(items, item)
+                        val completedAt = result.items.first { it.id == item.id }.completedAt ?: return@completeTodo
+                        if (saveItemsWithEvent(result.items, result.event)) {
+                            scope.launch {
+                                if (snackbarHostState.showSnackbar("已完成《${item.title}》", actionLabel = "撤回") == SnackbarResult.ActionPerformed) {
+                                    val undo = TaskActions.undoCompletion(items, item.id, completedAt)
+                                    if (undo.event != null) saveItemsWithEvent(undo.items, undo.event)
+                                }
+                            }
+                        }
+                    },
+                    onTodoDetail = { todoDetailTarget = it },
                     onConfirmCourse = { course ->
                         if (CourseConfirmationSafety.isDirectConfirmationBlocked(course, courses)) {
                             courseImportMessage = "这门课与另一门待确认或已确认课程被识别到完全相同的星期和节次。请点“编辑并确认”核对坐标，避免错误课表直接生效。"
@@ -1893,9 +1936,17 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
             AddMenuDialog(
                 onDismiss = { addMenuOpen = false },
                 onQuickCapture = { addMenuOpen = false; addOpen = true },
+                onAddTodo = { addMenuOpen = false; addTodoOpen = true },
                 onGamePlan = { addMenuOpen = false; gamePlanOpen = true }
             )
         }
+        if (addTodoOpen) TodoCreateDialog(
+            onDismiss = { addTodoOpen = false },
+            onSave = { title ->
+                val created = TodoActions.create(items, title)
+                saveItemsWithEvent(created.items, created.event)
+            }
+        )
         if (gamePlanOpen) GamePlanDialog(
             courses = activeCourses,
             profile = commuteProfile,
@@ -2185,6 +2236,33 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
             if (!saveItems(items.map { if (it.id == item.id) it.copy(title = title, detail = detail, userNote = detail, durationMinutes = durationMinutes, priority = priority) else it })) return@editInbox
             inboxEditTarget = null
         } }
+        todoDetailTarget?.let { target ->
+            items.firstOrNull { it.id == target.id }?.let { item ->
+                TodoDetailDialog(
+                    item = item,
+                    onDismiss = { todoDetailTarget = null },
+                    onSchedule = {
+                        todoDetailTarget = null
+                        if (item.scheduledAt == null) inboxScheduleTarget = item else rescheduleTarget = item
+                    },
+                    onEdit = { todoDetailTarget = null; inboxEditTarget = item },
+                    onDelete = {
+                        val before = items
+                        val result = TaskActions.deleteItem(before, item)
+                        if (saveItemsWithEvent(result.items, result.event)) {
+                            todoDetailTarget = null
+                            removeScheduledActivity(item.id)
+                            scope.launch {
+                                if (snackbarHostState.showSnackbar("已删除《${item.title}》", actionLabel = "撤回") == SnackbarResult.ActionPerformed) {
+                                    val undo = InboxBatchActions.undoDelete(items, before, listOf(item), extra = "撤回删除")
+                                    if (undo.events.isNotEmpty()) saveItemsWithEvents(undo.items, undo.events)
+                                }
+                            }
+                        }
+                    }
+                )
+            }
+        }
         // 自填教学楼自动进入地点库：地点库独立于课程，之后可在地点管理里修改分区/用途（计算在 CampusPlacesEditor）。
         fun ensureCoursePlaceInLibrary(course: Course) {
             val updated = ensurePlaceForCourse(course, campusPlaces, customPlaces) ?: return
