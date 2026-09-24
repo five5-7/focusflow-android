@@ -1,6 +1,7 @@
 package com.sakata.focusflow.data
 
 import com.sakata.focusflow.ActivitySession
+import com.sakata.focusflow.Course
 import com.sakata.focusflow.Goal
 import com.sakata.focusflow.Item
 import com.sakata.focusflow.PrototypeStore
@@ -42,6 +43,8 @@ interface CoreDataRepository : CoreDataReadRepository {
         expectedSessions: List<ActivitySession>
     ): CoreDataWriteResult
 
+    fun replaceCourses(courses: List<Course>, expectedCourses: List<Course>): CoreDataWriteResult
+
     fun mutateScheduledTask(
         id: Long,
         expectedScheduledAt: Long,
@@ -72,6 +75,7 @@ internal interface LegacyCoreDataPersistence {
         sessions: List<ActivitySession>,
         expectedSessions: List<ActivitySession>
     ): Boolean
+    fun saveCoursesIfUnchanged(courses: List<Course>, expectedCourses: List<Course>): Boolean
     fun mutateScheduledTask(
         id: Long,
         expectedScheduledAt: Long,
@@ -122,6 +126,9 @@ private class PrototypeStoreCoreDataPersistence(
         sessions: List<ActivitySession>,
         expectedSessions: List<ActivitySession>
     ): Boolean = store.saveActivitySessionsIfUnchanged(sessions, expectedSessions)
+
+    override fun saveCoursesIfUnchanged(courses: List<Course>, expectedCourses: List<Course>): Boolean =
+        store.saveCoursesIfUnchanged(courses, expectedCourses)
 
     override fun mutateScheduledTask(
         id: Long,
@@ -219,6 +226,12 @@ class LegacyCoreDataRepository internal constructor(
         )
     }
 
+    override fun replaceCourses(courses: List<Course>, expectedCourses: List<Course>): CoreDataWriteResult =
+        resultAfterWrite(
+            applied = persistence.saveCoursesIfUnchanged(courses, expectedCourses),
+            expectedCourses = expectedCourses
+        )
+
     override fun mutateScheduledTask(
         id: Long,
         expectedScheduledAt: Long,
@@ -253,6 +266,7 @@ class LegacyCoreDataRepository internal constructor(
         expectedTasks: List<Item>? = null,
         expectedPlans: List<Goal>? = null,
         expectedActivitySessions: List<ActivitySession>? = null,
+        expectedCourses: List<Course>? = null,
         activityMutation: CoreDataActivityMutation? = null
     ): CoreDataWriteResult {
         if (applied) return applied(activityMutation = activityMutation)
@@ -271,6 +285,10 @@ class LegacyCoreDataRepository internal constructor(
                     CoreDataWriteStatus.STALE_ACTIVITY_SESSIONS,
                     "activity session snapshot changed"
                 )
+            expectedCourses != null && current.courses != expectedCourses -> CoreDataWriteResult(
+                CoreDataWriteStatus.STALE_COURSES,
+                "course snapshot changed"
+            )
             else -> CoreDataWriteResult(CoreDataWriteStatus.WRITE_FAILED, "legacy write failed")
         }
     }
@@ -331,6 +349,9 @@ class RoomCoreDataRepository(
         sessions: List<ActivitySession>,
         expectedSessions: List<ActivitySession>
     ): CoreDataWriteResult = writer.replaceActivitySessions(sessions, expectedSessions)
+
+    override fun replaceCourses(courses: List<Course>, expectedCourses: List<Course>): CoreDataWriteResult =
+        writer.replaceCourses(courses, expectedCourses)
 
     override fun mutateScheduledTask(
         id: Long,

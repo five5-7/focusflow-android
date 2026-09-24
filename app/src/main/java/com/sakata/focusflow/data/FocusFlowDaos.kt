@@ -103,6 +103,9 @@ interface CourseDao {
     @Insert(onConflict = OnConflictStrategy.ABORT)
     fun insertAll(courses: List<CourseEntity>)
 
+    @Query("DELETE FROM courses")
+    fun deleteAll()
+
     @Query("SELECT id FROM courses ORDER BY id")
     fun allIds(): List<Long>
 
@@ -114,6 +117,9 @@ interface CourseDao {
 interface CourseMeetingRuleDao {
     @Insert(onConflict = OnConflictStrategy.ABORT)
     fun insertAll(rules: List<CourseMeetingRuleEntity>)
+
+    @Query("DELETE FROM course_meeting_rules")
+    fun deleteAll()
 
     @Query("SELECT id FROM course_meeting_rules ORDER BY id")
     fun allIds(): List<Long>
@@ -135,7 +141,9 @@ interface MigrationStateDao {
            SET task_count = :taskCount,
                task_event_count = :taskEventCount,
                plan_count = :planCount,
-               activity_session_count = :activitySessionCount
+               activity_session_count = :activitySessionCount,
+               course_count = :courseCount,
+               course_meeting_rule_count = :courseMeetingRuleCount
            WHERE migration_key = :key"""
     )
     fun updateCounts(
@@ -143,6 +151,8 @@ interface MigrationStateDao {
         taskCount: Int,
         taskEventCount: Int,
         planCount: Int,
-        activitySessionCount: Int
+        activitySessionCount: Int,
+        courseCount: Int,
+        courseMeetingRuleCount: Int
     ): Int
 }

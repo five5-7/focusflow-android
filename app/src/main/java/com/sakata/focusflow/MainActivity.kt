@@ -407,6 +407,16 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
     var addCourseOpen by remember { mutableStateOf(false) }
     var courseImportRunning by remember { mutableStateOf(false) }
     var courseImportMessage by remember { mutableStateOf<String?>(null) }
+    fun persistCourses(updated: List<Course>): Boolean {
+        val result = coreDataRepository.replaceCourses(updated, courses)
+        if (result.applied) {
+            courses = updated
+            return true
+        }
+        courseImportMessage = "课程保存失败（${result.status}），原数据已保留；请返回后重试。"
+        scope.launch { snackbarHostState.showSnackbar(courseImportMessage.orEmpty()) }
+        return false
+    }
     var autoPlanMessage by remember { mutableStateOf<String?>(null) }
     var goals by remember { mutableStateOf(startup.goals) }
     var addGoalOpen by remember { mutableStateOf(false) }
@@ -730,8 +740,11 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
         if (batch.source == CourseImportSource.ZJU_TIMETABLE) {
             val sync = syncSchoolCourses(courses, batch.courses)
             if (sync.courses != courses) {
-                courses = sync.courses
-                store.saveCourses(courses)
+                if (!persistCourses(sync.courses)) {
+                    courseImportRunning = false
+                    globalLoading = false
+                    return
+                }
                 navHistory.markWorkedHere()
             }
             courseImportMessage = buildString {
@@ -754,8 +767,11 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
             // 截图等不可靠来源仍只新增待确认课程，不更新已有记录。
             if (merge.added.isNotEmpty()) {
                 val updated = courses + merge.added
-                courses = updated
-                store.saveCourses(updated)
+                if (!persistCourses(updated)) {
+                    courseImportRunning = false
+                    globalLoading = false
+                    return
+                }
                 navHistory.markWorkedHere()
             }
             courseImportMessage = "${batch.source.label}：${merge.message}"
@@ -1458,31 +1474,28 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                             courseImportMessage = "这门课与另一门待确认或已确认课程被识别到完全相同的星期和节次。请点“编辑并确认”核对坐标，避免错误课表直接生效。"
                         } else {
                             courseImportMessage = null
-                            courses = courses.map { if (it == course) it.copy(needsConfirmation = false) else it }
-                            store.saveCourses(courses)
+                            persistCourses(courses.map { if (it == course) it.copy(needsConfirmation = false) else it })
                         }
                     },
-                    onConfirmSafeCourses = {
+                    onConfirmSafeCourses = confirmSafe@ {
                         val ids = CourseConfirmationSafety.safeBatchConfirmationIds(courses)
                         if (ids.isNotEmpty()) {
-                            courses = courses.map { if (it.id in ids) it.copy(needsConfirmation = false) else it }
-                            store.saveCourses(courses)
+                            if (!persistCourses(courses.map { if (it.id in ids) it.copy(needsConfirmation = false) else it })) return@confirmSafe
                         }
                         courseImportMessage = if (ids.isEmpty()) "没有可直接确认的课程，请逐条核对重叠时段。"
                         else "已一键确认 ${ids.size} 条无冲突时段；其余记录仍待核对。"
                     },
                     onIgnoreCourse = { course ->
                         courseImportMessage = null
-                        courses = courses.filterNot { it == course }
-                        store.saveCourses(courses)
+                        persistCourses(courses.filterNot { it == course })
                     },
                     onAddCourse = { addCourseOpen = true },
                     onClearAwaitingCourses = {
                         val count = courses.count { it.needsConfirmation }
                         if (count > 0) {
-                            courses = courses.filterNot { it.needsConfirmation }
-                            store.saveCourses(courses)
-                            courseImportMessage = "已忽略全部 $count 门待确认课程。"
+                            if (persistCourses(courses.filterNot { it.needsConfirmation })) {
+                                courseImportMessage = "已忽略全部 $count 门待确认课程。"
+                            }
                         }
                     },
                     courseImportRunning = courseImportRunning,
@@ -1502,12 +1515,10 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                     },
                     onEditCourse = { courseEditor = it },
                     onToggleCourse = { course ->
-                        courses = courses.map { if (it.id == course.id) it.copy(enabled = !it.enabled) else it }
-                        store.saveCourses(courses)
+                        persistCourses(courses.map { if (it.id == course.id) it.copy(enabled = !it.enabled) else it })
                     },
                     onDeleteCourses = { targets ->
-                        courses = removeCoursesById(courses, targets)
-                        store.saveCourses(courses)
+                        persistCourses(removeCoursesById(courses, targets))
                     },
                     goals = goals,
                     onAddGoal = { goalFinderSuggestion = ""; addGoalOpen = true },
@@ -2175,17 +2186,15 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
         }
         if (addCourseOpen) CourseEditorDialog(null, campusPlaces, maxPeriod = coursePeriodTable.periods.size, onDismiss = { addCourseOpen = false }, onOpenCommutePlaces = {
             addCourseOpen = false; suspendedCourseEditor = SuspendedCourseEditor(null); jumpTo(PageSnapshot(3, todayInboxOpen, planPage, SettingsSubPage.COMMUTE_PLACES, emptyList()))
-        }) { course ->
-            courses = courses + course.copy(needsConfirmation = false)
-            store.saveCourses(courses)
+        }) addCourse@ { course ->
+            if (!persistCourses(courses + course.copy(needsConfirmation = false))) return@addCourse
             ensureCoursePlaceInLibrary(course)
             addCourseOpen = false
         }
         courseEditor?.let { original -> CourseEditorDialog(original, campusPlaces, maxPeriod = coursePeriodTable.periods.size, onDismiss = { courseEditor = null }, onOpenCommutePlaces = {
             courseEditor = null; suspendedCourseEditor = SuspendedCourseEditor(original); jumpTo(PageSnapshot(3, todayInboxOpen, planPage, SettingsSubPage.COMMUTE_PLACES, emptyList()))
-        }) { edited ->
-            courses = courses.map { if (it == original) edited.copy(needsConfirmation = false) else it }
-            store.saveCourses(courses)
+        }) editCourse@ { edited ->
+            if (!persistCourses(courses.map { if (it == original) edited.copy(needsConfirmation = false) else it })) return@editCourse
             ensureCoursePlaceInLibrary(edited)
             courseEditor = null
         } }

@@ -137,7 +137,7 @@ internal data class FocusFlowStartupSnapshot(
                 courseVision = store.loadCourseVisionSettings(),
                 courseVisionGuideShown = store.loadCourseVisionGuideShown(),
                 pendingPlaces = store.loadPendingPlaces(),
-                courses = if (store.hasCourseSetup()) store.loadCourses() else emptyList(),
+                courses = coreData.courses,
                 coursePeriodTable = store.loadCoursePeriodTable(),
                 coursePeriodTableConfigured = store.hasCoursePeriodTable(),
                 courseTimetableCompact = store.loadCourseTimetableCompact(),
