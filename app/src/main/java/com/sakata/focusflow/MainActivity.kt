@@ -1462,6 +1462,15 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                             store.saveCourses(courses)
                         }
                     },
+                    onConfirmSafeCourses = {
+                        val ids = CourseConfirmationSafety.safeBatchConfirmationIds(courses)
+                        if (ids.isNotEmpty()) {
+                            courses = courses.map { if (it.id in ids) it.copy(needsConfirmation = false) else it }
+                            store.saveCourses(courses)
+                        }
+                        courseImportMessage = if (ids.isEmpty()) "没有可直接确认的课程，请逐条核对重叠时段。"
+                        else "已一键确认 ${ids.size} 条无冲突时段；其余记录仍待核对。"
+                    },
                     onIgnoreCourse = { course ->
                         courseImportMessage = null
                         courses = courses.filterNot { it == course }

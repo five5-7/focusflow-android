@@ -60,6 +60,16 @@ internal object CourseConfirmationSafety {
 
     fun isDirectConfirmationBlocked(course: Course, courses: List<Course>): Boolean =
         course.id in blockedDirectConfirmationIds(courses)
+
+    /** Bulk actions only confirm rows without any overlap; ambiguous meetings stay editable. */
+    fun safeBatchConfirmationIds(courses: List<Course>): Set<Long> = courses
+        .filter { candidate ->
+            candidate.needsConfirmation && candidate.enabled &&
+                courses.none { other ->
+                    other.id != candidate.id && other.enabled && coursesOverlap(candidate, other)
+                }
+        }
+        .mapTo(mutableSetOf()) { it.id }
 }
 
 

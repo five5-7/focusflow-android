@@ -105,6 +105,11 @@ internal fun CampusLifeChoiceDialog(onEnable: () -> Unit, onSkip: () -> Unit) {
 
 /** 覆盖安装后每个版本只展示一次的更新说明；版本名来自 BuildConfig，路线图是唯一详情入口。 */
 internal fun updateHighlightsFor(version: String): List<String> = when {
+    version == "8.3.0-rc.19" -> listOf(
+        "课程待确认列表可一键确认无冲突时段；同名课程排在一起，仍能逐个编辑。",
+        "缩小课表的周五至周日格可展开查看真实星期与节次，周五早课不会混在错误的位置。",
+        "安排时间的模式选项按可用宽度和字体大小排列，保留已选模式的填写内容。"
+    )
     version == "8.3.0-rc.18" -> listOf(
         "浙江大学教务课表可指定学年和秋冬、春夏或短学期，跳过卡住的当前学期页面。",
         "自动读取当前学期超过时限会提示重试或指定学期，不再一直停在第五阶段。",
