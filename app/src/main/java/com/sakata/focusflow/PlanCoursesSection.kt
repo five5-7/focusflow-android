@@ -132,6 +132,7 @@ private fun PendingCourses(
                     if (index > 0) HorizontalDivider()
                     val conflictWith = confirmed.firstOrNull { coursesOverlap(course, it) }
                     val directConfirmationBlocked = span.records.any { it.id in blockedDirectConfirmationIds }
+                    val groupConfirmationBlocked = span.records.size > 1 && span.records.any { it.id !in safeIds }
                     CourseMeetingDetails(course)
                     if (span.records.size > 1) Text("相邻时段合并展示 · ${span.records.size} 条原记录", style = MaterialTheme.typography.labelSmall)
                     conflictWith?.let {
@@ -141,8 +142,8 @@ private fun PendingCourses(
                         Text("星期和节次需逐条核对，编辑后才能确认。", color = CONFLICT_TEXT_COLOR, style = MaterialTheme.typography.labelSmall)
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        TextButton(enabled = !directConfirmationBlocked, onClick = { span.records.forEach(onConfirm) }) {
-                            Text(if (directConfirmationBlocked) "需先编辑" else "确认")
+                        TextButton(enabled = !directConfirmationBlocked && !groupConfirmationBlocked, onClick = { span.records.forEach(onConfirm) }) {
+                            Text(if (directConfirmationBlocked || groupConfirmationBlocked) "需逐段核对" else "确认")
                         }
                         if (span.records.size == 1) TextButton(onClick = { onEdit(span.records.single()) }) { Text("编辑并确认") }
                         TextButton(onClick = { span.records.forEach(onIgnore) }) { Text("忽略") }
