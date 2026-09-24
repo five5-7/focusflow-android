@@ -105,6 +105,11 @@ internal fun CampusLifeChoiceDialog(onEnable: () -> Unit, onSkip: () -> Unit) {
 
 /** 覆盖安装后每个版本只展示一次的更新说明；版本名来自 BuildConfig，路线图是唯一详情入口。 */
 internal fun updateHighlightsFor(version: String): List<String> = when {
+    version == "8.3.0-rc.18" -> listOf(
+        "浙江大学教务课表可指定学年和秋冬、春夏或短学期，跳过卡住的当前学期页面。",
+        "自动读取当前学期超过时限会提示重试或指定学期，不再一直停在第五阶段。",
+        "延续外观页分组收纳与五档卡片材质的均衡排列。"
+    )
     version == "8.3.0-rc.17" -> listOf(
         "外观页把主题配色、页面背景、卡片材质和课表底色分组收纳，先显示当前选择摘要。",
         "卡片材质的五个选项改成均衡排列，常见手机宽度下会自动排成 2+3，窄屏和大字体会继续回流。",
