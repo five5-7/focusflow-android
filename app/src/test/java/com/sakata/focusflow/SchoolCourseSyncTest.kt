@@ -7,6 +7,20 @@ import org.junit.Test
 
 class SchoolCourseSyncTest {
     @Test
+    fun `bulk confirmation keeps overlapping or disabled meetings pending`() {
+        val safeFriday = course("材料力学", 5, 1, 2, "东1", confirmed = false)
+        val safeSaturday = course("材料力学", 6, 1, 2, "东1", confirmed = false)
+        val conflicting = course("另一门", 5, 5, 6, "东2", confirmed = false)
+        val existing = course("已有课", 5, 6, 7, "东3", confirmed = true)
+        val disabled = course("停用课", 2, 1, 2, "东1", confirmed = false).copy(enabled = false)
+
+        assertEquals(
+            setOf(safeFriday.id, safeSaturday.id),
+            CourseConfirmationSafety.safeBatchConfirmationIds(listOf(safeFriday, safeSaturday, conflicting, existing, disabled))
+        )
+    }
+
+    @Test
     fun `unique official match updates existing course while preserving user state`() {
         val old = course("高等数学", 1, 1, 2, "东1", confirmed = true)
             .copy(enabled = false, effectiveFromEpochDay = 100, effectiveUntilEpochDay = 200)

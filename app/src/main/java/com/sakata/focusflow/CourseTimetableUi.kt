@@ -165,8 +165,7 @@ internal fun CourseTimetable(
                             rowHeight = rowHeight,
                             headerHeight = headerHeight,
                             modifier = Modifier.weight(if (trailingCourses.isEmpty()) 0.72f else 1.18f),
-                            onExpand = { onTrailingDaysExpandedChange(true) },
-                            onSelect = { selected = it }
+                            onExpand = { onTrailingDaysExpandedChange(true) }
                         )
                     }
                 }
@@ -221,8 +220,7 @@ private fun TimetableTrailingDaysLane(
     rowHeight: androidx.compose.ui.unit.Dp,
     headerHeight: androidx.compose.ui.unit.Dp,
     modifier: Modifier,
-    onExpand: () -> Unit,
-    onSelect: (Course) -> Unit
+    onExpand: () -> Unit
 ) {
     val scheme = MaterialTheme.colorScheme
     Column(modifier) {
@@ -232,14 +230,15 @@ private fun TimetableTrailingDaysLane(
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text("周五–日", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
-                Text(if (courses.isEmpty()) "无课 ›" else "${courses.size} 门 ›", style = MaterialTheme.typography.labelSmall)
+                Text(if (courses.isEmpty()) "无课 ›" else "${courses.size} 个时段 ›", style = MaterialTheme.typography.labelSmall)
             }
         }
-        BoxWithConstraints(
+        Box(
             Modifier
                 .height(rowHeight * periods.toFloat())
                 .fillMaxWidth()
-                .border(BorderStroke(0.5.dp, scheme.outlineVariant)),
+                .border(BorderStroke(0.5.dp, scheme.outlineVariant))
+                .clickable(onClick = onExpand),
             contentAlignment = Alignment.Center
         ) {
             Column(Modifier.matchParentSize()) {
@@ -248,30 +247,11 @@ private fun TimetableTrailingDaysLane(
             if (courses.isEmpty()) {
                 Text("无课", style = MaterialTheme.typography.labelSmall, color = scheme.onSurfaceVariant)
             } else {
-                courses.filter { it.startPeriod in 1..periods }.forEach { course ->
-                    val overlapping = courses.filter { other ->
-                        course.startPeriod <= other.endPeriod && other.startPeriod <= course.endPeriod
-                    }.sortedBy { it.weekday }
-                    val laneIndex = overlapping.indexOf(course).coerceAtLeast(0)
-                    val laneWidth = maxWidth / overlapping.size.coerceAtLeast(1)
-                    val span = (course.endPeriod.coerceAtMost(periods) - course.startPeriod + 1).coerceAtLeast(1)
-                    val color = listOf(scheme.primaryContainer, scheme.secondaryContainer, scheme.tertiaryContainer)[course.weekday % 3]
-                    Column(
-                        Modifier
-                            .offset(x = laneWidth * laneIndex, y = rowHeight * (course.startPeriod - 1).toFloat())
-                            .width(laneWidth)
-                            .height(rowHeight * span.toFloat())
-                            .padding(2.dp)
-                            .clip(RoundedCornerShape(7.dp))
-                            .background(color)
-                            .clickable { onSelect(course) }
-                            .padding(3.dp),
-                        verticalArrangement = Arrangement.Center
-                    ) {
-                        Text(weekdayName(course.weekday), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, maxLines = 1)
-                        Text(course.title, style = MaterialTheme.typography.labelSmall, maxLines = span.coerceAtMost(2), overflow = TextOverflow.Ellipsis)
-                    }
-                }
+                Text(
+                    "展开查看\n星期与节次",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = scheme.onSurfaceVariant
+                )
             }
         }
     }

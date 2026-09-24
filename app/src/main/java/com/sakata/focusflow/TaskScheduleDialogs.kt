@@ -11,6 +11,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import java.util.Locale
@@ -233,6 +234,13 @@ internal fun DurationPicker(initialMinutes: Int, onChange: (Int?) -> Unit) {
     }
 }
 
+/** Keep the three existing choices equal width while allowing larger text to wrap cleanly. */
+internal fun scheduleModeColumns(widthDp: Int, fontScale: Float): Int = when {
+    widthDp >= 312 && fontScale <= 1.15f -> 3
+    widthDp >= 224 && fontScale <= 1.4f -> 2
+    else -> 1
+}
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable internal fun InboxScheduleDialog(
     item: Item,
@@ -273,19 +281,22 @@ internal fun DurationPicker(initialMinutes: Int, onChange: (Int?) -> Unit) {
         text = {
             ScrollableDialogBox(maxHeight = 520.dp, spacing = 10.dp) {
                 Text(item.title.removePrefix("重新安排："), fontWeight = FontWeight.SemiBold)
-                FlowRow(
-                    modifier = Modifier.fillMaxWidth(),
-                    maxItemsInEachRow = 2,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    listOf("推荐空档", "大致时间", "精确时间").forEach { option ->
-                        FilterChip(
-                            modifier = Modifier.weight(1f),
-                            selected = mode == option,
-                            onClick = { mode = option; persist() },
-                            label = { Text(option, maxLines = 1) }
-                        )
+                BoxWithConstraints(Modifier.fillMaxWidth()) {
+                    val columns = scheduleModeColumns(maxWidth.value.toInt(), LocalDensity.current.fontScale)
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        maxItemsInEachRow = columns,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        listOf("推荐空档", "大致时间", "精确时间").forEach { option ->
+                            FilterChip(
+                                modifier = Modifier.weight(1f),
+                                selected = mode == option,
+                                onClick = { mode = option; persist() },
+                                label = { Text(option, maxLines = 1) }
+                            )
+                        }
                     }
                 }
                 // **用时/优先级排在模式内容之后**：弹窗从系统窗口改成页内浮层（8.1.0 `e66b6c5`）之后，

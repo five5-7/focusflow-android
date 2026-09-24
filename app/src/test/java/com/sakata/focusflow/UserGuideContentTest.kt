@@ -41,7 +41,7 @@ class UserGuideContentTest {
      */
     @Test fun `update highlights never fall back for known versions`() {
         val fallback = updateHighlightsFor("0.0.1").single()
-        for (version in listOf("8.3.0-rc.18", "8.3.0-rc.17", "8.3.0-rc.16", "8.3.0-rc.15", "8.3.0-rc.14", "8.3.0-rc.13", "8.2.2", "8.2.1", "8.2.0", "8.1.1", "8.1.0", "7.12.0", "7.9.0-rc.2", "7.9.0")) {
+        for (version in listOf("8.3.0-rc.19", "8.3.0-rc.18", "8.3.0-rc.17", "8.3.0-rc.16", "8.3.0-rc.15", "8.3.0-rc.14", "8.3.0-rc.13", "8.2.2", "8.2.1", "8.2.0", "8.1.1", "8.1.0", "7.12.0", "7.9.0-rc.2", "7.9.0")) {
             val highlights = updateHighlightsFor(version)
             assertTrue("$version 的更新说明不该是兜底文案", highlights.none { it == fallback })
             assertTrue("$version 应有 2–3 条更新说明，实际 ${highlights.size} 条", highlights.size in 2..3)
