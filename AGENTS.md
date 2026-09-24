@@ -35,7 +35,7 @@
 - 应用内更新说明必须在发版时展示该版本核心变化：为每个新版本在 `QuickStartDialog.updateHighlightsFor` 写 2–3 条用户可感知的变化，禁止落入兜底文案；与 `CHANGELOG.md`、`RoadmapData.kt` 同步。
 - Follow `VERSIONING.md`; a CI `run-N` is not a product version and a successful build is not a release.
 - The current official release is `8.2.1` / versionCode 534 (the fifth formal release). It extends the optional appearance system with acrylic and frosted-glass profiles plus non-destructive image crop controls; rich appearance remains disabled by default.
-- The current development candidate is `8.3.0-rc.16` / versionCode 550: history multi-selection uses a unified material toolbar and motion-aware transitions. It retains rc.15's adaptive background and animation choices, which passed OPPO verification. Card-material layout and long appearance page remain separate planned work. It requires stable-signed CI and OPPO verification and is not merged or released; rc.15 is superseded.
+- The current development candidate is `8.3.0-rc.17` / versionCode 551: the Appearance page groups theme colors, page background, card material and timetable base color into collapsible sections; five card-material choices use balanced rows; the custom theme editor shares the same controls. It retains rc.16's history multi-selection changes, which passed OPPO verification. It requires stable-signed CI and OPPO verification and is not merged or released; rc.16 is superseded.
 - The previous official release is `8.2.0` / versionCode 525.
 - Do not allocate a new version merely to record an idea; keep uncommitted ideas in the future-candidate section until a coherent scope is frozen.
 - Do not merge a pull request without explicit user confirmation.

@@ -21,7 +21,8 @@ object RoadmapData {
     /** 已实现版本演进（1.0 → 当前版本），每版本浓缩 1–3 条，与 CHANGELOG.md 对应。 */
     val evolution: List<RoadmapVersion> = listOf(
         RoadmapVersion("8.3.0", listOf(
-            RoadmapEntry("8.3.0-rc.16", "历史批量选择交互", "最近事件的批量选择工具栏共用卡片材质；勾选区、操作按钮与选中态按动画速度过渡。延续 rc.15 的设置布局，待 OPPO 真机验收。", RoadmapStatus.CANDIDATE),
+            RoadmapEntry("8.3.0-rc.17", "外观页收纳与五项材质", "外观页将主题配色、页面背景、卡片材质与课表底色分组收纳；卡片材质五档使用均衡排列，自定义主题编辑器共用同一套外观控件。待稳定签名 CI 与 OPPO 真机验收。", RoadmapStatus.CANDIDATE),
+            RoadmapEntry("8.3.0-rc.16", "历史批量选择交互", "最近事件的批量选择工具栏共用卡片材质；勾选区、操作按钮与选中态按动画速度过渡。延续 rc.15 的设置布局，已通过 OPPO 真机验收，已由 rc.17 替代。", RoadmapStatus.DONE),
             RoadmapEntry("8.3.0-rc.15", "设置等权选项布局", "页面背景与动画速度的四项选择改用自适应均衡布局，常见手机宽度 2×2，大字体与窄屏回流。延续 rc.14 的导入页外观与统一确认框，已通过 OPPO 真机验收。", RoadmapStatus.DONE),
             RoadmapEntry("8.3.0-rc.14", "独立入口外观对齐", "今日页权限提示确认改用统一弹窗；浙江大学教务导入页的背景与卡片跟随外观。延续 rc.13 的玻璃卡面不透明度及课表识别防错，已通过 OPPO 真机验收。", RoadmapStatus.DONE),
             RoadmapEntry("8.3.0-rc.13", "玻璃卡面不透明度", "延续 rc.12 的课表识别防错；外观设置可统一调节亚克力与毛玻璃卡面不透明度 40%–95%，旧设置仍保留 60%／48% 默认值。已通过 OPPO 真机验收。", RoadmapStatus.DONE),
