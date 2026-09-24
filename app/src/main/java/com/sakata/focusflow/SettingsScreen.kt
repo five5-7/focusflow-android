@@ -619,15 +619,11 @@ private data class BaselineVariantDraft(val name: String)
                         ) { onAppearanceChange(appearance.copy(richEffects = it)) }
                         HorizontalDivider()
                         Text("动画速度", fontWeight = FontWeight.SemiBold)
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            listOf(0f to "关闭", 0.5f to "较快", 1f to "标准", 1.5f to "较慢").forEach { (scale, label) ->
-                                FilterChip(
-                                    selected = animationSpeed == scale,
-                                    onClick = { onAnimationSpeedChange(scale) },
-                                    label = { Text(label) }
-                                )
-                            }
-                        }
+                        EqualOptionGrid(
+                            options = listOf(0f to "关闭", 0.5f to "较快", 1f to "标准", 1.5f to "较慢"),
+                            selected = animationSpeed,
+                            onSelect = onAnimationSpeedChange
+                        )
                         Text("影响页面转场与底部导航动画；系统「移除动画」设置仍然生效。", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         HorizontalDivider()
                         // 8.2.0 外观系统：页面背景（跟随主题／主题渐变／图片 + 不透明度 + 从图片抽色）。

@@ -131,8 +131,7 @@ internal fun PageBackdropControls(
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        // 用 FlowRow 而不是 Row：真机上四个标签排一行会把"图片"挤掉（8.2.0 真机发现），
-        // 窄屏/大字体下应该自动换行。
+        // 四项等宽排成 2×2；窄屏和大字体回流，避免自然换行形成 3＋1。
         //
         // 关掉「丰富效果」时只留"跟随主题 / 固定颜色"：渐变与图片那两档此时**不参与渲染**
         // （effectivePageBackdrop 会把它们回落成 THEME），留着就是"承诺了却不生效"的开关。
@@ -148,28 +147,20 @@ internal fun PageBackdropControls(
                 BackdropKind.TRANSPARENT -> "透明"
             }
         }
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            offered.forEach { (kind, label) ->
-                FilterChip(
-                    selected = appearance.effectivePageBackdrop == kind,
-                    onClick = {
-                        // 关掉丰富效果时如果用户点"跟随主题"，顺手把原始档位也归位，
-                        // 否则原始值会一直停在 GRADIENT，重新打开开关时"突然又变了"，很困惑。
-                        onAppearanceChange(
-                            if (!appearance.richEffects && kind == BackdropKind.THEME) {
-                                appearance.copy(pageBackdrop = kind, gradientTop = 0, gradientBottom = 0)
-                            } else {
-                                appearance.copy(pageBackdrop = kind)
-                            }
-                        )
-                    },
-                    label = { Text(label) }
+        EqualOptionGrid(
+            options = offered,
+            selected = appearance.effectivePageBackdrop,
+            onSelect = { kind ->
+                // 关掉丰富效果时选跟随主题，同时复位原始档位。
+                onAppearanceChange(
+                    if (!appearance.richEffects && kind == BackdropKind.THEME) {
+                        appearance.copy(pageBackdrop = kind, gradientTop = 0, gradientBottom = 0)
+                    } else {
+                        appearance.copy(pageBackdrop = kind)
+                    }
                 )
             }
-        }
+        )
         if (!appearance.richEffects) {
             Text(
                 "已暂停渐变与图片背景（跟随主题／固定颜色不受影响）。" +
