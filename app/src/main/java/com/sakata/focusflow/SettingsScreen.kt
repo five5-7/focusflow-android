@@ -627,7 +627,6 @@ private data class BaselineVariantDraft(val name: String)
                         Text("影响页面转场与底部导航动画；系统「移除动画」设置仍然生效。", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         HorizontalDivider()
                         // 8.2.0 外观系统：页面背景（跟随主题／主题渐变／图片 + 不透明度 + 从图片抽色）。
-                        Text("页面背景", fontWeight = FontWeight.SemiBold)
                         AppearanceSettingsSection(
                             appearance = appearance,
                             onAppearanceChange = onAppearanceChange,
@@ -639,15 +638,16 @@ private data class BaselineVariantDraft(val name: String)
                         // 重帧率 5.66% 超预算，而记账的 `remember` 只省重组、省不了首次组合。
                         // 所以把它们摊到几帧里逐行组合：每帧只多一行，视觉上仍是"瞬间填满"，
                         // 但不再有单个长帧。后面若还嫌慢，再考虑把设置页整列换成 LazyColumn。
-                        var revealedPresets by remember { mutableStateOf(0) }
-                        LaunchedEffect(Unit) {
-                            val total = FocusFlowThemeOption.builtInEntries().size
-                            while (revealedPresets < total) {
-                                androidx.compose.runtime.withFrameNanos { }
-                                revealedPresets += 1
+                        AppearanceDisclosure("主题配色", "当前：${themeOption.label}") {
+                            var revealedPresets by remember { mutableStateOf(0) }
+                            LaunchedEffect(Unit) {
+                                val total = FocusFlowThemeOption.builtInEntries().size
+                                while (revealedPresets < total) {
+                                    androidx.compose.runtime.withFrameNanos { }
+                                    revealedPresets += 1
+                                }
                             }
-                        }
-                        FocusFlowThemeOption.builtInEntries().take(revealedPresets).forEach { option ->
+                            FocusFlowThemeOption.builtInEntries().take(revealedPresets).forEach { option ->
                             // 必须传 darkMode：不传就会拿到**浅色**方案的 primaryContainer，
                             // 深色模式下那是一块接近白的卡片，压在一整页深色上极其刺眼，
                             // 而且卡上的「已选择」用的是浅色方案的 primary（也是浅色），
@@ -685,7 +685,7 @@ private data class BaselineVariantDraft(val name: String)
                                     ) { Text("以此改色", style = MaterialTheme.typography.bodySmall) }
                                 }
                             }
-                        }
+                            }
                         // 自定义主题：点卡只进入编辑器，不切主题；确认由编辑器内"应用此配色"完成，
                         // 与内置主题"以此改色"一致，避免点卡即应用造成违和。
                         val customPreview = remember(customThemeColors, darkMode) {
@@ -705,6 +705,7 @@ private data class BaselineVariantDraft(val name: String)
                                 }
                                 Text("编辑", color = if (themeOption == FocusFlowThemeOption.CUSTOM) customPreview.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.SemiBold)
                             }
+                        }
                         }
                     }
                     SettingsSubPage.CUSTOM_THEME -> {

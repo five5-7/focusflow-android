@@ -226,21 +226,13 @@ internal fun CustomThemeEditorContent(
         style = MaterialTheme.typography.labelSmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant
     )
-    PageBackdropControls(
+    AppearanceSettingsSection(
         appearance = appearance,
         onAppearanceChange = onAppearanceChange,
         // 在编辑器里抽色只改工作副本，不直接换掉全局主题（与「应用此配色」同一口径）。
         onApplyExtractedTheme = { extracted -> onColorsChange(extracted) },
         extractedAppliedNote = "已按图片抽色，点「应用此配色」启用"
     )
-    // 与「设置 → 外观」同一口径：关掉丰富效果时材质与课表底色不参与渲染，控件一并收起，
-    // 避免同一个开关在另一处留下"点了没反应"的控件。
-    if (appearance.richEffects) {
-        HorizontalDivider()
-        CardMaterialControls(appearance = appearance, onAppearanceChange = onAppearanceChange)
-        HorizontalDivider()
-        TimetableBaseControls(appearance = appearance, onAppearanceChange = onAppearanceChange)
-    }
     HorizontalDivider()
     if (editingPreset == null) {
         TextButton(onClick = onRestoreDefault) { Text("恢复默认主题配色与外观") }
