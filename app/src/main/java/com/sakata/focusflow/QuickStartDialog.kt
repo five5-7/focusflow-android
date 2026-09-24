@@ -16,7 +16,7 @@ import androidx.compose.ui.unit.dp
 
 internal val quickStartChapters = listOf(
     HelpSection("先做三件事", listOf(
-        "1. 想到一件事就点底部＋ → 快速记录；先写下来，不必先填时间、分类或目标。",
+        "1. 想到一件事可直接在今日页收集箱输入并保存，或点底部＋ → 快速记录；先写下来，不必先填时间、分类或目标。",
         "2. 回到今日页的收集箱：能定时间的就“安排”，暂时说不清的想法可整理为“逐步推进”，资料或备忘可整理为“参考”。",
         "3. 安排后到日程查看；完成、改期或放回收集箱都由你决定。错过不等于失败，应用会保留记录并提供恢复入口。"
     )),
@@ -105,6 +105,11 @@ internal fun CampusLifeChoiceDialog(onEnable: () -> Unit, onSkip: () -> Unit) {
 
 /** 覆盖安装后每个版本只展示一次的更新说明；版本名来自 BuildConfig，路线图是唯一详情入口。 */
 internal fun updateHighlightsFor(version: String): List<String> = when {
+    version == "8.3.0-rc.21" -> listOf(
+        "今日页收集箱可直接输入标题保存，保存成功后继续记录下一件事。",
+        "最近两条收集箱内容以单行标题显示，点击进入完整列表查看和整理。",
+        "延续已验收的课程连续节次与周五至周日收纳摘要。"
+    )
     version == "8.3.0-rc.20" -> listOf(
         "同一天同地点、节次紧邻的同名课程会连成一个时段，原有每段仍能编辑。",
         "缩小课表收纳周五至周日且时段不重叠时，会显示课程名称、星期和节次。",

@@ -1290,6 +1290,13 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                     pageModifier, items,
                     inboxOpen = todayInboxOpen,
                     onInboxOpenChange = { goTo(pageSnapshot().copy(todayInboxOpen = it)) },
+                    onCaptureToInbox = { title ->
+                        val captured = Item(title = title, detail = "稍后决定安排", kind = "收集箱")
+                        saveItemsWithEvent(
+                            listOf(captured) + items,
+                            TaskRecorder.event(TaskEventType.TASK_CREATED, captured.id, captured.title)
+                        )
+                    },
                     energyLevel = energyLevel,
                     energyRecordedAt = energyRecordedAt,
                     onEnergyLevelChange = { updated ->
