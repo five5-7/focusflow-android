@@ -35,7 +35,7 @@
 - 应用内更新说明必须在发版时展示该版本核心变化：为每个新版本在 `QuickStartDialog.updateHighlightsFor` 写 2–3 条用户可感知的变化，禁止落入兜底文案；与 `CHANGELOG.md`、`RoadmapData.kt` 同步。
 - Follow `VERSIONING.md`; a CI `run-N` is not a product version and a successful build is not a release.
 - The current official release is `8.2.1` / versionCode 534 (the fifth formal release). It extends the optional appearance system with acrylic and frosted-glass profiles plus non-destructive image crop controls; rich appearance remains disabled by default.
-- The current development candidate is `8.3.0-rc.14` / versionCode 548: all rc.13 work remains; today's permission reminder confirmation uses AppDialog, and the Zhejiang University import page follows the saved appearance for its background and shared cards. It requires stable-signed CI and OPPO verification and is not merged or released; rc.13 is superseded.
+- The current development candidate is `8.3.0-rc.15` / versionCode 549: four equal appearance choices use an adaptive grid, including page background and animation speed. It retains rc.14's import appearance and permission confirmation, which passed OPPO verification. It requires stable-signed CI and OPPO verification and is not merged or released; rc.14 is superseded.
 - The previous official release is `8.2.0` / versionCode 525.
 - Do not allocate a new version merely to record an idea; keep uncommitted ideas in the future-candidate section until a coherent scope is frozen.
 - Do not merge a pull request without explicit user confirmation.
