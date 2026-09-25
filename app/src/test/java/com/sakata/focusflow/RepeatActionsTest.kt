@@ -60,4 +60,11 @@ class RepeatActionsTest {
         assertEquals(2, refreshed.items.count { it.kind == "任务" && !it.done })
         assertEquals(day(2026, 9, 26), refreshed.items.first { it.repeatOccurrenceDay == day(2026, 9, 26) }.repeatOccurrenceDay)
     }
+
+    @Test fun `creating timed repeat after today's time begins at next date`() {
+        val today = day(2026, 9, 25)
+        val created = RepeatActions.create(emptyList(), "夜读", "daily", today,
+            minute = 9 * 60, at = today + 12 * 60 * 60_000L)
+        assertEquals(day(2026, 9, 26), created.items.first { it.kind == "任务" }.repeatOccurrenceDay)
+    }
 }

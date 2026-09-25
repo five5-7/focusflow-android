@@ -63,6 +63,13 @@ class PrototypeStore(context: Context) {
         .putLong("wanted_review_last_at", value.lastReviewedAt.coerceAtLeast(0L))
         .commit()
 
+    fun loadInboxReviewEnabled(): Boolean = preferences.getBoolean("inbox_review_enabled", false)
+    fun saveInboxReviewEnabled(enabled: Boolean): Boolean = preferences.edit()
+        .putBoolean("inbox_review_enabled", enabled).commit()
+    fun loadInboxReviewLastAt(): Long = preferences.getLong("inbox_review_last_at", 0L).coerceAtLeast(0L)
+    fun saveInboxReviewLastAt(at: Long): Boolean = preferences.edit()
+        .putLong("inbox_review_last_at", at.coerceAtLeast(0L)).commit()
+
     /**
      * 列表/集合型 JSON 存档的损坏保护：解码结果为空（或解码本身失败）而原始串非常规空容器，
      * 判定为损坏——备份原始串后返回默认空值。正常路径与原先行为完全一致。

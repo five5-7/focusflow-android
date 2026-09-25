@@ -18,18 +18,28 @@ internal object TodoActions {
     /** Each nonblank pasted line is a separate one-off task. No partial save on invalid input. */
     fun createLines(
         items: List<Item>, text: String, dateOnlyAt: Long? = null,
-        at: Long = System.currentTimeMillis()
+        at: Long = System.currentTimeMillis(), minute: Int = -1
     ): CreatedTodos {
         val titles = text.lines().map(String::trim).filter(String::isNotBlank)
         if (titles.isEmpty() || titles.size > 50 || titles.any { it.length > 200 } ||
-            (dateOnlyAt != null && dateOnlyAt <= 0L)) return CreatedTodos(items, emptyList(), emptyList())
+            (dateOnlyAt != null && dateOnlyAt <= 0L) || minute !in -1..1439)
+            return CreatedTodos(items, emptyList(), emptyList())
         val used = items.mapTo(mutableSetOf()) { it.id }
-        val date = dateOnlyAt?.let(TaskHistory::dayStartOf)
+        val date = (dateOnlyAt ?: at.takeIf { minute >= 0 })?.let(TaskHistory::dayStartOf)
+        if (date != null && minute >= 0 && Calendar.getInstance().apply {
+            timeInMillis = date; set(Calendar.HOUR_OF_DAY, minute / 60)
+            set(Calendar.MINUTE, minute % 60); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
+        }.timeInMillis <= at) return CreatedTodos(items, emptyList(), emptyList())
         val created = titles.map { title ->
             var id = newItemId()
             while (!used.add(id)) id = newItemId()
-            Item(id = id, title = title, kind = "任务", scheduledAt = date, dayOnly = date != null,
-                detail = date?.let(TaskScheduleText::dayOnlyDetail) ?: "尚未安排具体时间")
+            val scheduled = if (date != null && minute >= 0) Calendar.getInstance().apply {
+                timeInMillis = date; set(Calendar.HOUR_OF_DAY, minute / 60)
+                set(Calendar.MINUTE, minute % 60); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
+            }.timeInMillis else date
+            Item(id = id, title = title, kind = "任务", scheduledAt = scheduled, dayOnly = date != null && minute < 0,
+                detail = scheduled?.let { if (minute >= 0) TaskScheduleText.scheduledDetail(it, 60)
+                    else TaskScheduleText.dayOnlyDetail(it) } ?: "尚未安排具体时间")
         }
         return CreatedTodos(created + items, created, created.map {
             TaskRecorder.event(TaskEventType.TASK_CREATED, it.id, it.title,
@@ -39,11 +49,11 @@ internal object TodoActions {
 
     /** First line is the task title; the rest become steps on that same task. */
     fun createChecklist(items: List<Item>, text: String, dateOnlyAt: Long? = null,
-                        at: Long = System.currentTimeMillis()): CreatedTodos {
+                        at: Long = System.currentTimeMillis(), minute: Int = -1): CreatedTodos {
         val titles = text.lines().map(String::trim).filter(String::isNotBlank)
         if (titles.size < 2 || titles.size > 51 || titles.any { it.length > 200 })
             return CreatedTodos(items, emptyList(), emptyList())
-        val created = createLines(items, titles.first(), dateOnlyAt, at)
+        val created = createLines(items, titles.first(), dateOnlyAt, at, minute)
         val task = created.created.singleOrNull() ?: return CreatedTodos(items, emptyList(), emptyList())
         val withSteps = ChecklistActions.add(task, titles.drop(1).joinToString("\n"))
             ?: return CreatedTodos(items, emptyList(), emptyList())

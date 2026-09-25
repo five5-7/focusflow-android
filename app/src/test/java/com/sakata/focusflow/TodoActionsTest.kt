@@ -4,6 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.util.Calendar
 
 class TodoActionsTest {
     @Test fun titleOnlyCreatesOneUnscheduledTaskAndEvent() {
@@ -47,5 +48,17 @@ class TodoActionsTest {
         assertTrue(task.dayOnly)
         assertEquals(TaskHistory.dayStartOf(at), task.scheduledAt)
         assertEquals(task.scheduledAt, result.events.single().scheduledAt)
+    }
+
+    @Test fun oneOffTimeCreatesTimedReminderAndRejectsPastTimeWithoutPartialSave() {
+        val start = Calendar.getInstance().apply {
+            set(2026, 9, 5, 12, 0, 0); set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
+        val future = TodoActions.createLines(emptyList(), "复习", at = start, minute = 14 * 60)
+        assertEquals(1, future.created.size)
+        assertEquals(false, future.created.single().dayOnly)
+        assertEquals(14, Calendar.getInstance().apply { timeInMillis = future.created.single().scheduledAt!! }.get(Calendar.HOUR_OF_DAY))
+        assertEquals(future.created.single().scheduledAt, future.events.single().scheduledAt)
+        assertTrue(TodoActions.createLines(emptyList(), "复习", at = start, minute = 11 * 60).created.isEmpty())
     }
 }

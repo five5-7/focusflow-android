@@ -1472,7 +1472,9 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                     },
                     onAbandon = { item ->
                         val result = TrashActions.trash(items, setOf(item.id))
-                        if (result.events.isNotEmpty() && saveItemsWithEvents(result.items, result.events)) {
+                        if (result.events.isEmpty()) {
+                            scope.launch { snackbarHostState.showSnackbar("这条记录关联了下一步任务，请先处理关联任务。") }
+                        } else if (saveItemsWithEvents(result.items, result.events)) {
                             removeScheduledActivity(item.id)
                             scope.launch {
                                 if (snackbarHostState.showSnackbar("已移入最近删除：《${item.title}》", actionLabel = "撤回") == SnackbarResult.ActionPerformed) {
@@ -1543,6 +1545,8 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                                     if (restored.events.isNotEmpty()) saveItemsWithEvents(restored.items, restored.events)
                                 }
                             }
+                        } else if (result.events.isEmpty()) {
+                            scope.launch { snackbarHostState.showSnackbar("关联的下一步任务需先处理，再删除这条记录。") }
                         }
                     },
                     onSaveCoursePeriodTable = { table ->
@@ -2116,8 +2120,8 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                     val repeat = RepeatActions.create(items, title, frequency,
                         dateOnlyAt ?: TaskHistory.dayStartOf(System.currentTimeMillis()), repeatMinute)
                     CreatedTodos(repeat.items, repeat.items.filter { item -> items.none { it.id == item.id } }, repeat.events)
-                } else if (asChecklist) TodoActions.createChecklist(items, title, dateOnlyAt)
-                    else TodoActions.createLines(items, title, dateOnlyAt)
+                } else if (asChecklist) TodoActions.createChecklist(items, title, dateOnlyAt, minute = repeatMinute)
+                    else TodoActions.createLines(items, title, dateOnlyAt, minute = repeatMinute)
                 created.created.isNotEmpty() && saveItemsWithEvents(created.items, created.events)
             }
         )
@@ -2463,6 +2467,8 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                                     if (undo.events.isNotEmpty()) saveItemsWithEvents(undo.items, undo.events)
                                 }
                             }
+                        } else if (result.events.isEmpty()) {
+                            scope.launch { snackbarHostState.showSnackbar("关联的下一步任务需先处理，再删除这项待办。") }
                         }
                     }
                 )
