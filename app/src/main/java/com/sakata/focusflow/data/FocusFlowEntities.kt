@@ -81,7 +81,9 @@ data class TaskEntity(
     @ColumnInfo(name = "repeat_minute", defaultValue = "-1") val repeatMinute: Int = -1,
     @ColumnInfo(name = "repeat_template_id") val repeatTemplateId: Long? = null,
     @ColumnInfo(name = "repeat_occurrence_day") val repeatOccurrenceDay: Long? = null,
-    @ColumnInfo(name = "repeat_paused", defaultValue = "0") val repeatPaused: Boolean = false
+    @ColumnInfo(name = "repeat_paused", defaultValue = "0") val repeatPaused: Boolean = false,
+    @ColumnInfo(name = "trashed_at") val trashedAt: Long? = null,
+    @ColumnInfo(name = "trash_snapshot") val trashSnapshot: String? = null
 ) {
     companion object {
         fun fromLegacy(item: Item, sourceOrder: Int = 0): TaskEntity = TaskEntity(
@@ -118,7 +120,9 @@ data class TaskEntity(
             repeatMinute = item.repeatMinute,
             repeatTemplateId = item.repeatTemplateId,
             repeatOccurrenceDay = item.repeatOccurrenceDay,
-            repeatPaused = item.repeatPaused
+            repeatPaused = item.repeatPaused,
+            trashedAt = item.trashedAt,
+            trashSnapshot = item.trashSnapshot
         )
     }
 }

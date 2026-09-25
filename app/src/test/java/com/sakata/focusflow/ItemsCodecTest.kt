@@ -85,6 +85,8 @@ class ItemsCodecTest {
         assertFalse(decoded.planFocus)
         assertEquals("", decoded.repeatFrequency)
         assertNull(decoded.repeatTemplateId)
+        assertNull(decoded.trashedAt)
+        assertNull(decoded.trashSnapshot)
     }
 
     @Test fun decode_duplicateIds_renamesSecondWithFlag() {

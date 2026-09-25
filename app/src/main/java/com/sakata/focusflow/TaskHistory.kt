@@ -23,7 +23,8 @@ enum class TaskEventType(val label: String, val storageKey: String) {
     TASK_DELETED("删除任务", "task_deleted"),
     TASK_RESTORED("恢复任务", "task_restored"),
     REPEAT_SKIPPED("跳过本次重复", "repeat_skipped"),
-    REPEAT_MISSED("重复本次未处理", "repeat_missed");
+    REPEAT_MISSED("重复本次未处理", "repeat_missed"),
+    REPEAT_RULE_CHANGED("重复规则状态", "repeat_rule_changed");
 
     companion object {
         fun fromKey(key: String): TaskEventType? = entries.firstOrNull { it.storageKey == key }

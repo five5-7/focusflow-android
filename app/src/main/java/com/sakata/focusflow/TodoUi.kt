@@ -112,6 +112,7 @@ internal fun TodoListSection(
     val groupExpanded = remember { mutableStateMapOf("已过安排或截止" to true, "已安排" to true, "未安排" to true, "已完成" to false) }
     var selecting by remember { mutableStateOf(false) }
     var selectedIds by remember { mutableStateOf(emptySet<Long>()) }
+    var pendingDeleteIds by remember { mutableStateOf(emptySet<Long>()) }
     var keepBatchTime by remember { mutableStateOf(true) }
     val selectable = items.filter { it.kind == "任务" && !it.done && it.goalId == null && it.parentCaptureId == null &&
         items.none { child -> child.parentCaptureId == it.id } }.mapTo(mutableSetOf()) { it.id }
@@ -163,11 +164,26 @@ internal fun TodoListSection(
                                 selecting = false; selectedIds = emptySet()
                             }
                         }, calendar.get(Calendar.YEAR), calendar.get(Calendar.MONTH), calendar.get(Calendar.DAY_OF_MONTH)).show()
+                    } else if (action == TodoBatchAction.DELETE) {
+                        pendingDeleteIds = selectedIds
                     } else if (onBatchAction(selectedIds, action, null, keepBatchTime)) { selecting = false; selectedIds = emptySet() }
                 }) { Text(action.label) }
             }
         }
     }
+    if (pendingDeleteIds.isNotEmpty()) AlertDialog(
+        onDismissRequest = { pendingDeleteIds = emptySet() },
+        title = { Text("删除所选待办？") },
+        text = { Text("将 ${pendingDeleteIds.size} 项移入最近删除，可从设置中的数据与恢复找回。") },
+        confirmButton = { TextButton(onClick = {
+            val ids = pendingDeleteIds
+            pendingDeleteIds = emptySet()
+            if (onBatchAction(ids, TodoBatchAction.DELETE, null, keepBatchTime)) {
+                selecting = false; selectedIds = emptySet()
+            }
+        }) { Text("删除") } },
+        dismissButton = { TextButton(onClick = { pendingDeleteIds = emptySet() }) { Text("取消") } }
+    )
     if (groups.pendingCount == 0) {
         Text("还没有待办。记下标题就可以开始，时间以后再安排。", color = MaterialTheme.colorScheme.onSurfaceVariant)
     }

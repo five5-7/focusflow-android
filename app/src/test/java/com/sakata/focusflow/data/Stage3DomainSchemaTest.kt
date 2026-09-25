@@ -68,6 +68,17 @@ class Stage3DomainSchemaTest {
     }
 
     @Test
+    fun `deleted task tombstone retains its original snapshot in room`() {
+        val task = Item(id = 32, title = "原任务", detail = "备注", kind = "任务",
+            scheduledAt = 1_800_000_000_000L)
+        val tombstone = com.sakata.focusflow.TrashActions.trash(listOf(task), setOf(task.id), at = 1000).items.single()
+        database.taskDao().insertAll(listOf(TaskEntity.fromLegacy(tombstone)))
+        val restored = database.taskDao().all().single().toLegacy()
+        assertEquals(tombstone, restored)
+        assertEquals(task, com.sakata.focusflow.TrashActions.restore(listOf(restored), setOf(task.id)).items.single())
+    }
+
+    @Test
     fun `recurrence rule and occurrence preserve local calendar semantics`() {
         val rule = RecurrenceRuleEntity(
             id = 10L,

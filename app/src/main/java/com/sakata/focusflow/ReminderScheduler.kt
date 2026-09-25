@@ -265,7 +265,7 @@ object ReminderScheduler {
     ) {
         val scheduledAt = item.scheduledAt ?: return
         cancelTaskReminder(context, item.id)
-        if (!settings.scheduleRemindersEnabled || item.done || item.dayOnly || item.kind in setOf("收集箱", "暂停", "游戏", "活动")) return
+        if (!settings.scheduleRemindersEnabled || item.done || item.dayOnly || item.kind in setOf("收集箱", "暂停", "游戏", "活动", "回收站", "重复历史", "重复模板")) return
         // 不补发已经开始的日程；否则一次重启会把旧安排集中推送。
         val now = System.currentTimeMillis()
         if (scheduledAt <= now) return

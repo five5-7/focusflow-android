@@ -21,7 +21,8 @@ object RoadmapData {
     /** 已实现版本演进（1.0 → 当前版本），每版本浓缩 1–3 条，与 CHANGELOG.md 对应。 */
     val evolution: List<RoadmapVersion> = listOf(
         RoadmapVersion("8.3.0", listOf(
-            RoadmapEntry("8.3.0-rc.22", "收集箱记录分组与紧凑整理", "完整列表按创建事件区分最近、之前和时间未标记的旧记录；待整理项默认单行，点击只展开一项，编辑删除放入更多。延续rc.21快速输入，Room产品激活关闭，待CI与OPPO联合验收。", RoadmapStatus.CANDIDATE),
+            RoadmapEntry("8.3.0-rc.23", "阶段4：收集箱、待办与计划闭环", "收集箱批量整理、待办与计划、每日／每周重复基础、独立提醒和可恢复删除。Room产品激活关闭，待稳定签名CI与OPPO合并验收。", RoadmapStatus.CANDIDATE),
+            RoadmapEntry("8.3.0-rc.22", "收集箱记录分组与紧凑整理", "完整列表按创建事件区分最近、之前和时间未标记的旧记录；待整理项默认单行，点击只展开一项，编辑删除放入更多。延续rc.21快速输入，已由rc.23替代，未单独验收。", RoadmapStatus.DONE),
             RoadmapEntry("8.3.0-rc.21", "今日收集箱快速输入", "今日页收集箱共用一个卡面，直接输入标题并保存；显示总数与最近两条单行摘要，点击进入完整列表。Room产品激活关闭；已由rc.22代替，未单独验收。", RoadmapStatus.DONE),
             RoadmapEntry("8.3.0-rc.20", "连续课程与收纳摘要", "相邻同名同地点课程节次合并展示，原段可逐一编辑；周五至周日无节次重叠时仍显示课程摘要。课程写入经过统一数据源；Run 462与用户验收通过，已由rc.21替代。", RoadmapStatus.DONE),
             RoadmapEntry("8.3.0-rc.19", "课程确认与课表位置", "无冲突课程时段支持一键确认，同名时段按星期和节次汇集展示；缩小课表的周五至周日展开显示真实位置。安排时间模式选项适应宽度和字体。Run 460与用户验收通过，已由rc.20替代。", RoadmapStatus.DONE),

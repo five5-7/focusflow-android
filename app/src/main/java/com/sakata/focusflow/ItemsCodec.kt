@@ -38,7 +38,9 @@ object ItemsCodec {
                 repeatMinute = item.optInt("repeatMinute", -1).takeIf { it in 0..1439 } ?: -1,
                 repeatTemplateId = item.optLong("repeatTemplateId").takeIf { it > 0 },
                 repeatOccurrenceDay = item.optLong("repeatOccurrenceDay").takeIf { it > 0 },
-                repeatPaused = item.optBoolean("repeatPaused")
+                repeatPaused = item.optBoolean("repeatPaused"),
+                trashedAt = item.optLong("trashedAt").takeIf { it > 0 },
+                trashSnapshot = item.optString("trashSnapshot").takeIf(String::isNotBlank)
             )
         }
         val firstByOriginalId = mutableMapOf<Long, Item>()
@@ -88,6 +90,7 @@ object ItemsCodec {
             put("repeatFrequency", item.repeatFrequency); put("repeatStartDay", item.repeatStartDay ?: 0)
             put("repeatMinute", item.repeatMinute); put("repeatTemplateId", item.repeatTemplateId ?: 0)
             put("repeatOccurrenceDay", item.repeatOccurrenceDay ?: 0); put("repeatPaused", item.repeatPaused)
+            put("trashedAt", item.trashedAt ?: 0); item.trashSnapshot?.let { put("trashSnapshot", it) }
         }) }
     }.toString()
 }

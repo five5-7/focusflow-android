@@ -53,7 +53,9 @@ data class Item(
     val repeatMinute: Int = -1,
     val repeatTemplateId: Long? = null,
     val repeatOccurrenceDay: Long? = null,
-    val repeatPaused: Boolean = false
+    val repeatPaused: Boolean = false,
+    val trashedAt: Long? = null,
+    val trashSnapshot: String? = null
 )
 
 data class ChecklistEntry(val id: Long, val title: String, val done: Boolean = false)

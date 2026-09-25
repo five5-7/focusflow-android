@@ -57,6 +57,8 @@ abstract class FocusFlowDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE tasks ADD COLUMN repeat_template_id INTEGER")
                 db.execSQL("ALTER TABLE tasks ADD COLUMN repeat_occurrence_day INTEGER")
                 db.execSQL("ALTER TABLE tasks ADD COLUMN repeat_paused INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE tasks ADD COLUMN trashed_at INTEGER")
+                db.execSQL("ALTER TABLE tasks ADD COLUMN trash_snapshot TEXT")
             }
         }
 

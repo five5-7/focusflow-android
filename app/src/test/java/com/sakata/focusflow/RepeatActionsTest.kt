@@ -42,8 +42,13 @@ class RepeatActionsTest {
             RepeatActions.refresh(skipped.items, day(2026, 10, 2)).items.first { it.kind == "任务" }.repeatOccurrenceDay)
         val paused = RepeatActions.pause(created.items, template, true)
         assertTrue(paused.items.first { it.id == template.id }.repeatPaused)
+        assertEquals(TaskEventType.REPEAT_RULE_CHANGED, paused.events.first().type)
         assertTrue(paused.items.none { it.kind == "任务" })
         assertTrue(RepeatActions.refresh(paused.items, day(2026, 10, 2)).events.isEmpty())
+        val resumed = RepeatActions.pause(paused.items, paused.items.first { it.id == template.id }, false)
+        assertEquals(TaskEventType.REPEAT_RULE_CHANGED, resumed.events.single().type)
+        assertEquals(day(2026, 10, 2), RepeatActions.refresh(resumed.items, day(2026, 10, 2))
+            .items.first { it.kind == "任务" }.repeatOccurrenceDay)
     }
 
     @Test fun `rescheduled instance does not move next rule date`() {
