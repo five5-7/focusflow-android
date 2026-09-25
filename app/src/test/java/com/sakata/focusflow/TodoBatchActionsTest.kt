@@ -2,6 +2,7 @@ package com.sakata.focusflow
 
 import org.junit.Assert.*
 import org.junit.Test
+import java.util.Calendar
 
 class TodoBatchActionsTest {
     private val first = Item(id = 1, title = "复习", detail = "原备注", kind = "任务", scheduledAt = 200_000L)
@@ -47,5 +48,26 @@ class TodoBatchActionsTest {
         assertTrue(TodoBatchActions.apply(original, setOf(1, 3), TodoBatchAction.COMPLETE).events.isEmpty())
         assertTrue(TodoBatchActions.apply(original, setOf(1, 2), TodoBatchAction.CLEAR_TIME).events.isEmpty())
         assertTrue(TodoBatchActions.apply(original, setOf(1, 999), TodoBatchAction.DELETE).events.isEmpty())
+    }
+
+    @Test fun `batch date move preserves ids notes and optional wall clock with atomic undo`() {
+        val originalAt = Calendar.getInstance().apply { set(2026, 8, 25, 9, 30, 0) }.timeInMillis
+        val target = Calendar.getInstance().apply { set(2026, 8, 27, 12, 0, 0) }.timeInMillis
+        val original = listOf(first.copy(scheduledAt = originalAt), second)
+        val moved = TodoBatchActions.apply(original, setOf(1, 2), TodoBatchAction.MOVE_DATE,
+            at = 1000, targetDay = target, keepTime = true)
+        assertEquals(listOf(1L, 2L), moved.items.map { it.id })
+        assertEquals("原备注", moved.items.first().editableNote())
+        assertEquals(9, Calendar.getInstance().apply { timeInMillis = moved.items.first().scheduledAt!! }.get(Calendar.HOUR_OF_DAY))
+        assertEquals(30, Calendar.getInstance().apply { timeInMillis = moved.items.first().scheduledAt!! }.get(Calendar.MINUTE))
+        assertTrue(moved.items[1].dayOnly)
+        assertTrue(moved.events.all { it.type == TaskEventType.TASK_RESCHEDULED })
+        assertEquals(original, TodoBatchActions.undo(moved.items, moved).first)
+        val dayOnly = TodoBatchActions.apply(original, setOf(1L), TodoBatchAction.MOVE_DATE,
+            targetDay = target, keepTime = false)
+        assertTrue(dayOnly.items.first().dayOnly)
+        assertEquals(TaskHistory.dayStartOf(target), dayOnly.items.first().scheduledAt)
+        assertTrue(TodoBatchActions.apply(original, setOf(1L, 99L), TodoBatchAction.MOVE_DATE,
+            targetDay = target).events.isEmpty())
     }
 }
