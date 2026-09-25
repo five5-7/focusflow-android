@@ -114,4 +114,14 @@ class DatedOccupationTest {
         assertEquals(listOf("占用"), todayAgenda(emptyList(), listOf(earlyTomorrow),
             tomorrowAtCurrentClock, hideMissed = false).map { it.title })
     }
+
+    @Test fun tomorrowEntriesKeepStableTaskIdsAndAllDaySemantics() {
+        val morning = task(at("2026-09-15", 8)).copy(id = 21, title = "同名任务")
+        val allDay = morning.copy(id = 22, scheduledAt = at("2026-09-15", 0), dayOnly = true)
+
+        val entries = todayAgenda(emptyList(), listOf(morning, allDay), at("2026-09-15", 21), hideMissed = false)
+
+        assertEquals(listOf(22L, 21L), entries.map { it.itemId })
+        assertEquals(listOf(true, false), entries.map { it.isAllDay })
+    }
 }

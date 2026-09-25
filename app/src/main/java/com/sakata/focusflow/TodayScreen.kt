@@ -1,6 +1,7 @@
 package com.sakata.focusflow
 
 import android.app.DatePickerDialog
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -162,7 +163,7 @@ import kotlinx.coroutines.delay
     }
     Box(modifier.fillMaxSize()) {
         AnimatedVisibility(
-            visible = !inboxOpen,
+            visible = !inboxOpen && !tomorrowOpen,
             // 8.1.0 第三轮：主页直接出现在副页下层（不放大、不淡入）；进入子页时它退到 0.96。
             enter = hubEnter(),
             exit = hubExit()
@@ -391,20 +392,38 @@ import kotlinx.coroutines.delay
             modifier = Modifier.fillMaxWidth().clickable { tomorrowOpen = true }) {
             Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("明天预览 · ${tomorrowAgenda.size} 项  ›", fontWeight = FontWeight.Bold)
-                tomorrowAgenda.take(2).forEach { Text("${formatMinute(it.startMinute)} · ${it.title}", style = MaterialTheme.typography.bodySmall) }
+                tomorrowAgenda.take(2).forEach { Text("${if (it.isAllDay) "全天" else formatMinute(it.startMinute)} · ${it.title}", style = MaterialTheme.typography.bodySmall) }
                 if (tomorrowAgenda.size > 2) Text("还有 ${tomorrowAgenda.size - 2} 项", style = MaterialTheme.typography.labelSmall)
                 if (tomorrowAgenda.isEmpty()) Text("明天暂未安排", style = MaterialTheme.typography.bodySmall)
             }
         }
     }
         }
-        if (tomorrowOpen) AppDialog(onDismissRequest = { tomorrowOpen = false }, title = { Text("明天的安排") },
-            text = { Column(Modifier.fillMaxWidth().heightIn(max = 480.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                val tomorrow = java.util.Calendar.getInstance().apply { timeInMillis = now; add(java.util.Calendar.DAY_OF_YEAR, 1) }.timeInMillis
-                val entries = todayAgenda(courses, items, tomorrow, hideMissed = false)
+        BackHandler(enabled = tomorrowOpen) { tomorrowOpen = false }
+        SubpageMotion(tomorrowOpen.takeIf { it }) {
+            val tomorrow = java.util.Calendar.getInstance().apply { timeInMillis = now; add(java.util.Calendar.DAY_OF_YEAR, 1) }.timeInMillis
+            val entries = todayAgenda(courses, items, tomorrow, hideMissed = false)
+            PlanSubpageFrame(Modifier.fillMaxSize(), "明天的安排", titleAction = {
+                TextButton(onClick = { tomorrowOpen = false }) { Text("返回今日") }
+            }) {
                 if (entries.isEmpty()) Text("明天暂未安排")
-                entries.forEach { Text("${formatMinute(it.startMinute)} · ${it.title} — ${it.subtitle}") }
-            } }, confirmButton = { TextButton(onClick = { tomorrowOpen = false }) { Text("关闭") } })
+                entries.forEach { entry ->
+                    FocusCard(containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
+                        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("${if (entry.isAllDay) "全天" else formatMinute(entry.startMinute)} · ${entry.title}", fontWeight = FontWeight.SemiBold)
+                            Text(entry.subtitle, style = MaterialTheme.typography.bodySmall)
+                            val task = entry.itemId?.let { id -> items.firstOrNull { it.id == id && !it.done } }
+                            if (task != null) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                TextButton(onClick = { onPickTime(task) }) { Text("调整时间") }
+                                TextButton(onClick = { onTaskDone(task) }) { Text("完成") }
+                            } else if (entry.isCourse) TextButton(onClick = {
+                                tomorrowOpen = false; onOpenSchedule()
+                            }) { Text("查看课程日程") }
+                        }
+                    }
+                }
+            }
+        }
         SubpageMotion(inboxOpen.takeIf { it }) {
             PlanSubpageFrame(Modifier.fillMaxSize(), "收集箱") {
                 Row(
@@ -842,7 +861,8 @@ internal fun formatActivityRemaining(milliseconds: Long): String {
 }
 
 /** 今日安排摘要条目：课程或任务，按开始分钟排序。 */
-internal data class AgendaEntry(val startMinute: Int, val title: String, val subtitle: String, val isCourse: Boolean)
+internal data class AgendaEntry(val startMinute: Int, val title: String, val subtitle: String,
+                                val isCourse: Boolean, val itemId: Long? = null, val isAllDay: Boolean = false)
 
 internal fun todayAgenda(courses: List<Course>, items: List<Item>, now: Long = System.currentTimeMillis(),
                          hideMissed: Boolean = true): List<AgendaEntry> {
@@ -853,7 +873,8 @@ internal fun todayAgenda(courses: List<Course>, items: List<Item>, now: Long = S
         it.scheduledAt?.let { at -> ScheduleOccupation.sameDate(at, now) } == true }
         .mapNotNull { item -> item.scheduledAt?.let { s ->
             val calendar = java.util.Calendar.getInstance().apply { timeInMillis = s }
-            AgendaEntry(calendar.get(java.util.Calendar.HOUR_OF_DAY) * 60 + calendar.get(java.util.Calendar.MINUTE), item.title, "任务 · ${item.detail.ifBlank { "已安排" }}", false)
+            AgendaEntry(calendar.get(java.util.Calendar.HOUR_OF_DAY) * 60 + calendar.get(java.util.Calendar.MINUTE), item.title,
+                "任务 · ${item.detail.ifBlank { "已安排" }}", false, item.id, item.dayOnly)
         } }
     return (todayCourses + todayTasks).sortedBy { it.startMinute }
 }
