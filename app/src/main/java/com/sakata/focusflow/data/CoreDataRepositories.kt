@@ -311,7 +311,9 @@ internal fun TaskEntity.toLegacy(): Item = Item(
     repeatMinute = repeatMinute,
     repeatTemplateId = repeatTemplateId,
     repeatOccurrenceDay = repeatOccurrenceDay,
-    repeatPaused = repeatPaused
+    repeatPaused = repeatPaused,
+    trashedAt = trashedAt,
+    trashSnapshot = trashSnapshot
 )
 
 internal fun TaskEventEntity.toLegacy(type: TaskEventType): TaskEvent = TaskEvent(

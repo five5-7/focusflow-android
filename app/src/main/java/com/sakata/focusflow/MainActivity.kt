@@ -239,6 +239,7 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
     var addWantedOpen by remember { mutableStateOf(false) }
     var addScheduleOpen by remember { mutableStateOf(false) }
     var addReminderOpen by remember { mutableStateOf(false) }
+    var trashOpen by remember { mutableStateOf(false) }
     var reminderRevision by remember { mutableIntStateOf(0) }
     var addMenuOpen by remember { mutableStateOf(false) }
     // 历史导航可能只把加号弹窗收起，Boolean 仍为 true；请求序号保证再次点击会重建并注册弹窗。
@@ -1420,15 +1421,17 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                         } else {
                         val before = items
                         val result = InboxBatchActions.apply(before, selectedIds, action)
-                        if (result.events.isEmpty()) {
+                        val changed = if (action == InboxBatchAction.DELETE)
+                            TrashActions.trash(before, selectedIds) else TrashResult(result.items, result.events)
+                        if (result.events.isEmpty() || changed.events.isEmpty()) {
                             scope.launch { snackbarHostState.showSnackbar("选中的条目已变化，请重新选择。") }
                             false
-                        } else if (!saveItemsWithEvents(result.items, result.events)) false
+                        } else if (!saveItemsWithEvents(changed.items, changed.events)) false
                         else {
                             if (action == InboxBatchAction.DELETE) {
                                 scope.launch {
                                     if (snackbarHostState.showSnackbar("已删除 ${result.affected.size} 项", actionLabel = "撤回") == SnackbarResult.ActionPerformed) {
-                                        val undo = InboxBatchActions.undoDelete(items, before, result.affected)
+                                        val undo = TrashActions.restore(items, selectedIds)
                                         if (undo.events.isNotEmpty()) saveItemsWithEvents(undo.items, undo.events)
                                     }
                                 }
@@ -1468,8 +1471,16 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                         if (saveItems(result.items)) removeScheduledActivity(item.id)
                     },
                     onAbandon = { item ->
-                        val result = TaskActions.abandon(items, item)
-                        if (saveItemsWithEvent(result.items, result.event)) removeScheduledActivity(item.id)
+                        val result = TrashActions.trash(items, setOf(item.id))
+                        if (result.events.isNotEmpty() && saveItemsWithEvents(result.items, result.events)) {
+                            removeScheduledActivity(item.id)
+                            scope.launch {
+                                if (snackbarHostState.showSnackbar("已移入最近删除：《${item.title}》", actionLabel = "撤回") == SnackbarResult.ActionPerformed) {
+                                    val restored = TrashActions.restore(items, setOf(item.id))
+                                    if (restored.events.isNotEmpty()) saveItemsWithEvents(restored.items, restored.events)
+                                }
+                            }
+                        }
                     },
                     baselineEvents = store.loadBaselineEvents(500),
                     taskEvents = taskEvents,
@@ -1520,8 +1531,19 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                         } else completionTarget = item
                     },
                     onDeleteItem = { item ->
-                        val result = TaskActions.deleteItem(items, item)
-                        if (saveItemsWithEvent(result.items, result.event)) removeScheduledActivity(item.id)
+                        val result = TrashActions.trash(items, setOf(item.id))
+                        if (result.events.isEmpty() && item.kind !in setOf("任务", "收集箱", "暂停")) {
+                            val removed = TaskActions.deleteItem(items, item)
+                            if (saveItemsWithEvent(removed.items, removed.event)) removeScheduledActivity(item.id)
+                        } else if (result.events.isNotEmpty() && saveItemsWithEvents(result.items, result.events)) {
+                            removeScheduledActivity(item.id)
+                            scope.launch {
+                                if (snackbarHostState.showSnackbar("已移入最近删除：《${item.title}》", actionLabel = "撤回") == SnackbarResult.ActionPerformed) {
+                                    val restored = TrashActions.restore(items, setOf(item.id))
+                                    if (restored.events.isNotEmpty()) saveItemsWithEvents(restored.items, restored.events)
+                                }
+                            }
+                        }
                     },
                     onSaveCoursePeriodTable = { table ->
                         coursePeriodTable = table
@@ -1574,24 +1596,24 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                             scope.launch { snackbarHostState.showSnackbar("待办已变化，请重新选择。") }
                             return@batchTodo false
                         }
-                        if (!saveItemsWithEvents(result.items, result.events)) return@batchTodo false
+                        val changed = if (action == TodoBatchAction.DELETE) TrashActions.trash(items, ids)
+                            else TrashResult(result.items, result.events)
+                        if (changed.events.isEmpty() || !saveItemsWithEvents(changed.items, changed.events)) return@batchTodo false
                         if (action == TodoBatchAction.DELETE) result.affectedBefore.forEach { removeScheduledActivity(it.id) }
                         scope.launch {
                             if (snackbarHostState.showSnackbar("已${action.label} ${result.affectedBefore.size} 项", actionLabel = "撤回") == SnackbarResult.ActionPerformed) {
-                                val (restored, events) = TodoBatchActions.undo(items, result)
-                                if (events.isNotEmpty()) saveItemsWithEvents(restored, events)
+                                val undo = if (action == TodoBatchAction.DELETE) TrashActions.restore(items, ids)
+                                    else TodoBatchActions.undo(items, result).let { TrashResult(it.first, it.second) }
+                                if (undo.events.isNotEmpty()) saveItemsWithEvents(undo.items, undo.events)
                             }
                         }
                         true
                     },
                     onPauseRepeat = { template, paused ->
                         val updated = RepeatActions.pause(items, template, paused)
-                        if (updated.items != items) {
-                            if (updated.events.isNotEmpty()) saveItemsWithEvents(updated.items, updated.events)
-                            else if (saveItems(updated.items) && !paused) {
-                                val next = RepeatActions.refresh(items)
-                                if (next.events.isNotEmpty()) saveItemsWithEvents(next.items, next.events)
-                            }
+                        if (updated.events.isNotEmpty() && saveItemsWithEvents(updated.items, updated.events) && !paused) {
+                            val next = RepeatActions.refresh(items)
+                            if (next.events.isNotEmpty()) saveItemsWithEvents(next.items, next.events)
                         }
                     },
                     onConfirmCourse = { course ->
@@ -1990,7 +2012,7 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                         store.saveCustomThemeColors(extracted)
                         themeOption = FocusFlowThemeOption.CUSTOM
                         store.saveTheme(FocusFlowThemeOption.CUSTOM)
-                    })
+                    }, onOpenTrash = { trashOpen = true })
             }
             }
         }
@@ -2082,6 +2104,10 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
             val saved = StandaloneReminders.create(context, title, at)
             if (saved) { addReminderOpen = false; reminderRevision++; ReminderScheduler.restoreStandaloneReminders(context) }
             saved
+        }
+        if (trashOpen) TrashDialog(items, onDismiss = { trashOpen = false }) { id ->
+            val result = TrashActions.restore(items, setOf(id))
+            result.events.isNotEmpty() && saveItemsWithEvents(result.items, result.events)
         }
         if (addTodoOpen) TodoCreateDialog(
             onDismiss = { addTodoOpen = false },
@@ -2427,13 +2453,13 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                             return@TodoDetailDialog
                         }
                         val before = items
-                        val result = TaskActions.deleteItem(before, item)
-                        if (saveItemsWithEvent(result.items, result.event)) {
+                        val result = TrashActions.trash(before, setOf(item.id))
+                        if (result.events.isNotEmpty() && saveItemsWithEvents(result.items, result.events)) {
                             todoDetailTarget = null
                             removeScheduledActivity(item.id)
                             scope.launch {
                                 if (snackbarHostState.showSnackbar("已删除《${item.title}》", actionLabel = "撤回") == SnackbarResult.ActionPerformed) {
-                                    val undo = InboxBatchActions.undoDelete(items, before, listOf(item), extra = "撤回删除")
+                                    val undo = TrashActions.restore(items, setOf(item.id))
                                     if (undo.events.isNotEmpty()) saveItemsWithEvents(undo.items, undo.events)
                                 }
                             }

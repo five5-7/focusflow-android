@@ -96,8 +96,11 @@ internal object RepeatActions {
             item.id in pending.map { it.id } -> item.preservingNote().copy(kind = "重复历史",
                 detail = "暂停时未处理", scheduledAt = null, dayOnly = false)
             else -> item
-        } }, pending.map { TaskRecorder.event(TaskEventType.TASK_UNSCHEDULED, it.id, it.title,
-            extra = "暂停重复", scheduledAt = it.scheduledAt ?: 0L) })
+        } }, listOf(TaskRecorder.event(TaskEventType.REPEAT_RULE_CHANGED, template.id, template.title,
+            extra = if (paused) "暂停" else "继续")) + pending.map {
+            TaskRecorder.event(TaskEventType.TASK_UNSCHEDULED, it.id, it.title,
+                extra = "暂停重复", scheduledAt = it.scheduledAt ?: 0L)
+        })
     }
 
     fun skip(items: List<Item>, instance: Item, at: Long = System.currentTimeMillis()): RepeatResult {

@@ -56,6 +56,7 @@ class Stage4RoomUpgradeTest {
             assertFalse(item.planFocus)
             assertEquals("", item.repeatFrequency)
             assertNull(item.repeatTemplateId)
+            assertNull(item.trashedAt)
             val plan = database.planDao().all().single().toLegacy()
             assertEquals(8L, plan.id)
             assertEquals("原计划", plan.title)

@@ -84,6 +84,7 @@ import kotlinx.coroutines.delay
     var helpOpen by remember { mutableStateOf(false) }
     var statusPanelOpen by remember { mutableStateOf(false) }
     var captureText by remember { mutableStateOf("") }
+    var pendingInboxDeleteIds by remember { mutableStateOf(emptySet<Long>()) }
     LaunchedEffect(activeSession?.id, activeSession?.endsAt) {
         while (true) {
             now = System.currentTimeMillis()
@@ -500,7 +501,9 @@ import kotlinx.coroutines.delay
                                     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp), maxItemsInEachRow = 2) {
                                         InboxBatchAction.entries.forEach { action ->
                                             OutlinedButton(onClick = {
-                                                if (onBatchOrganize(activeSelection, action)) {
+                                                if (action == InboxBatchAction.DELETE) {
+                                                    pendingInboxDeleteIds = activeSelection
+                                                } else if (onBatchOrganize(activeSelection, action)) {
                                                     selectedInboxIds = emptySet()
                                                     inboxSelecting = false
                                                 }
@@ -574,6 +577,20 @@ import kotlinx.coroutines.delay
             }
         }
         if (helpOpen) HelpDialog(title = HelpCatalog.today.title, sections = HelpCatalog.today.sections, onDismiss = { helpOpen = false })
+        if (pendingInboxDeleteIds.isNotEmpty()) AlertDialog(
+            onDismissRequest = { pendingInboxDeleteIds = emptySet() },
+            title = { Text("删除所选记录？") },
+            text = { Text("将 ${pendingInboxDeleteIds.size} 条移入最近删除，可从设置中的数据与恢复找回。") },
+            confirmButton = { TextButton(onClick = {
+                val ids = pendingInboxDeleteIds
+                pendingInboxDeleteIds = emptySet()
+                if (onBatchOrganize(ids, InboxBatchAction.DELETE)) {
+                    selectedInboxIds = emptySet()
+                    inboxSelecting = false
+                }
+            }) { Text("删除") } },
+            dismissButton = { TextButton(onClick = { pendingInboxDeleteIds = emptySet() }) { Text("取消") } }
+        )
     }
 }
 

@@ -35,7 +35,7 @@
 - 应用内更新说明必须在发版时展示该版本核心变化：为每个新版本在 `QuickStartDialog.updateHighlightsFor` 写 2–3 条用户可感知的变化，禁止落入兜底文案；与 `CHANGELOG.md`、`RoadmapData.kt` 同步。
 - Follow `VERSIONING.md`; a CI `run-N` is not a product version and a successful build is not a release.
 - The current official release is `8.2.1` / versionCode 534 (the fifth formal release). It extends the optional appearance system with acrylic and frosted-glass profiles plus non-destructive image crop controls; rich appearance remains disabled by default.
-- The current development candidate is `8.3.0-rc.22` / versionCode 556: rc.20 passed device acceptance. It carries rc.21 direct capture and adds the stage 4 inbox age groups plus compact single-item expansion. Room product activation remains off. It requires stable-signed CI and combined OPPO verification and is not merged or released; rc.21 was superseded without separate acceptance.
+- The current development candidate is `8.3.0-rc.23` / versionCode 557: rc.20 passed device acceptance; rc.21 and rc.22 were superseded without separate acceptance. Stage 4 inbox, one-off todos, plans, basic daily/weekly recurrence, standalone reminders, batch organization, and recoverable ordinary task deletion await combined OPPO verification. Room product activation remains off. Do not merge or release before device acceptance.
 - The previous official release is `8.2.0` / versionCode 525.
 - Do not allocate a new version merely to record an idea; keep uncommitted ideas in the future-candidate section until a coherent scope is frozen.
 - Do not merge a pull request without explicit user confirmation.

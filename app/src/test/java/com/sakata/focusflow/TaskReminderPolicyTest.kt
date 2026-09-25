@@ -16,6 +16,13 @@ class TaskReminderPolicyTest {
         assertFalse(TaskReminderActionFreshness.matches(task, task.scheduledAt!!))
     }
 
+    @Test fun `deleted task cannot schedule or act on a stale notification`() {
+        val task = Item(id = 31, title = "已移除", detail = "", kind = "任务", scheduledAt = now + 60_000L)
+        val deleted = task.copy(kind = "回收站", trashedAt = now)
+        assertTrue(TaskReminderPolicy.pendingReminders(listOf(deleted), ActivityReminderSettings(), now).isEmpty())
+        assertFalse(TaskReminderActionFreshness.matches(deleted, task.scheduledAt!!))
+    }
+
     @Test
     fun `next reminder ignores inbox done and untimed items`() {
         val items = listOf(
