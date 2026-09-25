@@ -36,4 +36,17 @@ internal object TodoActions {
                 scheduledAt = it.scheduledAt ?: 0, at = at)
         })
     }
+
+    /** First line is the task title; the rest become steps on that same task. */
+    fun createChecklist(items: List<Item>, text: String, dateOnlyAt: Long? = null,
+                        at: Long = System.currentTimeMillis()): CreatedTodos {
+        val titles = text.lines().map(String::trim).filter(String::isNotBlank)
+        if (titles.size < 2 || titles.size > 51 || titles.any { it.length > 200 })
+            return CreatedTodos(items, emptyList(), emptyList())
+        val created = createLines(items, titles.first(), dateOnlyAt, at)
+        val task = created.created.singleOrNull() ?: return CreatedTodos(items, emptyList(), emptyList())
+        val withSteps = ChecklistActions.add(task, titles.drop(1).joinToString("\n"))
+            ?: return CreatedTodos(items, emptyList(), emptyList())
+        return CreatedTodos(created.items.map { if (it.id == task.id) withSteps else it }, listOf(withSteps), created.events)
+    }
 }

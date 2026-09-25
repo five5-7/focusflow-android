@@ -5,6 +5,8 @@ import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.sakata.focusflow.ActivitySession
+import com.sakata.focusflow.Item
+import com.sakata.focusflow.ChecklistEntry
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
@@ -30,6 +32,16 @@ class Stage3DomainSchemaTest {
     @After
     fun tearDown() {
         database.close()
+    }
+
+    @Test
+    fun `task checklist deadline and plan ordering survive room round trip`() {
+        val task = Item(id = 77, title = "设计", detail = "尚未安排具体时间", kind = "任务",
+            goalId = 8, dueAt = 1_800_000_000_000L,
+            checklist = listOf(ChecklistEntry(101, "找资料", true), ChecklistEntry(102, "草图")),
+            planBucket = "later", planFocus = true)
+        database.taskDao().insertAll(listOf(TaskEntity.fromLegacy(task)))
+        assertEquals(task, database.taskDao().all().single().toLegacy())
     }
 
     @Test

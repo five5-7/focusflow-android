@@ -28,7 +28,11 @@ object ItemsCodec {
                 sourceDetail = item.optString("sourceDetail"),
                 userNote = if (item.has("userNote") && !item.isNull("userNote")) item.getString("userNote") else null,
                 nextAction = item.optString("nextAction"),
-                parentCaptureId = item.optLong("parentCaptureId").takeIf { it > 0 }
+                parentCaptureId = item.optLong("parentCaptureId").takeIf { it > 0 },
+                dueAt = item.optLong("dueAt").takeIf { it > 0 },
+                checklist = ChecklistCodec.decode(item.optJSONArray("checklist")),
+                planBucket = if (item.optString("planBucket") == "later") "later" else "near",
+                planFocus = item.optBoolean("planFocus")
             )
         }
         val firstByOriginalId = mutableMapOf<Long, Item>()
@@ -74,6 +78,7 @@ object ItemsCodec {
             put("captureSchemaVersion", 1)
             item.userNote?.let { put("userNote", it) }
             put("id", item.id); put("title", item.title); put("detail", item.detail); put("kind", item.kind); put("done", item.done); put("scheduledAt", item.scheduledAt ?: 0); put("dayOnly", item.dayOnly); put("goalId", item.goalId ?: 0); put("completionLevel", item.completionLevel); put("completedAt", item.completedAt ?: 0); put("durationMinutes", item.durationMinutes); put("windowStartAt", item.windowStartAt ?: 0); put("windowEndAt", item.windowEndAt ?: 0); put("rescheduleCount", item.rescheduleCount); put("lastRescheduledAt", item.lastRescheduledAt ?: 0); put("recoverySourceScheduledAt", item.recoverySourceScheduledAt ?: 0); put("priority", item.priority); put("captureRoute", CaptureRoute.fromKey(item.captureRoute).storageKey); put("sourceDetail", item.sourceDetail); put("nextAction", item.nextAction); put("parentCaptureId", item.parentCaptureId ?: 0)
+            put("dueAt", item.dueAt ?: 0); put("checklist", ChecklistCodec.encodeArray(item.checklist)); put("planBucket", item.planBucket); put("planFocus", item.planFocus)
         }) }
     }.toString()
 }

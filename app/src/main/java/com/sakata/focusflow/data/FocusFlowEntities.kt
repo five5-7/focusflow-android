@@ -9,6 +9,7 @@ import com.sakata.focusflow.Course
 import com.sakata.focusflow.CampusZone
 import com.sakata.focusflow.Goal
 import com.sakata.focusflow.PlanState
+import com.sakata.focusflow.ChecklistCodec
 import com.sakata.focusflow.Item
 import com.sakata.focusflow.TaskEvent
 
@@ -70,7 +71,11 @@ data class TaskEntity(
     @ColumnInfo(name = "source_detail") val sourceDetail: String,
     @ColumnInfo(name = "user_note") val userNote: String?,
     @ColumnInfo(name = "next_action") val nextAction: String,
-    @ColumnInfo(name = "parent_capture_id") val parentCaptureId: Long?
+    @ColumnInfo(name = "parent_capture_id") val parentCaptureId: Long?,
+    @ColumnInfo(name = "due_at") val dueAt: Long? = null,
+    @ColumnInfo(name = "checklist_json", defaultValue = "'[]'") val checklistJson: String = "[]",
+    @ColumnInfo(name = "plan_bucket", defaultValue = "'near'") val planBucket: String = "near",
+    @ColumnInfo(name = "plan_focus", defaultValue = "0") val planFocus: Boolean = false
 ) {
     companion object {
         fun fromLegacy(item: Item, sourceOrder: Int = 0): TaskEntity = TaskEntity(
@@ -97,7 +102,11 @@ data class TaskEntity(
             sourceDetail = item.sourceDetail,
             userNote = item.userNote,
             nextAction = item.nextAction,
-            parentCaptureId = item.parentCaptureId
+            parentCaptureId = item.parentCaptureId,
+            dueAt = item.dueAt,
+            checklistJson = ChecklistCodec.encodeArray(item.checklist).toString(),
+            planBucket = item.planBucket,
+            planFocus = item.planFocus
         )
     }
 }

@@ -1643,6 +1643,14 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                             created.event != null && saveItemsWithEvent(created.items, created.event)
                         }
                     },
+                    onMovePlanTask = { plan, task, bucket ->
+                        if (goals.none { it == plan }) false else
+                            PlanTaskActions.move(items, plan, task, bucket)?.let(::saveItems) ?: false
+                    },
+                    onFocusPlanTask = { plan, task ->
+                        if (goals.none { it == plan }) false else
+                            PlanTaskActions.focus(items, plan, task)?.let(::saveItems) ?: false
+                    },
                     onChangeGoalState = { goal, state ->
                         val changed = WantedPlanActions.changeState(goal, state)
                         if (changed != null && goals.any { it == goal }) {
@@ -2013,8 +2021,9 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
         }
         if (addTodoOpen) TodoCreateDialog(
             onDismiss = { addTodoOpen = false },
-            onSave = { title, dateOnlyAt ->
-                val created = TodoActions.createLines(items, title, dateOnlyAt)
+            onSave = { title, dateOnlyAt, asChecklist ->
+                val created = if (asChecklist) TodoActions.createChecklist(items, title, dateOnlyAt)
+                    else TodoActions.createLines(items, title, dateOnlyAt)
                 created.created.isNotEmpty() && saveItemsWithEvents(created.items, created.events)
             }
         )
@@ -2317,6 +2326,17 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                         if (item.scheduledAt == null) inboxScheduleTarget = item else rescheduleTarget = item
                     },
                     onEdit = { todoDetailTarget = null; inboxEditTarget = item },
+                    onDueDate = { date ->
+                        if (items.any { it == item }) saveItems(items.map { if (it.id == item.id) it.copy(dueAt = date) else it })
+                    },
+                    onAddChecklist = { lines ->
+                        val updated = ChecklistActions.add(item, lines)
+                        updated != null && items.any { it == item } && saveItems(items.map { if (it.id == item.id) updated else it })
+                    },
+                    onToggleChecklist = { stepId ->
+                        val updated = ChecklistActions.toggle(item, stepId)
+                        if (updated != null && items.any { it == item }) saveItems(items.map { if (it.id == item.id) updated else it })
+                    },
                     onDelete = {
                         val before = items
                         val result = TaskActions.deleteItem(before, item)

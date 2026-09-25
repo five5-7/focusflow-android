@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -26,6 +27,7 @@ internal fun PlanGoalsSection(
     items: List<Item>,
     feedback: List<TaskFeedback>,
     autoPlanMessage: String?,
+    store: PrototypeStore,
     onAddGoal: () -> Unit,
     onEditGoal: (Goal) -> Unit,
     onDeleteGoal: (Goal) -> Unit,
@@ -36,6 +38,8 @@ internal fun PlanGoalsSection(
     onEditWanted: (Goal, String, String, String) -> Boolean,
     onStartWanted: (Goal, String) -> Boolean,
     onAddPlanTask: (Goal, String) -> Boolean,
+    onMovePlanTask: (Goal, Item, String) -> Boolean,
+    onFocusPlanTask: (Goal, Item?) -> Boolean,
     onChangeState: (Goal, PlanState) -> Unit
 ) {
     val context = LocalContext.current
@@ -48,6 +52,15 @@ internal fun PlanGoalsSection(
     var starting by remember { mutableStateOf<Goal?>(null) }
     var addingTaskTo by remember { mutableStateOf<Goal?>(null) }
     var taskTitle by remember { mutableStateOf("") }
+    var review by remember { mutableStateOf(store.loadWantedReviewSettings()) }
+    var reviewSettingsOpen by remember { mutableStateOf(false) }
+    val wantedCount = goals.count { it.state == PlanState.WANTED }
+    LaunchedEffect(wantedCount) {
+        if (wantedCount > 0 && review.lastReviewedAt == 0L) {
+            val started = review.copy(lastReviewedAt = System.currentTimeMillis())
+            if (store.saveWantedReviewSettings(started)) review = started
+        }
+    }
     Row(
         Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -57,6 +70,21 @@ internal fun PlanGoalsSection(
         TextButton(onClick = onAddGoal) { Text("＋ 新增目标") }
     }
     TextButton(onClick = { addingWanted = true }) { Text("＋ 记下想做（只需名称）") }
+    if (wantedCount > 0) {
+        if (WantedReviewPolicy.due(review, wantedCount, System.currentTimeMillis())) {
+            FocusCard(containerColor = MaterialTheme.colorScheme.secondaryContainer) {
+                Column(Modifier.fillMaxWidth().padding(12.dp)) {
+                    Text("想做列表已有 $wantedCount 项，可以集中看一眼。", style = MaterialTheme.typography.bodyMedium)
+                    Text("仅在此页面提示，不逐项催促。", style = MaterialTheme.typography.bodySmall)
+                    TextButton(onClick = {
+                        val updated = review.copy(lastReviewedAt = System.currentTimeMillis())
+                        if (store.saveWantedReviewSettings(updated)) review = updated
+                    }) { Text("已回顾") }
+                }
+            }
+        }
+        TextButton(onClick = { reviewSettingsOpen = true }) { Text("想做回顾：${if (review.enabled) "每 ${review.intervalMonths} 个月" else "已关闭"}") }
+    }
     val active = goals.filter { it.state == PlanState.IN_PROGRESS }
     TextButton(onClick = onAutoPlanGoals, enabled = active.any { it.weeklyTarget > 0 }) { Text("按空挡自动排本周目标（本地判断）") }
     autoPlanMessage?.let {
@@ -93,8 +121,19 @@ internal fun PlanGoalsSection(
                     if (goal.sourceNotes.isNotBlank()) Text(goal.sourceNotes, style = MaterialTheme.typography.bodySmall)
                     val linked = items.filter { it.goalId == goal.id && it.kind == "任务" }
                     val pending = linked.filterNot { it.done }
-                    Text("近期任务 · ${pending.size}", style = MaterialTheme.typography.labelMedium)
-                    pending.forEach { Text("• ${it.title}", style = MaterialTheme.typography.bodySmall) }
+                    val near = pending.filter { it.planBucket != "later" }
+                    val later = pending.filter { it.planBucket == "later" }
+                    Text("近期任务 · ${near.size}", style = MaterialTheme.typography.labelMedium)
+                    near.forEach { task -> Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(task.title + if (task.planFocus) " · 当前重点" else "", Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        TextButton(onClick = { onFocusPlanTask(goal, if (task.planFocus) null else task) }) { Text(if (task.planFocus) "取消重点" else "设为重点") }
+                        TextButton(onClick = { onMovePlanTask(goal, task, "later") }) { Text("稍后") }
+                    } }
+                    Text("稍后 · ${later.size}", style = MaterialTheme.typography.labelMedium)
+                    later.forEach { task -> Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(task.title, Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        TextButton(onClick = { onMovePlanTask(goal, task, "near") }) { Text("放入近期") }
+                    } }
                     if (linked.any { it.done }) Text("已完成 ${linked.count { it.done }} 项", style = MaterialTheme.typography.bodySmall)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         TextButton(onClick = { taskTitle = ""; addingTaskTo = goal }) { Text("＋近期任务") }
@@ -179,6 +218,25 @@ internal fun PlanGoalsSection(
         }) { Text("添加") } },
         dismissButton = { TextButton(onClick = { addingTaskTo = null }) { Text("取消") } }
     ) }
+    if (reviewSettingsOpen) AppDialog(
+        onDismissRequest = { reviewSettingsOpen = false }, title = { Text("想做列表回顾") },
+        text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("只在打开计划页时显示到期摘要，不发送逐项通知。")
+            listOf(0 to "关闭", 1 to "每月", 3 to "每三个月", 6 to "每六个月").forEach { (months, label) ->
+                Row(Modifier.fillMaxWidth().clickable {
+                        val updated = review.copy(enabled = months != 0,
+                            intervalMonths = if (months == 0) review.intervalMonths else months,
+                            lastReviewedAt = System.currentTimeMillis())
+                        if (store.saveWantedReviewSettings(updated)) review = updated
+                    }, verticalAlignment = Alignment.CenterVertically) {
+                    RadioButton(selected = if (months == 0) !review.enabled else review.enabled && review.intervalMonths == months,
+                        onClick = null)
+                    Text(label)
+                }
+            }
+        } },
+        confirmButton = { TextButton(onClick = { reviewSettingsOpen = false }) { Text("完成") } }
+    )
 }
 
 @Composable

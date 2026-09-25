@@ -6,6 +6,7 @@ import com.sakata.focusflow.Course
 import com.sakata.focusflow.Goal
 import com.sakata.focusflow.PlanState
 import com.sakata.focusflow.Item
+import com.sakata.focusflow.ChecklistCodec
 import com.sakata.focusflow.PrototypeStore
 import com.sakata.focusflow.TaskEvent
 import com.sakata.focusflow.TaskEventType
@@ -300,7 +301,11 @@ internal fun TaskEntity.toLegacy(): Item = Item(
     sourceDetail = sourceDetail,
     userNote = userNote,
     nextAction = nextAction,
-    parentCaptureId = parentCaptureId
+    parentCaptureId = parentCaptureId,
+    dueAt = dueAt,
+    checklist = ChecklistCodec.decode(checklistJson),
+    planBucket = planBucket,
+    planFocus = planFocus
 )
 
 internal fun TaskEventEntity.toLegacy(type: TaskEventType): TaskEvent = TaskEvent(
