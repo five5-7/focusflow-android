@@ -9,6 +9,13 @@ import org.junit.Test
 class TaskReminderPolicyTest {
     private val now = 1_000_000L
 
+    @Test fun `date only item never creates a midnight alarm`() {
+        val task = Item(id = 30, title = "仅日期", detail = "", kind = "任务",
+            scheduledAt = now + 24 * 60 * 60_000L, dayOnly = true)
+        assertTrue(TaskReminderPolicy.pendingReminders(listOf(task), ActivityReminderSettings(), now).isEmpty())
+        assertFalse(TaskReminderActionFreshness.matches(task, task.scheduledAt!!))
+    }
+
     @Test
     fun `next reminder ignores inbox done and untimed items`() {
         val items = listOf(
