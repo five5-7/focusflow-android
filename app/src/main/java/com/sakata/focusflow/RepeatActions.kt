@@ -63,16 +63,12 @@ internal object RepeatActions {
                     day >= (template.repeatStartDay ?: today) &&
                         (template.repeatFrequency == "daily" ||
                             weekday(day) == weekday(requireNotNull(template.repeatStartDay))) &&
+                        (template.repeatMinute < 0 || occurrenceAt(day, template.repeatMinute) > at) &&
                         current.none { it.repeatTemplateId == template.id && it.repeatOccurrenceDay == day }
                 } ?: return@forEach
                 var id = newItemId()
                 while (!usedIds.add(id)) id = newItemId()
-                val scheduled = template.repeatMinute.takeIf { it >= 0 }?.let { minute ->
-                    Calendar.getInstance().apply {
-                        timeInMillis = date; set(Calendar.HOUR_OF_DAY, minute / 60)
-                        set(Calendar.MINUTE, minute % 60); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
-                    }.timeInMillis
-                } ?: date
+                val scheduled = occurrenceAt(date, template.repeatMinute)
                 val occurrence = Item(id = id, title = template.title,
                     detail = if (template.repeatMinute >= 0) TaskScheduleText.scheduledDetail(scheduled, template.durationMinutes)
                         else TaskScheduleText.dayOnlyDetail(scheduled),
@@ -129,4 +125,9 @@ internal object RepeatActions {
     }.timeInMillis.let(TaskHistory::dayStartOf)
 
     private fun weekday(day: Long): Int = Calendar.getInstance().apply { timeInMillis = day }.get(Calendar.DAY_OF_WEEK)
+
+    private fun occurrenceAt(day: Long, minute: Int): Long = if (minute < 0) day else Calendar.getInstance().apply {
+        timeInMillis = day; set(Calendar.HOUR_OF_DAY, minute / 60)
+        set(Calendar.MINUTE, minute % 60); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
+    }.timeInMillis
 }

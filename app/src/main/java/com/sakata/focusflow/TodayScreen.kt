@@ -85,6 +85,10 @@ import kotlinx.coroutines.delay
     var statusPanelOpen by remember { mutableStateOf(false) }
     var captureText by remember { mutableStateOf("") }
     var pendingInboxDeleteIds by remember { mutableStateOf(emptySet<Long>()) }
+    val reviewContext = LocalContext.current
+    val reviewStore = remember(reviewContext) { PrototypeStore(reviewContext) }
+    var inboxReviewEnabled by remember { mutableStateOf(reviewStore.loadInboxReviewEnabled()) }
+    var inboxReviewLastAt by remember { mutableLongStateOf(reviewStore.loadInboxReviewLastAt()) }
     LaunchedEffect(activeSession?.id, activeSession?.endsAt) {
         while (true) {
             now = System.currentTimeMillis()
@@ -481,6 +485,19 @@ import kotlinx.coroutines.delay
                     }
                 } else {
                     if ((inboxFilter == "全部" || inboxFilter == "待整理") && pendingInboxItems.isNotEmpty()) {
+                        val monthOldCount = pendingInboxItems.count { item ->
+                            capturedAt[item.id]?.let { it > 0L && it <= now - 30L * 24 * 60 * 60_000 } == true
+                        }
+                        if (inboxReviewEnabled && monthOldCount > 0 && now - inboxReviewLastAt >= 30L * 24 * 60 * 60_000) {
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically) {
+                                Text("$monthOldCount 条记录超过一个月尚未整理", Modifier.weight(1f),
+                                    style = MaterialTheme.typography.bodySmall)
+                                TextButton(onClick = {
+                                    if (reviewStore.saveInboxReviewLastAt(now)) inboxReviewLastAt = now
+                                }) { Text("知道了") }
+                            }
+                        }
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                             Text("待整理 · ${pendingInboxItems.size}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                             if (selectableInboxItems.isNotEmpty()) TextButton(onClick = {

@@ -66,6 +66,16 @@ internal fun TodoCreateDialog(onDismiss: () -> Unit, onSave: (String, Long?, Boo
                 }) { Text(if (repeatMinute < 0) "仅按日期，不设到点提醒" else "执行时刻：${GoalPlanner.displayTime(repeatMinute)}") }
                 if (repeatMinute >= 0) TextButton(onClick = { repeatMinute = -1 }) { Text("清除时刻") }
                 Text("每次只生成一个待办；完成或跳过后生成下一次。", style = MaterialTheme.typography.bodySmall)
+            } else {
+                OutlinedButton(onClick = {
+                    val initial = Calendar.getInstance()
+                    android.app.TimePickerDialog(context, { _, hour, minute -> repeatMinute = hour * 60 + minute },
+                        initial.get(Calendar.HOUR_OF_DAY), initial.get(Calendar.MINUTE), true).show()
+                }) { Text(if (repeatMinute < 0) "不设到点提醒" else "到点提醒：${GoalPlanner.displayTime(repeatMinute)}") }
+                if (repeatMinute >= 0) {
+                    Text("按所选日期的这个时刻安排；未选日期则为今天。多行待办均使用该时间。", style = MaterialTheme.typography.bodySmall)
+                    TextButton(onClick = { repeatMinute = -1 }) { Text("取消到点提醒") }
+                }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 listOf("不指定" to null, "今天" to 0, "明天" to 1).forEach { (label, offset) ->
@@ -82,11 +92,17 @@ internal fun TodoCreateDialog(onDismiss: () -> Unit, onSave: (String, Long?, Boo
                     }.timeInMillis.let(TaskHistory::dayStartOf)
                     persist()
                 }, calendar.get(Calendar.YEAR), calendar.get(Calendar.MONTH), calendar.get(Calendar.DAY_OF_MONTH)).show()
-            }) { Text(dateOnlyAt?.let { "日期：${SimpleDateFormat("M月d日", Locale.CHINA).format(Date(it))}（无到点提醒）" } ?: "其他日期") }
+            }) { Text(dateOnlyAt?.let { "日期：${SimpleDateFormat("M月d日", Locale.CHINA).format(Date(it))}" } ?: "其他日期") }
         } },
         confirmButton = {
             Button(enabled = lines.isNotEmpty() && lines.size <= (if (asChecklist) 51 else 50) &&
-                (repeatFrequency.isEmpty() || lines.size == 1) && lines.all { it.length <= 200 }, onClick = {
+                (repeatFrequency.isEmpty() || lines.size == 1) && lines.all { it.length <= 200 } &&
+                (repeatFrequency.isNotEmpty() || repeatMinute < 0 ||
+                    Calendar.getInstance().apply {
+                        timeInMillis = dateOnlyAt ?: System.currentTimeMillis()
+                        set(Calendar.HOUR_OF_DAY, repeatMinute / 60); set(Calendar.MINUTE, repeatMinute % 60)
+                        set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
+                    }.timeInMillis > System.currentTimeMillis()), onClick = {
                 if (onSave(title, dateOnlyAt, asChecklist, repeatFrequency, repeatMinute)) {
                     vault.clear(draftKey)
                     onDismiss()
