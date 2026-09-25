@@ -20,6 +20,14 @@ data class WeeklyExecutionSummary(
 
 /** 只根据本地任务记录给出恢复入口；不自动移动或删除任务。 */
 object RecoveryInsights {
+    /** An all-day task has no end time to miss until its calendar day has passed. */
+    fun missedWindow(item: Item, now: Long = System.currentTimeMillis()): Boolean {
+        val scheduledAt = item.scheduledAt ?: return false
+        if (item.done || item.kind != "任务") return false
+        if (item.dayOnly) return TaskHistory.dayStartOf(scheduledAt) < TaskHistory.dayStartOf(now)
+        return scheduledAt + item.durationMinutes.coerceAtLeast(1) * 60_000L < now
+    }
+
     fun overdueLabel(item: Item, now: Long = System.currentTimeMillis()): String? {
         val scheduledAt = item.scheduledAt ?: return null
         val overdueBy = now - (scheduledAt + item.durationMinutes.coerceAtLeast(1) * 60_000L)
@@ -37,7 +45,7 @@ object RecoveryInsights {
         items.asSequence()
             .filter { !it.done && it.kind !in setOf("收集箱", "暂停") }
             .mapNotNull { item ->
-                val missed = item.scheduledAt?.let { it + item.durationMinutes.coerceAtLeast(1) * 60_000L < now } == true
+                val missed = missedWindow(item, now)
                 when {
                     missed -> RecoveryCandidate(item, RecoveryReason.MISSED)
                     item.rescheduleCount >= 2 -> RecoveryCandidate(item, RecoveryReason.REPEATEDLY_RESCHEDULED)

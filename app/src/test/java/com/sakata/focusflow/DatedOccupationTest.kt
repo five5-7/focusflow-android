@@ -78,4 +78,31 @@ class DatedOccupationTest {
 
         assertEquals(listOf("今天任务"), agenda.map { it.title })
     }
+
+    @Test fun missedTimedTaskMovesFromAgendaToRecoveryWithoutLosingItsSchedule() {
+        val now = at("2026-09-14", 12)
+        val missed = task(at("2026-09-14", 9)).copy(title = "早上的任务")
+        val upcoming = task(at("2026-09-14", 14)).copy(id = 2, title = "下午的任务")
+
+        assertEquals(listOf("下午的任务"), todayAgenda(emptyList(), listOf(missed, upcoming), now).map { it.title })
+        assertEquals(missed.id, RecoveryInsights.candidates(listOf(missed, upcoming), now).single().item.id)
+        assertEquals(at("2026-09-14", 9), missed.scheduledAt)
+    }
+
+    @Test fun allDayTaskStaysInTodayUntilTheNextCalendarDay() {
+        val allDay = task(at("2026-09-14", 0)).copy(dayOnly = true)
+        val noon = at("2026-09-14", 12)
+
+        assertFalse(RecoveryInsights.missedWindow(allDay, noon))
+        assertEquals(1, todayAgenda(emptyList(), listOf(allDay), noon).size)
+        assertTrue(RecoveryInsights.missedWindow(allDay, at("2026-09-15", 0)))
+    }
+
+    @Test fun taskStaysScheduledUntilItsPlannedEnd() {
+        val scheduled = task(at("2026-09-14", 9), 60)
+
+        assertFalse(RecoveryInsights.missedWindow(scheduled, at("2026-09-14", 10)))
+        assertEquals(1, todayAgenda(emptyList(), listOf(scheduled), at("2026-09-14", 10)).size)
+        assertTrue(RecoveryInsights.missedWindow(scheduled, at("2026-09-14", 10, 1)))
+    }
 }

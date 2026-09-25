@@ -251,7 +251,8 @@ import kotlinx.coroutines.delay
             TextButton(onClick = onEnableStatusCheckIn) { Text("开启每日精力询问") }
         }
         val todayGoalTasks = items.filter {
-            !it.done && it.goalId != null && it.scheduledAt?.let { at -> ScheduleOccupation.sameDate(at, now) } == true
+            !it.done && it.goalId != null && !RecoveryInsights.missedWindow(it, now) &&
+                it.scheduledAt?.let { at -> ScheduleOccupation.sameDate(at, now) } == true
         }
         val goalsRemaining = goals.count { it.weeklyTarget > GoalPlanner.completedThisWeek(it) }
         if (visibility.goals && (todayGoalTasks.isNotEmpty() || goalsRemaining > 0)) {
@@ -783,7 +784,8 @@ internal fun todayAgenda(courses: List<Course>, items: List<Item>, now: Long = S
     val weekday = weekdayOf(now)
     val todayCourses = courses.filter { !it.needsConfirmation && it.weekday == weekday }
         .map { AgendaEntry(CourseGapPlanner.periodStart(it.startPeriod), it.title, "第${it.startPeriod}–${it.endPeriod}节 · ${it.building}", true) }
-    val todayTasks = items.filter { !it.done && it.scheduledAt?.let { at -> ScheduleOccupation.sameDate(at, now) } == true }
+    val todayTasks = items.filter { !it.done && !RecoveryInsights.missedWindow(it, now) &&
+        it.scheduledAt?.let { at -> ScheduleOccupation.sameDate(at, now) } == true }
         .mapNotNull { item -> item.scheduledAt?.let { s ->
             val calendar = java.util.Calendar.getInstance().apply { timeInMillis = s }
             AgendaEntry(calendar.get(java.util.Calendar.HOUR_OF_DAY) * 60 + calendar.get(java.util.Calendar.MINUTE), item.title, "任务 · ${item.detail.ifBlank { "已安排" }}", false)
