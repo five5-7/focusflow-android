@@ -394,10 +394,13 @@ object CoreDataRepositoryOperations {
     ): CoreDataWriteResult {
         val read = repository.read()
         val current = (read as? CoreDataReadResult.Ready)?.snapshot ?: return invalidRead(read)
+        if (current.activitySessions.any { it.id == session.id }) {
+            return CoreDataWriteResult(CoreDataWriteStatus.CONDITION_NOT_MET, "activity ID already exists")
+        }
         if (session.isOpen() && current.activitySessions.any { it.id != session.id && it.isOpen() }) {
             return CoreDataWriteResult(CoreDataWriteStatus.CONDITION_NOT_MET, "another activity is already running")
         }
-        val updated = current.activitySessions.filterNot { it.id == session.id } + session
+        val updated = current.activitySessions + session
         return repository.replaceActivitySessions(updated, current.activitySessions)
     }
 

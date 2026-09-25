@@ -2196,7 +2196,7 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
             }
             val task = items.firstOrNull { it.id == activityTaskId && it.kind == "任务" && !it.done }
             if (task == null) { activityOpen = false; activityTaskId = null; return@ActivityDialog }
-            val session = ActivitySession(name = task.title, category = category, plannedStartAt = now, actualStartAt = now, endsAt = endsAt, nextStep = nextStep, taskId = task.id)
+            val session = ActivitySession(id = newItemId(), name = task.title, category = category, plannedStartAt = now, actualStartAt = now, endsAt = endsAt, nextStep = nextStep, taskId = task.id)
             if (CoreDataRepositoryOperations.saveActivitySession(coreDataRepository, session).applied) {
                 activeSession = session
                 activityHistory = CoreDataRepositoryOperations.recentActivitySessions(coreDataRepository, 200)
@@ -2255,6 +2255,41 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
             maxExtensions = activitySettings.maxExtensions,
             upcomingCommitment = upcomingCommitment,
             onDismiss = { transitionTarget = null },
+            onPause = onPause@ {
+                val now = System.currentTimeMillis()
+                val result = CoreDataRepositoryOperations.finishActivitySession(
+                    coreDataRepository, session.id, ActivitySession.STATUS_COMPLETED,
+                    "paused", now, session.endsAt
+                )
+                if (!result.applied) return@onPause
+                store.appendBaselineEvent(BaselineRecorder.event(BaselineEventType.ACTIVITY_ENDED, session.name))
+                ReminderScheduler.cancelActivityReminders(context, session.id)
+                activeSession = null
+                activityHistory = CoreDataRepositoryOperations.recentActivitySessions(coreDataRepository, 200)
+                transitionTarget = null
+            },
+            onCompleteTask = onCompleteTask@ {
+                val task = readCoreData().items.firstOrNull { it.id == session.taskId && it.kind == "任务" && !it.done }
+                if (task == null || items.none { it == task }) {
+                    scope.launch { snackbarHostState.showSnackbar("待办已变化，请重新打开后操作。") }
+                    return@onCompleteTask
+                }
+                val now = System.currentTimeMillis()
+                val result = CoreDataRepositoryOperations.finishActivitySession(
+                    coreDataRepository, session.id, ActivitySession.STATUS_COMPLETED,
+                    "completed_task", now, session.endsAt
+                )
+                if (!result.applied) return@onCompleteTask
+                store.appendBaselineEvent(BaselineRecorder.event(BaselineEventType.ACTIVITY_ENDED, session.name))
+                ReminderScheduler.cancelActivityReminders(context, session.id)
+                activeSession = null
+                activityHistory = CoreDataRepositoryOperations.recentActivitySessions(coreDataRepository, 200)
+                transitionTarget = null
+                val completed = TaskActions.completeNow(items, task, now)
+                if (!saveItemsWithEvent(completed.items, completed.event)) {
+                    scope.launch { snackbarHostState.showSnackbar("计时已结束，待办未完成，请在待办详情中重试。") }
+                }
+            },
             onFinish = onFinish@ { actualEndAt ->
                 val result = CoreDataRepositoryOperations.finishActivitySession(
                     coreDataRepository,

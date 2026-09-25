@@ -362,7 +362,9 @@ internal fun TodoDetailDialog(
                 OutlinedButton(onClick = onEdit, modifier = Modifier.fillMaxWidth()) { Text("编辑") }
                 if (!item.done && item.kind == "任务") {
                     TextButton(onClick = { moreOpen = !moreOpen }, modifier = Modifier.fillMaxWidth()) { Text("更多 ${if (moreOpen) "▴" else "▾"}") }
-                    if (moreOpen) OutlinedButton(onClick = onStartTimer, modifier = Modifier.fillMaxWidth()) { Text("开始计时（可选）") }
+                    if (moreOpen) OutlinedButton(onClick = onStartTimer, modifier = Modifier.fillMaxWidth()) {
+                        Text(if (activitySessions.firstOrNull()?.endChoice == "paused") "继续计时（新的一段）" else "开始计时（可选）")
+                    }
                 }
                 TextButton(onClick = onDelete, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("删除") }
             }

@@ -301,6 +301,32 @@ class CoreDataRepositoryTest {
     }
 
     @Test
+    fun `pausing closes one segment and continuing records another for the same task`() {
+        val first = ActivitySession(id = 301L, name = "复习", plannedStartAt = 1_000L,
+            actualStartAt = 1_000L, endsAt = 61_000L, taskId = 11L)
+        val persistence = FakeLegacyPersistence(sampleSnapshot())
+        val repository = LegacyCoreDataRepository(persistence)
+        assertTrue(CoreDataRepositoryOperations.saveActivitySession(repository, first).applied)
+        val paused = CoreDataRepositoryOperations.finishActivitySession(repository, first.id,
+            ActivitySession.STATUS_COMPLETED, "paused", endedAt = 31_000L,
+            expectedEndsAt = first.endsAt)
+        assertTrue(paused.applied)
+        assertEquals("paused", paused.activityMutation?.after?.endChoice)
+        assertEquals(null, CoreDataRepositoryOperations.latestActiveSession(repository))
+
+        val continued = first.copy(id = 302L, actualStartAt = 40_000L,
+            plannedStartAt = 40_000L, endsAt = 100_000L)
+        assertEquals(CoreDataWriteStatus.CONDITION_NOT_MET,
+            CoreDataRepositoryOperations.saveActivitySession(repository, continued.copy(id = first.id)).status)
+        assertTrue(CoreDataRepositoryOperations.saveActivitySession(repository, continued).applied)
+        assertEquals(listOf(11L, 11L), persistence.snapshot.activitySessions.map { it.taskId })
+        assertEquals(CoreDataWriteStatus.CONDITION_NOT_MET,
+            CoreDataRepositoryOperations.finishActivitySession(repository, first.id,
+                ActivitySession.STATUS_COMPLETED, "completed_task", endedAt = 50_000L).status)
+        assertEquals(continued, CoreDataRepositoryOperations.latestActiveSession(repository))
+    }
+
+    @Test
     fun `runtime call sites do not bypass the core repository`() {
         val forbidden = Regex(
             "\\b(?:store|settingsStore|startupStore)\\.(?:loadItems|loadTaskEvents|loadGoals|" +

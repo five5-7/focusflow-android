@@ -285,6 +285,8 @@ internal fun activityTitleLabel(category: String): String = when (category) {
     upcomingCommitment: ActivityCommitment?,
     onDismiss: () -> Unit,
     onFinish: (actualEndAt: Long) -> Unit,
+    onPause: () -> Unit,
+    onCompleteTask: () -> Unit,
     onStartNext: () -> Unit,
     onExtend: (minutes: Int, reason: String) -> Unit,
     onReplan: () -> Unit
@@ -315,6 +317,10 @@ internal fun activityTitleLabel(category: String): String = when (category) {
                 if (session.nextStep.isNotBlank()) {
                     Text("下一步：${session.nextStep}")
                     Button(onClick = { vault.clear(draftKey); onStartNext() }, modifier = Modifier.fillMaxWidth()) { Text("结束并开始下一步") }
+                }
+                if (session.taskId != null) {
+                    OutlinedButton(onClick = { vault.clear(draftKey); onPause() }, modifier = Modifier.fillMaxWidth()) { Text("暂停计时，待办保留") }
+                    Button(onClick = { vault.clear(draftKey); onCompleteTask() }, modifier = Modifier.fillMaxWidth()) { Text("结束计时并完成待办") }
                 }
                 HorizontalDivider()
                 Text("需要更多时间")
