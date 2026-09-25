@@ -51,6 +51,18 @@ class PrototypeStore(context: Context) {
      */
     val dataVersion: Int = preferences.getInt("data_version", 1)
 
+    fun loadWantedReviewSettings(): WantedReviewSettings = WantedReviewSettings(
+        enabled = preferences.getBoolean("wanted_review_enabled", true),
+        intervalMonths = preferences.getInt("wanted_review_months", 1).coerceIn(1, 12),
+        lastReviewedAt = preferences.getLong("wanted_review_last_at", 0L).coerceAtLeast(0L)
+    )
+
+    fun saveWantedReviewSettings(value: WantedReviewSettings): Boolean = preferences.edit()
+        .putBoolean("wanted_review_enabled", value.enabled)
+        .putInt("wanted_review_months", value.intervalMonths.coerceIn(1, 12))
+        .putLong("wanted_review_last_at", value.lastReviewedAt.coerceAtLeast(0L))
+        .commit()
+
     /**
      * 列表/集合型 JSON 存档的损坏保护：解码结果为空（或解码本身失败）而原始串非常规空容器，
      * 判定为损坏——备份原始串后返回默认空值。正常路径与原先行为完全一致。

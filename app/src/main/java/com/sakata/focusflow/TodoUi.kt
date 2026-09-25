@@ -22,13 +22,14 @@ import kotlinx.coroutines.delay
 private data class TodoCreateDraft(val text: String, val dateOnlyAt: Long?)
 
 @Composable
-internal fun TodoCreateDialog(onDismiss: () -> Unit, onSave: (String, Long?) -> Boolean) {
+internal fun TodoCreateDialog(onDismiss: () -> Unit, onSave: (String, Long?, Boolean) -> Boolean) {
     val context = LocalContext.current
     val vault = LocalDraftVault.current
     val draftKey = "todoCreateLines"
     val saved = vault.load<TodoCreateDraft>(draftKey)
     var title by remember { mutableStateOf(saved?.text.orEmpty()) }
     var dateOnlyAt by remember { mutableStateOf(saved?.dateOnlyAt) }
+    var asChecklist by remember { mutableStateOf(false) }
     fun persist() = vault.save(draftKey, TodoCreateDraft(title, dateOnlyAt))
     val lines = title.lines().map(String::trim).filter(String::isNotBlank)
     AppDialog(
@@ -43,8 +44,13 @@ internal fun TodoCreateDialog(onDismiss: () -> Unit, onSave: (String, Long?) -> 
                 minLines = 2,
                 maxLines = 6
             )
-            Text(if (lines.size <= 1) "只填标题即可；多行粘贴将分别创建待办。" else "将创建 ${lines.size} 项待办（最多 50 项）。",
+            Text(if (lines.size <= 1) "只填标题即可；多行粘贴可选择生成待办或检查项。" else if (asChecklist)
+                "将创建 1 项待办、${lines.size - 1} 个检查项。" else "将创建 ${lines.size} 项待办（最多 50 项）。",
                 style = MaterialTheme.typography.bodySmall)
+            if (lines.size >= 2) Row(verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(checked = asChecklist, onCheckedChange = { asChecklist = it })
+                Text("把后续行作为第一项待办的检查项")
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 listOf("不指定" to null, "今天" to 0, "明天" to 1).forEach { (label, offset) ->
                     val chosen = offset?.let { TaskHistory.dayStartOf(dateAt(it, 12)) }
@@ -63,8 +69,8 @@ internal fun TodoCreateDialog(onDismiss: () -> Unit, onSave: (String, Long?) -> 
             }) { Text(dateOnlyAt?.let { "日期：${SimpleDateFormat("M月d日", Locale.CHINA).format(Date(it))}（无到点提醒）" } ?: "其他日期") }
         } },
         confirmButton = {
-            Button(enabled = lines.isNotEmpty() && lines.size <= 50 && lines.all { it.length <= 200 }, onClick = {
-                if (onSave(title, dateOnlyAt)) {
+            Button(enabled = lines.isNotEmpty() && lines.size <= (if (asChecklist) 51 else 50) && lines.all { it.length <= 200 }, onClick = {
+                if (onSave(title, dateOnlyAt, asChecklist)) {
                     vault.clear(draftKey)
                     onDismiss()
                 }
@@ -84,7 +90,7 @@ internal fun TodoListSection(
     onBatchAction: (Set<Long>, TodoBatchAction) -> Boolean
 ) {
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    val groupExpanded = remember { mutableStateMapOf("已过安排" to true, "已安排" to true, "未安排" to true, "已完成" to false) }
+    val groupExpanded = remember { mutableStateMapOf("已过安排或截止" to true, "已安排" to true, "未安排" to true, "已完成" to false) }
     var selecting by remember { mutableStateOf(false) }
     var selectedIds by remember { mutableStateOf(emptySet<Long>()) }
     val selectable = items.filter { it.kind == "任务" && !it.done && it.goalId == null && it.parentCaptureId == null &&
@@ -126,7 +132,7 @@ internal fun TodoListSection(
         Text("还没有待办。记下标题就可以开始，时间以后再安排。", color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
     fun toggle(item: Item) { selectedIds = if (item.id in selectedIds) selectedIds - item.id else selectedIds + item.id }
-    listOf("已过安排" to groups.overdue, "已安排" to groups.scheduled,
+    listOf("已过安排或截止" to groups.overdue, "已安排" to groups.scheduled,
         "未安排" to groups.unscheduled, "已完成" to groups.completed).forEach { (name, group) ->
         TodoGroup(name, group, now, onComplete, onDetail, selecting, selectable, selectedIds,
             ::toggle, { selecting = true; groupExpanded[name] = true; toggle(it) },
@@ -184,12 +190,19 @@ private fun TodoGroup(
 
 private fun todoFact(item: Item, now: Long): String {
     if (item.done) return item.completedAt?.let { "完成于 ${formatDateTime(it)}" } ?: "已完成"
-    val at = item.scheduledAt ?: return "尚未安排时间"
+    val due = item.dueAt?.let {
+        val prefix = if (TaskHistory.dayStartOf(it) < TaskHistory.dayStartOf(now)) "已过截止" else "截止"
+        "$prefix ${SimpleDateFormat("M月d日", Locale.CHINA).format(Date(it))}"
+    }
+    val dueFirst = item.dueAt?.let { TaskHistory.dayStartOf(it) <= TaskHistory.dayStartOf(now) } == true
+    val steps = item.checklist.takeIf { it.isNotEmpty() }?.let { "检查项 ${it.count(ChecklistEntry::done)}/${it.size}" }
+    val at = item.scheduledAt ?: return listOfNotNull(due, steps, "尚未安排时间").take(2).joinToString(" · ")
     if (item.dayOnly) {
         val date = SimpleDateFormat("M月d日", Locale.CHINA).format(Date(at))
-        return if (ScheduleOccupation.sameDate(at, now)) "今天 · 不定时间" else "$date · 不定时间"
+        val time = if (ScheduleOccupation.sameDate(at, now)) "今天 · 不定时间" else "$date · 不定时间"
+        return (if (dueFirst) listOfNotNull(due, time, steps) else listOfNotNull(time, due, steps)).joinToString(" · ")
     }
-    return formatDateTime(at)
+    return (if (dueFirst) listOfNotNull(due, formatDateTime(at), steps) else listOfNotNull(formatDateTime(at), due, steps)).joinToString(" · ")
 }
 
 @Composable
@@ -198,8 +211,13 @@ internal fun TodoDetailDialog(
     onDismiss: () -> Unit,
     onSchedule: () -> Unit,
     onEdit: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onDueDate: (Long?) -> Unit,
+    onAddChecklist: (String) -> Boolean,
+    onToggleChecklist: (Long) -> Unit
 ) {
+    val context = LocalContext.current
+    var newSteps by remember(item.id) { mutableStateOf("") }
     AppDialog(
         onDismissRequest = onDismiss,
         title = { Text(item.title) },
@@ -208,6 +226,28 @@ internal fun TodoDetailDialog(
                 Text(todoFact(item, System.currentTimeMillis()), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 item.editableNote().takeIf { it.isNotBlank() && it != "尚未安排具体时间" }?.let { Text(it) }
                 Text("预计 ${item.durationMinutes} 分钟 · 优先级 ${ItemPriority.fromKey(item.priority).label}", style = MaterialTheme.typography.bodySmall)
+                item.checklist.forEach { step ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(checked = step.done, onCheckedChange = { onToggleChecklist(step.id) }, enabled = !item.done)
+                        Text(step.title)
+                    }
+                }
+                if (!item.done) {
+                    OutlinedTextField(newSteps, { newSteps = it }, label = { Text("添加检查项（一行一项）") }, maxLines = 4)
+                    TextButton(enabled = newSteps.isNotBlank(), onClick = {
+                        if (onAddChecklist(newSteps)) newSteps = ""
+                    }) { Text("添加检查项") }
+                    OutlinedButton(onClick = {
+                        val calendar = Calendar.getInstance().apply { timeInMillis = item.dueAt ?: System.currentTimeMillis() }
+                        DatePickerDialog(context, { _, year, month, day ->
+                            val due = Calendar.getInstance().apply { set(year, month, day, 12, 0, 0); set(Calendar.MILLISECOND, 0) }.timeInMillis
+                            onDueDate(TaskHistory.dayStartOf(due))
+                        }, calendar.get(Calendar.YEAR), calendar.get(Calendar.MONTH), calendar.get(Calendar.DAY_OF_MONTH)).show()
+                    }, modifier = Modifier.fillMaxWidth()) {
+                        Text(item.dueAt?.let { "截止日期：${SimpleDateFormat("M月d日", Locale.CHINA).format(Date(it))}" } ?: "设置截止日期")
+                    }
+                    if (item.dueAt != null) TextButton(onClick = { onDueDate(null) }) { Text("清除截止日期") }
+                }
                 if (!item.done) OutlinedButton(onClick = onSchedule, modifier = Modifier.fillMaxWidth()) { Text("安排时间") }
                 OutlinedButton(onClick = onEdit, modifier = Modifier.fillMaxWidth()) { Text("编辑") }
                 TextButton(onClick = onDelete, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("删除") }

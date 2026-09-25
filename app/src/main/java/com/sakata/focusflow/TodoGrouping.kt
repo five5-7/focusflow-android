@@ -18,6 +18,7 @@ internal fun groupTodos(items: List<Item>, now: Long): TodoGroups {
     items.filter { it.kind == "任务" }.forEach { item ->
         when {
             item.done -> completed += item
+            item.dueAt != null && TaskHistory.dayStartOf(item.dueAt) < today -> overdue += item
             item.scheduledAt == null -> unscheduled += item
             item.dayOnly && TaskHistory.dayStartOf(item.scheduledAt) < today -> overdue += item
             !item.dayOnly && item.scheduledAt < now -> overdue += item
@@ -25,9 +26,9 @@ internal fun groupTodos(items: List<Item>, now: Long): TodoGroups {
         }
     }
     return TodoGroups(
-        overdue.sortedBy { it.scheduledAt },
+        overdue.sortedBy { it.dueAt?.takeIf { due -> due < today } ?: it.scheduledAt },
         scheduled.sortedBy { it.scheduledAt },
-        unscheduled,
+        unscheduled.sortedWith(compareBy<Item> { it.dueAt ?: Long.MAX_VALUE }),
         completed.sortedByDescending { it.completedAt ?: 0L }
     )
 }

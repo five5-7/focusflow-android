@@ -40,8 +40,16 @@ data class Item(
     /** “逐步推进”当前确认的下一步；为空表示等待补充。 */
     val nextAction: String = "",
     /** 从某条逐步推进想法派生的任务；父条目继续保留在收集箱。 */
-    val parentCaptureId: Long? = null
+    val parentCaptureId: Long? = null,
+    /** Independent local deadline date, never used to schedule an alarm. */
+    val dueAt: Long? = null,
+    val checklist: List<ChecklistEntry> = emptyList(),
+    /** Only linked tasks on a name-only plan use near/later buckets. */
+    val planBucket: String = "near",
+    val planFocus: Boolean = false
 )
+
+data class ChecklistEntry(val id: Long, val title: String, val done: Boolean = false)
 
 enum class CaptureRoute(val storageKey: String) {
     INBOX("inbox"),

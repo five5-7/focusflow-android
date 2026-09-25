@@ -18,7 +18,9 @@ class ItemsCodecTest {
         rescheduleCount = 2, lastRescheduledAt = time + 500,
         recoverySourceScheduledAt = time + 200, priority = "high",
         captureRoute = "progress", sourceDetail = "最初想到的说明",
-        nextAction = "先找回课程", userNote = "用户备注"
+        nextAction = "先找回课程", userNote = "用户备注",
+        dueAt = time, checklist = listOf(ChecklistEntry(101, "草稿", true), ChecklistEntry(102, "核对")),
+        planBucket = "later", planFocus = true
     )
 
     @Test fun roundtrip_preservesAllFields() {
@@ -47,6 +49,10 @@ class ItemsCodecTest {
         assertEquals("先找回课程", decoded.nextAction)
         assertNull(decoded.parentCaptureId)
         assertEquals("用户备注", decoded.userNote)
+        assertEquals(time, decoded.dueAt)
+        assertEquals(item().checklist, decoded.checklist)
+        assertEquals("later", decoded.planBucket)
+        assertTrue(decoded.planFocus)
     }
 
     @Test fun roundtrip_nullableFieldsStayNull() {
@@ -66,6 +72,14 @@ class ItemsCodecTest {
         assertNull(decoded.recoverySourceScheduledAt)
         assertEquals("low", decoded.priority)
         assertEquals(5, decoded.durationMinutes)
+    }
+
+    @Test fun olderJsonDefaultsToNoDeadlineAndEmptyChecklist() {
+        val decoded = ItemsCodec.decode("""[{"id":1,"title":"旧待办","detail":"","kind":"任务"}]""").items.single()
+        assertNull(decoded.dueAt)
+        assertTrue(decoded.checklist.isEmpty())
+        assertEquals("near", decoded.planBucket)
+        assertFalse(decoded.planFocus)
     }
 
     @Test fun decode_duplicateIds_renamesSecondWithFlag() {

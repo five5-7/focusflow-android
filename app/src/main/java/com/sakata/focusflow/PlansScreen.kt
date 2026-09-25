@@ -11,7 +11,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 
-@Composable internal fun PlansScreen(modifier: Modifier, items: List<Item>, courses: List<Course>, profile: CommuteProfile, lifeStage: LifeStage?, campusLifeEnabled: Boolean, onCampusLifeRequired: () -> Unit, page: PlanPage?, onPageChange: (PlanPage?) -> Unit, onResume: (Item) -> Unit, onAddTodo: () -> Unit, onCompleteTodo: (Item) -> Unit, onTodoDetail: (Item) -> Unit, onBatchTodo: (Set<Long>, TodoBatchAction) -> Boolean, onConfirmCourse: (Course) -> Unit, onConfirmSafeCourses: () -> Unit, onIgnoreCourse: (Course) -> Unit, onClearAwaitingCourses: () -> Unit, onAddCourse: () -> Unit, courseImportRunning: Boolean, courseImportMessage: String?, onImportCourses: () -> Unit, onImportZju: () -> Unit, onEditCourse: (Course) -> Unit, onToggleCourse: (Course) -> Unit, onDeleteCourses: (Set<Course>) -> Unit, goals: List<Goal>, onAddGoal: () -> Unit, onEditGoal: (Goal) -> Unit, onDeleteGoal: (Goal) -> Unit, onScheduleGoal: (Goal, GoalSuggestion) -> Unit, onChooseGoalTime: (Goal) -> Unit, onScheduleFlexible: (Item, Int, Int) -> Unit, resources: List<LearningResource>, onAddResource: () -> Unit, onSelectResource: (LearningResource) -> Unit, onDeleteResource: (LearningResource) -> Unit, onDeselectResource: () -> Unit, onSummarizeResource: (LearningResource) -> Unit, onAutoPlanGoals: () -> Unit, onCreateWanted: (String) -> Boolean, onEditWanted: (Goal, String, String, String) -> Boolean, onStartWanted: (Goal, String) -> Boolean, onAddPlanTask: (Goal, String) -> Boolean, onChangeGoalState: (Goal, PlanState) -> Unit, autoPlanMessage: String?, tutorialSearch: TutorialSearchSettings, aiWeeklySummary: AiWeeklySummarySettings, courseVision: CourseVisionSettings, onSearchTutorial: () -> Unit, onVideoAnalysis: () -> Unit, feedback: List<TaskFeedback>, gameSessions: List<GameSessionRecord>, checkIns: List<StatusCheckIn>, taskEvents: List<TaskEvent>, onReplaceTaskEvents: (List<TaskEvent>) -> Boolean, store: PrototypeStore) {
+@Composable internal fun PlansScreen(modifier: Modifier, items: List<Item>, courses: List<Course>, profile: CommuteProfile, lifeStage: LifeStage?, campusLifeEnabled: Boolean, onCampusLifeRequired: () -> Unit, page: PlanPage?, onPageChange: (PlanPage?) -> Unit, onResume: (Item) -> Unit, onAddTodo: () -> Unit, onCompleteTodo: (Item) -> Unit, onTodoDetail: (Item) -> Unit, onBatchTodo: (Set<Long>, TodoBatchAction) -> Boolean, onConfirmCourse: (Course) -> Unit, onConfirmSafeCourses: () -> Unit, onIgnoreCourse: (Course) -> Unit, onClearAwaitingCourses: () -> Unit, onAddCourse: () -> Unit, courseImportRunning: Boolean, courseImportMessage: String?, onImportCourses: () -> Unit, onImportZju: () -> Unit, onEditCourse: (Course) -> Unit, onToggleCourse: (Course) -> Unit, onDeleteCourses: (Set<Course>) -> Unit, goals: List<Goal>, onAddGoal: () -> Unit, onEditGoal: (Goal) -> Unit, onDeleteGoal: (Goal) -> Unit, onScheduleGoal: (Goal, GoalSuggestion) -> Unit, onChooseGoalTime: (Goal) -> Unit, onScheduleFlexible: (Item, Int, Int) -> Unit, resources: List<LearningResource>, onAddResource: () -> Unit, onSelectResource: (LearningResource) -> Unit, onDeleteResource: (LearningResource) -> Unit, onDeselectResource: () -> Unit, onSummarizeResource: (LearningResource) -> Unit, onAutoPlanGoals: () -> Unit, onCreateWanted: (String) -> Boolean, onEditWanted: (Goal, String, String, String) -> Boolean, onStartWanted: (Goal, String) -> Boolean, onAddPlanTask: (Goal, String) -> Boolean, onMovePlanTask: (Goal, Item, String) -> Boolean, onFocusPlanTask: (Goal, Item?) -> Boolean, onChangeGoalState: (Goal, PlanState) -> Unit, autoPlanMessage: String?, tutorialSearch: TutorialSearchSettings, aiWeeklySummary: AiWeeklySummarySettings, courseVision: CourseVisionSettings, onSearchTutorial: () -> Unit, onVideoAnalysis: () -> Unit, feedback: List<TaskFeedback>, gameSessions: List<GameSessionRecord>, checkIns: List<StatusCheckIn>, taskEvents: List<TaskEvent>, onReplaceTaskEvents: (List<TaskEvent>) -> Boolean, store: PrototypeStore) {
     // AI 周总结生效 key：独立 key 留空时沿用教程搜索的硅基流动 key。
     val weeklySummaryKey = aiWeeklySummary.apiKey.ifBlank { tutorialSearch.apiKey }
     // 假期阶段：空挡与目标建议不把课程当作安排（课程管理页仍用完整列表）。
@@ -125,6 +125,7 @@ import kotlinx.coroutines.launch
                 items = items,
                 feedback = feedback,
                 autoPlanMessage = autoPlanMessage,
+                store = store,
                 onAddGoal = onAddGoal,
                 onEditGoal = onEditGoal,
                 onDeleteGoal = onDeleteGoal,
@@ -135,6 +136,8 @@ import kotlinx.coroutines.launch
                 onEditWanted = onEditWanted,
                 onStartWanted = onStartWanted,
                 onAddPlanTask = onAddPlanTask,
+                onMovePlanTask = onMovePlanTask,
+                onFocusPlanTask = onFocusPlanTask,
                 onChangeState = onChangeGoalState
             )
             PlanPage.TOOLBOX -> PlanToolboxSection(

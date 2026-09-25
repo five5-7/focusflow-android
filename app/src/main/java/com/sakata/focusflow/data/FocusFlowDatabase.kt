@@ -4,6 +4,8 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [
@@ -17,7 +19,7 @@ import androidx.room.RoomDatabase
         CourseMeetingRuleEntity::class,
         MigrationStateEntity::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = true
 )
 abstract class FocusFlowDatabase : RoomDatabase() {
@@ -34,10 +36,19 @@ abstract class FocusFlowDatabase : RoomDatabase() {
     companion object {
         const val FILE_NAME = "focusflow.db"
 
+        val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE tasks ADD COLUMN due_at INTEGER")
+                db.execSQL("ALTER TABLE tasks ADD COLUMN checklist_json TEXT NOT NULL DEFAULT '[]'")
+                db.execSQL("ALTER TABLE tasks ADD COLUMN plan_bucket TEXT NOT NULL DEFAULT 'near'")
+                db.execSQL("ALTER TABLE tasks ADD COLUMN plan_focus INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         fun create(context: Context): FocusFlowDatabase = Room.databaseBuilder(
             context.applicationContext,
             FocusFlowDatabase::class.java,
             FILE_NAME
-        ).build()
+        ).addMigrations(MIGRATION_1_2).build()
     }
 }
