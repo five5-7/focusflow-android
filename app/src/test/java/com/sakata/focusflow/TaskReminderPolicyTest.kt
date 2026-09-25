@@ -21,6 +21,8 @@ class TaskReminderPolicyTest {
         val deleted = task.copy(kind = "回收站", trashedAt = now)
         assertTrue(TaskReminderPolicy.pendingReminders(listOf(deleted), ActivityReminderSettings(), now).isEmpty())
         assertFalse(TaskReminderActionFreshness.matches(deleted, task.scheduledAt!!))
+        val legacyGoal = task.copy(kind = "目标")
+        assertTrue(TaskReminderActionFreshness.matches(legacyGoal, task.scheduledAt!!))
     }
 
     @Test
