@@ -916,6 +916,26 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
         ReminderScheduler.cancelGameReminders(context, itemId)
     }
 
+    fun applyTodoBatch(ids: Set<Long>, action: TodoBatchAction, targetDay: Long?, keepTime: Boolean): Boolean {
+        val result = TodoBatchActions.apply(items, ids, action, targetDay = targetDay, keepTime = keepTime)
+        if (result.events.isEmpty()) {
+            scope.launch { snackbarHostState.showSnackbar("待办已变化，请重新选择。") }
+            return false
+        }
+        val changed = if (action == TodoBatchAction.DELETE) TrashActions.trash(items, ids)
+            else TrashResult(result.items, result.events)
+        if (changed.events.isEmpty() || !saveItemsWithEvents(changed.items, changed.events)) return false
+        if (action == TodoBatchAction.DELETE) result.affectedBefore.forEach { removeScheduledActivity(it.id) }
+        scope.launch {
+            if (snackbarHostState.showSnackbar("已${action.label} ${result.affectedBefore.size} 项", actionLabel = "撤回") == SnackbarResult.ActionPerformed) {
+                val undo = if (action == TodoBatchAction.DELETE) TrashActions.restore(items, ids)
+                    else TodoBatchActions.undo(items, result).let { TrashResult(it.first, it.second) }
+                if (undo.events.isNotEmpty()) saveItemsWithEvents(undo.items, undo.events)
+            }
+        }
+        return true
+    }
+
     /** 放回收集箱：清掉时间与范围，保留原调度日记忆；三处共用（回收卡 / 快速改期建议 / 时间轴弹窗）。 */
     fun returnToInbox(item: Item) {
         val result = TaskActions.returnToInbox(items, item)
@@ -1367,6 +1387,12 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                             }
                         } else completionTarget = item
                     },
+                    onBatchToday = { ids, action, targetDay, keepTime ->
+                        if (ids.isEmpty() || !TodayBatchSelection.eligibleIds(items, System.currentTimeMillis()).containsAll(ids)) {
+                            scope.launch { snackbarHostState.showSnackbar("今日待办已变化，请重新选择。") }
+                            false
+                        } else applyTodoBatch(ids, action, targetDay, keepTime)
+                    },
                     goals = goals,
                     feedback = feedback,
                     activeSession = activeSession,
@@ -1584,25 +1610,7 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                         }
                     },
                     onTodoDetail = { todoDetailTarget = it },
-                    onBatchTodo = batchTodo@ { ids, action, targetDay, keepTime ->
-                        val result = TodoBatchActions.apply(items, ids, action, targetDay = targetDay, keepTime = keepTime)
-                        if (result.events.isEmpty()) {
-                            scope.launch { snackbarHostState.showSnackbar("待办已变化，请重新选择。") }
-                            return@batchTodo false
-                        }
-                        val changed = if (action == TodoBatchAction.DELETE) TrashActions.trash(items, ids)
-                            else TrashResult(result.items, result.events)
-                        if (changed.events.isEmpty() || !saveItemsWithEvents(changed.items, changed.events)) return@batchTodo false
-                        if (action == TodoBatchAction.DELETE) result.affectedBefore.forEach { removeScheduledActivity(it.id) }
-                        scope.launch {
-                            if (snackbarHostState.showSnackbar("已${action.label} ${result.affectedBefore.size} 项", actionLabel = "撤回") == SnackbarResult.ActionPerformed) {
-                                val undo = if (action == TodoBatchAction.DELETE) TrashActions.restore(items, ids)
-                                    else TodoBatchActions.undo(items, result).let { TrashResult(it.first, it.second) }
-                                if (undo.events.isNotEmpty()) saveItemsWithEvents(undo.items, undo.events)
-                            }
-                        }
-                        true
-                    },
+                    onBatchTodo = ::applyTodoBatch,
                     onPauseRepeat = { template, paused ->
                         val updated = RepeatActions.pause(items, template, paused)
                         if (updated.events.isNotEmpty() && saveItemsWithEvents(updated.items, updated.events) && !paused) {

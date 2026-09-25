@@ -3,6 +3,7 @@ package com.sakata.focusflow
 import java.time.LocalDate
 import java.time.ZoneId
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class TodayBatchSelectionTest {
@@ -21,5 +22,23 @@ class TodayBatchSelectionTest {
 
         assertEquals(setOf(1L, 7L), TodayBatchSelection.eligibleIds(
             listOf(eligible, missed, tomorrow, goal, parent, child, allDay), now))
+    }
+
+    @Test fun `today move and unschedule use exact batch undo`() {
+        val now = at(25, 12)
+        val timed = Item(id = 11, title = "下午", kind = "任务", scheduledAt = at(25, 15))
+        val allDay = Item(id = 12, title = "全天", kind = "任务", scheduledAt = at(25, 0), dayOnly = true)
+        val original = listOf(timed, allDay)
+        val ids = TodayBatchSelection.eligibleIds(original, now)
+        val moved = TodoBatchActions.apply(original, ids, TodoBatchAction.MOVE_DATE,
+            targetDay = at(26, 12), keepTime = true)
+        assertEquals(15, java.util.Calendar.getInstance().apply { timeInMillis = moved.items.first().scheduledAt!! }
+            .get(java.util.Calendar.HOUR_OF_DAY))
+        assertTrue(moved.items.last().dayOnly)
+        assertEquals(original, TodoBatchActions.undo(moved.items, moved).first)
+
+        val cleared = TodoBatchActions.apply(original, ids, TodoBatchAction.CLEAR_TIME)
+        assertTrue(cleared.items.all { it.scheduledAt == null })
+        assertEquals(original, TodoBatchActions.undo(cleared.items, cleared).first)
     }
 }

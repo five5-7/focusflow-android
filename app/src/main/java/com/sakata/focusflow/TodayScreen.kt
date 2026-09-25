@@ -1,5 +1,6 @@
 package com.sakata.focusflow
 
+import android.app.DatePickerDialog
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -43,6 +44,7 @@ import kotlinx.coroutines.delay
     checkIns: List<StatusCheckIn>,
     onRecordActivity: () -> Unit,
     onTaskDone: (Item) -> Unit,
+    onBatchToday: (Set<Long>, TodoBatchAction, Long?, Boolean) -> Boolean,
     goals: List<Goal>,
     feedback: List<TaskFeedback>,
     commuteProfile: CommuteProfile,
@@ -142,6 +144,8 @@ import kotlinx.coroutines.delay
     var tomorrowOpen by remember { mutableStateOf(false) }
     var todaySelecting by remember { mutableStateOf(false) }
     var selectedTodayIds by remember { mutableStateOf(emptySet<Long>()) }
+    var keepTodayBatchTime by remember { mutableStateOf(true) }
+    val todayContext = LocalContext.current
     val todaySelectableIds = remember(items, now / 60_000L) { TodayBatchSelection.eligibleIds(items, now) }
     LaunchedEffect(todaySelectableIds) { selectedTodayIds = selectedTodayIds.intersect(todaySelectableIds) }
     var inboxFilter by remember { mutableStateOf("全部") }
@@ -222,6 +226,39 @@ import kotlinx.coroutines.delay
                             })
                             Text(item.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
+                    }
+                    if (selectedTodayIds.isNotEmpty()) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(checked = keepTodayBatchTime, onCheckedChange = { keepTodayBatchTime = it })
+                            Text("改期保留原时刻；关闭则仅指定日期", style = MaterialTheme.typography.bodySmall)
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            TextButton(onClick = {
+                                val target = java.util.Calendar.getInstance().apply {
+                                    timeInMillis = now; add(java.util.Calendar.DAY_OF_YEAR, 1)
+                                }.timeInMillis
+                                if (onBatchToday(selectedTodayIds, TodoBatchAction.MOVE_DATE, target, keepTodayBatchTime)) {
+                                    todaySelecting = false; selectedTodayIds = emptySet()
+                                }
+                            }) { Text("移到明天") }
+                            TextButton(onClick = {
+                                val calendar = java.util.Calendar.getInstance().apply { timeInMillis = now }
+                                DatePickerDialog(todayContext, { _, year, month, day ->
+                                    val target = java.util.Calendar.getInstance().apply {
+                                        set(year, month, day, 12, 0, 0); set(java.util.Calendar.MILLISECOND, 0)
+                                    }.timeInMillis
+                                    if (onBatchToday(selectedTodayIds, TodoBatchAction.MOVE_DATE, target, keepTodayBatchTime)) {
+                                        todaySelecting = false; selectedTodayIds = emptySet()
+                                    }
+                                }, calendar.get(java.util.Calendar.YEAR), calendar.get(java.util.Calendar.MONTH),
+                                    calendar.get(java.util.Calendar.DAY_OF_MONTH)).show()
+                            }) { Text("选择日期") }
+                        }
+                        TextButton(onClick = {
+                            if (onBatchToday(selectedTodayIds, TodoBatchAction.CLEAR_TIME, null, false)) {
+                                todaySelecting = false; selectedTodayIds = emptySet()
+                            }
+                        }) { Text("改为未安排") }
                     }
                 }
             }
