@@ -49,7 +49,7 @@ object TaskReminderPolicy {
         if (!settings.scheduleRemindersEnabled) return emptyList()
         return items.asSequence()
             .filter { item ->
-                !item.done &&
+                !item.done && !item.dayOnly &&
                     item.kind !in excludedKinds &&
                     item.scheduledAt?.let { it > now } == true
             }
@@ -107,6 +107,6 @@ object TaskReminderPolicy {
 /** 通知按钮也必须属于任务当前这次安排，不能让旧通知修改改期后的任务。 */
 object TaskReminderActionFreshness {
     fun matches(item: Item?, expectedStartsAt: Long): Boolean =
-        item != null && !item.done && item.kind !in setOf("收集箱", "暂停", "游戏", "活动") &&
+        item != null && !item.done && !item.dayOnly && item.kind !in setOf("收集箱", "暂停", "游戏", "活动") &&
             item.scheduledAt != null && (expectedStartsAt <= 0L || item.scheduledAt == expectedStartsAt)
 }

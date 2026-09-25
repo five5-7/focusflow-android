@@ -1535,6 +1535,22 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                         }
                     },
                     onTodoDetail = { todoDetailTarget = it },
+                    onBatchTodo = batchTodo@ { ids, action ->
+                        val result = TodoBatchActions.apply(items, ids, action)
+                        if (result.events.isEmpty()) {
+                            scope.launch { snackbarHostState.showSnackbar("待办已变化，请重新选择。") }
+                            return@batchTodo false
+                        }
+                        if (!saveItemsWithEvents(result.items, result.events)) return@batchTodo false
+                        if (action == TodoBatchAction.DELETE) result.affectedBefore.forEach { removeScheduledActivity(it.id) }
+                        scope.launch {
+                            if (snackbarHostState.showSnackbar("已${action.label} ${result.affectedBefore.size} 项", actionLabel = "撤回") == SnackbarResult.ActionPerformed) {
+                                val (restored, events) = TodoBatchActions.undo(items, result)
+                                if (events.isNotEmpty()) saveItemsWithEvents(restored, events)
+                            }
+                        }
+                        true
+                    },
                     onConfirmCourse = { course ->
                         if (CourseConfirmationSafety.isDirectConfirmationBlocked(course, courses)) {
                             courseImportMessage = "这门课与另一门待确认或已确认课程被识别到完全相同的星期和节次。请点“编辑并确认”核对坐标，避免错误课表直接生效。"
@@ -1968,9 +1984,9 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
         }
         if (addTodoOpen) TodoCreateDialog(
             onDismiss = { addTodoOpen = false },
-            onSave = { title ->
-                val created = TodoActions.create(items, title)
-                saveItemsWithEvent(created.items, created.event)
+            onSave = { title, dateOnlyAt ->
+                val created = TodoActions.createLines(items, title, dateOnlyAt)
+                created.created.isNotEmpty() && saveItemsWithEvents(created.items, created.events)
             }
         )
         if (gamePlanOpen) GamePlanDialog(

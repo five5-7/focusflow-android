@@ -9,6 +9,7 @@ enum class TaskEventType(val label: String, val storageKey: String) {
     TASK_CREATED("任务创建", "task_created"),
     TASK_SCHEDULED("任务安排", "task_scheduled"),
     TASK_RESCHEDULED("任务改期", "task_rescheduled"),
+    TASK_UNSCHEDULED("改为未安排", "task_unscheduled"),
     TASK_COMPLETED("任务完成", "task_completed"),
     /** 完成操作的立即撤回；保留原完成事件作为历史事实。 */
     TASK_UNCOMPLETED("取消完成", "task_uncompleted"),
@@ -169,6 +170,7 @@ object TaskHistory {
     private val CHANGE_EVENTS = setOf(
         TaskEventType.TASK_SCHEDULED,
         TaskEventType.TASK_RESCHEDULED,
+        TaskEventType.TASK_UNSCHEDULED,
         TaskEventType.TASK_TO_INBOX,
         TaskEventType.TASK_CONVERTED,
         TaskEventType.TASK_ATTACHED_TO_PLAN,
