@@ -212,6 +212,11 @@ class ReminderReceiver : BroadcastReceiver() {
                 )
                 return
             }
+            ACTION_TASK_MISSED -> {
+                showTaskMissedNotification(context, manager, requireNotNull(coreDataRepository),
+                    intent.getLongExtra(EXTRA_TASK_ID, -1L), intent.getLongExtra(EXTRA_TASK_START_AT, -1L))
+                return
+            }
             ACTION_TASK_TEST -> {
                 store.markReminderTestDelivered()
                 showTaskTestNotification(context, manager)
@@ -488,7 +493,8 @@ class ReminderReceiver : BroadcastReceiver() {
             taskId
         ) ?: return
         // 改期与完成可能正好和旧广播交错；以当前存储状态为准，避免幽灵通知。
-        if (task.done || task.scheduledAt != startsAt || task.kind in setOf("收集箱", "暂停", "游戏", "活动")) return
+        if (!TaskReminderActionFreshness.matches(task, startsAt) ||
+            System.currentTimeMillis() >= startsAt + task.durationMinutes.coerceAtLeast(1) * 60_000L) return
         ensureChannel(manager, CHANNEL_TASK, "FocusFlow 任务提醒")
         val openApp = PendingIntent.getActivity(context, 0, Intent(context, MainActivity::class.java), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val id = ((taskId + 40_000L) % Int.MAX_VALUE).toInt()
@@ -504,6 +510,27 @@ class ReminderReceiver : BroadcastReceiver() {
             .setAutoCancel(true)
         if (task.goalId != null) notification.addAction(0, "最低版本", taskActionIntent(context, ACTION_TASK_MINIMUM, taskId, startsAt, id, 13))
         manager.notify(id, notification.build())
+    }
+
+    private fun showTaskMissedNotification(
+        context: Context, manager: NotificationManager, repository: CoreDataRepository,
+        taskId: Long, startsAt: Long
+    ) {
+        if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED ||
+            !PrototypeStore(context).loadActivityReminderSettings().scheduleRemindersEnabled) return
+        val task = CoreDataRepositoryOperations.findTask(repository, taskId) ?: return
+        if (!TaskMissedReminderPolicy.matches(task, startsAt)) return
+        ensureChannel(manager, CHANNEL_TASK, "FocusFlow 任务提醒")
+        val id = ((taskId + 40_000L) % Int.MAX_VALUE).toInt()
+        val openApp = PendingIntent.getActivity(context, 0, Intent(context, MainActivity::class.java),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        manager.notify(id, NotificationCompat.Builder(context, CHANNEL_TASK)
+            .setSmallIcon(android.R.drawable.ic_popup_reminder)
+            .setContentTitle("原定时段已结束：${task.title}")
+            .setContentText("这项待办还没有处理，可以完成或重新安排。")
+            .setContentIntent(openApp)
+            .addAction(0, "完成", taskActionIntent(context, ACTION_TASK_COMPLETE, taskId, startsAt, id, 11))
+            .setAutoCancel(true).build())
     }
 
     private fun showTaskTestNotification(context: Context, manager: NotificationManager) {
@@ -836,6 +863,7 @@ class ReminderReceiver : BroadcastReceiver() {
         const val ACTION_SKIP = "com.sakata.focusflow.SKIP_ACTIVITY"
         const val ACTION_TASK_ADVANCE = "com.sakata.focusflow.TASK_ADVANCE"
         const val ACTION_TASK_DUE = "com.sakata.focusflow.TASK_DUE"
+        const val ACTION_TASK_MISSED = "com.sakata.focusflow.TASK_MISSED"
         const val ACTION_TASK_TEST = "com.sakata.focusflow.TASK_TEST"
         const val ACTION_TASK_COMPLETE = "com.sakata.focusflow.TASK_COMPLETE"
         const val ACTION_TASK_SNOOZE = "com.sakata.focusflow.TASK_SNOOZE"
@@ -865,6 +893,7 @@ class ReminderReceiver : BroadcastReceiver() {
             ACTION_WIND_DOWN,
             ACTION_TASK_ADVANCE,
             ACTION_TASK_DUE,
+            ACTION_TASK_MISSED,
             ACTION_TASK_COMPLETE,
             ACTION_TASK_SNOOZE,
             ACTION_TASK_SKIP,

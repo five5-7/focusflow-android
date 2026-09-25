@@ -268,11 +268,11 @@ object ReminderScheduler {
         if (!settings.scheduleRemindersEnabled || item.done || item.dayOnly || item.kind in setOf("收集箱", "暂停", "游戏", "活动", "回收站", "重复历史", "重复模板")) return
         // 不补发已经开始的日程；否则一次重启会把旧安排集中推送。
         val now = System.currentTimeMillis()
-        if (scheduledAt <= now) return
         TaskReminderPolicy.pendingReminders(listOf(item), settings, now).forEach { reminder ->
             val actionName = when (reminder.stage) {
                 TaskReminderStage.ADVANCE -> ReminderReceiver.ACTION_TASK_ADVANCE
                 TaskReminderStage.DUE -> ReminderReceiver.ACTION_TASK_DUE
+                TaskReminderStage.MISSED -> ReminderReceiver.ACTION_TASK_MISSED
             }
             val intent = Intent(context, ReminderReceiver::class.java).apply {
                 action = actionName
@@ -312,6 +312,7 @@ object ReminderScheduler {
     fun cancelTaskReminder(context: Context, itemId: Long) {
         cancelPending(context, taskRequestCode(itemId, TaskReminderStage.ADVANCE), ReminderReceiver.ACTION_TASK_ADVANCE)
         cancelPending(context, taskRequestCode(itemId, TaskReminderStage.DUE), ReminderReceiver.ACTION_TASK_DUE)
+        cancelPending(context, taskRequestCode(itemId, TaskReminderStage.MISSED), ReminderReceiver.ACTION_TASK_MISSED)
     }
 
     /** 设备重启/应用更新后恢复未来日程，已开始或已完成项目不补发。 */
@@ -322,7 +323,8 @@ object ReminderScheduler {
         if (runtime !is CoreDataRuntimeResolution.Ready) return
         val coreData = runtime.repository.read()
         if (coreData !is CoreDataReadResult.Ready) return
-        coreData.snapshot.items.filter { !it.done && it.scheduledAt != null && it.scheduledAt > System.currentTimeMillis() }
+        coreData.snapshot.items.filter { !it.done && it.scheduledAt?.let { at ->
+            at + it.durationMinutes.coerceAtLeast(1) * 60_000L > System.currentTimeMillis() } == true }
             .forEach { scheduleTaskReminder(context, it, settings) }
     }
 
@@ -488,7 +490,11 @@ object ReminderScheduler {
     }
 
     private fun taskRequestCode(itemId: Long, stage: TaskReminderStage): Int {
-        val offset = if (stage == TaskReminderStage.ADVANCE) 20_000L else 30_000L
+        val offset = when (stage) {
+            TaskReminderStage.ADVANCE -> 20_000L
+            TaskReminderStage.DUE -> 30_000L
+            TaskReminderStage.MISSED -> 40_000L
+        }
         return ((itemId + offset) % Int.MAX_VALUE).toInt()
     }
 

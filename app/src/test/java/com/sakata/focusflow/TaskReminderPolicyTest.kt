@@ -47,11 +47,13 @@ class TaskReminderPolicyTest {
 
         val reminders = TaskReminderPolicy.pendingReminders(listOf(item), ActivityReminderSettings(scheduleAdvanceMinutes = 10), now)
 
-        assertEquals(2, reminders.size)
+        assertEquals(3, reminders.size)
         assertEquals(TaskReminderStage.ADVANCE, reminders[0].stage)
         assertEquals(now + 1_000L, reminders[0].triggerAt)
         assertEquals(TaskReminderStage.DUE, reminders[1].stage)
         assertEquals(now + 5 * 60_000L, reminders[1].triggerAt)
+        assertEquals(TaskReminderStage.MISSED, reminders[2].stage)
+        assertEquals(now + 65 * 60_000L, reminders[2].triggerAt)
     }
 
     @Test
@@ -60,9 +62,10 @@ class TaskReminderPolicyTest {
 
         val reminders = TaskReminderPolicy.pendingReminders(listOf(item), ActivityReminderSettings(scheduleAdvanceMinutes = 0), now)
 
-        assertEquals(1, reminders.size)
-        assertEquals(TaskReminderStage.DUE, reminders.single().stage)
-        assertEquals(now + 5 * 60_000L, reminders.single().triggerAt)
+        assertEquals(2, reminders.size)
+        assertEquals(TaskReminderStage.DUE, reminders[0].stage)
+        assertEquals(now + 5 * 60_000L, reminders[0].triggerAt)
+        assertEquals(TaskReminderStage.MISSED, reminders[1].stage)
     }
 
     @Test
@@ -97,5 +100,23 @@ class TaskReminderPolicyTest {
         assertFalse(TaskReminderActionFreshness.matches(scheduled, now + 120_000L))
         assertFalse(TaskReminderActionFreshness.matches(scheduled.copy(done = true), scheduled.scheduledAt!!))
         assertFalse(TaskReminderActionFreshness.matches(scheduled.copy(kind = "收集箱", scheduledAt = null), -1L))
+    }
+
+    @Test fun `slot end reminder is scheduled once and rejects stale delivery`() {
+        val start = now + 5 * 60_000L
+        val task = Item(id = 82L, title = "写报告", kind = "任务", scheduledAt = start,
+            durationMinutes = 30)
+        val inProgress = TaskReminderPolicy.pendingReminders(listOf(task),
+            ActivityReminderSettings(scheduleAdvanceMinutes = 10), start + 1_000L)
+        assertEquals(listOf(TaskReminderStage.MISSED), inProgress.map { it.stage })
+        assertEquals(start + 30 * 60_000L, inProgress.single().triggerAt)
+        val end = start + 30 * 60_000L
+        assertFalse(TaskMissedReminderPolicy.matches(task, start, end - 1L))
+        assertTrue(TaskMissedReminderPolicy.matches(task, start, end))
+        assertFalse(TaskMissedReminderPolicy.matches(task.copy(done = true), start, end))
+        assertFalse(TaskMissedReminderPolicy.matches(task.copy(scheduledAt = start + 60_000L), start, end))
+        assertFalse(TaskMissedReminderPolicy.matches(task.copy(dayOnly = true), start, end))
+        assertFalse(TaskMissedReminderPolicy.matches(task, start, end + 2 * 60 * 60_000L + 1L))
+        assertTrue(TaskReminderPolicy.pendingReminders(listOf(task), ActivityReminderSettings(), end).isEmpty())
     }
 }

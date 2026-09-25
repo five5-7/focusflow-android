@@ -10,7 +10,8 @@ data class PendingTaskReminder(
 
 enum class TaskReminderStage {
     ADVANCE,
-    DUE
+    DUE,
+    MISSED
 }
 
 enum class AlarmDeliveryMode {
@@ -51,22 +52,21 @@ object TaskReminderPolicy {
             .filter { item ->
                 !item.done && !item.dayOnly &&
                     item.kind !in excludedKinds &&
-                    item.scheduledAt?.let { it > now } == true
+                    item.scheduledAt?.let { start -> start + item.durationMinutes.coerceAtLeast(1) * 60_000L > now } == true
             }
             .flatMap { item ->
                 val startsAt = requireNotNull(item.scheduledAt)
                 val title = item.title.removePrefix("重新安排：")
-                val reminders = mutableListOf(
-                    PendingTaskReminder(
+                val reminders = mutableListOf<PendingTaskReminder>()
+                if (startsAt > now) reminders += PendingTaskReminder(
                         itemId = item.id,
                         title = title,
                         startsAt = startsAt,
                         triggerAt = startsAt,
                         stage = TaskReminderStage.DUE
                     )
-                )
                 val advanceMinutes = settings.scheduleAdvanceMinutes.coerceIn(0, 60)
-                if (advanceMinutes > 0) {
+                if (startsAt > now && advanceMinutes > 0) {
                     reminders += PendingTaskReminder(
                         itemId = item.id,
                         title = title,
@@ -75,6 +75,8 @@ object TaskReminderPolicy {
                         stage = TaskReminderStage.ADVANCE
                     )
                 }
+                if (item.kind == "任务") reminders += PendingTaskReminder(item.id, title, startsAt,
+                    startsAt + item.durationMinutes.coerceAtLeast(1) * 60_000L, TaskReminderStage.MISSED)
                 reminders.asSequence()
             }
             .sortedWith(compareBy<PendingTaskReminder> { it.triggerAt }.thenBy { it.stage })
@@ -102,6 +104,16 @@ object TaskReminderPolicy {
     }
 
     private const val TEST_ON_TIME_TOLERANCE_MS = 30_000L
+}
+
+/** A delayed or duplicate broadcast must still belong to this exact unfinished time slot. */
+object TaskMissedReminderPolicy {
+    fun matches(item: Item?, expectedStartsAt: Long, now: Long = System.currentTimeMillis()): Boolean {
+        if (item == null || item.kind != "任务" || item.done || item.dayOnly ||
+            item.scheduledAt != expectedStartsAt || expectedStartsAt <= 0L) return false
+        val endAt = expectedStartsAt + item.durationMinutes.coerceAtLeast(1) * 60_000L
+        return now >= endAt && now - endAt <= 2 * 60 * 60_000L
+    }
 }
 
 /** 通知按钮也必须属于任务当前这次安排，不能让旧通知修改改期后的任务。 */
