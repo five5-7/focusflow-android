@@ -19,9 +19,10 @@ class TodayBatchSelectionTest {
         val parent = eligible.copy(id = 5)
         val child = eligible.copy(id = 6, scheduledAt = null, parentCaptureId = 5)
         val allDay = eligible.copy(id = 7, scheduledAt = at(25, 0), dayOnly = true)
+        val repeated = eligible.copy(id = 8, repeatTemplateId = 88, repeatOccurrenceDay = at(25, 0))
 
         assertEquals(setOf(1L, 7L), TodayBatchSelection.eligibleIds(
-            listOf(eligible, missed, tomorrow, goal, parent, child, allDay), now))
+            listOf(eligible, missed, tomorrow, goal, parent, child, allDay, repeated), now))
     }
 
     @Test fun `today move and unschedule use exact batch undo`() {

@@ -214,7 +214,7 @@ import kotlinx.coroutines.delay
                 if (!todaySelecting) tasks.forEach { entry -> Text("${formatMinute(entry.startMinute)} · ${entry.title}",
                     modifier = Modifier.fillMaxWidth().clickable(onClick = onOpenSchedule), style = MaterialTheme.typography.bodySmall) }
                 else {
-                    Text("已选 ${selectedTodayIds.size} 项 · 关联计划与子任务请单独处理", style = MaterialTheme.typography.bodySmall)
+                    Text("已选 ${selectedTodayIds.size} 项 · 计划、重复和关联子任务请单独处理", style = MaterialTheme.typography.bodySmall)
                     TextButton(onClick = { selectedTodayIds = if (selectedTodayIds == todaySelectableIds) emptySet() else todaySelectableIds }) {
                         Text(if (selectedTodayIds == todaySelectableIds) "取消全选" else "全选可整理任务")
                     }
