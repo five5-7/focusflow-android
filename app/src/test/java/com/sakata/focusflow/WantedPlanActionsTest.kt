@@ -28,6 +28,17 @@ class WantedPlanActionsTest {
         assertNull(WantedPlanActions.linkedTask(second.items, wanted, "重复").item)
     }
 
+    @Test fun `optional deadline survives edits and adds no scheduled task`() {
+        val wanted = requireNotNull(WantedPlanActions.create(emptyList(), "学钢琴"))
+        val dated = requireNotNull(WantedPlanActions.edit(wanted, wanted.title, "", "", 1_800_000_000_000L))
+        assertEquals(1_800_000_000_000L, dated.deadlineAt)
+        val active = requireNotNull(WantedPlanActions.changeState(dated, PlanState.IN_PROGRESS))
+        assertEquals(dated.deadlineAt, WantedPlanActions.edit(active, "练钢琴", "", "")?.deadlineAt)
+        assertNull(WantedPlanActions.edit(active, "练钢琴", "", "", -1L))
+        assertNull(WantedPlanActions.edit(active.copy(weeklyTarget = 2), "练钢琴", "", "", null))
+        assertTrue(GoalPlanner.autoPlan(listOf(active), emptyList(), emptyList(), CommuteProfile(), { _, _ -> null }).newItems.isEmpty())
+    }
+
     @Test fun `batch conversion keeps all source titles and notes and removes only selected inbox records`() {
         val first = Item(id = 10, title = "学钢琴", kind = "收集箱", detail = "刚刚记录 · 找课程", userNote = "找课程")
         val second = Item(id = 11, title = "买琴", kind = "收集箱", detail = "刚刚记录 · 确认预算", userNote = "确认预算")

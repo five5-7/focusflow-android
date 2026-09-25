@@ -19,7 +19,9 @@ data class Goal(
     /** The concrete first action for this goal; optional for 6.1 compatibility. */
     val firstAction: String = "",
     val sourceNotes: String = "",
-    val state: PlanState = PlanState.IN_PROGRESS
+    val state: PlanState = PlanState.IN_PROGRESS,
+    /** Optional local date for the plan; it never schedules an alarm or a task. */
+    val deadlineAt: Long? = null
 )
 
 data class LearningResource(

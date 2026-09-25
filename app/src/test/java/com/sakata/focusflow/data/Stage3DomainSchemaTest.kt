@@ -6,6 +6,7 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.sakata.focusflow.ActivitySession
 import com.sakata.focusflow.Item
+import com.sakata.focusflow.Goal
 import com.sakata.focusflow.ChecklistEntry
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -42,6 +43,14 @@ class Stage3DomainSchemaTest {
             planBucket = "later", planFocus = true)
         database.taskDao().insertAll(listOf(TaskEntity.fromLegacy(task)))
         assertEquals(task, database.taskDao().all().single().toLegacy())
+    }
+
+    @Test
+    fun `optional plan deadline survives room round trip`() {
+        val plan = Goal(id = 8, title = "论文", weeklyTarget = 0, durationMinutes = 30,
+            deadlineAt = 1_800_000_000_000L)
+        database.planDao().insertAll(listOf(PlanEntity.fromLegacy(plan)))
+        assertEquals(plan, database.planDao().all().single().toLegacy())
     }
 
     @Test

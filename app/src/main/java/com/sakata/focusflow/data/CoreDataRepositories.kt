@@ -334,5 +334,6 @@ internal fun PlanEntity.toLegacy(): Goal = Goal(
     desiredOutcome = desiredOutcome,
     firstAction = firstAction,
     sourceNotes = sourceNotes,
-    state = requireNotNull(PlanState.fromKey(state))
+    state = requireNotNull(PlanState.fromKey(state)),
+    deadlineAt = deadlineAt
 )

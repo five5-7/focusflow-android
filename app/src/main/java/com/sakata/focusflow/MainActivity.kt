@@ -253,6 +253,7 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
     var organizeTarget by remember { mutableStateOf<Item?>(null) }
     var convertTarget by remember { mutableStateOf<Item?>(null) }
     var attachTarget by remember { mutableStateOf<Item?>(null) }
+    var attachBatchIds by remember { mutableStateOf<Set<Long>?>(null) }
     var schedulePresetExact by remember { mutableStateOf<Long?>(null) }
     var gameSessions by remember { mutableStateOf(startup.gameSessions) }
     var gameDetectionEnabled by remember { mutableStateOf(startup.gameDetectionEnabled) }
@@ -1383,7 +1384,15 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                         if (result.created != null) saveItemsAndGoalsWithEvents(result.items, result.plans, result.events)
                     },
                     onBatchOrganize = { selectedIds, action ->
-                        if (action == InboxBatchAction.TO_WANTED) {
+                        if (action == InboxBatchAction.TO_PLAN) {
+                            if (selectedIds.isEmpty() || goals.none { it.state == PlanState.IN_PROGRESS }) {
+                                scope.launch { snackbarHostState.showSnackbar("先选择记录并建立进行中的计划。") }
+                                false
+                            } else {
+                                attachBatchIds = selectedIds
+                                true
+                            }
+                        } else if (action == InboxBatchAction.TO_WANTED) {
                             val converted = WantedPlanActions.fromInbox(items, goals, selectedIds)
                             if (converted.created == null) {
                                 scope.launch { snackbarHostState.showSnackbar("所选条目已变化，请重新选择。") }
@@ -1622,8 +1631,8 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                         val plan = WantedPlanActions.create(goals, title)
                         plan != null && saveGoals(goals + plan)
                     },
-                    onEditWanted = { plan, title, outcome, notes ->
-                        val edited = WantedPlanActions.edit(plan, title, outcome, notes)
+                    onEditPlan = { plan, title, outcome, notes, deadline ->
+                        val edited = WantedPlanActions.edit(plan, title, outcome, notes, deadline)
                         edited != null && goals.any { it == plan } && saveGoals(goals.map { if (it.id == plan.id) edited else it })
                     },
                     onStartWanted = { plan, firstTask ->
@@ -2466,10 +2475,30 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
             goals = goals.filter { it.state == PlanState.IN_PROGRESS },
             onDismiss = { attachTarget = null },
             onAttach = { goal ->
-                val result = TaskActions.attachToGoal(items, item, goal)
-                if (saveItemsWithEvent(result.items, result.event)) {
+                val result = if (goals.any { it == goal }) InboxBatchActions.attachToPlan(items, setOf(item.id), goal)
+                    else InboxBatchResult(items, emptyList(), emptyList())
+                if (result.events.isNotEmpty() && saveItemsWithEvents(result.items, result.events)) {
                     removeScheduledActivity(item.id)
                     attachTarget = null
+                }
+            }
+        ) }
+        attachBatchIds?.let { selectedIds -> AttachToPlanDialog(
+            goals = goals.filter { it.state == PlanState.IN_PROGRESS },
+            onDismiss = { attachBatchIds = null },
+            onAttach = { goal ->
+                if (goals.none { it == goal }) {
+                    attachBatchIds = null
+                    scope.launch { snackbarHostState.showSnackbar("计划已变化，请重新选择。") }
+                } else {
+                    val attached = InboxBatchActions.attachToPlan(items, selectedIds, goal)
+                    if (attached.events.isEmpty()) {
+                        attachBatchIds = null
+                        scope.launch { snackbarHostState.showSnackbar("收集箱记录已变化，请重新选择。") }
+                    } else if (saveItemsWithEvents(attached.items, attached.events)) {
+                        attachBatchIds = null
+                        scope.launch { snackbarHostState.showSnackbar("已将 ${attached.affected.size} 项归入《${goal.title}》") }
+                    }
                 }
             }
         ) }
