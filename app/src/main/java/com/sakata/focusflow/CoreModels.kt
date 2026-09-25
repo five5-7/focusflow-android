@@ -40,8 +40,25 @@ data class Item(
     /** “逐步推进”当前确认的下一步；为空表示等待补充。 */
     val nextAction: String = "",
     /** 从某条逐步推进想法派生的任务；父条目继续保留在收集箱。 */
-    val parentCaptureId: Long? = null
+    val parentCaptureId: Long? = null,
+    /** Independent local deadline date, never used to schedule an alarm. */
+    val dueAt: Long? = null,
+    val checklist: List<ChecklistEntry> = emptyList(),
+    /** Only linked tasks on a name-only plan use near/later buckets. */
+    val planBucket: String = "near",
+    val planFocus: Boolean = false,
+    /** Rule-bearing template and one dated occurrence never share an ID. */
+    val repeatFrequency: String = "",
+    val repeatStartDay: Long? = null,
+    val repeatMinute: Int = -1,
+    val repeatTemplateId: Long? = null,
+    val repeatOccurrenceDay: Long? = null,
+    val repeatPaused: Boolean = false,
+    val trashedAt: Long? = null,
+    val trashSnapshot: String? = null
 )
+
+data class ChecklistEntry(val id: Long, val title: String, val done: Boolean = false)
 
 enum class CaptureRoute(val storageKey: String) {
     INBOX("inbox"),
@@ -66,15 +83,26 @@ enum class ItemPriority(val label: String, val storageKey: String) {
 
 data class CommuteProfile(
     val enabled: Boolean = false,
-    val oneWayMinutes: Int = 0,
+    // 与持久化层的新安装默认值一致；旧代码也按 10/6/5 推导三种方式。
+    val oneWayMinutes: Int = 10,
     val useDefaultForUnknown: Boolean = true,
     val nearMinutes: Int = 5,
     val fairlyNearMinutes: Int = 10,
     val fairlyFarMinutes: Int = 15,
     val farMinutes: Int = 25,
     val campusMode: String = "步行",
+    /** 各方式的路上预留（不含两端楼内缓冲）。0 表示读取旧版统一默认值。 */
+    val walkingReserveMinutes: Int = 0,
+    val bicycleReserveMinutes: Int = 0,
+    val eBikeReserveMinutes: Int = 0,
     val buildingBufferMinutes: Int = 3,
     val eBikeBattery: String = "未知",
     val routeCalibrations: Map<String, Int> = emptyMap(),
     val routeObservations: Map<String, List<Int>> = emptyMap()
-)
+) {
+    fun reserveMinutesFor(mode: String): Int = when (mode) {
+        "自行车" -> bicycleReserveMinutes.takeIf { it > 0 } ?: maxOf(3, (oneWayMinutes * 0.6f).toInt())
+        "电动车" -> eBikeReserveMinutes.takeIf { it > 0 } ?: maxOf(3, (oneWayMinutes * 0.5f).toInt())
+        else -> walkingReserveMinutes.takeIf { it > 0 } ?: oneWayMinutes
+    }
+}

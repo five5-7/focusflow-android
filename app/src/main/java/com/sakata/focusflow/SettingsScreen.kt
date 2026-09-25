@@ -36,6 +36,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import com.sakata.focusflow.data.CoreDataReadResult
+import com.sakata.focusflow.data.CoreDataRepository
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
@@ -213,14 +215,17 @@ internal fun categorizedInstalledApps(context: Context, userCategories: Map<Stri
 private data class BaselineVariantDraft(val name: String)
 
 @OptIn(ExperimentalLayoutApi::class)
-@Composable internal fun SettingsScreen(modifier: Modifier, settingsScrollState: ScrollState, themeOption: FocusFlowThemeOption, commuteProfile: CommuteProfile, campusLifeEnabled: Boolean, campusMapPackage: CampusMapPackage?, currentCampusPlace: String?, improvementNotes: List<ImprovementNote>, activitySettings: ActivityReminderSettings, statusCheckInSettings: StatusCheckInSettings, statusPromptTrace: StatusPromptTrace, nextStatusPromptAt: Long, onStatusPromptTest: () -> Unit, windDownEnabled: Boolean, checkIns: List<StatusCheckIn>, baselineProfile: BaselineProfile, mealRecords: List<MealRecord>, mealReminderEnabled: Boolean, mealDurationTrackingEnabled: Boolean, onMealDurationTrackingEnabledChange: (Boolean) -> Unit, foregroundDetectionTrace: ForegroundDetectionTrace, subPage: SettingsSubPage?, onSubPageChange: (SettingsSubPage?) -> Unit, onThemeChange: (FocusFlowThemeOption) -> Unit, customThemeColors: FocusFlowThemeColors, onCustomThemeColorsChange: (FocusFlowThemeColors) -> Unit, themePresets: List<ThemePreset>, onThemePresetsChange: (List<ThemePreset>) -> Unit, onRestoreDefaultTheme: () -> Unit, onCommuteChange: (CommuteProfile) -> Unit, onCampusLifeEnabledChange: (Boolean) -> Unit, onCampusLifeRequired: () -> Unit, onCampusMapPackageChange: (CampusMapPackage?) -> Unit, onCurrentCampusPlaceChange: (String?) -> Unit, allPlaces: List<CampusPlace>, customPlaces: List<CampusPlace>, onCustomPlacesChange: (List<CampusPlace>) -> Unit, hiddenPlaces: Set<String>, onToggleHiddenPlace: (String) -> Unit, amapKey: String, onAmapKeyChange: (String) -> Unit, campusCenter: CampusCenter, onCampusCenterChange: (CampusCenter) -> Unit, tutorialSearch: TutorialSearchSettings, onTutorialSearchSettingsChange: (TutorialSearchSettings) -> Unit, aiWeeklySummary: AiWeeklySummarySettings, onAiWeeklySummarySettingsChange: (AiWeeklySummarySettings) -> Unit, courseVision: CourseVisionSettings, onCourseVisionSettingsChange: (CourseVisionSettings) -> Unit, courseVisionGuideOpen: Boolean, onCourseVisionGuideOpenChange: (Boolean) -> Unit, pendingPlaces: List<String>, onAddPendingPlace: (String) -> Unit, onRemovePendingPlace: (String) -> Unit, onActivitySettingsChange: (ActivityReminderSettings) -> Unit, quietHours: QuietHoursSettings, onQuietHoursChange: (QuietHoursSettings) -> Unit, quickCaptureEnabled: Boolean, onQuickCaptureEnabledChange: (Boolean) -> Unit, onStatusCheckInSettingsChange: (StatusCheckInSettings) -> Unit, onWindDownEnabledChange: (Boolean) -> Unit, onAddImprovement: () -> Unit, onOpenBaselineEditor: () -> Unit, onOpenBaselineEvents: () -> Unit, onResetBaseline: () -> Unit, onOpenFeatureIntro: () -> Unit, baselineVariants: List<BaselineProfile>, onSaveBaselineVariant: (String) -> Unit, onSwitchBaselineVariant: (BaselineProfile) -> Unit, onDeleteBaselineVariant: (BaselineProfile) -> Unit, onDayGroupsChange: (List<DayGroup>) -> Unit, baselineVariantNameOpen: Boolean, onBaselineVariantNameOpenChange: (Boolean) -> Unit, onMealReminderEnabledChange: (Boolean) -> Unit, onOpenMealRecords: () -> Unit, recordBaselineEvent: (BaselineEventType, String) -> Unit, gameDetectionEnabled: Boolean, onGameDetectionEnabledChange: (Boolean) -> Unit, appCategories: Map<String, String>, onAppCategoriesChange: (Map<String, String>) -> Unit, hiddenApps: Set<String>, onToggleHiddenApp: (String) -> Unit, videoAnalysisModel: String, onVideoAnalysisModelChange: (String) -> Unit, darkMode: Boolean, onDarkModeChange: (Boolean) -> Unit, onGlobalLoadingChange: (Boolean) -> Unit, exitConfirmDisabled: Boolean, onExitConfirmEnabledChange: (Boolean) -> Unit, autoCheckUpdates: Boolean, onAutoCheckUpdatesChange: (Boolean) -> Unit, acceptRcUpdates: Boolean, onAcceptRcUpdatesChange: (Boolean) -> Unit, updateCheckState: UpdateCheckState, onCheckUpdate: () -> Unit, animationSpeed: Float, onAnimationSpeedChange: (Float) -> Unit, appearance: AppearanceSpec, onAppearanceChange: (AppearanceSpec) -> Unit, pageBackdropBitmap: ImageBitmap?, onApplyExtractedTheme: (FocusFlowThemeColors) -> Unit) {
+@Composable internal fun SettingsScreen(modifier: Modifier, coreDataRepository: CoreDataRepository, settingsScrollState: ScrollState, themeOption: FocusFlowThemeOption, commuteProfile: CommuteProfile, campusLifeEnabled: Boolean, campusMapPackage: CampusMapPackage?, currentCampusPlace: String?, improvementNotes: List<ImprovementNote>, activitySettings: ActivityReminderSettings, statusCheckInSettings: StatusCheckInSettings, statusPromptTrace: StatusPromptTrace, nextStatusPromptAt: Long, onStatusPromptTest: () -> Unit, windDownEnabled: Boolean, checkIns: List<StatusCheckIn>, baselineProfile: BaselineProfile, mealRecords: List<MealRecord>, mealReminderEnabled: Boolean, mealDurationTrackingEnabled: Boolean, onMealDurationTrackingEnabledChange: (Boolean) -> Unit, foregroundDetectionTrace: ForegroundDetectionTrace, subPage: SettingsSubPage?, onSubPageChange: (SettingsSubPage?) -> Unit, onThemeChange: (FocusFlowThemeOption) -> Unit, customThemeColors: FocusFlowThemeColors, onCustomThemeColorsChange: (FocusFlowThemeColors) -> Unit, themePresets: List<ThemePreset>, onThemePresetsChange: (List<ThemePreset>) -> Unit, onRestoreDefaultTheme: () -> Unit, onCommuteChange: (CommuteProfile) -> Unit, onCampusLifeEnabledChange: (Boolean) -> Unit, onCampusLifeRequired: () -> Unit, onCampusMapPackageChange: (CampusMapPackage?) -> Unit, onCurrentCampusPlaceChange: (String?) -> Unit, allPlaces: List<CampusPlace>, customPlaces: List<CampusPlace>, onCustomPlacesChange: (List<CampusPlace>) -> Unit, hiddenPlaces: Set<String>, onToggleHiddenPlace: (String) -> Unit, amapKey: String, onAmapKeyChange: (String) -> Unit, campusCenter: CampusCenter, onCampusCenterChange: (CampusCenter) -> Unit, tutorialSearch: TutorialSearchSettings, onTutorialSearchSettingsChange: (TutorialSearchSettings) -> Unit, aiWeeklySummary: AiWeeklySummarySettings, onAiWeeklySummarySettingsChange: (AiWeeklySummarySettings) -> Unit, courseVision: CourseVisionSettings, onCourseVisionSettingsChange: (CourseVisionSettings) -> Unit, courseVisionGuideOpen: Boolean, onCourseVisionGuideOpenChange: (Boolean) -> Unit, pendingPlaces: List<String>, onAddPendingPlace: (String) -> Unit, onRemovePendingPlace: (String) -> Unit, onActivitySettingsChange: (ActivityReminderSettings) -> Unit, quietHours: QuietHoursSettings, onQuietHoursChange: (QuietHoursSettings) -> Unit, quickCaptureEnabled: Boolean, onQuickCaptureEnabledChange: (Boolean) -> Unit, onStatusCheckInSettingsChange: (StatusCheckInSettings) -> Unit, onWindDownEnabledChange: (Boolean) -> Unit, onAddImprovement: () -> Unit, onOpenBaselineEditor: () -> Unit, onOpenBaselineEvents: () -> Unit, onResetBaseline: () -> Unit, onOpenFeatureIntro: () -> Unit, baselineVariants: List<BaselineProfile>, onSaveBaselineVariant: (String) -> Unit, onSwitchBaselineVariant: (BaselineProfile) -> Unit, onDeleteBaselineVariant: (BaselineProfile) -> Unit, onDayGroupsChange: (List<DayGroup>) -> Unit, baselineVariantNameOpen: Boolean, onBaselineVariantNameOpenChange: (Boolean) -> Unit, onMealReminderEnabledChange: (Boolean) -> Unit, onOpenMealRecords: () -> Unit, recordBaselineEvent: (BaselineEventType, String) -> Unit, gameDetectionEnabled: Boolean, onGameDetectionEnabledChange: (Boolean) -> Unit, appCategories: Map<String, String>, onAppCategoriesChange: (Map<String, String>) -> Unit, hiddenApps: Set<String>, onToggleHiddenApp: (String) -> Unit, videoAnalysisModel: String, onVideoAnalysisModelChange: (String) -> Unit, darkMode: Boolean, onDarkModeChange: (Boolean) -> Unit, onGlobalLoadingChange: (Boolean) -> Unit, exitConfirmDisabled: Boolean, onExitConfirmEnabledChange: (Boolean) -> Unit, autoCheckUpdates: Boolean, onAutoCheckUpdatesChange: (Boolean) -> Unit, acceptRcUpdates: Boolean, onAcceptRcUpdatesChange: (Boolean) -> Unit, updateCheckState: UpdateCheckState, onCheckUpdate: () -> Unit, animationSpeed: Float, onAnimationSpeedChange: (Float) -> Unit, appearance: AppearanceSpec, onAppearanceChange: (AppearanceSpec) -> Unit, pageBackdropBitmap: ImageBitmap?, onApplyExtractedTheme: (FocusFlowThemeColors) -> Unit, onOpenTrash: () -> Unit) {
     val context = LocalContext.current
     val settingsStore = remember(context) { PrototypeStore(context) }
+    var inboxReviewEnabled by remember { mutableStateOf(settingsStore.loadInboxReviewEnabled()) }
     val settingsLifecycleOwner = LocalLifecycleOwner.current
     var settingsNotificationHealth by remember { mutableStateOf(NotificationChannelSettings.health(context)) }
     DisposableEffect(settingsLifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) settingsNotificationHealth = NotificationChannelSettings.health(context)
+            if (event == Lifecycle.Event.ON_RESUME) {
+                settingsNotificationHealth = NotificationChannelSettings.health(context)
+            }
         }
         settingsLifecycleOwner.lifecycle.addObserver(observer)
         onDispose { settingsLifecycleOwner.lifecycle.removeObserver(observer) }
@@ -233,6 +238,8 @@ private data class BaselineVariantDraft(val name: String)
     var choosingCurrentPlace by remember { mutableStateOf(false) }
     var choosingDestination by remember { mutableStateOf(false) }
     var helpBlock by remember { mutableStateOf<SettingsBlock?>(null) }
+    var permissionReminderDismissed by remember { mutableStateOf(settingsStore.loadPermissionReminderDismissed()) }
+    var permissionDetailsOpen by remember { mutableStateOf(false) }
     var baselineVariantsExpanded by remember { mutableStateOf(false) }
     var dayGroupWizardOpen by remember { mutableStateOf(false) }
     var previewDestination by remember(campusPlaces, currentCampusPlace) {
@@ -265,7 +272,10 @@ private data class BaselineVariantDraft(val name: String)
         FocusCard(
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
             elevation = 1.dp,
-            onClick = { defaultHelpExpanded = !defaultHelpExpanded }
+            onClick = {
+                if (!defaultHelpExpanded) FrameTimingRecorder.recordExpansion("settings_defaults")
+                defaultHelpExpanded = !defaultHelpExpanded
+            }
         ) {
             Column(
                 Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
@@ -302,6 +312,10 @@ private data class BaselineVariantDraft(val name: String)
         PlanHubItem("提醒打扰控制", if (quietHours.enabled) "免打扰 ${formatMinute(quietHours.startMinute)}–${formatMinute(quietHours.endMinute)}" else if (quietHours.isMuted()) "已静音" else "未开启") { onSubPageChange(SettingsSubPage.QUIET_HOURS) }
         HorizontalDivider()
         SettingSwitch("常驻快速记录通知", "通知栏常驻一条通知，随时一键快速记录到收集箱；关闭后通知消失", quickCaptureEnabled, onQuickCaptureEnabledChange)
+        HorizontalDivider()
+        SettingSwitch("收集箱低频回顾", "可选：每月在收集箱显示一次超过一个月的记录条数，无后台推送", inboxReviewEnabled) { enabled ->
+            if (settingsStore.saveInboxReviewEnabled(enabled)) inboxReviewEnabled = enabled
+        }
         HorizontalDivider()
         SettingSwitch("退出确认", "今日页按返回需二次确认；其他页面先回到今日页。关闭后直接退出", !exitConfirmDisabled) { onExitConfirmEnabledChange(it) }
         HorizontalDivider()
@@ -493,6 +507,15 @@ private data class BaselineVariantDraft(val name: String)
         TextButton(onClick = onAddImprovement) { Text("＋ 记录改进想法") }
         improvementNotes.takeLast(3).reversed().forEach { note -> ElevatedCard { Text(note.text, Modifier.padding(10.dp)) } }
         HorizontalDivider()
+        if (permissionReminderDismissed) {
+            val permissionEntries = permissionCenterEntries(context)
+            PlanHubItem(
+                "权限与提醒",
+                "今日提示已关闭 · ${PermissionCenterPolicy.summary(permissionEntries)}"
+            ) { permissionDetailsOpen = true }
+            HorizontalDivider()
+        }
+        PlanHubItem("数据与恢复", "最近删除的待办与收集箱") { onOpenTrash() }
         PlanHubItem("检查更新", updateCheckState.message ?: "手动或自动检查；仅接受 GitHub 正式版更新") { onSubPageChange(SettingsSubPage.UPDATES) }
         HorizontalDivider()
         PlanHubItem("快速入门", "首次使用") { onOpenFeatureIntro() }
@@ -502,6 +525,15 @@ private data class BaselineVariantDraft(val name: String)
         PlanHubItem("版本路线图", "当前 ${BuildConfig.VERSION_NAME} · 构建 #${BuildConfig.CI_RUN_NUMBER} · 更新说明与版本演进") { onSubPageChange(SettingsSubPage.ROADMAP) }
     }
     }
+    if (permissionDetailsOpen) PermissionRequirementsDialog(
+        todayReminderDismissed = permissionReminderDismissed,
+        onDismiss = { permissionDetailsOpen = false },
+        onRestoreTodayReminder = {
+            settingsStore.savePermissionReminderDismissed(false)
+            permissionReminderDismissed = false
+            permissionDetailsOpen = false
+        }
+    )
     SubpageMotion(subPage, depth = { destination ->
         when (destination) {
             SettingsSubPage.ADVANCED, SettingsSubPage.USER_GUIDE, SettingsSubPage.ROADMAP, SettingsSubPage.APPEARANCE,
@@ -593,19 +625,14 @@ private data class BaselineVariantDraft(val name: String)
                         ) { onAppearanceChange(appearance.copy(richEffects = it)) }
                         HorizontalDivider()
                         Text("动画速度", fontWeight = FontWeight.SemiBold)
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            listOf(0f to "关闭", 0.5f to "较快", 1f to "标准", 1.5f to "较慢").forEach { (scale, label) ->
-                                FilterChip(
-                                    selected = animationSpeed == scale,
-                                    onClick = { onAnimationSpeedChange(scale) },
-                                    label = { Text(label) }
-                                )
-                            }
-                        }
+                        EqualOptionGrid(
+                            options = listOf(0f to "关闭", 0.5f to "较快", 1f to "标准", 1.5f to "较慢"),
+                            selected = animationSpeed,
+                            onSelect = onAnimationSpeedChange
+                        )
                         Text("影响页面转场与底部导航动画；系统「移除动画」设置仍然生效。", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         HorizontalDivider()
                         // 8.2.0 外观系统：页面背景（跟随主题／主题渐变／图片 + 不透明度 + 从图片抽色）。
-                        Text("页面背景", fontWeight = FontWeight.SemiBold)
                         AppearanceSettingsSection(
                             appearance = appearance,
                             onAppearanceChange = onAppearanceChange,
@@ -617,15 +644,16 @@ private data class BaselineVariantDraft(val name: String)
                         // 重帧率 5.66% 超预算，而记账的 `remember` 只省重组、省不了首次组合。
                         // 所以把它们摊到几帧里逐行组合：每帧只多一行，视觉上仍是"瞬间填满"，
                         // 但不再有单个长帧。后面若还嫌慢，再考虑把设置页整列换成 LazyColumn。
-                        var revealedPresets by remember { mutableStateOf(0) }
-                        LaunchedEffect(Unit) {
-                            val total = FocusFlowThemeOption.builtInEntries().size
-                            while (revealedPresets < total) {
-                                androidx.compose.runtime.withFrameNanos { }
-                                revealedPresets += 1
+                        AppearanceDisclosure("主题配色", "当前：${themeOption.label}") {
+                            var revealedPresets by remember { mutableStateOf(0) }
+                            LaunchedEffect(Unit) {
+                                val total = FocusFlowThemeOption.builtInEntries().size
+                                while (revealedPresets < total) {
+                                    androidx.compose.runtime.withFrameNanos { }
+                                    revealedPresets += 1
+                                }
                             }
-                        }
-                        FocusFlowThemeOption.builtInEntries().take(revealedPresets).forEach { option ->
+                            FocusFlowThemeOption.builtInEntries().take(revealedPresets).forEach { option ->
                             // 必须传 darkMode：不传就会拿到**浅色**方案的 primaryContainer，
                             // 深色模式下那是一块接近白的卡片，压在一整页深色上极其刺眼，
                             // 而且卡上的「已选择」用的是浅色方案的 primary（也是浅色），
@@ -663,7 +691,7 @@ private data class BaselineVariantDraft(val name: String)
                                     ) { Text("以此改色", style = MaterialTheme.typography.bodySmall) }
                                 }
                             }
-                        }
+                            }
                         // 自定义主题：点卡只进入编辑器，不切主题；确认由编辑器内"应用此配色"完成，
                         // 与内置主题"以此改色"一致，避免点卡即应用造成违和。
                         val customPreview = remember(customThemeColors, darkMode) {
@@ -683,6 +711,7 @@ private data class BaselineVariantDraft(val name: String)
                                 }
                                 Text("编辑", color = if (themeOption == FocusFlowThemeOption.CUSTOM) customPreview.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.SemiBold)
                             }
+                        }
                         }
                     }
                     SettingsSubPage.CUSTOM_THEME -> {
@@ -715,7 +744,9 @@ private data class BaselineVariantDraft(val name: String)
                         var reminderDiagnosticsRevision by remember { mutableIntStateOf(0) }
                         var taskTestMessage by remember { mutableStateOf<String?>(null) }
                         val pendingTaskReminders = remember(activitySettings, reminderDiagnosticsRevision) {
-                            TaskReminderPolicy.pendingReminders(settingsStore.loadItems(), activitySettings)
+                            val coreData = coreDataRepository.read()
+                            val items = (coreData as? CoreDataReadResult.Ready)?.snapshot?.items.orEmpty()
+                            TaskReminderPolicy.pendingReminders(items, activitySettings)
                         }
                         val notificationPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
                             notifGranted = context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
@@ -940,21 +971,36 @@ private data class BaselineVariantDraft(val name: String)
                                             "没有路线记录或可判断档位时才使用；关闭后不自动预留",
                                             commuteProfile.useDefaultForUnknown
                                         ) { onCommuteChange(commuteProfile.copy(useDefaultForUnknown = it)) }
-                                        if (commuteProfile.useDefaultForUnknown) {
-                                            Text("未知路线默认 ${commuteProfile.oneWayMinutes} 分钟")
+                                        var transportReservesExpanded by remember { mutableStateOf(false) }
+                                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                            Text("各方式路上预留", fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                                            TextButton(onClick = {
+                                                if (!transportReservesExpanded) FrameTimingRecorder.recordExpansion("transport_reserves")
+                                                transportReservesExpanded = !transportReservesExpanded
+                                            }) {
+                                                Text(if (transportReservesExpanded) "收起" else "设置")
+                                            }
                                         }
-                                        Text("这只是规划缓冲，不读取定位；实测路线记录会优先使用。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                        Text("未知路线默认值", style = MaterialTheme.typography.labelMedium)
-                                        FlowRow(
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                            verticalArrangement = Arrangement.spacedBy(6.dp)
-                                        ) {
-                                            listOf(5, 10, 15, 20, 30, 45, 60).forEach { minutes ->
-                                                FilterChip(
-                                                    selected = commuteProfile.oneWayMinutes == minutes,
-                                                    onClick = { onCommuteChange(commuteProfile.copy(oneWayMinutes = minutes)) },
-                                                    label = { Text("${minutes} 分钟", maxLines = 1) }
-                                                )
+                                        AnimatedVisibility(transportReservesExpanded) {
+                                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                                Text("楼内进出缓冲另算；实测路线记录优先。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                listOf("步行", "自行车", "电动车").forEach { mode ->
+                                                    val selectedMinutes = commuteProfile.reserveMinutesFor(mode)
+                                                    Text("$mode · $selectedMinutes 分钟", style = MaterialTheme.typography.labelMedium)
+                                                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                                        listOf(3, 5, 10, 15, 20, 30, 45, 60).forEach { minutes ->
+                                                            FilterChip(
+                                                                selected = selectedMinutes == minutes,
+                                                                onClick = { onCommuteChange(when (mode) {
+                                                                    "自行车" -> commuteProfile.copy(bicycleReserveMinutes = minutes)
+                                                                    "电动车" -> commuteProfile.copy(eBikeReserveMinutes = minutes)
+                                                                    else -> commuteProfile.copy(walkingReserveMinutes = minutes)
+                                                                }) },
+                                                                label = { Text("${minutes} 分钟", maxLines = 1) }
+                                                            )
+                                                        }
+                                                    }
+                                                }
                                             }
                                         }
                                         Text("距离档位", fontWeight = FontWeight.SemiBold)
@@ -1225,7 +1271,7 @@ private data class BaselineVariantDraft(val name: String)
                                 singleLine = true,
                                 modifier = Modifier.fillMaxWidth()
                             )
-                            Text("默认 Qwen/Qwen3-VL-8B-Instruct（在线免费，识别课表足够）；识别率不满意可换 Qwen/Qwen3-VL-32B-Instruct（是否计费以硅基流动为准）。旧版 Qwen2.5-VL 系列已下线，保存过旧模型名会自动迁移。key 仅存本机，只发往 api.siliconflow.cn，关闭开关后导入课表不再联网。", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("默认 Qwen/Qwen3-VL-8B-Instruct（在线免费，适合先试；复杂网格、拍屏摩尔纹或透视图片可能识别错误）；可换 32B／30B-A3B，或像自定义模型工具一样在上方直接填写硅基流动支持的其他视觉模型 ID。识别结果会校验星期与节次，明显塌缩的整批结果不会导入。旧版 Qwen2.5-VL 系列已下线。key 仅存本机，只发往 api.siliconflow.cn。", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                     SettingsSubPage.APP_DETECTION -> {
@@ -1529,7 +1575,10 @@ internal fun CollapsibleSettingsDetails(
         Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(summary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
-                TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "收起" else "展开") }
+                TextButton(onClick = {
+                    if (!expanded) FrameTimingRecorder.recordExpansion("settings_details")
+                    expanded = !expanded
+                }) { Text(if (expanded) "收起" else "展开") }
             }
             AnimatedVisibility(
                   visible = expanded,

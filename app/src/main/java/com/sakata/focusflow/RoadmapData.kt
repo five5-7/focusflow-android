@@ -20,6 +20,23 @@ data class RoadmapVersion(val version: String, val entries: List<RoadmapEntry>)
 object RoadmapData {
     /** 已实现版本演进（1.0 → 当前版本），每版本浓缩 1–3 条，与 CHANGELOG.md 对应。 */
     val evolution: List<RoadmapVersion> = listOf(
+        RoadmapVersion("8.3.0", listOf(
+            RoadmapEntry("8.3.0-rc.23", "阶段4：收集箱、待办与计划闭环", "收集箱批量整理、待办与计划、每日／每周重复基础、独立提醒和可恢复删除。Room产品激活关闭，待稳定签名CI与OPPO合并验收。", RoadmapStatus.CANDIDATE),
+            RoadmapEntry("8.3.0-rc.22", "收集箱记录分组与紧凑整理", "完整列表按创建事件区分最近、之前和时间未标记的旧记录；待整理项默认单行，点击只展开一项，编辑删除放入更多。延续rc.21快速输入，已由rc.23替代，未单独验收。", RoadmapStatus.DONE),
+            RoadmapEntry("8.3.0-rc.21", "今日收集箱快速输入", "今日页收集箱共用一个卡面，直接输入标题并保存；显示总数与最近两条单行摘要，点击进入完整列表。Room产品激活关闭；已由rc.22代替，未单独验收。", RoadmapStatus.DONE),
+            RoadmapEntry("8.3.0-rc.20", "连续课程与收纳摘要", "相邻同名同地点课程节次合并展示，原段可逐一编辑；周五至周日无节次重叠时仍显示课程摘要。课程写入经过统一数据源；Run 462与用户验收通过，已由rc.21替代。", RoadmapStatus.DONE),
+            RoadmapEntry("8.3.0-rc.19", "课程确认与课表位置", "无冲突课程时段支持一键确认，同名时段按星期和节次汇集展示；缩小课表的周五至周日展开显示真实位置。安排时间模式选项适应宽度和字体。Run 460与用户验收通过，已由rc.20替代。", RoadmapStatus.DONE),
+            RoadmapEntry("8.3.0-rc.18", "指定教务学期与超时修复", "浙大教务导入可指定学年与学期，跳过当前学期页面；自动读取学期设总时限并提示失败。Run 459 与 OPPO 教务导入验收通过，已由rc.19替代。", RoadmapStatus.DONE),
+            RoadmapEntry("8.3.0-rc.17", "外观页收纳与五项材质", "外观页将主题配色、页面背景、卡片材质与课表底色分组收纳；卡片材质五档使用均衡排列，自定义主题编辑器共用同一套外观控件。Run 456通过；在单独真机验收前由rc.18替代。", RoadmapStatus.DONE),
+            RoadmapEntry("8.3.0-rc.16", "历史批量选择交互", "最近事件的批量选择工具栏共用卡片材质；勾选区、操作按钮与选中态按动画速度过渡。延续 rc.15 的设置布局，已通过 OPPO 真机验收，已由 rc.17 替代。", RoadmapStatus.DONE),
+            RoadmapEntry("8.3.0-rc.15", "设置等权选项布局", "页面背景与动画速度的四项选择改用自适应均衡布局，常见手机宽度 2×2，大字体与窄屏回流。延续 rc.14 的导入页外观与统一确认框，已通过 OPPO 真机验收。", RoadmapStatus.DONE),
+            RoadmapEntry("8.3.0-rc.14", "独立入口外观对齐", "今日页权限提示确认改用统一弹窗；浙江大学教务导入页的背景与卡片跟随外观。延续 rc.13 的玻璃卡面不透明度及课表识别防错，已通过 OPPO 真机验收。", RoadmapStatus.DONE),
+            RoadmapEntry("8.3.0-rc.13", "玻璃卡面不透明度", "延续 rc.12 的课表识别防错；外观设置可统一调节亚克力与毛玻璃卡面不透明度 40%–95%，旧设置仍保留 60%／48% 默认值。已通过 OPPO 真机验收。", RoadmapStatus.DONE),
+            RoadmapEntry("8.3.0-rc.12", "课表截图识别防错", "延续权限中心、浙大课表自动导入、首次动画优化与验收反馈修复；截图识别严格校验网格中的星期和节次，拒绝多数坐标缺失或明显塌缩的整批结果，完全重叠的不同课程必须逐门编辑后确认。已由 rc.13 替代。", RoadmapStatus.DONE)
+        )),
+        RoadmapVersion("8.2.2", listOf(
+            RoadmapEntry("8.2.2-rc.4", "通勤、文字对比与权限提醒", "三种校内出行方式可分别设置预留；玻璃卡片深色文字对比修复；今日页始终显示权限入口，关闭后可在设置中查看和恢复。", RoadmapStatus.CANDIDATE)
+        )),
         RoadmapVersion("8.2.1", listOf(
             RoadmapEntry("8.2.1-rc.7", "亚克力与毛玻璃扩展", "修复玻璃卡片层级冲突与滚动回归；丰富外观默认关闭。", RoadmapStatus.CANDIDATE)
         )),
@@ -430,7 +447,7 @@ fun RoadmapSubpageContent() {
                 Text("每次功能更新递增 0.1；更新记录见版本演进。", style = MaterialTheme.typography.bodySmall)
             }
         }
-        Text("版本演进（1.0 → 8.1）", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Text("版本演进（1.0 → 8.3）", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         RoadmapData.evolution.forEach { version ->
             Text(version.version, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
             version.entries.forEach { entry ->

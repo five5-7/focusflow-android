@@ -23,26 +23,39 @@ internal fun PlanCoursesSection(
     tutorialSearch: TutorialSearchSettings,
     courseVision: CourseVisionSettings,
     onImportCourses: () -> Unit,
+    onImportZju: () -> Unit,
     onAddCourse: () -> Unit,
     onClearAwaitingCourses: () -> Unit,
+    onConfirmSafeCourses: () -> Unit,
     onConfirmCourse: (Course) -> Unit,
     onEditCourse: (Course) -> Unit,
     onIgnoreCourse: (Course) -> Unit,
     onToggleCourse: (Course) -> Unit,
     onDeleteCourses: (Set<Course>) -> Unit
 ) {
-    Text("从课表截图开始", fontWeight = FontWeight.Bold)
+    Text("从教务网导入", fontWeight = FontWeight.Bold)
+    FilledTonalButton(
+        enabled = !courseImportRunning,
+        onClick = onImportZju,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Text(if (courseImportRunning) "导入处理中…" else "浙江大学")
+    }
+    Text(
+        "应用内填写统一身份认证账号和密码后自动获取；密码仅用于本次导入，不保存。新课程进入待确认，唯一匹配的已有课程直接更新。",
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+    Text("其他导入方式", fontWeight = FontWeight.Bold)
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        FilledTonalButton(enabled = !courseImportRunning, onClick = onImportCourses) {
-            Text(if (courseImportRunning) "正在识别…" else "选择课表截图")
-        }
-        TextButton(onClick = onAddCourse) { Text("手动新增") }
+        OutlinedButton(enabled = !courseImportRunning, onClick = onImportCourses) { Text("截图识别") }
+        TextButton(enabled = !courseImportRunning, onClick = onAddCourse) { Text("手动新增") }
     }
     Text(
         if (courseVision.enabled && tutorialSearch.apiKey.isNotBlank()) {
-            "识别方式：硅基流动视觉模型（${courseVision.model}）"
+            "截图识别：硅基流动视觉模型（${courseVision.model}）"
         } else {
-            "未开启视觉模型：请到设置开启并填写 key 后导入"
+            "截图识别未开启：可到设置开启并填写 key"
         },
         style = MaterialTheme.typography.labelSmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -59,6 +72,7 @@ FocusCard(
         awaitingCourses,
         confirmedCourses,
         onClearAwaitingCourses,
+        onConfirmSafeCourses,
         onConfirmCourse,
         onEditCourse,
         onIgnoreCourse
@@ -72,6 +86,7 @@ private fun PendingCourses(
     awaiting: List<Course>,
     confirmed: List<Course>,
     onClear: () -> Unit,
+    onConfirmSafe: () -> Unit,
     onConfirm: (Course) -> Unit,
     onEdit: (Course) -> Unit,
     onIgnore: (Course) -> Unit
@@ -80,39 +95,62 @@ private fun PendingCourses(
         Text("没有待确认课程。", style = MaterialTheme.typography.bodySmall)
         return
     }
-    Row(
-        Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
+    val allCourses = awaiting + confirmed
+    val safeIds = remember(awaiting, confirmed) { CourseConfirmationSafety.safeBatchConfirmationIds(allCourses) }
+    Column(Modifier.fillMaxWidth()) {
         Text("待确认课程", fontWeight = FontWeight.Bold)
-        TextButton(onClick = onClear) { Text("全部忽略") }
+        Row {
+            TextButton(enabled = safeIds.isNotEmpty(), onClick = onConfirmSafe) { Text("一键确认 ${safeIds.size} 条") }
+            TextButton(onClick = onClear) { Text("全部忽略") }
+        }
     }
-    awaiting.forEach { course ->
-        val conflictWith = confirmed.firstOrNull { coursesOverlap(course, it) }
-        // 收编：带冲突描边的 Card → FocusCard。border 原样传入（null 时与原来一样不描边）；
-        // 底色不变；Card 默认阴影 Level0 = 0dp，与 FocusCard 默认一致。
+    if (safeIds.size < awaiting.size) {
+        Text("有 ${awaiting.size - safeIds.size} 条重叠或停用记录需逐条核对。", style = MaterialTheme.typography.bodySmall)
+    }
+    val blockedDirectConfirmationIds = remember(awaiting, confirmed) {
+        CourseConfirmationSafety.blockedDirectConfirmationIds(allCourses)
+    }
+    if (blockedDirectConfirmationIds.isNotEmpty()) {
+        Text(
+            "检测到多门课程占用完全相同的星期和节次。为避免错误课表生效，这些课程只能逐门“编辑并确认”。",
+            color = CONFLICT_TEXT_COLOR,
+            style = MaterialTheme.typography.bodySmall,
+            fontWeight = FontWeight.SemiBold
+        )
+    }
+    groupCourseMeetings(awaiting).forEach { group ->
         FocusCard(
-            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f),
-            border = conflictWith?.let { BorderStroke(1.dp, CONFLICT_TEXT_COLOR) }
+            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
         ) {
             Column(
                 Modifier.fillMaxWidth().padding(12.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                CourseIdentity(course)
-                conflictWith?.let {
-                    Text(
-                        "⚠ 与已确认课程《${it.title}》时间冲突，确认后会产生冲突警示",
-                        color = CONFLICT_TEXT_COLOR,
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextButton(onClick = { onConfirm(course) }) { Text("确认") }
-                    TextButton(onClick = { onEdit(course) }) { Text("编辑并确认") }
-                    TextButton(onClick = { onIgnore(course) }) { Text("忽略") }
+                Text(group.title + if (group.meetings.size > 1) " · 同名 ${group.meetings.size} 条记录" else "", fontWeight = FontWeight.SemiBold)
+                connectedCourseSpans(group.meetings).forEachIndexed { index, span ->
+                    val course = span.display
+                    if (index > 0) HorizontalDivider()
+                    val conflictWith = confirmed.firstOrNull { coursesOverlap(course, it) }
+                    val directConfirmationBlocked = span.records.any { it.id in blockedDirectConfirmationIds }
+                    val groupConfirmationBlocked = span.records.size > 1 && span.records.any { it.id !in safeIds }
+                    CourseMeetingDetails(course)
+                    if (span.records.size > 1) Text("相邻时段合并展示 · ${span.records.size} 条原记录", style = MaterialTheme.typography.labelSmall)
+                    conflictWith?.let {
+                        Text("⚠ 与已确认课程《${it.title}》时间冲突", color = CONFLICT_TEXT_COLOR, style = MaterialTheme.typography.labelSmall)
+                    }
+                    if (directConfirmationBlocked) {
+                        Text("星期和节次需逐条核对，编辑后才能确认。", color = CONFLICT_TEXT_COLOR, style = MaterialTheme.typography.labelSmall)
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        TextButton(enabled = !directConfirmationBlocked && !groupConfirmationBlocked, onClick = { span.records.forEach(onConfirm) }) {
+                            Text(if (directConfirmationBlocked || groupConfirmationBlocked) "需逐段核对" else "确认")
+                        }
+                        if (span.records.size == 1) TextButton(onClick = { onEdit(span.records.single()) }) { Text("编辑并确认") }
+                        TextButton(onClick = { span.records.forEach(onIgnore) }) { Text("忽略") }
+                    }
+                    if (span.records.size > 1) span.records.forEach { original ->
+                        TextButton(onClick = { onEdit(original) }) { Text("编辑第 ${original.startPeriod}–${original.endPeriod} 节") }
+                    }
                 }
             }
         }
@@ -162,7 +200,7 @@ private fun ConfirmedCourses(confirmed: List<Course>, onEdit: (Course) -> Unit, 
             color = CONFLICT_TEXT_COLOR,
             fontWeight = FontWeight.SemiBold
         )
-        conflicting.sortedWith(courseOrder).forEach { course ->
+        conflicting.sortedWith(courseMeetingOrder).forEach { course ->
             Surface(
                 shape = RoundedCornerShape(12.dp),
                 color = CONFLICT_BLOCK_COLOR,
@@ -197,8 +235,7 @@ private fun ConfirmedCourses(confirmed: List<Course>, onEdit: (Course) -> Unit, 
             }
         }
     }
-    confirmed.filterNot { it in conflicting }.sortedWith(courseOrder).forEach { course ->
-        // 收编：ElevatedCard → FocusCard，显式保留 surfaceContainerLow 底色与 1dp 默认阴影。
+    groupCourseMeetings(confirmed.filterNot { it in conflicting }).forEach { group ->
         FocusCard(
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
             elevation = 1.dp
@@ -207,15 +244,24 @@ private fun ConfirmedCourses(confirmed: List<Course>, onEdit: (Course) -> Unit, 
                 Modifier.fillMaxWidth().padding(12.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    if (selecting) Checkbox(checked = course in selected, onCheckedChange = { checked -> selected = if (checked) selected + course else selected - course })
-                    Column(Modifier.weight(1f)) { CourseIdentity(course) }
-                }
-                if (!selecting) {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                        TextButton(onClick = { onEdit(course) }) { Text("编辑") }
-                        TextButton(onClick = { onToggle(course) }) { Text(if (course.enabled) "停用" else "启用") }
-                        TextButton(onClick = { pendingDelete = setOf(course) }) { Text("删除", color = MaterialTheme.colorScheme.error) }
+                Text(group.title + if (group.meetings.size > 1) " · 同名 ${group.meetings.size} 条记录" else "", fontWeight = FontWeight.SemiBold)
+                connectedCourseSpans(group.meetings).forEachIndexed { index, span ->
+                    val course = span.display
+                    if (index > 0) HorizontalDivider()
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        if (selecting) Checkbox(checked = span.records.all { it in selected }, onCheckedChange = { checked -> selected = if (checked) selected + span.records else selected - span.records.toSet() })
+                        Column(Modifier.weight(1f)) { CourseMeetingDetails(course) }
+                    }
+                    if (span.records.size > 1) Text("相邻时段合并展示 · ${span.records.size} 条原记录", style = MaterialTheme.typography.labelSmall)
+                    if (!selecting) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                            if (span.records.size == 1) TextButton(onClick = { onEdit(span.records.single()) }) { Text("编辑") }
+                            TextButton(onClick = { span.records.forEach(onToggle) }) { Text(if (course.enabled) "停用" else "启用") }
+                            TextButton(onClick = { pendingDelete = span.records.toSet() }) { Text("删除", color = MaterialTheme.colorScheme.error) }
+                        }
+                        if (span.records.size > 1) span.records.forEach { original ->
+                            TextButton(onClick = { onEdit(original) }) { Text("编辑第 ${original.startPeriod}–${original.endPeriod} 节") }
+                        }
                     }
                 }
             }
@@ -245,13 +291,22 @@ private fun ConfirmedCourses(confirmed: List<Course>, onEdit: (Course) -> Unit, 
 @Composable
 private fun CourseIdentity(course: Course, titleColor: androidx.compose.ui.graphics.Color? = null) {
     Text(
-        "${weekdayName(course.weekday)} · ${course.title}",
+        course.title,
         fontWeight = FontWeight.SemiBold,
         color = titleColor ?: LocalContentColor.current
     )
+    CourseMeetingDetails(course)
+}
+
+@Composable
+private fun CourseMeetingDetails(course: Course) {
     Text(
-        "第 ${course.startPeriod}–${course.endPeriod} 节 · ${course.building}" +
+        "${weekdayName(course.weekday)} · 第 ${course.startPeriod}–${course.endPeriod} 节" +
             (if (!course.enabled) " · 已停用" else courseDateRangeText(course)),
+        style = MaterialTheme.typography.bodySmall
+    )
+    Text(
+        if (course.building.isBlank()) "地点待确认" else course.building,
         style = MaterialTheme.typography.bodySmall
     )
 }
@@ -262,5 +317,3 @@ private fun courseDateRangeText(course: Course): String = when {
     course.effectiveUntilEpochDay != null -> " · 至 ${java.time.LocalDate.ofEpochDay(course.effectiveUntilEpochDay)}"
     else -> ""
 }
-
-private val courseOrder = compareBy<Course> { it.weekday }.thenBy { it.startPeriod }

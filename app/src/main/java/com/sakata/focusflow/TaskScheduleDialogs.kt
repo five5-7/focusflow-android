@@ -11,6 +11,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import java.util.Locale
@@ -66,7 +67,7 @@ private data class QuickCaptureEditorDraft(
     fun persist() = vault.save(draftKey, InboxEditDraft(title, detail, duration, durationValid, priority))
     AppDialog(
         onDismissRequest = onDismiss,
-        title = { Text("编辑收集箱项目") },
+        title = { Text(if (item.kind == "收集箱") "编辑收集箱项目" else "编辑待办") },
         text = { Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             OutlinedTextField(value = title, onValueChange = { title = it; persist() }, label = { Text("事情") }, singleLine = true)
             OutlinedTextField(value = detail, onValueChange = { detail = it; persist() }, label = { Text("备注（可选）") }, minLines = 2)
@@ -93,7 +94,7 @@ private data class QuickCaptureEditorDraft(
         } },
         confirmButton = { Button(enabled = title.isNotBlank() && durationValid, onClick = {
             vault.clear(draftKey)
-            onSave(title.trim(), detail.trim().ifBlank { "稍后决定安排" }, duration, priority)
+            onSave(title.trim(), detail.trim().ifBlank { if (item.kind == "收集箱") "稍后决定安排" else "尚未安排具体时间" }, duration, priority)
         }) { Text("保存") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }
     )
@@ -233,6 +234,13 @@ internal fun DurationPicker(initialMinutes: Int, onChange: (Int?) -> Unit) {
     }
 }
 
+/** Keep the three existing choices equal width while allowing larger text to wrap cleanly. */
+internal fun scheduleModeColumns(widthDp: Int, fontScale: Float): Int = when {
+    widthDp >= 312 && fontScale <= 1.15f -> 3
+    widthDp >= 224 && fontScale <= 1.4f -> 2
+    else -> 1
+}
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable internal fun InboxScheduleDialog(
     item: Item,
@@ -273,19 +281,22 @@ internal fun DurationPicker(initialMinutes: Int, onChange: (Int?) -> Unit) {
         text = {
             ScrollableDialogBox(maxHeight = 520.dp, spacing = 10.dp) {
                 Text(item.title.removePrefix("重新安排："), fontWeight = FontWeight.SemiBold)
-                FlowRow(
-                    modifier = Modifier.fillMaxWidth(),
-                    maxItemsInEachRow = 2,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    listOf("推荐空档", "大致时间", "精确时间").forEach { option ->
-                        FilterChip(
-                            modifier = Modifier.weight(1f),
-                            selected = mode == option,
-                            onClick = { mode = option; persist() },
-                            label = { Text(option, maxLines = 1) }
-                        )
+                BoxWithConstraints(Modifier.fillMaxWidth()) {
+                    val columns = scheduleModeColumns(maxWidth.value.toInt(), LocalDensity.current.fontScale)
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        maxItemsInEachRow = columns,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        listOf("推荐空档", "大致时间", "精确时间").forEach { option ->
+                            FilterChip(
+                                modifier = Modifier.weight(1f),
+                                selected = mode == option,
+                                onClick = { mode = option; persist() },
+                                label = { Text(option, maxLines = 1) }
+                            )
+                        }
                     }
                 }
                 // **用时/优先级排在模式内容之后**：弹窗从系统窗口改成页内浮层（8.1.0 `e66b6c5`）之后，
@@ -638,7 +649,8 @@ internal fun timeOnSameDayAs(target: Long, minute: Int): Long =
     AppDialog(
         onDismissRequest = onDismiss,
         title = { Text(if (existing == null) "新增课程" else "编辑课程") },
-        text = { Column(Modifier.heightIn(max = 520.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        // AppDialog 已提供有界滚动；这里不再嵌套第二层滚动，避免窄屏上地点行测量出异常空白。
+        text = { Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedTextField(value = title, onValueChange = { title = it; persist() }, label = { Text("课程名称") }, singleLine = true)
             Text("课程会按星期、开始节和连续节数排入课表与日程；当前节次表共 $maxPeriod 节。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) { (1..7).forEach { day -> FilterChip(selected = weekday == day, onClick = { weekday = day; persist() }, label = { Text(weekdayName(day)) }) } }
@@ -668,7 +680,19 @@ internal fun timeOnSameDayAs(target: Long, minute: Int): Long =
             }
             Text("地点", fontWeight = FontWeight.SemiBold)
             Text("地点用于课程显示和已开启的出行时间估算；没有地点包时可直接自填。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            availablePlaces.chunked(3).forEach { row -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { row.forEach { candidate -> FilterChip(selected = !customSelected && place == candidate, onClick = { place = candidate; customSelected = false; persist() }, label = { Text(candidate.name.removeSuffix("教学楼")) }) } } }
+            FlowRow(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                availablePlaces.forEach { candidate ->
+                    FilterChip(
+                        selected = !customSelected && place == candidate,
+                        onClick = { place = candidate; customSelected = false; persist() },
+                        label = { Text(candidate.name.removeSuffix("教学楼")) }
+                    )
+                }
+            }
             FilterChip(selected = customSelected, onClick = { customSelected = true; persist() }, label = { Text("其他") })
             if (customSelected) OutlinedTextField(value = customName, onValueChange = { customName = it; persist() }, label = { Text("地点名称（自填，按东/西/北自动猜分区）") }, singleLine = true, modifier = Modifier.fillMaxWidth())
             TextButton(onClick = onOpenCommutePlaces) { Text("管理地点与出行参数") }

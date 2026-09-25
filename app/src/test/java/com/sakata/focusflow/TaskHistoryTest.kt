@@ -83,6 +83,19 @@ class TaskHistoryTest {
     }
 
     @Test
+    fun `undo removes active completion while retaining event history`() {
+        val day = dayStartOf(now)
+        val completed = TaskRecorder.event(TaskEventType.TASK_COMPLETED, 1, "a", at = now)
+        val undone = TaskRecorder.event(TaskEventType.TASK_UNCOMPLETED, 1, "a", at = now + 1000)
+        val other = TaskRecorder.event(TaskEventType.TASK_COMPLETED, 2, "b", at = now + 2000)
+        val events = listOf(completed, undone, other)
+        assertEquals(listOf(other.id), TaskHistory.completedOn(events, day).map { it.id })
+        assertEquals(1, TaskHistory.daySummary(events, day).completedCount)
+        val completedAgain = TaskRecorder.event(TaskEventType.TASK_COMPLETED, 1, "a", at = now + 3000)
+        assertEquals(2, TaskHistory.daySummary(events + completedAgain, day).completedCount)
+    }
+
+    @Test
     fun `completion percent absent when nothing planned`() {
         val events = listOf(TaskRecorder.event(TaskEventType.TASK_COMPLETED, itemId = 1, title = "a", at = dayAt(0)))
         val summary = TaskHistory.daySummary(events, dayStartOf(now))

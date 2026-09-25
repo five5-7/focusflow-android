@@ -1,0 +1,19 @@
+[
+  {
+    "id": 401,
+    "title": "完成迁移",
+    "weeklyTarget": 2,
+    "durationMinutes": 60,
+    "metricType": "次数",
+    "metricTarget": "2",
+    "minimumVersion": "先做10分钟",
+    "resourceTitle": "讲义",
+    "resourceUnit": "第1章",
+    "completedThisWeek": 1,
+    "minimumCompletionsThisWeek": 1,
+    "completionWeekKey": 1789603200000,
+    "desiredOutcome": "掌握核心概念",
+    "firstAction": "读第一页",
+    "sourceNotes": "从收集箱转入"
+  }
+]

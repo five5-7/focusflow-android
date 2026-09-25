@@ -28,7 +28,19 @@ object ItemsCodec {
                 sourceDetail = item.optString("sourceDetail"),
                 userNote = if (item.has("userNote") && !item.isNull("userNote")) item.getString("userNote") else null,
                 nextAction = item.optString("nextAction"),
-                parentCaptureId = item.optLong("parentCaptureId").takeIf { it > 0 }
+                parentCaptureId = item.optLong("parentCaptureId").takeIf { it > 0 },
+                dueAt = item.optLong("dueAt").takeIf { it > 0 },
+                checklist = ChecklistCodec.decode(item.optJSONArray("checklist")),
+                planBucket = if (item.optString("planBucket") == "later") "later" else "near",
+                planFocus = item.optBoolean("planFocus"),
+                repeatFrequency = item.optString("repeatFrequency").takeIf { it in setOf("daily", "weekly") }.orEmpty(),
+                repeatStartDay = item.optLong("repeatStartDay").takeIf { it > 0 },
+                repeatMinute = item.optInt("repeatMinute", -1).takeIf { it in 0..1439 } ?: -1,
+                repeatTemplateId = item.optLong("repeatTemplateId").takeIf { it > 0 },
+                repeatOccurrenceDay = item.optLong("repeatOccurrenceDay").takeIf { it > 0 },
+                repeatPaused = item.optBoolean("repeatPaused"),
+                trashedAt = item.optLong("trashedAt").takeIf { it > 0 },
+                trashSnapshot = item.optString("trashSnapshot").takeIf(String::isNotBlank)
             )
         }
         val firstByOriginalId = mutableMapOf<Long, Item>()
@@ -74,6 +86,11 @@ object ItemsCodec {
             put("captureSchemaVersion", 1)
             item.userNote?.let { put("userNote", it) }
             put("id", item.id); put("title", item.title); put("detail", item.detail); put("kind", item.kind); put("done", item.done); put("scheduledAt", item.scheduledAt ?: 0); put("dayOnly", item.dayOnly); put("goalId", item.goalId ?: 0); put("completionLevel", item.completionLevel); put("completedAt", item.completedAt ?: 0); put("durationMinutes", item.durationMinutes); put("windowStartAt", item.windowStartAt ?: 0); put("windowEndAt", item.windowEndAt ?: 0); put("rescheduleCount", item.rescheduleCount); put("lastRescheduledAt", item.lastRescheduledAt ?: 0); put("recoverySourceScheduledAt", item.recoverySourceScheduledAt ?: 0); put("priority", item.priority); put("captureRoute", CaptureRoute.fromKey(item.captureRoute).storageKey); put("sourceDetail", item.sourceDetail); put("nextAction", item.nextAction); put("parentCaptureId", item.parentCaptureId ?: 0)
+            put("dueAt", item.dueAt ?: 0); put("checklist", ChecklistCodec.encodeArray(item.checklist)); put("planBucket", item.planBucket); put("planFocus", item.planFocus)
+            put("repeatFrequency", item.repeatFrequency); put("repeatStartDay", item.repeatStartDay ?: 0)
+            put("repeatMinute", item.repeatMinute); put("repeatTemplateId", item.repeatTemplateId ?: 0)
+            put("repeatOccurrenceDay", item.repeatOccurrenceDay ?: 0); put("repeatPaused", item.repeatPaused)
+            put("trashedAt", item.trashedAt ?: 0); item.trashSnapshot?.let { put("trashSnapshot", it) }
         }) }
     }.toString()
 }

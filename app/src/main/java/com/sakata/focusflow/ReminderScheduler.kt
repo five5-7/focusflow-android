@@ -5,6 +5,10 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import com.sakata.focusflow.data.CoreDataReadResult
+import com.sakata.focusflow.data.CoreDataRepositoryOperations
+import com.sakata.focusflow.data.CoreDataRuntimeAccess
+import com.sakata.focusflow.data.CoreDataRuntimeResolution
 import java.util.Calendar
 
 object ReminderScheduler {
@@ -31,24 +35,51 @@ object ReminderScheduler {
 
     fun restoreActivityReminders(context: Context) {
         val store = PrototypeStore(context)
-        store.loadLatestActiveSession()?.let { session ->
+        val runtime = CoreDataRuntimeAccess.resolve(context)
+        val repository = (runtime as? CoreDataRuntimeResolution.Ready)?.repository ?: return
+        CoreDataRepositoryOperations.latestActiveSession(repository)?.let { session ->
             if (session.endsAt <= System.currentTimeMillis()) {
                 if (session.status != ActivitySession.STATUS_AWAITING_CONFIRMATION) {
-                    store.markSessionAwaitingConfirmation(session.id)
-                    context.sendBroadcast(Intent(context, ReminderReceiver::class.java).apply {
-                        action = ReminderReceiver.ACTION_ACTIVITY_END
-                        putExtra(ReminderReceiver.EXTRA_ACTIVITY_NAME, session.name)
-                        putExtra(ReminderReceiver.EXTRA_SESSION_ID, session.id)
-                        putExtra(ReminderReceiver.EXTRA_NEXT_STEP, session.nextStep)
-                        putExtra(ReminderReceiver.EXTRA_ACTIVITY_ENDS_AT, session.endsAt)
-                    })
+                    val marked = CoreDataRepositoryOperations.markActivitySessionAwaitingConfirmation(
+                        repository,
+                        session.id,
+                        session.endsAt
+                    )
+                    if (marked.applied) {
+                        context.sendBroadcast(Intent(context, ReminderReceiver::class.java).apply {
+                            action = ReminderReceiver.ACTION_ACTIVITY_END
+                            putExtra(ReminderReceiver.EXTRA_ACTIVITY_NAME, session.name)
+                            putExtra(ReminderReceiver.EXTRA_SESSION_ID, session.id)
+                            putExtra(ReminderReceiver.EXTRA_NEXT_STEP, session.nextStep)
+                            putExtra(ReminderReceiver.EXTRA_ACTIVITY_ENDS_AT, session.endsAt)
+                        })
+                    }
                 }
             } else scheduleActivityReminders(context, session, store.loadActivityReminderSettings())
         }
         scheduleDailyStatusCheckIn(context, store.loadStatusCheckInSettings())
         scheduleDailyMealReminders(context, store.loadBaselineProfile())
         scheduleDailyWindDown(context, store.loadBaselineProfile())
+        RepeatActions.refreshRepository(context)
+        scheduleRepeatRefresh(context)
         restoreTaskReminders(context)
+        restoreStandaloneReminders(context)
+    }
+
+    fun restoreStandaloneReminders(context: Context) = StandaloneReminders.restore(context)
+
+    fun scheduleRepeatRefresh(context: Context) {
+        val next = Calendar.getInstance().apply {
+            add(Calendar.DAY_OF_YEAR, 1); set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 5); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
+        val pending = PendingIntent.getBroadcast(context, 200_210,
+            Intent(context, ReminderReceiver::class.java).apply { action = ReminderReceiver.ACTION_REPEAT_REFRESH },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val manager = context.getSystemService(AlarmManager::class.java)
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || manager.canScheduleExactAlarms())
+            manager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, next, pending)
+        else manager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, next, pending)
     }
 
     fun scheduleDailyStatusCheckIn(
@@ -234,7 +265,7 @@ object ReminderScheduler {
     ) {
         val scheduledAt = item.scheduledAt ?: return
         cancelTaskReminder(context, item.id)
-        if (!settings.scheduleRemindersEnabled || item.done || item.kind in setOf("收集箱", "暂停", "游戏", "活动")) return
+        if (!settings.scheduleRemindersEnabled || item.done || item.dayOnly || item.kind in setOf("收集箱", "暂停", "游戏", "活动", "回收站", "重复历史", "重复模板")) return
         // 不补发已经开始的日程；否则一次重启会把旧安排集中推送。
         val now = System.currentTimeMillis()
         if (scheduledAt <= now) return
@@ -287,7 +318,11 @@ object ReminderScheduler {
     fun restoreTaskReminders(context: Context) {
         val store = PrototypeStore(context)
         val settings = store.loadActivityReminderSettings()
-        store.loadItems().filter { !it.done && it.scheduledAt != null && it.scheduledAt > System.currentTimeMillis() }
+        val runtime = CoreDataRuntimeAccess.resolve(context)
+        if (runtime !is CoreDataRuntimeResolution.Ready) return
+        val coreData = runtime.repository.read()
+        if (coreData !is CoreDataReadResult.Ready) return
+        coreData.snapshot.items.filter { !it.done && it.scheduledAt != null && it.scheduledAt > System.currentTimeMillis() }
             .forEach { scheduleTaskReminder(context, it, settings) }
     }
 

@@ -25,7 +25,7 @@ internal fun AttachToPlanDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(
-                    "选择该项归属的目标；该项将进入弹性安排并从收集箱移出。",
+                    "选择进行中的计划；所选内容成为未安排的关联待办，原始笔记保留。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -46,7 +46,8 @@ internal fun AttachToPlanDialog(
                                 Column(Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
                                     Text(goal.title, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                     Text(
-                                        "每周 ${goal.weeklyTarget} 次 · 每次 ${goal.durationMinutes} 分钟 · 本周已完成 ${GoalPlanner.completedThisWeek(goal)}",
+                                        if (goal.weeklyTarget == 0) "名称式计划 · 任务稍后可安排时间"
+                                        else "每周 ${goal.weeklyTarget} 次 · 每次 ${goal.durationMinutes} 分钟 · 本周已完成 ${GoalPlanner.completedThisWeek(goal)}",
                                         style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )

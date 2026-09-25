@@ -26,6 +26,7 @@ internal fun CaptureOrganizeDialog(
     onDismiss: () -> Unit,
     onProgress: (String) -> Unit,
     onReference: () -> Unit,
+    onWant: () -> Unit,
     onConvertToGoal: () -> Unit,
     onAttachToPlan: () -> Unit
 ) {
@@ -60,6 +61,7 @@ internal fun CaptureOrganizeDialog(
                 ) { Text("保存为逐步推进") }
                 OutlinedButton(onClick = onReference, modifier = Modifier.fillMaxWidth()) { Text("留作参考") }
                 if (CaptureRoute.fromKey(item.captureRoute) == CaptureRoute.INBOX) {
+                    TextButton(onClick = onWant, modifier = Modifier.fillMaxWidth()) { Text("记入想做") }
                     TextButton(onClick = onAttachToPlan, modifier = Modifier.fillMaxWidth()) { Text("归入已有目标") }
                     TextButton(onClick = onConvertToGoal, modifier = Modifier.fillMaxWidth()) { Text("转成新目标") }
                 }

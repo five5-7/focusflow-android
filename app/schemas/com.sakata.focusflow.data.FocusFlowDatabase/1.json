@@ -1,0 +1,941 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 1,
+    "identityHash": "9c23a097b8d72d186c224f41a09dc053",
+    "entities": [
+      {
+        "tableName": "tasks",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER NOT NULL, `source_order` INTEGER NOT NULL, `title` TEXT NOT NULL, `detail` TEXT NOT NULL, `legacy_kind` TEXT NOT NULL, `status` TEXT NOT NULL, `done` INTEGER NOT NULL, `scheduled_at` INTEGER, `day_only` INTEGER NOT NULL, `plan_id` INTEGER, `completion_level` TEXT NOT NULL, `completed_at` INTEGER, `duration_minutes` INTEGER NOT NULL, `window_start_at` INTEGER, `window_end_at` INTEGER, `reschedule_count` INTEGER NOT NULL, `last_rescheduled_at` INTEGER, `recovery_source_scheduled_at` INTEGER, `priority` TEXT NOT NULL, `capture_route` TEXT NOT NULL, `source_detail` TEXT NOT NULL, `user_note` TEXT, `next_action` TEXT NOT NULL, `parent_capture_id` INTEGER, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceOrder",
+            "columnName": "source_order",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "detail",
+            "columnName": "detail",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "legacyKind",
+            "columnName": "legacy_kind",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "done",
+            "columnName": "done",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "scheduledAt",
+            "columnName": "scheduled_at",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "dayOnly",
+            "columnName": "day_only",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "planId",
+            "columnName": "plan_id",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "completionLevel",
+            "columnName": "completion_level",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "completedAt",
+            "columnName": "completed_at",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "durationMinutes",
+            "columnName": "duration_minutes",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "windowStartAt",
+            "columnName": "window_start_at",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "windowEndAt",
+            "columnName": "window_end_at",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "rescheduleCount",
+            "columnName": "reschedule_count",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastRescheduledAt",
+            "columnName": "last_rescheduled_at",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "recoverySourceScheduledAt",
+            "columnName": "recovery_source_scheduled_at",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "priority",
+            "columnName": "priority",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "captureRoute",
+            "columnName": "capture_route",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceDetail",
+            "columnName": "source_detail",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "userNote",
+            "columnName": "user_note",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "nextAction",
+            "columnName": "next_action",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "parentCaptureId",
+            "columnName": "parent_capture_id",
+            "affinity": "INTEGER"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_tasks_status",
+            "unique": false,
+            "columnNames": [
+              "status"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_tasks_status` ON `${TABLE_NAME}` (`status`)"
+          },
+          {
+            "name": "index_tasks_scheduled_at",
+            "unique": false,
+            "columnNames": [
+              "scheduled_at"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_tasks_scheduled_at` ON `${TABLE_NAME}` (`scheduled_at`)"
+          },
+          {
+            "name": "index_tasks_plan_id",
+            "unique": false,
+            "columnNames": [
+              "plan_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_tasks_plan_id` ON `${TABLE_NAME}` (`plan_id`)"
+          },
+          {
+            "name": "index_tasks_parent_capture_id",
+            "unique": false,
+            "columnNames": [
+              "parent_capture_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_tasks_parent_capture_id` ON `${TABLE_NAME}` (`parent_capture_id`)"
+          }
+        ]
+      },
+      {
+        "tableName": "task_events",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER NOT NULL, `source_order` INTEGER NOT NULL, `task_id` INTEGER NOT NULL, `type` TEXT NOT NULL, `recorded_at` INTEGER NOT NULL, `title` TEXT NOT NULL, `scheduled_at` INTEGER NOT NULL, `extra` TEXT NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceOrder",
+            "columnName": "source_order",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "taskId",
+            "columnName": "task_id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "type",
+            "columnName": "type",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "recordedAt",
+            "columnName": "recorded_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "scheduledAt",
+            "columnName": "scheduled_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "extra",
+            "columnName": "extra",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_task_events_task_id",
+            "unique": false,
+            "columnNames": [
+              "task_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_task_events_task_id` ON `${TABLE_NAME}` (`task_id`)"
+          },
+          {
+            "name": "index_task_events_recorded_at",
+            "unique": false,
+            "columnNames": [
+              "recorded_at"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_task_events_recorded_at` ON `${TABLE_NAME}` (`recorded_at`)"
+          }
+        ]
+      },
+      {
+        "tableName": "plans",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER NOT NULL, `source_order` INTEGER NOT NULL, `title` TEXT NOT NULL, `state` TEXT NOT NULL, `weekly_target` INTEGER NOT NULL, `duration_minutes` INTEGER NOT NULL, `metric_type` TEXT NOT NULL, `metric_target` TEXT NOT NULL, `minimum_version` TEXT NOT NULL, `resource_title` TEXT NOT NULL, `resource_unit` TEXT NOT NULL, `completed_this_week` INTEGER NOT NULL, `minimum_completions_this_week` INTEGER NOT NULL, `completion_week_key` INTEGER NOT NULL, `desired_outcome` TEXT NOT NULL, `first_action` TEXT NOT NULL, `source_notes` TEXT NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceOrder",
+            "columnName": "source_order",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "state",
+            "columnName": "state",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "weeklyTarget",
+            "columnName": "weekly_target",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "durationMinutes",
+            "columnName": "duration_minutes",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "metricType",
+            "columnName": "metric_type",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "metricTarget",
+            "columnName": "metric_target",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "minimumVersion",
+            "columnName": "minimum_version",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "resourceTitle",
+            "columnName": "resource_title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "resourceUnit",
+            "columnName": "resource_unit",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "completedThisWeek",
+            "columnName": "completed_this_week",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "minimumCompletionsThisWeek",
+            "columnName": "minimum_completions_this_week",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "completionWeekKey",
+            "columnName": "completion_week_key",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "desiredOutcome",
+            "columnName": "desired_outcome",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "firstAction",
+            "columnName": "first_action",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceNotes",
+            "columnName": "source_notes",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_plans_state",
+            "unique": false,
+            "columnNames": [
+              "state"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_plans_state` ON `${TABLE_NAME}` (`state`)"
+          }
+        ]
+      },
+      {
+        "tableName": "recurrence_rules",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER NOT NULL, `template_task_id` INTEGER NOT NULL, `frequency` TEXT NOT NULL, `interval` INTEGER NOT NULL, `days_of_week_mask` INTEGER NOT NULL, `starts_on_epoch_day` INTEGER NOT NULL, `ends_on_epoch_day` INTEGER, `local_time_minutes` INTEGER NOT NULL, `time_zone_id` TEXT NOT NULL, `enabled` INTEGER NOT NULL, `created_at` INTEGER NOT NULL, `updated_at` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "templateTaskId",
+            "columnName": "template_task_id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "frequency",
+            "columnName": "frequency",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "interval",
+            "columnName": "interval",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "daysOfWeekMask",
+            "columnName": "days_of_week_mask",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "startsOnEpochDay",
+            "columnName": "starts_on_epoch_day",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "endsOnEpochDay",
+            "columnName": "ends_on_epoch_day",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "localTimeMinutes",
+            "columnName": "local_time_minutes",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "timeZoneId",
+            "columnName": "time_zone_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "enabled",
+            "columnName": "enabled",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "created_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updated_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_recurrence_rules_template_task_id",
+            "unique": false,
+            "columnNames": [
+              "template_task_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_recurrence_rules_template_task_id` ON `${TABLE_NAME}` (`template_task_id`)"
+          },
+          {
+            "name": "index_recurrence_rules_enabled",
+            "unique": false,
+            "columnNames": [
+              "enabled"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_recurrence_rules_enabled` ON `${TABLE_NAME}` (`enabled`)"
+          }
+        ]
+      },
+      {
+        "tableName": "task_occurrences",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER NOT NULL, `recurrence_rule_id` INTEGER NOT NULL, `template_task_id` INTEGER NOT NULL, `materialized_task_id` INTEGER, `occurrence_epoch_day` INTEGER NOT NULL, `scheduled_at` INTEGER NOT NULL, `status` TEXT NOT NULL, `completed_at` INTEGER, `skipped_at` INTEGER, `rescheduled_to` INTEGER, `created_at` INTEGER NOT NULL, `updated_at` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "recurrenceRuleId",
+            "columnName": "recurrence_rule_id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "templateTaskId",
+            "columnName": "template_task_id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "materializedTaskId",
+            "columnName": "materialized_task_id",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "occurrenceEpochDay",
+            "columnName": "occurrence_epoch_day",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "scheduledAt",
+            "columnName": "scheduled_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "completedAt",
+            "columnName": "completed_at",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "skippedAt",
+            "columnName": "skipped_at",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "rescheduledTo",
+            "columnName": "rescheduled_to",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "created_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updated_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_task_occurrences_recurrence_rule_id_occurrence_epoch_day",
+            "unique": true,
+            "columnNames": [
+              "recurrence_rule_id",
+              "occurrence_epoch_day"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_task_occurrences_recurrence_rule_id_occurrence_epoch_day` ON `${TABLE_NAME}` (`recurrence_rule_id`, `occurrence_epoch_day`)"
+          },
+          {
+            "name": "index_task_occurrences_template_task_id",
+            "unique": false,
+            "columnNames": [
+              "template_task_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_task_occurrences_template_task_id` ON `${TABLE_NAME}` (`template_task_id`)"
+          },
+          {
+            "name": "index_task_occurrences_materialized_task_id",
+            "unique": false,
+            "columnNames": [
+              "materialized_task_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_task_occurrences_materialized_task_id` ON `${TABLE_NAME}` (`materialized_task_id`)"
+          },
+          {
+            "name": "index_task_occurrences_status",
+            "unique": false,
+            "columnNames": [
+              "status"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_task_occurrences_status` ON `${TABLE_NAME}` (`status`)"
+          }
+        ]
+      },
+      {
+        "tableName": "activity_sessions",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER NOT NULL, `source_order` INTEGER NOT NULL, `name` TEXT NOT NULL, `category` TEXT NOT NULL, `planned_start_at` INTEGER NOT NULL, `actual_start_at` INTEGER NOT NULL, `ends_at` INTEGER NOT NULL, `next_step` TEXT NOT NULL, `status` TEXT NOT NULL, `extension_count` INTEGER NOT NULL, `extension_reason` TEXT NOT NULL, `actual_end_at` INTEGER, `end_choice` TEXT NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceOrder",
+            "columnName": "source_order",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "category",
+            "columnName": "category",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "plannedStartAt",
+            "columnName": "planned_start_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "actualStartAt",
+            "columnName": "actual_start_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "endsAt",
+            "columnName": "ends_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "nextStep",
+            "columnName": "next_step",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "extensionCount",
+            "columnName": "extension_count",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "extensionReason",
+            "columnName": "extension_reason",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "actualEndAt",
+            "columnName": "actual_end_at",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "endChoice",
+            "columnName": "end_choice",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_activity_sessions_status",
+            "unique": false,
+            "columnNames": [
+              "status"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_activity_sessions_status` ON `${TABLE_NAME}` (`status`)"
+          },
+          {
+            "name": "index_activity_sessions_planned_start_at",
+            "unique": false,
+            "columnNames": [
+              "planned_start_at"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_activity_sessions_planned_start_at` ON `${TABLE_NAME}` (`planned_start_at`)"
+          }
+        ]
+      },
+      {
+        "tableName": "courses",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER NOT NULL, `source_order` INTEGER NOT NULL, `title` TEXT NOT NULL, `needs_confirmation` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceOrder",
+            "columnName": "source_order",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "needsConfirmation",
+            "columnName": "needs_confirmation",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "course_meeting_rules",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER NOT NULL, `course_id` INTEGER NOT NULL, `source_order` INTEGER NOT NULL, `weekday` INTEGER NOT NULL, `start_period` INTEGER NOT NULL, `end_period` INTEGER NOT NULL, `building` TEXT NOT NULL, `zone` TEXT NOT NULL, `enabled` INTEGER NOT NULL, `effective_from_epoch_day` INTEGER, `effective_until_epoch_day` INTEGER, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "courseId",
+            "columnName": "course_id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceOrder",
+            "columnName": "source_order",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "weekday",
+            "columnName": "weekday",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "startPeriod",
+            "columnName": "start_period",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "endPeriod",
+            "columnName": "end_period",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "building",
+            "columnName": "building",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "zone",
+            "columnName": "zone",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "enabled",
+            "columnName": "enabled",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "effectiveFromEpochDay",
+            "columnName": "effective_from_epoch_day",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "effectiveUntilEpochDay",
+            "columnName": "effective_until_epoch_day",
+            "affinity": "INTEGER"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_course_meeting_rules_course_id",
+            "unique": false,
+            "columnNames": [
+              "course_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_course_meeting_rules_course_id` ON `${TABLE_NAME}` (`course_id`)"
+          }
+        ]
+      },
+      {
+        "tableName": "migration_states",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`migration_key` TEXT NOT NULL, `source_data_version` INTEGER NOT NULL, `source_fingerprint` TEXT NOT NULL, `task_count` INTEGER NOT NULL, `task_event_count` INTEGER NOT NULL, `plan_count` INTEGER NOT NULL, `completed_at` INTEGER NOT NULL, `recurrence_rule_count` INTEGER NOT NULL, `task_occurrence_count` INTEGER NOT NULL, `activity_session_count` INTEGER NOT NULL, `course_count` INTEGER NOT NULL, `course_meeting_rule_count` INTEGER NOT NULL, PRIMARY KEY(`migration_key`))",
+        "fields": [
+          {
+            "fieldPath": "migrationKey",
+            "columnName": "migration_key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceDataVersion",
+            "columnName": "source_data_version",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceFingerprint",
+            "columnName": "source_fingerprint",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "taskCount",
+            "columnName": "task_count",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "taskEventCount",
+            "columnName": "task_event_count",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "planCount",
+            "columnName": "plan_count",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "completedAt",
+            "columnName": "completed_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "recurrenceRuleCount",
+            "columnName": "recurrence_rule_count",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "taskOccurrenceCount",
+            "columnName": "task_occurrence_count",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "activitySessionCount",
+            "columnName": "activity_session_count",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "courseCount",
+            "columnName": "course_count",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "courseMeetingRuleCount",
+            "columnName": "course_meeting_rule_count",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "migration_key"
+          ]
+        }
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '9c23a097b8d72d186c224f41a09dc053')"
+    ]
+  }
+}

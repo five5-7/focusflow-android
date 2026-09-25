@@ -2,6 +2,7 @@ package com.sakata.focusflow
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.material3.lightColorScheme
+import androidx.compose.material3.darkColorScheme
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.graphics.luminance
@@ -87,6 +88,65 @@ class FocusCardMaterialTest {
     }
 
     @Test
+    fun bothGlassMaterialsReachTheSharedCeilingWithoutChangingTheirLegacyDefaults() {
+        val scheme = lightColorScheme()
+        val base = scheme.surfaceContainerLow
+        assertEquals(0.60f, acrylicStops(base, scheme)[1].second.alpha, 0.001f)
+        // Compose stores alpha in 8 bits here: 48% is represented as 122/255.
+        assertEquals(0.48f, frostedStops(base)[1].second.alpha, 0.002f)
+
+        for (opacity in listOf(40, 60, 95)) {
+            val acrylic = acrylicStops(base, scheme, opacity = opacity / 100f)
+            val frosted = frostedStops(base, opacity = opacity / 100f)
+            assertTrue(acrylic.all { kotlin.math.abs(it.second.alpha - opacity / 100f) < 0.001f })
+            assertTrue(frosted.all { kotlin.math.abs(it.second.alpha - opacity / 100f) < 0.001f })
+            assertEquals(0f, materialRimWidthDp(CardMaterial.ACRYLIC), 0.001f)
+            assertEquals(1f, materialRimWidthDp(CardMaterial.FROSTED), 0.001f)
+        }
+    }
+
+    @Test
+    fun glassBodyTextRemainsReadableAtBothEndsOfTheSlider() {
+        for (theme in FocusFlowThemeOption.builtInEntries()) {
+            for (dark in listOf(false, true)) {
+                val scheme = focusFlowThemeSpec(theme, darkMode = dark).colorScheme
+                val base = scheme.surfaceContainerLow
+                for (image in listOf(Color.Black, Color.White)) {
+                    for (imageAlpha in listOf(0f, 0.5f, 1f)) {
+                        val page = blendSrgb(
+                            blendSrgb(scheme.background, image, imageAlpha),
+                            scheme.background,
+                            adaptiveScrimAlpha(
+                                imageAlpha, image.luminance(), scheme.onBackground.luminance() > 0.5f
+                            )
+                        )
+                        for (material in listOf(CardMaterial.ACRYLIC, CardMaterial.FROSTED)) {
+                            val profile = requireNotNull(material.glassBackdropProfile())
+                            val tint = if (material == CardMaterial.ACRYLIC) {
+                                blendSrgb(base, scheme.primary, 0.16f)
+                            } else blendSrgb(base, Color.White, 0.08f)
+                            val under = blendSrgb(page, tint, profile.tintAlpha)
+                            for (opacity in listOf(40, 60, 95)) {
+                                val stops = if (material == CardMaterial.ACRYLIC) {
+                                    acrylicStops(base, scheme, opacity = opacity / 100f)
+                                } else frostedStops(base, opacity = opacity / 100f)
+                                for ((_, stop) in stops) {
+                                    val rendered = blendSrgb(under, stop, stop.alpha)
+                                    val ratio = AppearanceContrast.ratio(scheme.onSurface.argbInt(), rendered.argbInt())
+                                    assertTrue(
+                                        "${theme.label} dark=$dark image=$image alpha=$imageAlpha material=$material veil=$opacity ratio=$ratio",
+                                        ratio >= AppearanceContrast.AA_BODY
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
     fun glassMaterialsIgnoreLegacyCardBorders() {
         val legacyBorder = BorderStroke(1.dp, Color.Gray)
         assertEquals(legacyBorder, cardBorderForMaterial(CardMaterial.TONAL, legacyBorder))
@@ -104,6 +164,12 @@ class FocusCardMaterialTest {
         assertEquals(requested, cardElevationForMaterial(CardMaterial.SOFT, requested))
         assertEquals(0.dp, cardElevationForMaterial(CardMaterial.ACRYLIC, requested))
         assertEquals(0.dp, cardElevationForMaterial(CardMaterial.FROSTED, requested))
+    }
+
+    @Test
+    fun glassCardsDeclareAThemeContentColor() {
+        assertEquals(lightColorScheme().onSurface, focusCardContentColor(lightColorScheme()))
+        assertEquals(darkColorScheme().onSurface, focusCardContentColor(darkColorScheme()))
     }
 
     @Test

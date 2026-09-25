@@ -1,0 +1,20 @@
+[
+  {
+    "id": 501,
+    "itemId": 301,
+    "type": "task_completed",
+    "recordedAt": 1789995600000,
+    "title": "保留完整字段",
+    "scheduledAt": 1789992000000,
+    "extra": "完成"
+  },
+  {
+    "id": 502,
+    "itemId": 999,
+    "type": "task_deleted",
+    "recordedAt": 1789999200000,
+    "title": "已删除任务",
+    "scheduledAt": 0,
+    "extra": ""
+  }
+]

@@ -32,7 +32,7 @@ internal fun locationHintFor(text: String): String? {
 }
 
 internal fun recommendForWindow(goals: List<Goal>, items: List<Item>, minutes: Int, store: PrototypeStore, weekday: Int, startMinute: Int): GapRecommendation? {
-    val goal = goals.filter { g -> GoalPlanner.completedThisWeek(g) < g.weeklyTarget && g.durationMinutes <= minutes }
+    val goal = goals.filter { g -> g.state == PlanState.IN_PROGRESS && GoalPlanner.completedThisWeek(g) < g.weeklyTarget && g.durationMinutes <= minutes }
         .sortedWith(compareByDescending<Goal> { PlanLearning.completionRate(store, weekday, startMinute / 60) ?: -1f }
             .thenByDescending { it.weeklyTarget - GoalPlanner.completedThisWeek(it) }
             .thenByDescending { it.durationMinutes })

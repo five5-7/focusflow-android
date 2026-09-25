@@ -10,9 +10,10 @@ class PlanNavigationTest {
         val entries = PlanHubSummary.entries(PlanHubSnapshot())
 
         assertEquals(PlanPage.entries.toList(), entries.map { it.first })
+        assertEquals("暂无未完成待办", entries.summaryFor(PlanPage.TODOS))
         assertEquals("0 门已确认 · 0 门待确认", entries.summaryFor(PlanPage.COURSES))
         assertEquals("暂无可用空挡", entries.summaryFor(PlanPage.GAPS))
-        assertEquals("尚未创建目标", entries.summaryFor(PlanPage.GOALS))
+        assertEquals("尚未创建目标或想做", entries.summaryFor(PlanPage.GOALS))
         assertEquals("有目标后生成建议", entries.summaryFor(PlanPage.REVIEW))
         assertEquals("教程、视频与 AI 工具", entries.summaryFor(PlanPage.TOOLBOX))
         assertEquals("暂无", entries.summaryFor(PlanPage.PAUSED))
@@ -24,6 +25,7 @@ class PlanNavigationTest {
             PlanHubSnapshot(
                 confirmedCourseCount = 6,
                 pendingCourseCount = 2,
+                pendingTodoCount = 5,
                 conflictingCourseCount = 1,
                 gapCount = 4,
                 goalCount = 3,
@@ -35,8 +37,9 @@ class PlanNavigationTest {
         )
 
         assertTrue(entries.summaryFor(PlanPage.COURSES).startsWith("⚠ 1 门冲突"))
+        assertEquals("5 项未完成", entries.summaryFor(PlanPage.TODOS))
         assertEquals("4 段可用空挡", entries.summaryFor(PlanPage.GAPS))
-        assertEquals("3 个目标", entries.summaryFor(PlanPage.GOALS))
+        assertEquals("3 个进行中 · 0 个想做", entries.summaryFor(PlanPage.GOALS))
         assertEquals("本周 5 / 8 次 · 低压力建议", entries.summaryFor(PlanPage.REVIEW))
         assertEquals("2 项已确认资料", entries.summaryFor(PlanPage.TOOLBOX))
         assertEquals("2 项", entries.summaryFor(PlanPage.PAUSED))

@@ -1,0 +1,18 @@
+[
+  {
+    "id": 101,
+    "title": "旧版收集记录",
+    "detail": "8.2.1 没有新的收集箱字段",
+    "kind": "收集箱",
+    "done": false
+  },
+  {
+    "id": 102,
+    "title": "旧版已安排任务",
+    "detail": "保留时间和目标关系",
+    "kind": "任务",
+    "scheduledAt": 1789992000000,
+    "goalId": 201,
+    "durationMinutes": 45
+  }
+]

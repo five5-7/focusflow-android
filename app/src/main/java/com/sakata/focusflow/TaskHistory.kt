@@ -9,8 +9,9 @@ enum class TaskEventType(val label: String, val storageKey: String) {
     TASK_CREATED("任务创建", "task_created"),
     TASK_SCHEDULED("任务安排", "task_scheduled"),
     TASK_RESCHEDULED("任务改期", "task_rescheduled"),
+    TASK_UNSCHEDULED("改为未安排", "task_unscheduled"),
     TASK_COMPLETED("任务完成", "task_completed"),
-    /** 预留：当前无触发入口；为语义完整的 6.5 事件模型定义。 */
+    /** 完成操作的立即撤回；保留原完成事件作为历史事实。 */
     TASK_UNCOMPLETED("取消完成", "task_uncompleted"),
     TASK_TO_INBOX("放回收集箱", "task_to_inbox"),
     /** 收集箱项转换为目标（6.7）。scheduledAt 恒为 0：转换不产生日程计划。 */
@@ -20,7 +21,10 @@ enum class TaskEventType(val label: String, val storageKey: String) {
     CAPTURE_ROUTED("收集箱整理", "capture_routed"),
     NEXT_ACTION_CREATED("建立下一步", "next_action_created"),
     TASK_DELETED("删除任务", "task_deleted"),
-    TASK_RESTORED("恢复任务", "task_restored");
+    TASK_RESTORED("恢复任务", "task_restored"),
+    REPEAT_SKIPPED("跳过本次重复", "repeat_skipped"),
+    REPEAT_MISSED("重复本次未处理", "repeat_missed"),
+    REPEAT_RULE_CHANGED("重复规则状态", "repeat_rule_changed");
 
     companion object {
         fun fromKey(key: String): TaskEventType? = entries.firstOrNull { it.storageKey == key }
@@ -169,6 +173,7 @@ object TaskHistory {
     private val CHANGE_EVENTS = setOf(
         TaskEventType.TASK_SCHEDULED,
         TaskEventType.TASK_RESCHEDULED,
+        TaskEventType.TASK_UNSCHEDULED,
         TaskEventType.TASK_TO_INBOX,
         TaskEventType.TASK_CONVERTED,
         TaskEventType.TASK_ATTACHED_TO_PLAN,
@@ -176,14 +181,24 @@ object TaskHistory {
         TaskEventType.TASK_RESTORED
     )
 
+    private fun currentCompletions(events: List<TaskEvent>): List<TaskEvent> {
+        val latest = mutableMapOf<Long, TaskEvent>()
+        events.forEach { event ->
+            if (event.type != TaskEventType.TASK_COMPLETED && event.type != TaskEventType.TASK_UNCOMPLETED) return@forEach
+            val previous = latest[event.itemId]
+            if (previous == null || event.recordedAt >= previous.recordedAt) latest[event.itemId] = event
+        }
+        return latest.values.filter { it.type == TaskEventType.TASK_COMPLETED }
+    }
+
     fun daySummary(events: List<TaskEvent>, dayStart: Long): DayTaskSummary {
         val plannedIds = events.asSequence()
             .filter { it.type in PLAN_EVENTS && it.scheduledAt > 0 && isSameDay(it.scheduledAt, dayStart) }
             .map { it.itemId }
             .filter { it != 0L }
             .toSet()
-        val completedIds = events.asSequence()
-            .filter { it.type == TaskEventType.TASK_COMPLETED && isSameDay(it.recordedAt, dayStart) }
+        val completedIds = currentCompletions(events).asSequence()
+            .filter { isSameDay(it.recordedAt, dayStart) }
             .map { it.itemId }
             .filter { it != 0L }
             .toSet()
@@ -207,7 +222,7 @@ object TaskHistory {
 
     /** 当天完成记录列表（按完成时间倒序），供今日完成记录卡使用。 */
     fun completedOn(events: List<TaskEvent>, dayStart: Long): List<TaskEvent> =
-        events.filter { it.type == TaskEventType.TASK_COMPLETED && isSameDay(it.recordedAt, dayStart) }
+        currentCompletions(events).filter { isSameDay(it.recordedAt, dayStart) }
             .sortedByDescending { it.recordedAt }
 
     /** 最近事件（按时间倒序），供历史页事件列表使用。 */

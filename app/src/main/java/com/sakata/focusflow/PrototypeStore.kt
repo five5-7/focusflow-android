@@ -22,6 +22,7 @@ internal data class ThemePreset(
 )
 
 private val taskHistoryLock = Any()
+private val activitySessionLock = Any()
 
 internal data class StoredTaskMutation(val before: Item, val after: Item)
 
@@ -49,6 +50,25 @@ class PrototypeStore(context: Context) {
      *   task_history_migrated_v65_0 → 6.5 存量 items 补齐任务事件（migrateTaskHistory，已完成）。
      */
     val dataVersion: Int = preferences.getInt("data_version", 1)
+
+    fun loadWantedReviewSettings(): WantedReviewSettings = WantedReviewSettings(
+        enabled = preferences.getBoolean("wanted_review_enabled", true),
+        intervalMonths = preferences.getInt("wanted_review_months", 1).coerceIn(1, 12),
+        lastReviewedAt = preferences.getLong("wanted_review_last_at", 0L).coerceAtLeast(0L)
+    )
+
+    fun saveWantedReviewSettings(value: WantedReviewSettings): Boolean = preferences.edit()
+        .putBoolean("wanted_review_enabled", value.enabled)
+        .putInt("wanted_review_months", value.intervalMonths.coerceIn(1, 12))
+        .putLong("wanted_review_last_at", value.lastReviewedAt.coerceAtLeast(0L))
+        .commit()
+
+    fun loadInboxReviewEnabled(): Boolean = preferences.getBoolean("inbox_review_enabled", false)
+    fun saveInboxReviewEnabled(enabled: Boolean): Boolean = preferences.edit()
+        .putBoolean("inbox_review_enabled", enabled).commit()
+    fun loadInboxReviewLastAt(): Long = preferences.getLong("inbox_review_last_at", 0L).coerceAtLeast(0L)
+    fun saveInboxReviewLastAt(at: Long): Boolean = preferences.edit()
+        .putLong("inbox_review_last_at", at.coerceAtLeast(0L)).commit()
 
     /**
      * 列表/集合型 JSON 存档的损坏保护：解码结果为空（或解码本身失败）而原始串非常规空容器，
@@ -115,6 +135,9 @@ class PrototypeStore(context: Context) {
         gradientTop = preferences.getInt("appearance_gradient_top", 0),
         gradientBottom = preferences.getInt("appearance_gradient_bottom", 0),
         cardMaterial = preferences.getString("appearance_card_material", null),
+        glassSurfaceOpacity = if (preferences.contains("appearance_glass_surface_opacity")) {
+            runCatching { preferences.getInt("appearance_glass_surface_opacity", ACRYLIC_LEGACY_OPACITY) }.getOrNull()
+        } else null,
         timetableBackdrop = preferences.getString("appearance_timetable_backdrop", null),
         timetableColor = preferences.getInt("appearance_timetable_color", 0),
         timetableImage = preferences.getString("appearance_timetable_image", null),
@@ -143,6 +166,11 @@ class PrototypeStore(context: Context) {
             .putInt("appearance_gradient_top", spec.gradientTop)
             .putInt("appearance_gradient_bottom", spec.gradientBottom)
             .putString("appearance_card_material", spec.cardMaterial.storageKey)
+            .also { editor ->
+                val requested = spec.glassSurfaceOpacity
+                if (requested == null) editor.remove("appearance_glass_surface_opacity")
+                else editor.putInt("appearance_glass_surface_opacity", requested.coerceIn(GLASS_SURFACE_OPACITY_MIN, GLASS_SURFACE_OPACITY_MAX))
+            }
             .putString("appearance_timetable_backdrop", spec.timetableBackdrop.storageKey)
             .putInt("appearance_timetable_color", spec.timetableColor)
             .putString("appearance_timetable_image", spec.timetableImage)
@@ -390,10 +418,17 @@ class PrototypeStore(context: Context) {
         if (editor.commit()) StoredTaskMutation(before, after) else null
     }
 
-    fun saveSession(session: ActivitySession) {
-        val sessions = loadSessions().filterNot { it.id == session.id } + session
+    internal fun saveActivitySessionsIfUnchanged(
+        sessions: List<ActivitySession>,
+        expectedSessions: List<ActivitySession>
+    ): Boolean = synchronized(activitySessionLock) {
+        if (loadSessions() != expectedSessions) return@synchronized false
+        saveActivitySessions(sessions)
+    }
+
+    private fun saveActivitySessions(sessions: List<ActivitySession>): Boolean {
         val values = JSONArray()
-        sessions.takeLast(50).forEach { value -> values.put(JSONObject().apply {
+        sessions.forEach { value -> values.put(JSONObject().apply {
             put("id", value.id)
             put("name", value.name)
             put("category", value.category)
@@ -407,48 +442,8 @@ class PrototypeStore(context: Context) {
             put("actualEndAt", value.actualEndAt ?: 0)
             put("endChoice", value.endChoice)
         }) }
-        preferences.edit().putString("sessions", values.toString()).apply()
+        return preferences.edit().putString("sessions", values.toString()).commit()
     }
-
-    fun updateSession(id: Long, status: String, endsAt: Long? = null) {
-        val current = loadSessions().firstOrNull { it.id == id } ?: return
-        saveSession(current.copy(status = status, endsAt = endsAt ?: current.endsAt))
-    }
-
-    fun finishSession(id: Long, status: String, choice: String, endedAt: Long = System.currentTimeMillis()) {
-        val current = loadSessions().firstOrNull { it.id == id } ?: return
-        saveSession(current.copy(status = status, actualEndAt = endedAt, endChoice = choice))
-    }
-
-    fun extendSession(id: Long, minutes: Int, reason: String = ""): ActivitySession? {
-        val current = loadSessions().firstOrNull { it.id == id } ?: return null
-        if (!current.isOpen()) return null
-        if (current.extensionCount >= loadActivityReminderSettings().maxExtensions) return null
-        val extended = current.copy(
-            endsAt = System.currentTimeMillis() + minutes.coerceIn(1, 180) * 60_000L,
-            status = ActivitySession.STATUS_EXTENDED,
-            extensionCount = current.extensionCount + 1,
-            extensionReason = reason,
-            actualEndAt = null,
-            endChoice = ""
-        )
-        saveSession(extended)
-        return extended
-    }
-
-    fun markSessionAwaitingConfirmation(id: Long): ActivitySession? {
-        val current = loadSessions().firstOrNull { it.id == id } ?: return null
-        if (!current.isOpen()) return current
-        val pending = current.copy(status = ActivitySession.STATUS_AWAITING_CONFIRMATION)
-        saveSession(pending)
-        return pending
-    }
-
-    fun loadLatestActiveSession(): ActivitySession? = loadSessions().lastOrNull(ActivitySession::isOpen)
-
-    fun findActivitySession(id: Long): ActivitySession? = loadSessions().firstOrNull { it.id == id }
-
-    fun loadRecentActivitySessions(limit: Int = 20): List<ActivitySession> = loadSessions().takeLast(limit.coerceIn(1, 50)).reversed()
 
     fun loadActivityReminderSettings(): ActivityReminderSettings = ActivityReminderSettings(
         notificationsEnabled = preferences.getBoolean("activity_notifications", true),
@@ -506,6 +501,9 @@ class PrototypeStore(context: Context) {
         fairlyFarMinutes = preferences.getInt("commute_tier_fairly_far", 15),
         farMinutes = preferences.getInt("commute_tier_far", 25),
         campusMode = preferences.getString("campus_mode", "步行") ?: "步行",
+        walkingReserveMinutes = preferences.getInt("commute_walk_reserve_minutes", preferences.getInt("commute_one_way_minutes", 10)),
+        bicycleReserveMinutes = preferences.getInt("commute_bicycle_reserve_minutes", maxOf(3, (preferences.getInt("commute_one_way_minutes", 10) * 0.6f).toInt())),
+        eBikeReserveMinutes = preferences.getInt("commute_ebike_reserve_minutes", maxOf(3, (preferences.getInt("commute_one_way_minutes", 10) * 0.5f).toInt())),
         buildingBufferMinutes = preferences.getInt("building_buffer_minutes", 3),
         eBikeBattery = preferences.getString("ebike_battery", "未知") ?: "未知",
         // 路由校准/观测键不套损坏保护：空为合法状态，可回退 legacy 观测。
@@ -525,6 +523,9 @@ class PrototypeStore(context: Context) {
             .putInt("commute_tier_fairly_far", profile.fairlyFarMinutes)
             .putInt("commute_tier_far", profile.farMinutes)
             .putString("campus_mode", profile.campusMode)
+            .putInt("commute_walk_reserve_minutes", profile.reserveMinutesFor("步行"))
+            .putInt("commute_bicycle_reserve_minutes", profile.reserveMinutesFor("自行车"))
+            .putInt("commute_ebike_reserve_minutes", profile.reserveMinutesFor("电动车"))
             .putInt("building_buffer_minutes", profile.buildingBufferMinutes)
             .putString("ebike_battery", profile.eBikeBattery)
             .putString("route_calibrations", CommuteRouteCodec.encodeCalibrations(profile.routeCalibrations))
@@ -536,6 +537,12 @@ class PrototypeStore(context: Context) {
 
     fun saveCampusLifeEnabled(enabled: Boolean) {
         preferences.edit().putBoolean("campus_life_enabled", enabled).apply()
+    }
+
+    fun loadPermissionReminderDismissed(): Boolean = preferences.getBoolean("permission_reminder_dismissed", false)
+
+    fun savePermissionReminderDismissed(dismissed: Boolean) {
+        preferences.edit().putBoolean("permission_reminder_dismissed", dismissed).apply()
     }
 
     /** 被用户删除（隐藏）的内置默认地点名；可从“已隐藏地点”恢复。 */
@@ -759,6 +766,15 @@ class PrototypeStore(context: Context) {
         }, { it.isEmpty() })
 
     fun saveCourses(courses: List<Course>) {
+        preferences.edit().putBoolean("course_setup_done", true).putString("courses", encodeCourses(courses)).apply()
+    }
+
+    fun saveCoursesIfUnchanged(courses: List<Course>, expectedCourses: List<Course>): Boolean = synchronized(taskHistoryLock) {
+        if (StorageProtection.readOnly || loadCourses() != expectedCourses) return@synchronized false
+        preferences.edit().putBoolean("course_setup_done", true).putString("courses", encodeCourses(courses)).commit()
+    }
+
+    private fun encodeCourses(courses: List<Course>): String {
         val values = JSONArray()
         courses.forEach { course -> values.put(JSONObject().apply {
             put("title", course.title); put("weekday", course.weekday); put("startPeriod", course.startPeriod); put("endPeriod", course.endPeriod)
@@ -768,7 +784,7 @@ class PrototypeStore(context: Context) {
             course.effectiveUntilEpochDay?.let { put("effectiveUntilEpochDay", it) }
             put("id", course.id)
         }) }
-        preferences.edit().putBoolean("course_setup_done", true).putString("courses", values.toString()).apply()
+        return values.toString()
     }
 
     fun loadGoals(): List<Goal> =
@@ -1130,7 +1146,7 @@ class PrototypeStore(context: Context) {
         preferences.edit().putString("meal_skip_days", StringArrayCodec.encode(skipDays)).apply()
     }
 
-    private fun loadSessions(): List<ActivitySession> =
+    fun loadSessions(): List<ActivitySession> =
         decodeGuarded("sessions", emptyList(), { json ->
             val values = JSONArray(json)
             List(values.length()) { index ->
