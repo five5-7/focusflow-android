@@ -105,4 +105,13 @@ class DatedOccupationTest {
         assertEquals(1, todayAgenda(emptyList(), listOf(scheduled), at("2026-09-14", 10)).size)
         assertTrue(RecoveryInsights.missedWindow(scheduled, at("2026-09-14", 10, 1)))
     }
+
+    @Test fun tomorrowPreviewContainsEarlyTasksEvenWhenTodayClockIsLater() {
+        val earlyTomorrow = task(at("2026-09-15", 8))
+        val tomorrowAtCurrentClock = at("2026-09-15", 21)
+
+        assertTrue(todayAgenda(emptyList(), listOf(earlyTomorrow), tomorrowAtCurrentClock).isEmpty())
+        assertEquals(listOf("占用"), todayAgenda(emptyList(), listOf(earlyTomorrow),
+            tomorrowAtCurrentClock, hideMissed = false).map { it.title })
+    }
 }

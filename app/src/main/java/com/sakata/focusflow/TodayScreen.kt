@@ -322,7 +322,7 @@ import kotlinx.coroutines.delay
             }
         }
         val tomorrow = java.util.Calendar.getInstance().apply { timeInMillis = now; add(java.util.Calendar.DAY_OF_YEAR, 1) }.timeInMillis
-        val tomorrowAgenda = todayAgenda(courses, items, tomorrow)
+        val tomorrowAgenda = todayAgenda(courses, items, tomorrow, hideMissed = false)
         FocusCard(containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
             modifier = Modifier.fillMaxWidth().clickable { tomorrowOpen = true }) {
             Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -337,7 +337,7 @@ import kotlinx.coroutines.delay
         if (tomorrowOpen) AppDialog(onDismissRequest = { tomorrowOpen = false }, title = { Text("明天的安排") },
             text = { Column(Modifier.fillMaxWidth().heightIn(max = 480.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 val tomorrow = java.util.Calendar.getInstance().apply { timeInMillis = now; add(java.util.Calendar.DAY_OF_YEAR, 1) }.timeInMillis
-                val entries = todayAgenda(courses, items, tomorrow)
+                val entries = todayAgenda(courses, items, tomorrow, hideMissed = false)
                 if (entries.isEmpty()) Text("明天暂未安排")
                 entries.forEach { Text("${formatMinute(it.startMinute)} · ${it.title} — ${it.subtitle}") }
             } }, confirmButton = { TextButton(onClick = { tomorrowOpen = false }) { Text("关闭") } })
@@ -780,11 +780,12 @@ internal fun formatActivityRemaining(milliseconds: Long): String {
 /** 今日安排摘要条目：课程或任务，按开始分钟排序。 */
 internal data class AgendaEntry(val startMinute: Int, val title: String, val subtitle: String, val isCourse: Boolean)
 
-internal fun todayAgenda(courses: List<Course>, items: List<Item>, now: Long = System.currentTimeMillis()): List<AgendaEntry> {
+internal fun todayAgenda(courses: List<Course>, items: List<Item>, now: Long = System.currentTimeMillis(),
+                         hideMissed: Boolean = true): List<AgendaEntry> {
     val weekday = weekdayOf(now)
     val todayCourses = courses.filter { !it.needsConfirmation && it.weekday == weekday }
         .map { AgendaEntry(CourseGapPlanner.periodStart(it.startPeriod), it.title, "第${it.startPeriod}–${it.endPeriod}节 · ${it.building}", true) }
-    val todayTasks = items.filter { !it.done && !RecoveryInsights.missedWindow(it, now) &&
+    val todayTasks = items.filter { !it.done && (!hideMissed || !RecoveryInsights.missedWindow(it, now)) &&
         it.scheduledAt?.let { at -> ScheduleOccupation.sameDate(at, now) } == true }
         .mapNotNull { item -> item.scheduledAt?.let { s ->
             val calendar = java.util.Calendar.getInstance().apply { timeInMillis = s }
