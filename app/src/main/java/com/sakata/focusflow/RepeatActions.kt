@@ -13,7 +13,7 @@ internal object RepeatActions {
     fun refreshRepository(context: Context): Boolean {
         val runtime = CoreDataRuntimeAccess.resolve(context) as? CoreDataRuntimeResolution.Ready ?: return false
         val snapshot = (runtime.repository.read() as? CoreDataReadResult.Ready)?.snapshot ?: return false
-        val result = refresh(snapshot.items)
+        val result = refresh(snapshot.items, courses = snapshot.courses)
         if (result.events.isEmpty()) return true
         if (!runtime.repository.replaceTasksAndAppendEvents(result.items, result.events, snapshot.items).applied)
             return false
@@ -21,29 +21,43 @@ internal object RepeatActions {
         return true
     }
     fun create(items: List<Item>, title: String, frequency: String, startDay: Long,
-               minute: Int = -1, at: Long = System.currentTimeMillis()): RepeatResult {
+               minute: Int = -1, at: Long = System.currentTimeMillis(), courses: List<Course> = emptyList()): RepeatResult {
         val name = title.trim()
-        if (name.isBlank() || name.length > 200 || frequency !in setOf("daily", "weekly") ||
+        if (name.isBlank() || name.length > 200 || frequency !in setOf("daily", "weekly", "class_day") ||
             startDay <= 0 || minute !in -1..1439) return RepeatResult(items, emptyList())
         val used = items.mapTo(mutableSetOf()) { it.id }
         var id = newItemId()
         while (!used.add(id)) id = newItemId()
         val template = Item(id = id, title = name, kind = "重复模板",
-            detail = if (frequency == "daily") "每天重复" else "每周重复",
+            detail = when (frequency) { "daily" -> "每天重复"; "weekly" -> "每周重复"; else -> "有课日重复" },
             repeatFrequency = frequency, repeatStartDay = TaskHistory.dayStartOf(startDay), repeatMinute = minute)
-        val added = refresh(listOf(template) + items, at)
+        val added = refresh(listOf(template) + items, at, courses)
         return RepeatResult(added.items, listOf(TaskRecorder.event(TaskEventType.TASK_CREATED, id, name, at = at)) + added.events)
     }
 
     /** Never backfill unattended days. Preserve one history row per missed date and generate one next instance. */
-    fun refresh(items: List<Item>, at: Long = System.currentTimeMillis()): RepeatResult {
+    fun refresh(items: List<Item>, at: Long = System.currentTimeMillis(), courses: List<Course> = emptyList()): RepeatResult {
         val today = TaskHistory.dayStartOf(at)
         var current = items
         val events = mutableListOf<TaskEvent>()
         val usedIds = items.mapTo(mutableSetOf()) { it.id }
         items.filter { it.kind == "重复模板" && !it.repeatPaused && it.repeatStartDay != null &&
-            it.repeatFrequency in setOf("daily", "weekly") }
+            it.repeatFrequency in setOf("daily", "weekly", "class_day") }
             .forEach { template ->
+                if (template.repeatFrequency == "class_day") {
+                    val inactive = current.filter { it.repeatTemplateId == template.id && it.kind == "任务" && !it.done &&
+                        it.repeatOccurrenceDay != null && it.repeatOccurrenceDay >= today &&
+                        it.scheduledAt?.let(TaskHistory::dayStartOf) == it.repeatOccurrenceDay &&
+                        coursesOn(it.repeatOccurrenceDay, courses).isEmpty() }
+                    if (inactive.isNotEmpty()) {
+                        val ids = inactive.mapTo(mutableSetOf()) { it.id }
+                        current = current.map { item -> if (item.id in ids) item.preservingNote().copy(
+                            kind = "重复历史", detail = "当天没有生效课程，条件未满足", scheduledAt = null,
+                            dayOnly = false, windowStartAt = null, windowEndAt = null) else item }
+                        inactive.forEach { events += TaskRecorder.event(TaskEventType.TASK_UNSCHEDULED,
+                            it.id, it.title, extra = "有课日条件不满足", scheduledAt = it.scheduledAt ?: 0L, at = at) }
+                    }
+                }
                 val expired = current.filter { it.repeatTemplateId == template.id && it.kind == "任务" && !it.done &&
                     (it.scheduledAt?.let(TaskHistory::dayStartOf) ?: it.repeatOccurrenceDay ?: today) < today }
                 if (expired.isNotEmpty()) {
@@ -61,17 +75,24 @@ internal object RepeatActions {
                     return@forEach
                 val date = (0..8).asSequence().map { plusDays(today, it) }.firstOrNull { day ->
                     day >= (template.repeatStartDay ?: today) &&
-                        (template.repeatFrequency == "daily" ||
-                            weekday(day) == weekday(requireNotNull(template.repeatStartDay))) &&
+                        (when (template.repeatFrequency) {
+                            "daily" -> true
+                            "weekly" -> weekday(day) == weekday(requireNotNull(template.repeatStartDay))
+                            else -> coursesOn(day, courses).isNotEmpty()
+                        }) &&
                         (template.repeatMinute < 0 || occurrenceAt(day, template.repeatMinute) > at) &&
                         current.none { it.repeatTemplateId == template.id && it.repeatOccurrenceDay == day }
                 } ?: return@forEach
                 var id = newItemId()
                 while (!usedIds.add(id)) id = newItemId()
                 val scheduled = occurrenceAt(date, template.repeatMinute)
+                val courseNames = if (template.repeatFrequency == "class_day")
+                    coursesOn(date, courses).map(Course::title).distinct() else emptyList()
+                val scheduleDetail = if (template.repeatMinute >= 0) TaskScheduleText.scheduledDetail(scheduled, template.durationMinutes)
+                    else TaskScheduleText.dayOnlyDetail(scheduled)
                 val occurrence = Item(id = id, title = template.title,
-                    detail = if (template.repeatMinute >= 0) TaskScheduleText.scheduledDetail(scheduled, template.durationMinutes)
-                        else TaskScheduleText.dayOnlyDetail(scheduled),
+                    detail = if (courseNames.isEmpty()) scheduleDetail else
+                        "$scheduleDetail · 当天课程：${courseNames.take(3).joinToString("、")}${if (courseNames.size > 3) "等${courseNames.size}门" else ""}",
                     kind = "任务", scheduledAt = scheduled, dayOnly = template.repeatMinute < 0,
                     goalId = template.goalId, durationMinutes = template.durationMinutes,
                     repeatTemplateId = template.id, repeatOccurrenceDay = date)
@@ -125,13 +146,14 @@ internal object RepeatActions {
             template.id, template.title, at = at))
     }
 
-    fun skip(items: List<Item>, instance: Item, at: Long = System.currentTimeMillis()): RepeatResult {
+    fun skip(items: List<Item>, instance: Item, at: Long = System.currentTimeMillis(),
+             courses: List<Course> = emptyList()): RepeatResult {
         if (instance.kind != "任务" || instance.done || instance.repeatTemplateId == null ||
             items.none { it == instance }) return RepeatResult(items, emptyList())
         val changed = items.map { if (it.id == instance.id) it.preservingNote().copy(
             kind = "重复历史", detail = "主动跳过本次", scheduledAt = null, dayOnly = false,
             windowStartAt = null, windowEndAt = null) else it }
-        val next = refresh(changed, at)
+        val next = refresh(changed, at, courses)
         return RepeatResult(next.items,
             listOf(TaskRecorder.event(TaskEventType.REPEAT_SKIPPED, instance.id, instance.title, at = at)) + next.events)
     }
@@ -151,6 +173,13 @@ internal object RepeatActions {
     }.timeInMillis.let(TaskHistory::dayStartOf)
 
     private fun weekday(day: Long): Int = Calendar.getInstance().apply { timeInMillis = day }.get(Calendar.DAY_OF_WEEK)
+
+    private fun coursesOn(day: Long, courses: List<Course>): List<Course> {
+        val epochDay = java.time.Instant.ofEpochMilli(day).atZone(java.time.ZoneId.systemDefault()).toLocalDate().toEpochDay()
+        val weekday = java.time.LocalDate.ofEpochDay(epochDay).dayOfWeek.value
+        return courses.filter { !it.needsConfirmation && it.weekday == weekday &&
+            CourseActivationPolicy.isActiveOn(it, epochDay) }
+    }
 
     private fun occurrenceAt(day: Long, minute: Int): Long = if (minute < 0) day else Calendar.getInstance().apply {
         timeInMillis = day; set(Calendar.HOUR_OF_DAY, minute / 60)

@@ -192,11 +192,16 @@ object TaskHistory {
     }
 
     fun daySummary(events: List<TaskEvent>, dayStart: Long): DayTaskSummary {
+        val conditionNotMetIds = events.asSequence()
+            .filter { it.type == TaskEventType.TASK_UNSCHEDULED &&
+                it.extra == "有课日条件不满足" && it.scheduledAt > 0 && isSameDay(it.scheduledAt, dayStart) }
+            .map { it.itemId }.toSet()
         val plannedIds = events.asSequence()
             .filter { it.type in PLAN_EVENTS && it.scheduledAt > 0 && isSameDay(it.scheduledAt, dayStart) }
             .map { it.itemId }
             .filter { it != 0L }
             .toSet()
+            .minus(conditionNotMetIds)
         val completedIds = currentCompletions(events).asSequence()
             .filter { isSameDay(it.recordedAt, dayStart) }
             .map { it.itemId }

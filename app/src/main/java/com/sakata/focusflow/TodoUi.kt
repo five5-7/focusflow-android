@@ -54,7 +54,7 @@ internal fun TodoCreateDialog(onDismiss: () -> Unit, onSave: (String, Long?, Boo
                 Text("把后续行作为第一项待办的检查项")
             }
             Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                listOf("" to "不重复", "daily" to "每天", "weekly" to "每周").forEach { (key, label) ->
+                listOf("" to "不重复", "daily" to "每天", "weekly" to "每周", "class_day" to "有课日").forEach { (key, label) ->
                     FilterChip(selected = repeatFrequency == key, onClick = { repeatFrequency = key }, label = { Text(label) })
                 }
             }
@@ -65,7 +65,7 @@ internal fun TodoCreateDialog(onDismiss: () -> Unit, onSave: (String, Long?, Boo
                         initial.get(Calendar.HOUR_OF_DAY), initial.get(Calendar.MINUTE), true).show()
                 }) { Text(if (repeatMinute < 0) "仅按日期，不设到点提醒" else "执行时刻：${GoalPlanner.displayTime(repeatMinute)}") }
                 if (repeatMinute >= 0) TextButton(onClick = { repeatMinute = -1 }) { Text("清除时刻") }
-                Text("每次只生成一个待办；完成或跳过后生成下一次。", style = MaterialTheme.typography.bodySmall)
+                Text(if (repeatFrequency == "class_day") "仅在有已确认且生效的课程当天生成；无课日不算未处理。" else "每次只生成一个待办；完成或跳过后生成下一次。", style = MaterialTheme.typography.bodySmall)
             } else {
                 OutlinedButton(onClick = {
                     val initial = Calendar.getInstance()
@@ -210,7 +210,7 @@ internal fun TodoListSection(
         Text("重复规则 · ${templates.size}", style = MaterialTheme.typography.titleSmall)
         templates.forEach { template ->
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text("${template.title} · ${if (template.repeatFrequency == "daily") "每天" else "每周"}${if (template.kind == "已停止重复") " · 已停止" else if (template.repeatPaused) " · 已暂停" else ""}",
+                Text("${template.title} · ${when (template.repeatFrequency) { "daily" -> "每天"; "weekly" -> "每周"; else -> "有课日" }}${if (template.kind == "已停止重复") " · 已停止" else if (template.repeatPaused) " · 已暂停" else ""}",
                     modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 if (template.kind == "重复模板") {
                     TextButton(onClick = { onPauseRepeat(template, !template.repeatPaused) }) {

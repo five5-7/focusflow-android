@@ -422,6 +422,10 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
         val result = coreDataRepository.replaceCourses(updated, courses)
         if (result.applied) {
             courses = updated
+            if (items.any { it.kind == "重复模板" && it.repeatFrequency == "class_day" }) {
+                RepeatActions.refreshRepository(context)
+                items = readCoreData().items
+            }
             return true
         }
         courseImportMessage = "课程保存失败（${result.status}），原数据已保留；请返回后重试。"
@@ -849,7 +853,7 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
             return false
         }
         val previous = items
-        val generated = RepeatActions.refresh(updated)
+        val generated = RepeatActions.refresh(updated, courses = courses)
         if (!coreDataRepository.replaceTasksAndAppendEvents(generated.items, events + generated.events, previous).applied) {
             items = readCoreData().items
             scope.launch { snackbarHostState.showSnackbar("保存失败，尚未确认此次操作；请检查存储空间或数据保护提示。") }
@@ -1617,7 +1621,7 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                     onPauseRepeat = { template, paused ->
                         val updated = RepeatActions.pause(items, template, paused)
                         if (updated.events.isNotEmpty() && saveItemsWithEvents(updated.items, updated.events) && !paused) {
-                            val next = RepeatActions.refresh(items)
+                            val next = RepeatActions.refresh(items, courses = courses)
                             if (next.events.isNotEmpty()) saveItemsWithEvents(next.items, next.events)
                         }
                     },
@@ -2127,7 +2131,7 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
             onSave = { title, dateOnlyAt, asChecklist, frequency, repeatMinute ->
                 val created = if (frequency.isNotEmpty()) {
                     val repeat = RepeatActions.create(items, title, frequency,
-                        dateOnlyAt ?: TaskHistory.dayStartOf(System.currentTimeMillis()), repeatMinute)
+                        dateOnlyAt ?: TaskHistory.dayStartOf(System.currentTimeMillis()), repeatMinute, courses = courses)
                     CreatedTodos(repeat.items, repeat.items.filter { item -> items.none { it.id == item.id } }, repeat.events)
                 } else if (asChecklist) TodoActions.createChecklist(items, title, dateOnlyAt, minute = repeatMinute)
                     else TodoActions.createLines(items, title, dateOnlyAt, minute = repeatMinute)
@@ -2552,7 +2556,7 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                         }
                     },
                     onSkipRepeat = {
-                        val skipped = RepeatActions.skip(items, item)
+                        val skipped = RepeatActions.skip(items, item, courses = courses)
                         if (skipped.events.isNotEmpty() && saveItemsWithEvents(skipped.items, skipped.events))
                             todoDetailTarget = null
                     },

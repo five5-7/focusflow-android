@@ -67,6 +67,37 @@ class RepeatActionsTest {
             minute = 9 * 60, at = today + 12 * 60 * 60_000L)
         assertEquals(day(2026, 9, 26), created.items.first { it.kind == "任务" }.repeatOccurrenceDay)
     }
+    @Test fun `class day repeat uses confirmed active courses and does not count days without class`() {
+        val friday = day(2026, 9, 25)
+        val epochDay = java.time.LocalDate.of(2026, 9, 25).toEpochDay()
+        val course = Course("物理", 5, 1, 2, "东区", CampusZone.OTHER,
+            needsConfirmation = false, effectiveFromEpochDay = epochDay, effectiveUntilEpochDay = epochDay)
+        val ruleOnly = RepeatActions.create(emptyList(), "复习今天课程", "class_day", friday,
+            at = friday, courses = listOf(course.copy(needsConfirmation = true)))
+        assertEquals(1, ruleOnly.items.size)
+        val active = RepeatActions.refresh(ruleOnly.items, friday, listOf(course))
+        val instance = active.items.single { it.kind == "任务" }
+        assertEquals(friday, instance.repeatOccurrenceDay)
+        assertTrue(instance.detail.contains("物理"))
+        assertEquals(active.items, RepeatActions.refresh(active.items, friday, listOf(course)).items)
+        val next = RepeatActions.refresh(active.items, day(2026, 9, 26), listOf(course))
+        assertEquals(0, next.items.count { it.kind == "任务" })
+        assertEquals(1, next.events.count { it.type == TaskEventType.REPEAT_MISSED })
+    }
+
+    @Test fun `removing a future class cancels its conditional occurrence without marking it missed`() {
+        val friday = day(2026, 9, 25)
+        val saturday = day(2026, 9, 26)
+        val course = Course("实验", 6, 1, 2, "东区", CampusZone.OTHER, needsConfirmation = false)
+        val created = RepeatActions.create(emptyList(), "复习课程", "class_day", friday,
+            at = friday, courses = listOf(course))
+        assertEquals(saturday, created.items.single { it.kind == "任务" }.repeatOccurrenceDay)
+        val removed = RepeatActions.refresh(created.items, friday, emptyList())
+        assertTrue(removed.items.none { it.kind == "任务" })
+        assertTrue(removed.events.none { it.type == TaskEventType.REPEAT_MISSED })
+        assertEquals(0, TaskHistory.daySummary(created.events + removed.events, saturday).scheduledCount)
+        assertTrue(RepeatActions.refresh(removed.items, saturday, emptyList()).events.isEmpty())
+    }
     @Test fun `stopped rule retains history and cannot generate another occurrence`() {
         val friday = day(2026, 9, 25)
         val created = RepeatActions.create(emptyList(), "读书", "daily", friday, at = friday)
