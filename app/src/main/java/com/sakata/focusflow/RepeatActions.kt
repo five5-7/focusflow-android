@@ -99,6 +99,32 @@ internal object RepeatActions {
         })
     }
 
+    /** Stop preserves the rule and dated history, while pending instances leave the schedule. */
+    fun stop(items: List<Item>, template: Item, at: Long = System.currentTimeMillis()): RepeatResult {
+        if (template.kind != "重复模板" || items.none { it == template }) return RepeatResult(items, emptyList())
+        val pending = items.filter { it.repeatTemplateId == template.id && it.kind == "任务" && !it.done }
+        return RepeatResult(items.map { item -> when {
+            item.id == template.id -> item.copy(kind = "已停止重复", repeatPaused = true)
+            item.id in pending.map { it.id } -> item.preservingNote().copy(kind = "重复历史",
+                detail = "规则停止，取消本次", scheduledAt = null, dayOnly = false,
+                windowStartAt = null, windowEndAt = null)
+            else -> item
+        } }, listOf(TaskRecorder.event(TaskEventType.REPEAT_RULE_CHANGED, template.id, template.title,
+            extra = "停止", at = at)))
+    }
+
+    /** Deletion is recoverable; prior occurrences and events remain accessible. */
+    fun deleteRule(items: List<Item>, template: Item, at: Long = System.currentTimeMillis()): RepeatResult {
+        val stopped = stop(items, template, at)
+        if (stopped.events.isEmpty()) return stopped
+        return RepeatResult(stopped.items.map { item -> if (item.id == template.id) {
+            val original = stopped.items.first { it.id == template.id }
+            original.copy(kind = "回收站", detail = "重复规则已删除", trashedAt = at,
+                trashSnapshot = ItemsCodec.encode(listOf(template)), repeatFrequency = "")
+        } else item }, stopped.events + TaskRecorder.event(TaskEventType.TASK_DELETED,
+            template.id, template.title, at = at))
+    }
+
     fun skip(items: List<Item>, instance: Item, at: Long = System.currentTimeMillis()): RepeatResult {
         if (instance.kind != "任务" || instance.done || instance.repeatTemplateId == null ||
             items.none { it == instance }) return RepeatResult(items, emptyList())

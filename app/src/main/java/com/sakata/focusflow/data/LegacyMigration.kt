@@ -215,7 +215,8 @@ class LegacyPreferencesReader(
                         extensionCount = extensionCount,
                         extensionReason = value.optString("extensionReason"),
                         actualEndAt = value.optLong("actualEndAt").takeIf { it > 0L },
-                        endChoice = value.optString("endChoice")
+                        endChoice = value.optString("endChoice"),
+                        taskId = value.optLong("taskId").takeIf { it > 0L }
                     ),
                     sourceOrder = index
                 )

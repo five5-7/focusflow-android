@@ -284,6 +284,23 @@ class CoreDataRepositoryTest {
     }
 
     @Test
+    fun `starting a task timer refuses a second open session and retains task identity`() {
+        val first = ActivitySession(id = 101L, name = "同名", actualStartAt = 100L, plannedStartAt = 100L,
+            endsAt = 1000L, taskId = 11L)
+        val second = first.copy(id = 102L, taskId = 12L)
+        val persistence = FakeLegacyPersistence(sampleSnapshot())
+        val repository = LegacyCoreDataRepository(persistence)
+        assertTrue(CoreDataRepositoryOperations.saveActivitySession(repository, first).applied)
+        assertEquals(CoreDataWriteStatus.CONDITION_NOT_MET,
+            CoreDataRepositoryOperations.saveActivitySession(repository, second).status)
+        assertEquals(listOf(first), persistence.snapshot.activitySessions)
+        assertTrue(CoreDataRepositoryOperations.finishActivitySession(repository, first.id,
+            ActivitySession.STATUS_COMPLETED, "finished_now", endedAt = 900L).applied)
+        assertTrue(CoreDataRepositoryOperations.saveActivitySession(repository, second).applied)
+        assertEquals(listOf(11L, 12L), persistence.snapshot.activitySessions.map { it.taskId })
+    }
+
+    @Test
     fun `runtime call sites do not bypass the core repository`() {
         val forbidden = Regex(
             "\\b(?:store|settingsStore|startupStore)\\.(?:loadItems|loadTaskEvents|loadGoals|" +

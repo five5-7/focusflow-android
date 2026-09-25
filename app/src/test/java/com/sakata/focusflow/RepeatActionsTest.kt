@@ -67,4 +67,18 @@ class RepeatActionsTest {
             minute = 9 * 60, at = today + 12 * 60 * 60_000L)
         assertEquals(day(2026, 9, 26), created.items.first { it.kind == "任务" }.repeatOccurrenceDay)
     }
+    @Test fun `stopped rule retains history and cannot generate another occurrence`() {
+        val friday = day(2026, 9, 25)
+        val created = RepeatActions.create(emptyList(), "读书", "daily", friday, at = friday)
+        val rule = created.items.first { it.kind == "重复模板" }
+        val stopped = RepeatActions.stop(created.items, rule, friday + 60_000L)
+        assertEquals("已停止重复", stopped.items.first { it.id == rule.id }.kind)
+        assertEquals(1, stopped.items.count { it.kind == "重复历史" })
+        assertTrue(RepeatActions.refresh(stopped.items, day(2026, 9, 26)).events.isEmpty())
+        assertTrue(RepeatActions.pause(stopped.items, stopped.items.first { it.id == rule.id }, false).events.isEmpty())
+        val deleted = RepeatActions.deleteRule(created.items, rule, friday + 60_000L)
+        assertEquals("回收站", deleted.items.first { it.id == rule.id }.kind)
+        assertEquals("重复模板", TrashActions.restore(deleted.items, setOf(rule.id)).items.first { it.id == rule.id }.kind)
+    }
+
 }

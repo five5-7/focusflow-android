@@ -105,6 +105,11 @@ internal fun CampusLifeChoiceDialog(onEnable: () -> Unit, onSkip: () -> Unit) {
 
 /** 覆盖安装后每个版本只展示一次的更新说明；版本名来自 BuildConfig，路线图是唯一详情入口。 */
 internal fun updateHighlightsFor(version: String): List<String> = when {
+    version == "8.3.0-rc.24" -> listOf(
+        "今日页先显示课程和已安排待办，再提示需要处理的事项；明天可快速预览。",
+        "待办详情的更多中可选开始计时，同一时刻只保留一段活动，历史汇总到待办。",
+        "重复规则现在可暂停、停止或恢复性删除；旧活动记录继续保留。"
+    )
     version == "8.3.0-rc.23" -> listOf(
         "收集箱、待办与计划可批量整理；多行待办、检查清单和到点提醒可快速创建。",
         "每日或每周重复任务支持暂停和跳过；全局加号可单独设置提醒。",

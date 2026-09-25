@@ -270,7 +270,8 @@ data class ActivitySessionEntity(
     @ColumnInfo(name = "extension_count") val extensionCount: Int,
     @ColumnInfo(name = "extension_reason") val extensionReason: String,
     @ColumnInfo(name = "actual_end_at") val actualEndAt: Long?,
-    @ColumnInfo(name = "end_choice") val endChoice: String
+    @ColumnInfo(name = "end_choice") val endChoice: String,
+    @ColumnInfo(name = "task_id") val taskId: Long? = null
 ) {
     companion object {
         fun fromLegacy(session: ActivitySession, sourceOrder: Int = 0): ActivitySessionEntity =
@@ -287,7 +288,8 @@ data class ActivitySessionEntity(
                 extensionCount = session.extensionCount,
                 extensionReason = session.extensionReason,
                 actualEndAt = session.actualEndAt,
-                endChoice = session.endChoice
+                endChoice = session.endChoice,
+                taskId = session.taskId
             )
     }
 
@@ -303,7 +305,8 @@ data class ActivitySessionEntity(
         extensionCount = extensionCount,
         extensionReason = extensionReason,
         actualEndAt = actualEndAt,
-        endChoice = endChoice
+        endChoice = endChoice,
+        taskId = taskId
     )
 }
 

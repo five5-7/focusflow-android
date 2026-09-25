@@ -247,6 +247,7 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
     var gamePlanOpen by remember { mutableStateOf(false) }
     var activityOpen by remember { mutableStateOf(false) }
     var activityPreset by remember { mutableStateOf<ActivityLaunchPreset?>(null) }
+    var activityTaskId by remember { mutableStateOf<Long?>(null) }
     var transitionTarget by remember { mutableStateOf<ActivitySession?>(null) }
     var autoPromptedSessionId by remember { mutableStateOf<Long?>(null) }
     var rescheduleTarget by remember { mutableStateOf<Item?>(null) }
@@ -1351,7 +1352,8 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                     onOpenGoals = { jumpTo(PageSnapshot(2, todayInboxOpen, PlanPage.GOALS, settingsSubPage, settingsBackStack)) },
                     onStartGoalTask = { task ->
                         activityPreset = ActivityLaunchPreset(name = task.title, category = "学习", minutes = task.durationMinutes.coerceIn(5, 360), nextStep = upcomingCommitment?.title.orEmpty(), minimumVersion = false)
-                        activityOpen = true
+                        activityTaskId = task.id
+                        if (activeSession != null) transitionTarget = activeSession else activityOpen = true
                     },
                     latestStatusCheckIn = latestStatusCheckIn,
                     checkIns = statusCheckIns,
@@ -1375,19 +1377,6 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                         commuteProfile = updated
                         store.saveCommuteProfile(updated)
                     },
-                    onStartActivity = { activityPreset = null; activityOpen = true },
-                    onStartSuggestion = { suggestion, minimumVersion ->
-                        val minutes = if (minimumVersion) suggestion.minimumMinutes else suggestion.item.durationMinutes.coerceIn(5, 360)
-                        activityPreset = ActivityLaunchPreset(
-                            name = if (minimumVersion) "${suggestion.item.title} · 最低版本" else suggestion.item.title,
-                            category = if (suggestion.item.goalId != null) "学习" else "自定义",
-                            minutes = minutes,
-                            nextStep = upcomingCommitment?.title.orEmpty(),
-                            minimumVersion = minimumVersion
-                        )
-                        activityOpen = true
-                    },
-                    onReplanSuggestion = { item -> rescheduleTarget = item },
                     onReviewActivity = { activeSession?.let { transitionTarget = it } },
                     onPickTime = { item -> inboxScheduleTarget = item },
                     onEdit = { item -> inboxEditTarget = item },
@@ -1520,7 +1509,8 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                             nextStep = upcomingCommitment?.title.orEmpty(),
                             minimumVersion = false
                         )
-                        activityOpen = true
+                        activityTaskId = item.id
+                        if (activeSession != null) transitionTarget = activeSession else activityOpen = true
                     },
                     onReturnToInbox = { item -> returnToInbox(item) },
                     onRescheduleTask = { item -> rescheduleTarget = item },
@@ -1619,6 +1609,14 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                             val next = RepeatActions.refresh(items)
                             if (next.events.isNotEmpty()) saveItemsWithEvents(next.items, next.events)
                         }
+                    },
+                    onRepeatRuleAction = { template, action ->
+                        val result = when (action) {
+                            "stop" -> RepeatActions.stop(items, template)
+                            "delete" -> RepeatActions.deleteRule(items, template)
+                            else -> RepeatResult(items, emptyList())
+                        }
+                        if (result.events.isNotEmpty()) saveItemsWithEvents(result.items, result.events)
                     },
                     onConfirmCourse = { course ->
                         if (CourseConfirmationSafety.isDirectConfirmationBlocked(course, courses)) {
@@ -2181,13 +2179,24 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
         )
         if (activityOpen) ActivityDialog(suggestedNextStepName, activityPreset, activityHistory, upcomingCommitment, planningEnergyLevel, onDismiss = { activityOpen = false; activityPreset = null }) { category, name, endsAt, nextStep ->
             val now = System.currentTimeMillis()
-            val session = ActivitySession(name = name, category = category, plannedStartAt = now, actualStartAt = now, endsAt = endsAt, nextStep = nextStep)
+            val current = CoreDataRepositoryOperations.latestActiveSession(coreDataRepository)
+            if (current != null) {
+                activeSession = current
+                activityOpen = false
+                transitionTarget = current
+                return@ActivityDialog
+            }
+            val task = items.firstOrNull { it.id == activityTaskId && it.kind == "任务" && !it.done }
+            if (task == null) { activityOpen = false; activityTaskId = null; return@ActivityDialog }
+            val session = ActivitySession(name = task.title, category = category, plannedStartAt = now, actualStartAt = now, endsAt = endsAt, nextStep = nextStep, taskId = task.id)
             if (CoreDataRepositoryOperations.saveActivitySession(coreDataRepository, session).applied) {
                 activeSession = session
+                activityHistory = CoreDataRepositoryOperations.recentActivitySessions(coreDataRepository, 200)
                 store.appendBaselineEvent(BaselineRecorder.event(BaselineEventType.ACTIVITY_STARTED, name))
                 ReminderScheduler.scheduleActivityReminders(context, session, activitySettings)
                 activityOpen = false
                 activityPreset = null
+                activityTaskId = null
             }
         }
         if (statusCheckInOpen) StatusCheckInDialog(
@@ -2225,7 +2234,7 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                 if (remindMinutes != null) {
                     val now = System.currentTimeMillis()
                     val session = ActivitySession(name = "游戏／娱乐", category = "游戏／娱乐", plannedStartAt = now, actualStartAt = now, endsAt = now + remindMinutes * 60_000L, nextStep = "")
-                    if (CoreDataRepositoryOperations.saveActivitySession(coreDataRepository, session).applied) {
+                    if (activeSession == null && CoreDataRepositoryOperations.saveActivitySession(coreDataRepository, session).applied) {
                         activeSession = session
                         store.appendBaselineEvent(BaselineRecorder.event(BaselineEventType.ACTIVITY_STARTED, "游戏／娱乐"))
                         ReminderScheduler.scheduleActivityReminders(context, session, activitySettings)
@@ -2251,6 +2260,7 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                 store.appendBaselineEvent(BaselineRecorder.event(BaselineEventType.ACTIVITY_ENDED, session.name))
                 ReminderScheduler.cancelActivityReminders(context, session.id)
                 activeSession = null
+                activityHistory = CoreDataRepositoryOperations.recentActivitySessions(coreDataRepository, 200)
                 transitionTarget = null
             },
             onStartNext = onStartNext@ {
@@ -2295,6 +2305,7 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                     store.appendBaselineEvent(BaselineRecorder.event(BaselineEventType.ACTIVITY_STARTED, nextName))
                     ReminderScheduler.scheduleActivityReminders(context, nextSession, activitySettings)
                 } else activeSession = null
+                activityHistory = CoreDataRepositoryOperations.recentActivitySessions(coreDataRepository, 200)
                 transitionTarget = null
             },
             onExtend = { minutes, reason ->
@@ -2328,6 +2339,7 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                 )
                 items = readCoreData().items
                 activeSession = null
+                activityHistory = CoreDataRepositoryOperations.recentActivitySessions(coreDataRepository, 200)
                 transitionTarget = null
             }
         ) }
@@ -2434,6 +2446,17 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                     onToggleChecklist = { stepId ->
                         val updated = ChecklistActions.toggle(item, stepId)
                         if (updated != null && items.any { it == item }) saveItems(items.map { if (it.id == item.id) updated else it })
+                    },
+                    activitySessions = CoreDataRepositoryOperations.recentActivitySessions(coreDataRepository, Int.MAX_VALUE).filter { it.taskId == item.id },
+                    onStartTimer = {
+                        todoDetailTarget = null
+                        val current = CoreDataRepositoryOperations.latestActiveSession(coreDataRepository)
+                        if (current != null) { activeSession = current; transitionTarget = current }
+                        else {
+                            activityTaskId = item.id
+                            activityPreset = ActivityLaunchPreset(item.title, if (item.goalId != null) "学习" else "自定义", item.durationMinutes.coerceIn(5, 360), "", false)
+                            activityOpen = true
+                        }
                     },
                     onSkipRepeat = {
                         val skipped = RepeatActions.skip(items, item)

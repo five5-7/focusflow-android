@@ -45,7 +45,7 @@ class Stage4RoomUpgradeTest {
         }
         val database = Room.databaseBuilder(context, FocusFlowDatabase::class.java, name)
             .addMigrations(FocusFlowDatabase.MIGRATION_1_2, FocusFlowDatabase.MIGRATION_2_3,
-                FocusFlowDatabase.MIGRATION_3_4).allowMainThreadQueries().build()
+                FocusFlowDatabase.MIGRATION_3_4, FocusFlowDatabase.MIGRATION_4_5).allowMainThreadQueries().build()
         try {
             val item = database.taskDao().all().single().toLegacy()
             assertEquals(77L, item.id)
@@ -134,13 +134,45 @@ class Stage4RoomUpgradeTest {
             sqlite.version = 3
         }
         val database = Room.databaseBuilder(context, FocusFlowDatabase::class.java, name)
-            .addMigrations(FocusFlowDatabase.MIGRATION_3_4).allowMainThreadQueries().build()
+            .addMigrations(FocusFlowDatabase.MIGRATION_3_4, FocusFlowDatabase.MIGRATION_4_5).allowMainThreadQueries().build()
         try {
             val item = database.taskDao().all().single().toLegacy()
             assertEquals(77L, item.id)
             assertEquals("原任务", item.title)
             assertEquals("", item.repeatFrequency)
             assertNull(item.repeatTemplateId)
+        } finally { database.close(); context.deleteDatabase(name) }
+    }
+
+    @Test fun `existing v4 activity upgrades with no task link and keeps history`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val name = "stage5-v4-activity-upgrade-test.db"
+        context.deleteDatabase(name)
+        val schemaFile = listOf(File("schemas/com.sakata.focusflow.data.FocusFlowDatabase/4.json"),
+            File("app/schemas/com.sakata.focusflow.data.FocusFlowDatabase/4.json")).first { it.isFile }
+        val definition = JSONObject(schemaFile.readText()).getJSONObject("database")
+        SQLiteDatabase.openOrCreateDatabase(context.getDatabasePath(name), null).use { sqlite ->
+            val entities = definition.getJSONArray("entities")
+            for (i in 0 until entities.length()) {
+                val entity = entities.getJSONObject(i)
+                val table = entity.getString("tableName")
+                sqlite.execSQL(entity.getString("createSql").replace("${'$'}{TABLE_NAME}", table))
+                val indices = entity.optJSONArray("indices") ?: continue
+                for (j in 0 until indices.length()) sqlite.execSQL(indices.getJSONObject(j)
+                    .getString("createSql").replace("${'$'}{TABLE_NAME}", table))
+            }
+            val setup = definition.getJSONArray("setupQueries")
+            for (i in 0 until setup.length()) sqlite.execSQL(setup.getString(i))
+            sqlite.execSQL("INSERT INTO activity_sessions (id,source_order,name,category,planned_start_at,actual_start_at,ends_at,next_step,status,extension_count,extension_reason,actual_end_at,end_choice) VALUES (701,0,'旧活动','学习',100,100,700,'','completed',0,'',650,'finished_now')")
+            sqlite.version = 4
+        }
+        val database = Room.databaseBuilder(context, FocusFlowDatabase::class.java, name)
+            .addMigrations(FocusFlowDatabase.MIGRATION_4_5).allowMainThreadQueries().build()
+        try {
+            val old = database.activitySessionDao().all().single().toLegacy()
+            assertEquals(701L, old.id)
+            assertNull(old.taskId)
+            assertEquals(650L, old.actualEndAt)
         } finally { database.close(); context.deleteDatabase(name) }
     }
 

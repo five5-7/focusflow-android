@@ -394,6 +394,9 @@ object CoreDataRepositoryOperations {
     ): CoreDataWriteResult {
         val read = repository.read()
         val current = (read as? CoreDataReadResult.Ready)?.snapshot ?: return invalidRead(read)
+        if (session.isOpen() && current.activitySessions.any { it.id != session.id && it.isOpen() }) {
+            return CoreDataWriteResult(CoreDataWriteStatus.CONDITION_NOT_MET, "another activity is already running")
+        }
         val updated = current.activitySessions.filterNot { it.id == session.id } + session
         return repository.replaceActivitySessions(updated, current.activitySessions)
     }
@@ -413,7 +416,7 @@ object CoreDataRepositoryOperations {
                 before.endsAt != expectedEndsAt)) {
             return CoreDataWriteResult(CoreDataWriteStatus.CONDITION_NOT_MET, "activity session changed")
         }
-        if (nextSession.id == id || current.activitySessions.any { it.id == nextSession.id }) {
+        if (nextSession.id == id || current.activitySessions.any { it.id == nextSession.id || (it.id != id && it.isOpen()) }) {
             return CoreDataWriteResult(CoreDataWriteStatus.INVALID_INPUT, "next activity ID already exists")
         }
         val finished = before.copy(

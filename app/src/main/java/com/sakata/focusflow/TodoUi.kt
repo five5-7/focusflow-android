@@ -121,7 +121,8 @@ internal fun TodoListSection(
     onComplete: (Item) -> Unit,
     onDetail: (Item) -> Unit,
     onBatchAction: (Set<Long>, TodoBatchAction, Long?, Boolean) -> Boolean,
-    onPauseRepeat: (Item, Boolean) -> Unit
+    onPauseRepeat: (Item, Boolean) -> Unit,
+    onRepeatRuleAction: (Item, String) -> Unit
 ) {
     val context = LocalContext.current
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
@@ -129,6 +130,7 @@ internal fun TodoListSection(
     var selecting by remember { mutableStateOf(false) }
     var selectedIds by remember { mutableStateOf(emptySet<Long>()) }
     var pendingDeleteIds by remember { mutableStateOf(emptySet<Long>()) }
+    var deletingRule by remember { mutableStateOf<Item?>(null) }
     var keepBatchTime by remember { mutableStateOf(true) }
     val selectable = items.filter { it.kind == "任务" && !it.done && it.goalId == null && it.parentCaptureId == null &&
         items.none { child -> child.parentCaptureId == it.id } }.mapTo(mutableSetOf()) { it.id }
@@ -203,19 +205,29 @@ internal fun TodoListSection(
     if (groups.pendingCount == 0) {
         Text("还没有待办。记下标题就可以开始，时间以后再安排。", color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
-    val templates = items.filter { it.kind == "重复模板" }
+    val templates = items.filter { it.kind in setOf("重复模板", "已停止重复") }
     if (templates.isNotEmpty()) {
         Text("重复规则 · ${templates.size}", style = MaterialTheme.typography.titleSmall)
         templates.forEach { template ->
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text("${template.title} · ${if (template.repeatFrequency == "daily") "每天" else "每周"}${if (template.repeatPaused) " · 已暂停" else ""}",
+                Text("${template.title} · ${if (template.repeatFrequency == "daily") "每天" else "每周"}${if (template.kind == "已停止重复") " · 已停止" else if (template.repeatPaused) " · 已暂停" else ""}",
                     modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                TextButton(onClick = { onPauseRepeat(template, !template.repeatPaused) }) {
-                    Text(if (template.repeatPaused) "继续" else "暂停")
+                if (template.kind == "重复模板") {
+                    TextButton(onClick = { onPauseRepeat(template, !template.repeatPaused) }) {
+                        Text(if (template.repeatPaused) "继续" else "暂停")
+                    }
+                    TextButton(onClick = { onRepeatRuleAction(template, "stop") }) { Text("停止") }
+                    TextButton(onClick = { deletingRule = template }) { Text("删除") }
                 }
             }
         }
     }
+    deletingRule?.let { template -> AlertDialog(
+        onDismissRequest = { deletingRule = null }, title = { Text("删除重复规则？") },
+        text = { Text("《${template.title}》将进入最近删除；已有执行记录会保留。") },
+        confirmButton = { TextButton(onClick = { onRepeatRuleAction(template, "delete"); deletingRule = null }) { Text("删除") } },
+        dismissButton = { TextButton(onClick = { deletingRule = null }) { Text("取消") } }
+    ) }
     fun toggle(item: Item) { selectedIds = if (item.id in selectedIds) selectedIds - item.id else selectedIds + item.id }
     listOf("已过安排或截止" to groups.overdue, "已安排" to groups.scheduled,
         "未安排" to groups.unscheduled, "已完成" to groups.completed).forEach { (name, group) ->
@@ -300,10 +312,13 @@ internal fun TodoDetailDialog(
     onDueDate: (Long?) -> Unit,
     onAddChecklist: (String) -> Boolean,
     onToggleChecklist: (Long) -> Unit,
-    onSkipRepeat: () -> Unit
+    onSkipRepeat: () -> Unit,
+    activitySessions: List<ActivitySession> = emptyList(),
+    onStartTimer: () -> Unit = {}
 ) {
     val context = LocalContext.current
     var newSteps by remember(item.id) { mutableStateOf("") }
+    var moreOpen by remember(item.id) { mutableStateOf(false) }
     AppDialog(
         onDismissRequest = onDismiss,
         title = { Text(item.title) },
@@ -312,6 +327,13 @@ internal fun TodoDetailDialog(
                 Text(todoFact(item, System.currentTimeMillis()), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 item.editableNote().takeIf { it.isNotBlank() && it != "尚未安排具体时间" }?.let { Text(it) }
                 Text("预计 ${item.durationMinutes} 分钟 · 优先级 ${ItemPriority.fromKey(item.priority).label}", style = MaterialTheme.typography.bodySmall)
+                if (activitySessions.isNotEmpty()) {
+                    val ended = activitySessions.filter { it.actualEndAt != null }
+                    if (ended.isNotEmpty()) {
+                        val minutes = ended.sumOf { ((it.actualEndAt!! - it.actualStartAt).coerceAtLeast(0) / 60_000L) }
+                        Text("计时记录 · ${ended.size} 段 · ${minutes} 分钟", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
                 item.checklist.forEach { step ->
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Checkbox(checked = step.done, onCheckedChange = { onToggleChecklist(step.id) }, enabled = !item.done)
@@ -338,6 +360,10 @@ internal fun TodoDetailDialog(
                 if (!item.done && item.repeatTemplateId != null)
                     TextButton(onClick = onSkipRepeat, modifier = Modifier.fillMaxWidth()) { Text("跳过本次（保留重复规则）") }
                 OutlinedButton(onClick = onEdit, modifier = Modifier.fillMaxWidth()) { Text("编辑") }
+                if (!item.done && item.kind == "任务") {
+                    TextButton(onClick = { moreOpen = !moreOpen }, modifier = Modifier.fillMaxWidth()) { Text("更多 ${if (moreOpen) "▴" else "▾"}") }
+                    if (moreOpen) OutlinedButton(onClick = onStartTimer, modifier = Modifier.fillMaxWidth()) { Text("开始计时（可选）") }
+                }
                 TextButton(onClick = onDelete, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("删除") }
             }
         },

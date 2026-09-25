@@ -441,6 +441,7 @@ class PrototypeStore(context: Context) {
             put("extensionReason", value.extensionReason)
             put("actualEndAt", value.actualEndAt ?: 0)
             put("endChoice", value.endChoice)
+            put("taskId", value.taskId ?: 0)
         }) }
         return preferences.edit().putString("sessions", values.toString()).commit()
     }
@@ -1165,7 +1166,8 @@ class PrototypeStore(context: Context) {
                     extensionCount = item.optInt("extensionCount"),
                     extensionReason = item.optString("extensionReason"),
                     actualEndAt = item.optLong("actualEndAt").takeIf { it > 0 },
-                    endChoice = item.optString("endChoice")
+                    endChoice = item.optString("endChoice"),
+                    taskId = item.optLong("taskId").takeIf { it > 0 }
                 )
             }
         }, { it.isEmpty() })
