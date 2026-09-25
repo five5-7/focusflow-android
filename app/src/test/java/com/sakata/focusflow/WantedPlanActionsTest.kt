@@ -4,6 +4,30 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class WantedPlanActionsTest {
+    @Test fun `name only plan keeps optional fields empty and never creates weekly tasks`() {
+        val wanted = requireNotNull(WantedPlanActions.create(emptyList(), "  写书  "))
+        assertEquals(0, wanted.weeklyTarget)
+        assertEquals("", wanted.metricTarget)
+        val started = requireNotNull(WantedPlanActions.changeState(wanted, PlanState.IN_PROGRESS))
+        assertTrue(GoalPlanner.autoPlan(listOf(started), emptyList(), emptyList(), CommuteProfile(), { _, _ -> null }).newItems.isEmpty())
+    }
+
+    @Test fun `edit preserves converted source notes and multiple linked tasks remain unscheduled`() {
+        val wanted = requireNotNull(WantedPlanActions.create(emptyList(), "学钢琴", "钢琴\n原始想法"))
+        val edited = requireNotNull(WantedPlanActions.edit(wanted, "  学钢琴入门 ", " 能弹一首歌 ", wanted.sourceNotes))
+        assertEquals("钢琴\n原始想法", edited.sourceNotes)
+        assertEquals("能弹一首歌", edited.desiredOutcome)
+        assertNull(WantedPlanActions.edit(edited, "  ", "", ""))
+        val active = requireNotNull(WantedPlanActions.changeState(edited, PlanState.IN_PROGRESS))
+        val first = WantedPlanActions.linkedTask(emptyList(), active, "  找课程 ")
+        val second = WantedPlanActions.linkedTask(first.items, active, "练基本音阶")
+        assertEquals(listOf("练基本音阶", "找课程"), second.items.map { it.title })
+        assertTrue(second.items.all { it.goalId == active.id && it.scheduledAt == null && it.kind == "任务" })
+        assertEquals(TaskEventType.TASK_CREATED, second.event?.type)
+        assertNull(WantedPlanActions.linkedTask(second.items, active, "  ").item)
+        assertNull(WantedPlanActions.linkedTask(second.items, wanted, "重复").item)
+    }
+
     @Test fun `batch conversion keeps all source titles and notes and removes only selected inbox records`() {
         val first = Item(id = 10, title = "学钢琴", kind = "收集箱", detail = "刚刚记录 · 找课程", userNote = "找课程")
         val second = Item(id = 11, title = "买琴", kind = "收集箱", detail = "刚刚记录 · 确认预算", userNote = "确认预算")
