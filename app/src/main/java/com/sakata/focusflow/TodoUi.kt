@@ -74,6 +74,7 @@ internal fun TodoCreateDialog(onDismiss: () -> Unit, onSave: (String, Long?) -> 
     )
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun TodoListSection(
     items: List<Item>,
