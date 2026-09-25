@@ -60,11 +60,27 @@ object ReminderScheduler {
         scheduleDailyStatusCheckIn(context, store.loadStatusCheckInSettings())
         scheduleDailyMealReminders(context, store.loadBaselineProfile())
         scheduleDailyWindDown(context, store.loadBaselineProfile())
+        RepeatActions.refreshRepository(context)
+        scheduleRepeatRefresh(context)
         restoreTaskReminders(context)
         restoreStandaloneReminders(context)
     }
 
     fun restoreStandaloneReminders(context: Context) = StandaloneReminders.restore(context)
+
+    fun scheduleRepeatRefresh(context: Context) {
+        val next = Calendar.getInstance().apply {
+            add(Calendar.DAY_OF_YEAR, 1); set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 5); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
+        val pending = PendingIntent.getBroadcast(context, 200_210,
+            Intent(context, ReminderReceiver::class.java).apply { action = ReminderReceiver.ACTION_REPEAT_REFRESH },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val manager = context.getSystemService(AlarmManager::class.java)
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || manager.canScheduleExactAlarms())
+            manager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, next, pending)
+        else manager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, next, pending)
+    }
 
     fun scheduleDailyStatusCheckIn(
         context: Context,

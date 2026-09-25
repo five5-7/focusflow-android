@@ -54,6 +54,20 @@ class Stage3DomainSchemaTest {
     }
 
     @Test
+    fun `repeat template and dated instance keep their identity in room`() {
+        val rule = Item(id = 10, title = "音准练习", detail = "每天重复", kind = "重复模板",
+            repeatFrequency = "daily", repeatStartDay = 1_800_000_000_000L,
+            repeatMinute = 9 * 60)
+        val instance = Item(id = 11, title = rule.title, detail = "今天练", kind = "任务",
+            repeatTemplateId = rule.id, repeatOccurrenceDay = rule.repeatStartDay,
+            scheduledAt = 1_800_000_000_000L)
+        database.taskDao().insertAll(listOf(rule, instance).mapIndexed { index, item ->
+            TaskEntity.fromLegacy(item, index)
+        })
+        assertEquals(listOf(rule, instance), database.taskDao().all().map(TaskEntity::toLegacy))
+    }
+
+    @Test
     fun `recurrence rule and occurrence preserve local calendar semantics`() {
         val rule = RecurrenceRuleEntity(
             id = 10L,

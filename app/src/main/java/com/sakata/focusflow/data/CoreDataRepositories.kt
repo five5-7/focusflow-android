@@ -305,7 +305,13 @@ internal fun TaskEntity.toLegacy(): Item = Item(
     dueAt = dueAt,
     checklist = ChecklistCodec.decode(checklistJson),
     planBucket = planBucket,
-    planFocus = planFocus
+    planFocus = planFocus,
+    repeatFrequency = repeatFrequency,
+    repeatStartDay = repeatStartDay,
+    repeatMinute = repeatMinute,
+    repeatTemplateId = repeatTemplateId,
+    repeatOccurrenceDay = repeatOccurrenceDay,
+    repeatPaused = repeatPaused
 )
 
 internal fun TaskEventEntity.toLegacy(type: TaskEventType): TaskEvent = TaskEvent(

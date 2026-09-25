@@ -75,7 +75,13 @@ data class TaskEntity(
     @ColumnInfo(name = "due_at") val dueAt: Long? = null,
     @ColumnInfo(name = "checklist_json", defaultValue = "'[]'") val checklistJson: String = "[]",
     @ColumnInfo(name = "plan_bucket", defaultValue = "'near'") val planBucket: String = "near",
-    @ColumnInfo(name = "plan_focus", defaultValue = "0") val planFocus: Boolean = false
+    @ColumnInfo(name = "plan_focus", defaultValue = "0") val planFocus: Boolean = false,
+    @ColumnInfo(name = "repeat_frequency", defaultValue = "''") val repeatFrequency: String = "",
+    @ColumnInfo(name = "repeat_start_day") val repeatStartDay: Long? = null,
+    @ColumnInfo(name = "repeat_minute", defaultValue = "-1") val repeatMinute: Int = -1,
+    @ColumnInfo(name = "repeat_template_id") val repeatTemplateId: Long? = null,
+    @ColumnInfo(name = "repeat_occurrence_day") val repeatOccurrenceDay: Long? = null,
+    @ColumnInfo(name = "repeat_paused", defaultValue = "0") val repeatPaused: Boolean = false
 ) {
     companion object {
         fun fromLegacy(item: Item, sourceOrder: Int = 0): TaskEntity = TaskEntity(
@@ -106,7 +112,13 @@ data class TaskEntity(
             dueAt = item.dueAt,
             checklistJson = ChecklistCodec.encodeArray(item.checklist).toString(),
             planBucket = item.planBucket,
-            planFocus = item.planFocus
+            planFocus = item.planFocus,
+            repeatFrequency = item.repeatFrequency,
+            repeatStartDay = item.repeatStartDay,
+            repeatMinute = item.repeatMinute,
+            repeatTemplateId = item.repeatTemplateId,
+            repeatOccurrenceDay = item.repeatOccurrenceDay,
+            repeatPaused = item.repeatPaused
         )
     }
 }

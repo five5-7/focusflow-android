@@ -20,7 +20,8 @@ class ItemsCodecTest {
         captureRoute = "progress", sourceDetail = "最初想到的说明",
         nextAction = "先找回课程", userNote = "用户备注",
         dueAt = time, checklist = listOf(ChecklistEntry(101, "草稿", true), ChecklistEntry(102, "核对")),
-        planBucket = "later", planFocus = true
+        planBucket = "later", planFocus = true,
+        repeatTemplateId = 88L, repeatOccurrenceDay = time
     )
 
     @Test fun roundtrip_preservesAllFields() {
@@ -53,6 +54,8 @@ class ItemsCodecTest {
         assertEquals(item().checklist, decoded.checklist)
         assertEquals("later", decoded.planBucket)
         assertTrue(decoded.planFocus)
+        assertEquals(88L, decoded.repeatTemplateId)
+        assertEquals(time, decoded.repeatOccurrenceDay)
     }
 
     @Test fun roundtrip_nullableFieldsStayNull() {
@@ -80,6 +83,8 @@ class ItemsCodecTest {
         assertTrue(decoded.checklist.isEmpty())
         assertEquals("near", decoded.planBucket)
         assertFalse(decoded.planFocus)
+        assertEquals("", decoded.repeatFrequency)
+        assertNull(decoded.repeatTemplateId)
     }
 
     @Test fun decode_duplicateIds_renamesSecondWithFlag() {
