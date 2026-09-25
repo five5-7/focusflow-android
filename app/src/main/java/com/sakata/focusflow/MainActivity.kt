@@ -249,6 +249,7 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
     var activityPreset by remember { mutableStateOf<ActivityLaunchPreset?>(null) }
     var activityTaskId by remember { mutableStateOf<Long?>(null) }
     var transitionTarget by remember { mutableStateOf<ActivitySession?>(null) }
+    var rescheduleAfterActivitySession by remember { mutableStateOf<ActivitySession?>(null) }
     var autoPromptedSessionId by remember { mutableStateOf<Long?>(null) }
     var rescheduleTarget by remember { mutableStateOf<Item?>(null) }
     var inboxScheduleTarget by remember { mutableStateOf<Item?>(null) }
@@ -943,13 +944,14 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
         removeScheduledActivity(item.id)
     }
     /** 改期保存的完整动作：数据变换在 TaskActions，事件/基线/提醒/游戏会话同步在 FApp 层（原 saveDelayedItem）。 */
-    fun applyDelayed(item: Item, scheduledAt: Long, duration: Int, label: String, priority: String) {
+    fun applyDelayed(item: Item, scheduledAt: Long, duration: Int, label: String, priority: String,
+                     preserveTaskKind: Boolean = false): Boolean {
         val storedSessions = store.loadGameSessions()
-        val scheduledActivity = storedSessions.firstOrNull { it.id == item.id && it.isOpen() }
+        val scheduledActivity = if (preserveTaskKind) null else storedSessions.firstOrNull { it.id == item.id && it.isOpen() }
         // 兼容 7.1.3 以前活动改期后被误写成普通任务的记录。
         val source = if (scheduledActivity != null && item.kind !in setOf("活动", "游戏")) item.copy(kind = "活动") else item
         val plan = TaskActions.planDelayed(items, source, scheduledAt, duration, label, priority)
-        if (!saveItemsWithEvent(plan.items, plan.event)) return
+        if (!saveItemsWithEvent(plan.items, plan.event)) return false
         store.appendBaselineEvent(BaselineRecorder.event(BaselineEventType.TASK_RESCHEDULED, plan.baselinePayload))
         ReminderScheduler.scheduleTaskReminder(context, plan.delayedItem)
         if (scheduledActivity != null) {
@@ -960,6 +962,7 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                 ReminderScheduler.scheduleGameReminders(context, it)
             }
         }
+        return true
     }
     /** 目标任务安排（算法建议点击与自定义时间共用）：写入日程、记事件、建提醒。 */
     val scheduleGoalItem: (Goal, Long) -> Unit = schedule@ { goal, at ->
@@ -2290,6 +2293,16 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                     scope.launch { snackbarHostState.showSnackbar("计时已结束，待办未完成，请在待办详情中重试。") }
                 }
             },
+            onRescheduleTask = onRescheduleTask@ {
+                val task = items.firstOrNull { it.id == session.taskId }
+                if (!ActivityTaskReplan.canOpen(session, task)) {
+                    scope.launch { snackbarHostState.showSnackbar("待办已变化，请重新打开后操作。") }
+                    return@onRescheduleTask
+                }
+                rescheduleAfterActivitySession = session
+                rescheduleTarget = task
+                transitionTarget = null
+            },
             onFinish = onFinish@ { actualEndAt ->
                 val result = CoreDataRepositoryOperations.finishActivitySession(
                     coreDataRepository,
@@ -2386,9 +2399,46 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                 transitionTarget = null
             }
         ) }
-        rescheduleTarget?.let { item -> RescheduleTimeDialog(item, items, courses, commuteProfile, onDismiss = { rescheduleTarget = null }) { scheduledAt, duration, label, priority ->
-            applyDelayed(item, scheduledAt, duration, label, priority)
-            rescheduleTarget = null
+        rescheduleTarget?.let { item -> RescheduleTimeDialog(item, items, courses, commuteProfile,
+            title = if (rescheduleAfterActivitySession != null) "改期后结束计时" else "什么时候再提醒？",
+            onDismiss = {
+                rescheduleTarget = null
+                rescheduleAfterActivitySession?.let { session ->
+                    CoreDataRepositoryOperations.findActivitySession(coreDataRepository, session.id)
+                        ?.takeIf(ActivitySession::isOpen)?.let { transitionTarget = it }
+                }
+                rescheduleAfterActivitySession = null
+            }) { scheduledAt, duration, label, priority ->
+            val session = rescheduleAfterActivitySession
+            if (session == null) {
+                applyDelayed(item, scheduledAt, duration, label, priority)
+                rescheduleTarget = null
+            } else {
+                val current = readCoreData().items.firstOrNull { it.id == item.id }
+                if (!ActivityTaskReplan.canCommit(session, item, current, scheduledAt, duration)) {
+                    scope.launch { snackbarHostState.showSnackbar("待办或所选时间已变化，请重新选择。") }
+                } else {
+                    val finished = CoreDataRepositoryOperations.finishActivitySession(
+                        coreDataRepository, session.id, ActivitySession.STATUS_COMPLETED,
+                        "rescheduled_task", System.currentTimeMillis(), session.endsAt
+                    )
+                    if (finished.applied) {
+                        store.appendBaselineEvent(BaselineRecorder.event(BaselineEventType.ACTIVITY_ENDED, session.name))
+                        ReminderScheduler.cancelActivityReminders(context, session.id)
+                        activeSession = null
+                        activityHistory = CoreDataRepositoryOperations.recentActivitySessions(coreDataRepository, 200)
+                        rescheduleTarget = null
+                        rescheduleAfterActivitySession = null
+                        if (!applyDelayed(item, scheduledAt, duration, label, priority, preserveTaskKind = true)) {
+                            scope.launch { snackbarHostState.showSnackbar("计时已结束，待办尚未改期，请在待办详情中重试。") }
+                        }
+                    } else {
+                        scope.launch { snackbarHostState.showSnackbar("计时状态已变化，请重新打开后操作。") }
+                        rescheduleTarget = null
+                        rescheduleAfterActivitySession = null
+                    }
+                }
+            }
         } }
         goalScheduleTarget?.let { goal -> GoalScheduleDialog(
             goal = goal,

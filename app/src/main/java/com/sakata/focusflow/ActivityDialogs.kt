@@ -287,6 +287,7 @@ internal fun activityTitleLabel(category: String): String = when (category) {
     onFinish: (actualEndAt: Long) -> Unit,
     onPause: () -> Unit,
     onCompleteTask: () -> Unit,
+    onRescheduleTask: () -> Unit,
     onStartNext: () -> Unit,
     onExtend: (minutes: Int, reason: String) -> Unit,
     onReplan: () -> Unit
@@ -321,6 +322,7 @@ internal fun activityTitleLabel(category: String): String = when (category) {
                 if (session.taskId != null) {
                     OutlinedButton(onClick = { vault.clear(draftKey); onPause() }, modifier = Modifier.fillMaxWidth()) { Text("暂停计时，待办保留") }
                     Button(onClick = { vault.clear(draftKey); onCompleteTask() }, modifier = Modifier.fillMaxWidth()) { Text("结束计时并完成待办") }
+                    OutlinedButton(onClick = { vault.clear(draftKey); onRescheduleTask() }, modifier = Modifier.fillMaxWidth()) { Text("改期后结束计时") }
                 }
                 HorizontalDivider()
                 Text("需要更多时间")
@@ -333,7 +335,7 @@ internal fun activityTitleLabel(category: String): String = when (category) {
                 conflict?.let { Text("延长到 ${formatTime(extensionEnd)} 会碰到 ${formatTime(it.startsAt)} 的 ${it.title}；FocusFlow 不会自动改动它。", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
                 if (canExtend) OutlinedButton(onClick = { vault.clear(draftKey); onExtend(extensionMinutes, reason) }, modifier = Modifier.fillMaxWidth()) { Text("确认延长") }
                 else Text("已达到设置中的连续延长提示上限。你仍可结束后重新开始，并重新作出约定。", style = MaterialTheme.typography.bodySmall)
-                TextButton(onClick = { vault.clear(draftKey); onReplan() }, modifier = Modifier.fillMaxWidth()) { Text("现在结束，但把下一步放回收集箱") }
+                if (session.taskId == null) TextButton(onClick = { vault.clear(draftKey); onReplan() }, modifier = Modifier.fillMaxWidth()) { Text("现在结束，但把下一步放回收集箱") }
             }
         },
         confirmButton = { Button(onClick = { vault.clear(draftKey); onFinish(if (endTimeChoice == "预计") session.endsAt else System.currentTimeMillis()) }) { Text("确认结束") } },

@@ -423,6 +423,7 @@ internal fun scheduleModeColumns(widthDp: Int, fontScale: Float): Int = when {
     items: List<Item>,
     courses: List<Course>,
     profile: CommuteProfile,
+    title: String = "什么时候再提醒？",
     onDismiss: () -> Unit,
     onSave: (Long, Int, String, String) -> Unit
 ) {
@@ -456,7 +457,7 @@ internal fun scheduleModeColumns(widthDp: Int, fontScale: Float): Int = when {
     }
     AppDialog(
         onDismissRequest = onDismiss,
-        title = { Text("什么时候再提醒？") },
+        title = { Text(title) },
         text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(item.title.removePrefix("重新安排："))
             options.forEachIndexed { index, option -> FilterChip(selected = selected == index && customTime == null, onClick = { selected = index; customTime = null; persist() }, label = { Text(option.first) }) }
