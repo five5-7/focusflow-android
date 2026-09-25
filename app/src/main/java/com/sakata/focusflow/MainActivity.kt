@@ -846,13 +846,14 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
             return false
         }
         val previous = items
-        if (!coreDataRepository.replaceTasksAndAppendEvents(updated, events, previous).applied) {
+        val generated = RepeatActions.refresh(updated)
+        if (!coreDataRepository.replaceTasksAndAppendEvents(generated.items, events + generated.events, previous).applied) {
             items = readCoreData().items
             scope.launch { snackbarHostState.showSnackbar("保存失败，尚未确认此次操作；请检查存储空间或数据保护提示。") }
             return false
         }
-        items = updated
-        ReminderScheduler.syncTaskReminders(context, previous, updated)
+        items = generated.items
+        ReminderScheduler.syncTaskReminders(context, previous, generated.items)
         taskEvents = readCoreData().taskEvents
         navHistory.markWorkedHere()
         return true
@@ -1035,9 +1036,20 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
     LaunchedEffect(Unit) {
         // 恢复提醒会读取多组偏好、重建多类闹钟；它不应在首个 Compose 提交后立刻占住主线程。
         withContext(Dispatchers.IO) { ReminderScheduler.restoreActivityReminders(context) }
+        val afterReminderRestore = readCoreData()
+        items = afterReminderRestore.items
+        taskEvents = afterReminderRestore.taskEvents
+        var lastRepeatDay = TaskHistory.dayStartOf(System.currentTimeMillis())
         // 启动快照已经带回当前会话与历史，首轮无需再次读取。
         delay(1_000)
         while (true) {
+            val currentDay = TaskHistory.dayStartOf(System.currentTimeMillis())
+            if (currentDay != lastRepeatDay) {
+                withContext(Dispatchers.IO) { RepeatActions.refreshRepository(context) }
+                val refreshed = readCoreData()
+                items = refreshed.items; taskEvents = refreshed.taskEvents
+                lastRepeatDay = currentDay
+            }
             val (restored, recentHistory) = withContext(Dispatchers.IO) {
                 CoreDataRepositoryOperations.latestActiveSession(coreDataRepository) to
                     CoreDataRepositoryOperations.recentActivitySessions(coreDataRepository)
@@ -1572,6 +1584,16 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                         }
                         true
                     },
+                    onPauseRepeat = { template, paused ->
+                        val updated = RepeatActions.pause(items, template, paused)
+                        if (updated.items != items) {
+                            if (updated.events.isNotEmpty()) saveItemsWithEvents(updated.items, updated.events)
+                            else if (saveItems(updated.items) && !paused) {
+                                val next = RepeatActions.refresh(items)
+                                if (next.events.isNotEmpty()) saveItemsWithEvents(next.items, next.events)
+                            }
+                        }
+                    },
                     onConfirmCourse = { course ->
                         if (CourseConfirmationSafety.isDirectConfirmationBlocked(course, courses)) {
                             courseImportMessage = "这门课与另一门待确认或已确认课程被识别到完全相同的星期和节次。请点“编辑并确认”核对坐标，避免错误课表直接生效。"
@@ -2063,8 +2085,12 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
         }
         if (addTodoOpen) TodoCreateDialog(
             onDismiss = { addTodoOpen = false },
-            onSave = { title, dateOnlyAt, asChecklist ->
-                val created = if (asChecklist) TodoActions.createChecklist(items, title, dateOnlyAt)
+            onSave = { title, dateOnlyAt, asChecklist, frequency, repeatMinute ->
+                val created = if (frequency.isNotEmpty()) {
+                    val repeat = RepeatActions.create(items, title, frequency,
+                        dateOnlyAt ?: TaskHistory.dayStartOf(System.currentTimeMillis()), repeatMinute)
+                    CreatedTodos(repeat.items, repeat.items.filter { item -> items.none { it.id == item.id } }, repeat.events)
+                } else if (asChecklist) TodoActions.createChecklist(items, title, dateOnlyAt)
                     else TodoActions.createLines(items, title, dateOnlyAt)
                 created.created.isNotEmpty() && saveItemsWithEvents(created.items, created.events)
             }
@@ -2379,7 +2405,27 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                         val updated = ChecklistActions.toggle(item, stepId)
                         if (updated != null && items.any { it == item }) saveItems(items.map { if (it.id == item.id) updated else it })
                     },
+                    onSkipRepeat = {
+                        val skipped = RepeatActions.skip(items, item)
+                        if (skipped.events.isNotEmpty() && saveItemsWithEvents(skipped.items, skipped.events))
+                            todoDetailTarget = null
+                    },
                     onDelete = {
+                        if (item.repeatTemplateId != null) {
+                            val cancelled = RepeatActions.cancelInstance(items, item)
+                            if (cancelled.events.isNotEmpty() && saveItemsWithEvents(cancelled.items, cancelled.events)) {
+                                todoDetailTarget = null
+                                scope.launch {
+                                    if (snackbarHostState.showSnackbar("已取消本次《${item.title}》", actionLabel = "撤回") == SnackbarResult.ActionPerformed) {
+                                        val current = items.firstOrNull { it.id == item.id }
+                                        if (current?.kind == "重复历史" && current.repeatOccurrenceDay == item.repeatOccurrenceDay)
+                                            saveItemsWithEvent(items.map { if (it.id == item.id) item else it },
+                                                TaskRecorder.event(TaskEventType.TASK_RESTORED, item.id, item.title))
+                                    }
+                                }
+                            }
+                            return@TodoDetailDialog
+                        }
                         val before = items
                         val result = TaskActions.deleteItem(before, item)
                         if (saveItemsWithEvent(result.items, result.event)) {

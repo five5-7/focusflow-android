@@ -21,7 +21,9 @@ enum class TaskEventType(val label: String, val storageKey: String) {
     CAPTURE_ROUTED("收集箱整理", "capture_routed"),
     NEXT_ACTION_CREATED("建立下一步", "next_action_created"),
     TASK_DELETED("删除任务", "task_deleted"),
-    TASK_RESTORED("恢复任务", "task_restored");
+    TASK_RESTORED("恢复任务", "task_restored"),
+    REPEAT_SKIPPED("跳过本次重复", "repeat_skipped"),
+    REPEAT_MISSED("重复本次未处理", "repeat_missed");
 
     companion object {
         fun fromKey(key: String): TaskEventType? = entries.firstOrNull { it.storageKey == key }

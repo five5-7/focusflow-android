@@ -45,6 +45,11 @@ class ReminderReceiver : BroadcastReceiver() {
             runtime.repository
         } else null
         when (intent.action) {
+            ACTION_REPEAT_REFRESH -> {
+                RepeatActions.refreshRepository(context)
+                ReminderScheduler.scheduleRepeatRefresh(context)
+                return
+            }
             ACTION_STANDALONE_DUE -> {
                 val id = intent.getLongExtra(EXTRA_STANDALONE_ID, -1L)
                 val at = intent.getLongExtra(EXTRA_STANDALONE_AT, -1L)
@@ -870,6 +875,7 @@ class ReminderReceiver : BroadcastReceiver() {
         const val EXTRA_SESSION_ID = "session_id"
         const val EXTRA_ACTIVITY_ENDS_AT = "activity_ends_at"
         const val ACTION_STANDALONE_DUE = "com.sakata.focusflow.STANDALONE_DUE"
+        const val ACTION_REPEAT_REFRESH = "com.sakata.focusflow.REPEAT_REFRESH"
         const val ACTION_STANDALONE_COMPLETE = "com.sakata.focusflow.STANDALONE_COMPLETE"
         const val EXTRA_STANDALONE_ID = "standalone_id"
         const val EXTRA_STANDALONE_AT = "standalone_at"

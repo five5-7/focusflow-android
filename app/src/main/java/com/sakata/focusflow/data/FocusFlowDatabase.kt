@@ -19,7 +19,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         CourseMeetingRuleEntity::class,
         MigrationStateEntity::class
     ],
-    version = 3,
+    version = 4,
     exportSchema = true
 )
 abstract class FocusFlowDatabase : RoomDatabase() {
@@ -49,11 +49,21 @@ abstract class FocusFlowDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE plans ADD COLUMN deadline_at INTEGER")
             }
         }
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE tasks ADD COLUMN repeat_frequency TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE tasks ADD COLUMN repeat_start_day INTEGER")
+                db.execSQL("ALTER TABLE tasks ADD COLUMN repeat_minute INTEGER NOT NULL DEFAULT -1")
+                db.execSQL("ALTER TABLE tasks ADD COLUMN repeat_template_id INTEGER")
+                db.execSQL("ALTER TABLE tasks ADD COLUMN repeat_occurrence_day INTEGER")
+                db.execSQL("ALTER TABLE tasks ADD COLUMN repeat_paused INTEGER NOT NULL DEFAULT 0")
+            }
+        }
 
         fun create(context: Context): FocusFlowDatabase = Room.databaseBuilder(
             context.applicationContext,
             FocusFlowDatabase::class.java,
             FILE_NAME
-        ).addMigrations(MIGRATION_1_2, MIGRATION_2_3).build()
+        ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4).build()
     }
 }

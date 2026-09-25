@@ -22,7 +22,7 @@ import kotlinx.coroutines.delay
 private data class TodoCreateDraft(val text: String, val dateOnlyAt: Long?)
 
 @Composable
-internal fun TodoCreateDialog(onDismiss: () -> Unit, onSave: (String, Long?, Boolean) -> Boolean) {
+internal fun TodoCreateDialog(onDismiss: () -> Unit, onSave: (String, Long?, Boolean, String, Int) -> Boolean) {
     val context = LocalContext.current
     val vault = LocalDraftVault.current
     val draftKey = "todoCreateLines"
@@ -30,6 +30,8 @@ internal fun TodoCreateDialog(onDismiss: () -> Unit, onSave: (String, Long?, Boo
     var title by remember { mutableStateOf(saved?.text.orEmpty()) }
     var dateOnlyAt by remember { mutableStateOf(saved?.dateOnlyAt) }
     var asChecklist by remember { mutableStateOf(false) }
+    var repeatFrequency by remember { mutableStateOf("") }
+    var repeatMinute by remember { mutableIntStateOf(-1) }
     fun persist() = vault.save(draftKey, TodoCreateDraft(title, dateOnlyAt))
     val lines = title.lines().map(String::trim).filter(String::isNotBlank)
     AppDialog(
@@ -51,6 +53,20 @@ internal fun TodoCreateDialog(onDismiss: () -> Unit, onSave: (String, Long?, Boo
                 Checkbox(checked = asChecklist, onCheckedChange = { asChecklist = it })
                 Text("把后续行作为第一项待办的检查项")
             }
+            Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                listOf("" to "不重复", "daily" to "每天", "weekly" to "每周").forEach { (key, label) ->
+                    FilterChip(selected = repeatFrequency == key, onClick = { repeatFrequency = key }, label = { Text(label) })
+                }
+            }
+            if (repeatFrequency.isNotEmpty()) {
+                OutlinedButton(onClick = {
+                    val initial = Calendar.getInstance()
+                    android.app.TimePickerDialog(context, { _, hour, minute -> repeatMinute = hour * 60 + minute },
+                        initial.get(Calendar.HOUR_OF_DAY), initial.get(Calendar.MINUTE), true).show()
+                }) { Text(if (repeatMinute < 0) "仅按日期，不设到点提醒" else "执行时刻：${GoalPlanner.displayTime(repeatMinute)}") }
+                if (repeatMinute >= 0) TextButton(onClick = { repeatMinute = -1 }) { Text("清除时刻") }
+                Text("每次只生成一个待办；完成或跳过后生成下一次。", style = MaterialTheme.typography.bodySmall)
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 listOf("不指定" to null, "今天" to 0, "明天" to 1).forEach { (label, offset) ->
                     val chosen = offset?.let { TaskHistory.dayStartOf(dateAt(it, 12)) }
@@ -69,8 +85,9 @@ internal fun TodoCreateDialog(onDismiss: () -> Unit, onSave: (String, Long?, Boo
             }) { Text(dateOnlyAt?.let { "日期：${SimpleDateFormat("M月d日", Locale.CHINA).format(Date(it))}（无到点提醒）" } ?: "其他日期") }
         } },
         confirmButton = {
-            Button(enabled = lines.isNotEmpty() && lines.size <= (if (asChecklist) 51 else 50) && lines.all { it.length <= 200 }, onClick = {
-                if (onSave(title, dateOnlyAt, asChecklist)) {
+            Button(enabled = lines.isNotEmpty() && lines.size <= (if (asChecklist) 51 else 50) &&
+                (repeatFrequency.isEmpty() || lines.size == 1) && lines.all { it.length <= 200 }, onClick = {
+                if (onSave(title, dateOnlyAt, asChecklist, repeatFrequency, repeatMinute)) {
                     vault.clear(draftKey)
                     onDismiss()
                 }
@@ -87,7 +104,8 @@ internal fun TodoListSection(
     onAdd: () -> Unit,
     onComplete: (Item) -> Unit,
     onDetail: (Item) -> Unit,
-    onBatchAction: (Set<Long>, TodoBatchAction, Long?, Boolean) -> Boolean
+    onBatchAction: (Set<Long>, TodoBatchAction, Long?, Boolean) -> Boolean,
+    onPauseRepeat: (Item, Boolean) -> Unit
 ) {
     val context = LocalContext.current
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
@@ -152,6 +170,19 @@ internal fun TodoListSection(
     }
     if (groups.pendingCount == 0) {
         Text("还没有待办。记下标题就可以开始，时间以后再安排。", color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+    val templates = items.filter { it.kind == "重复模板" }
+    if (templates.isNotEmpty()) {
+        Text("重复规则 · ${templates.size}", style = MaterialTheme.typography.titleSmall)
+        templates.forEach { template ->
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("${template.title} · ${if (template.repeatFrequency == "daily") "每天" else "每周"}${if (template.repeatPaused) " · 已暂停" else ""}",
+                    modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                TextButton(onClick = { onPauseRepeat(template, !template.repeatPaused) }) {
+                    Text(if (template.repeatPaused) "继续" else "暂停")
+                }
+            }
+        }
     }
     fun toggle(item: Item) { selectedIds = if (item.id in selectedIds) selectedIds - item.id else selectedIds + item.id }
     listOf("已过安排或截止" to groups.overdue, "已安排" to groups.scheduled,
@@ -236,7 +267,8 @@ internal fun TodoDetailDialog(
     onDelete: () -> Unit,
     onDueDate: (Long?) -> Unit,
     onAddChecklist: (String) -> Boolean,
-    onToggleChecklist: (Long) -> Unit
+    onToggleChecklist: (Long) -> Unit,
+    onSkipRepeat: () -> Unit
 ) {
     val context = LocalContext.current
     var newSteps by remember(item.id) { mutableStateOf("") }
@@ -271,6 +303,8 @@ internal fun TodoDetailDialog(
                     if (item.dueAt != null) TextButton(onClick = { onDueDate(null) }) { Text("清除截止日期") }
                 }
                 if (!item.done) OutlinedButton(onClick = onSchedule, modifier = Modifier.fillMaxWidth()) { Text("安排时间") }
+                if (!item.done && item.repeatTemplateId != null)
+                    TextButton(onClick = onSkipRepeat, modifier = Modifier.fillMaxWidth()) { Text("跳过本次（保留重复规则）") }
                 OutlinedButton(onClick = onEdit, modifier = Modifier.fillMaxWidth()) { Text("编辑") }
                 TextButton(onClick = onDelete, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("删除") }
             }

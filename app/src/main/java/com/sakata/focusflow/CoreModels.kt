@@ -46,7 +46,14 @@ data class Item(
     val checklist: List<ChecklistEntry> = emptyList(),
     /** Only linked tasks on a name-only plan use near/later buckets. */
     val planBucket: String = "near",
-    val planFocus: Boolean = false
+    val planFocus: Boolean = false,
+    /** Rule-bearing template and one dated occurrence never share an ID. */
+    val repeatFrequency: String = "",
+    val repeatStartDay: Long? = null,
+    val repeatMinute: Int = -1,
+    val repeatTemplateId: Long? = null,
+    val repeatOccurrenceDay: Long? = null,
+    val repeatPaused: Boolean = false
 )
 
 data class ChecklistEntry(val id: Long, val title: String, val done: Boolean = false)
