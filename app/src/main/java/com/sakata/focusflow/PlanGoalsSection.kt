@@ -33,11 +33,21 @@ internal fun PlanGoalsSection(
     onChooseTime: (Goal) -> Unit,
     onAutoPlanGoals: () -> Unit,
     onCreateWanted: (String) -> Boolean,
+    onEditWanted: (Goal, String, String, String) -> Boolean,
+    onStartWanted: (Goal, String) -> Boolean,
+    onAddPlanTask: (Goal, String) -> Boolean,
     onChangeState: (Goal, PlanState) -> Unit
 ) {
     val context = LocalContext.current
     var addingWanted by remember { mutableStateOf(false) }
     var wantedTitle by remember { mutableStateOf("") }
+    var editing by remember { mutableStateOf<Goal?>(null) }
+    var editTitle by remember { mutableStateOf("") }
+    var editOutcome by remember { mutableStateOf("") }
+    var editNotes by remember { mutableStateOf("") }
+    var starting by remember { mutableStateOf<Goal?>(null) }
+    var addingTaskTo by remember { mutableStateOf<Goal?>(null) }
+    var taskTitle by remember { mutableStateOf("") }
     Row(
         Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -48,7 +58,7 @@ internal fun PlanGoalsSection(
     }
     TextButton(onClick = { addingWanted = true }) { Text("＋ 记下想做（只需名称）") }
     val active = goals.filter { it.state == PlanState.IN_PROGRESS }
-    TextButton(onClick = onAutoPlanGoals, enabled = active.isNotEmpty()) { Text("按空挡自动排本周目标（本地判断）") }
+    TextButton(onClick = onAutoPlanGoals, enabled = active.any { it.weeklyTarget > 0 }) { Text("按空挡自动排本周目标（本地判断）") }
     autoPlanMessage?.let {
         Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
@@ -59,9 +69,13 @@ internal fun PlanGoalsSection(
             FocusCard(containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
                 Column(Modifier.fillMaxWidth().padding(12.dp)) {
                     Text(plan.title, fontWeight = FontWeight.SemiBold)
+                    if (plan.desiredOutcome.isNotBlank()) Text("期望结果：${plan.desiredOutcome}", style = MaterialTheme.typography.bodySmall)
                     if (plan.sourceNotes.isNotBlank()) Text(plan.sourceNotes, style = MaterialTheme.typography.bodySmall)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        TextButton(onClick = { onChangeState(plan, PlanState.IN_PROGRESS) }) { Text("开始") }
+                        TextButton(onClick = { taskTitle = ""; starting = plan }) { Text("开始") }
+                        TextButton(onClick = {
+                            editTitle = plan.title; editOutcome = plan.desiredOutcome; editNotes = plan.sourceNotes; editing = plan
+                        }) { Text("编辑") }
                         TextButton(onClick = { onChangeState(plan, PlanState.PAUSED) }) { Text("暂停") }
                         TextButton(onClick = { onDeleteGoal(plan) }) { Text("删除") }
                     }
@@ -71,6 +85,25 @@ internal fun PlanGoalsSection(
     }
     if (active.isNotEmpty()) Text("进行中 · ${active.size}", style = MaterialTheme.typography.titleMedium)
     active.forEach { goal ->
+        if (goal.weeklyTarget == 0) {
+            FocusCard(containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
+                Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(goal.title, fontWeight = FontWeight.SemiBold)
+                    if (goal.desiredOutcome.isNotBlank()) Text("期望结果：${goal.desiredOutcome}", style = MaterialTheme.typography.bodySmall)
+                    if (goal.sourceNotes.isNotBlank()) Text(goal.sourceNotes, style = MaterialTheme.typography.bodySmall)
+                    val linked = items.filter { it.goalId == goal.id && it.kind == "任务" }
+                    val pending = linked.filterNot { it.done }
+                    Text("近期任务 · ${pending.size}", style = MaterialTheme.typography.labelMedium)
+                    pending.forEach { Text("• ${it.title}", style = MaterialTheme.typography.bodySmall) }
+                    if (linked.any { it.done }) Text("已完成 ${linked.count { it.done }} 项", style = MaterialTheme.typography.bodySmall)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        TextButton(onClick = { taskTitle = ""; addingTaskTo = goal }) { Text("＋近期任务") }
+                        TextButton(onClick = { onChangeState(goal, PlanState.PAUSED) }) { Text("暂停") }
+                        TextButton(onClick = { onChangeState(goal, PlanState.COMPLETED) }) { Text("完成") }
+                    }
+                }
+            }
+        } else {
         GoalExecutionCard(
             goal = goal,
             resources = resources,
@@ -87,6 +120,7 @@ internal fun PlanGoalsSection(
             onChooseTime = onChooseTime,
             onChangeState = onChangeState
         )
+        }
     }
     if (goals.any { it.state == PlanState.PAUSED }) Text(
         "暂停后不再参与自动排程；此前已安排的任务仍在日程中，可逐项调整。",
@@ -117,6 +151,34 @@ internal fun PlanGoalsSection(
         }) { Text("保存") } },
         dismissButton = { TextButton(onClick = { addingWanted = false }) { Text("取消") } }
     )
+    editing?.let { plan -> AppDialog(
+        onDismissRequest = { editing = null }, title = { Text("编辑想做") },
+        text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(editTitle, { editTitle = it }, label = { Text("名称") }, singleLine = true)
+            OutlinedTextField(editOutcome, { editOutcome = it }, label = { Text("期望结果（选填）") })
+            OutlinedTextField(editNotes, { editNotes = it }, label = { Text("原始笔记（选填）") })
+        } },
+        confirmButton = { Button(enabled = editTitle.isNotBlank(), onClick = {
+            if (onEditWanted(plan, editTitle, editOutcome, editNotes)) editing = null
+        }) { Text("保存") } },
+        dismissButton = { TextButton(onClick = { editing = null }) { Text("取消") } }
+    ) }
+    starting?.let { plan -> AppDialog(
+        onDismissRequest = { starting = null }, title = { Text("开始《${plan.title}》") },
+        text = { OutlinedTextField(taskTitle, { taskTitle = it }, label = { Text("第一项近期任务（选填）") }, supportingText = { Text("可以稍后再添加；不会自动排入日程。") }) },
+        confirmButton = { Button(enabled = taskTitle.trim().length <= 200, onClick = {
+            if (onStartWanted(plan, taskTitle)) starting = null
+        }) { Text("开始") } },
+        dismissButton = { TextButton(onClick = { starting = null }) { Text("取消") } }
+    ) }
+    addingTaskTo?.let { plan -> AppDialog(
+        onDismissRequest = { addingTaskTo = null }, title = { Text("添加近期任务") },
+        text = { OutlinedTextField(taskTitle, { taskTitle = it }, label = { Text("任务名称") }, singleLine = true) },
+        confirmButton = { Button(enabled = taskTitle.isNotBlank() && taskTitle.trim().length <= 200, onClick = {
+            if (onAddPlanTask(plan, taskTitle)) addingTaskTo = null
+        }) { Text("添加") } },
+        dismissButton = { TextButton(onClick = { addingTaskTo = null }) { Text("取消") } }
+    ) }
 }
 
 @Composable

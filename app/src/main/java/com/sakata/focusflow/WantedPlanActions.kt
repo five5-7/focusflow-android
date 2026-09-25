@@ -14,8 +14,8 @@ internal object WantedPlanActions {
         val used = plans.mapTo(mutableSetOf()) { it.id }
         var id = newItemId()
         while (id in used) id = newItemId()
-        return Goal(id = id, title = name, weeklyTarget = 1, durationMinutes = 30,
-            metricTarget = "30 分钟", sourceNotes = notes.trim(), state = PlanState.WANTED)
+        return Goal(id = id, title = name, weeklyTarget = 0, durationMinutes = 30,
+            sourceNotes = notes.trim(), state = PlanState.WANTED)
     }
 
     /** Selected inbox records become one wanted plan; every original title and note remains readable. */
@@ -44,5 +44,21 @@ internal object WantedPlanActions {
         if (plan.state == to || plan.state == PlanState.COMPLETED) return null
         if (plan.state == PlanState.PAUSED && to == PlanState.WANTED) return null
         return plan.copy(state = to)
+    }
+
+    fun edit(plan: Goal, title: String, outcome: String, notes: String): Goal? {
+        val name = title.trim()
+        if (plan.state != PlanState.WANTED || name.isEmpty()) return null
+        return plan.copy(title = name, desiredOutcome = outcome.trim(), sourceNotes = notes.trim())
+    }
+
+    fun linkedTask(items: List<Item>, plan: Goal, title: String): CreatedTodo {
+        val name = title.trim()
+        if (plan.state != PlanState.IN_PROGRESS || name.isEmpty() || name.length > 200) return CreatedTodo(items, null, null)
+        val used = items.mapTo(mutableSetOf()) { it.id }
+        var id = newItemId()
+        while (id in used) id = newItemId()
+        val task = Item(id = id, title = name, detail = "尚未安排具体时间", kind = "任务", goalId = plan.id)
+        return CreatedTodo(listOf(task) + items, task, TaskRecorder.event(TaskEventType.TASK_CREATED, id, name))
     }
 }

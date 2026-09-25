@@ -84,7 +84,7 @@ internal fun TodoListSection(
     onBatchAction: (Set<Long>, TodoBatchAction) -> Boolean
 ) {
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    var showCompleted by remember { mutableStateOf(false) }
+    val groupExpanded = remember { mutableStateMapOf("已过安排" to true, "已安排" to true, "未安排" to true, "已完成" to false) }
     var selecting by remember { mutableStateOf(false) }
     var selectedIds by remember { mutableStateOf(emptySet<Long>()) }
     val selectable = items.filter { it.kind == "任务" && !it.done && it.goalId == null && it.parentCaptureId == null &&
@@ -126,12 +126,12 @@ internal fun TodoListSection(
         Text("还没有待办。记下标题就可以开始，时间以后再安排。", color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
     fun toggle(item: Item) { selectedIds = if (item.id in selectedIds) selectedIds - item.id else selectedIds + item.id }
-    TodoGroup("已过安排", groups.overdue, now, onComplete, onDetail, selecting, selectable, selectedIds, ::toggle, { selecting = true; toggle(it) })
-    TodoGroup("已安排", groups.scheduled, now, onComplete, onDetail, selecting, selectable, selectedIds, ::toggle, { selecting = true; toggle(it) })
-    TodoGroup("未安排", groups.unscheduled, now, onComplete, onDetail, selecting, selectable, selectedIds, ::toggle, { selecting = true; toggle(it) })
-    if (groups.completed.isNotEmpty()) {
-        TextButton(onClick = { showCompleted = !showCompleted }) { Text("已完成 · ${groups.completed.size} ${if (showCompleted) "收起" else "展开"}") }
-        if (showCompleted) TodoGroup("已完成", groups.completed, now, onComplete, onDetail, selecting, selectable, selectedIds, ::toggle, { selecting = true; toggle(it) })
+    listOf("已过安排" to groups.overdue, "已安排" to groups.scheduled,
+        "未安排" to groups.unscheduled, "已完成" to groups.completed).forEach { (name, group) ->
+        TodoGroup(name, group, now, onComplete, onDetail, selecting, selectable, selectedIds,
+            ::toggle, { selecting = true; groupExpanded[name] = true; toggle(it) },
+            expanded = groupExpanded[name] == true,
+            onToggleExpanded = { groupExpanded[name] = groupExpanded[name] != true })
     }
 }
 
@@ -147,10 +147,16 @@ private fun TodoGroup(
     selectable: Set<Long>,
     selectedIds: Set<Long>,
     onSelect: (Item) -> Unit,
-    onLongSelect: (Item) -> Unit
+    onLongSelect: (Item) -> Unit,
+    expanded: Boolean,
+    onToggleExpanded: () -> Unit
 ) {
     if (items.isEmpty()) return
-    Text("$title · ${items.size}", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+    TextButton(onClick = onToggleExpanded, modifier = Modifier.fillMaxWidth()) {
+        Text("$title · ${items.size}  ${if (expanded) "收起 ▴" else "展开 ▾"}",
+            modifier = Modifier.fillMaxWidth(), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+    }
+    if (!expanded) return
     FocusCard(containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
             items.forEachIndexed { index, item ->

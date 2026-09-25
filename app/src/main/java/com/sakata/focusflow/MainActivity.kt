@@ -1374,6 +1374,14 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                     onPickTime = { item -> inboxScheduleTarget = item },
                     onEdit = { item -> inboxEditTarget = item },
                     onOrganize = { item -> organizeTarget = item },
+                    onInboxToTodo = { item ->
+                        val result = InboxBatchActions.apply(items, setOf(item.id), InboxBatchAction.TO_TASK)
+                        if (result.events.isNotEmpty()) saveItemsWithEvents(result.items, result.events)
+                    },
+                    onInboxToWanted = { item ->
+                        val result = WantedPlanActions.fromInbox(items, goals, setOf(item.id))
+                        if (result.created != null) saveItemsAndGoalsWithEvents(result.items, result.plans, result.events)
+                    },
                     onBatchOrganize = { selectedIds, action ->
                         if (action == InboxBatchAction.TO_WANTED) {
                             val converted = WantedPlanActions.fromInbox(items, goals, selectedIds)
@@ -1613,6 +1621,27 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                     onCreateWanted = { title ->
                         val plan = WantedPlanActions.create(goals, title)
                         plan != null && saveGoals(goals + plan)
+                    },
+                    onEditWanted = { plan, title, outcome, notes ->
+                        val edited = WantedPlanActions.edit(plan, title, outcome, notes)
+                        edited != null && goals.any { it == plan } && saveGoals(goals.map { if (it.id == plan.id) edited else it })
+                    },
+                    onStartWanted = { plan, firstTask ->
+                        val started = if (goals.any { it == plan } && plan.state == PlanState.WANTED)
+                            WantedPlanActions.changeState(plan, PlanState.IN_PROGRESS) else null
+                        if (started == null) false else {
+                            val updatedGoals = goals.map { if (it.id == plan.id) started else it }
+                            if (firstTask.isBlank()) saveGoals(updatedGoals) else {
+                                val created = WantedPlanActions.linkedTask(items, started, firstTask)
+                                created.event != null && saveItemsAndGoalsWithEvents(created.items, updatedGoals, listOf(created.event))
+                            }
+                        }
+                    },
+                    onAddPlanTask = { plan, title ->
+                        if (goals.none { it == plan }) false else {
+                            val created = WantedPlanActions.linkedTask(items, plan, title)
+                            created.event != null && saveItemsWithEvent(created.items, created.event)
+                        }
                     },
                     onChangeGoalState = { goal, state ->
                         val changed = WantedPlanActions.changeState(goal, state)

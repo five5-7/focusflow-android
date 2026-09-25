@@ -41,7 +41,7 @@ internal object PlanHubSummary {
         } else {
             "${snapshot.goalCount} 个进行中 · ${snapshot.wantedCount} 个想做"
         },
-        PlanPage.REVIEW to if (snapshot.goalCount == 0) {
+        PlanPage.REVIEW to if (snapshot.weeklyTarget == 0) {
             "有目标后生成建议"
         } else {
             "本周 ${snapshot.completedThisWeek} / ${snapshot.weeklyTarget} 次 · 低压力建议"

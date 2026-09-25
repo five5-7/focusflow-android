@@ -57,6 +57,8 @@ import kotlinx.coroutines.delay
     onPickTime: (Item) -> Unit,
     onEdit: (Item) -> Unit,
     onOrganize: (Item) -> Unit,
+    onInboxToTodo: (Item) -> Unit,
+    onInboxToWanted: (Item) -> Unit,
     onBatchOrganize: (Set<Long>, InboxBatchAction) -> Boolean,
     onCreateNextAction: (Item) -> Unit,
     onRestoreCapture: (Item) -> Unit,
@@ -529,6 +531,7 @@ import kotlinx.coroutines.delay
                                         expanded = !inboxSelecting && expandedInboxId == item.id,
                                         selecting = inboxSelecting && item.id in selectableIds,
                                         selected = item.id in activeSelection,
+                                        canQuickConvert = item.id in selectableIds,
                                         onToggle = {
                                             if (inboxSelecting && item.id in selectableIds) selectedInboxIds =
                                                 if (item.id in activeSelection) activeSelection - item.id else activeSelection + item.id
@@ -537,6 +540,8 @@ import kotlinx.coroutines.delay
                                         onPickTime = onPickTime,
                                         onEdit = onEdit,
                                         onOrganize = onOrganize,
+                                        onToTodo = onInboxToTodo,
+                                        onToWanted = onInboxToWanted,
                                         onShrink = onShrink,
                                         onPause = onPause,
                                         onAbandon = onAbandon
@@ -736,10 +741,13 @@ private fun StatusChoiceRow(label: String, options: List<String>, selected: Stri
     expanded: Boolean,
     selecting: Boolean,
     selected: Boolean,
+    canQuickConvert: Boolean,
     onToggle: () -> Unit,
     onPickTime: (Item) -> Unit,
     onEdit: (Item) -> Unit,
     onOrganize: (Item) -> Unit,
+    onToTodo: (Item) -> Unit,
+    onToWanted: (Item) -> Unit,
     onShrink: (Item) -> Unit,
     onPause: (Item) -> Unit,
     onAbandon: (Item) -> Unit
@@ -771,11 +779,15 @@ private fun StatusChoiceRow(label: String, options: List<String>, selected: Stri
                 reviewedAt?.let { Text("上次回顾 ${captureAgeLabel(it, now)}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 if (!item.title.startsWith("重新安排：")) {
                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
-                        TextButton(onClick = { onPickTime(item) }) { Text("安排时间") }
-                        TextButton(onClick = { onOrganize(item) }) { Text("整理") }
+                        if (canQuickConvert) {
+                            TextButton(onClick = { onToTodo(item) }) { Text("转待办") }
+                            TextButton(onClick = { onToWanted(item) }) { Text("放入想做") }
+                        }
                         Box {
                             TextButton(onClick = { moreOpen = true }) { Text("更多") }
                             DropdownMenu(expanded = moreOpen, onDismissRequest = { moreOpen = false }) {
+                                DropdownMenuItem(text = { Text("安排时间") }, onClick = { moreOpen = false; onPickTime(item) })
+                                DropdownMenuItem(text = { Text("整理到其他位置") }, onClick = { moreOpen = false; onOrganize(item) })
                                 DropdownMenuItem(text = { Text("编辑") }, onClick = { moreOpen = false; onEdit(item) })
                                 DropdownMenuItem(text = { Text("删除") }, onClick = { moreOpen = false; onAbandon(item) })
                             }
