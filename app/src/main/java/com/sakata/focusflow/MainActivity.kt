@@ -236,6 +236,10 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
     var todayInboxOpen by remember { mutableStateOf(false) }
     var addOpen by remember { mutableStateOf(false) }
     var addTodoOpen by remember { mutableStateOf(false) }
+    var addWantedOpen by remember { mutableStateOf(false) }
+    var addScheduleOpen by remember { mutableStateOf(false) }
+    var addReminderOpen by remember { mutableStateOf(false) }
+    var reminderRevision by remember { mutableIntStateOf(0) }
     var addMenuOpen by remember { mutableStateOf(false) }
     // 历史导航可能只把加号弹窗收起，Boolean 仍为 true；请求序号保证再次点击会重建并注册弹窗。
     var addMenuRequestId by remember { mutableIntStateOf(0) }
@@ -1552,8 +1556,8 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                         }
                     },
                     onTodoDetail = { todoDetailTarget = it },
-                    onBatchTodo = batchTodo@ { ids, action ->
-                        val result = TodoBatchActions.apply(items, ids, action)
+                    onBatchTodo = batchTodo@ { ids, action, targetDay, keepTime ->
+                        val result = TodoBatchActions.apply(items, ids, action, targetDay = targetDay, keepTime = keepTime)
                         if (result.events.isEmpty()) {
                             scope.launch { snackbarHostState.showSnackbar("待办已变化，请重新选择。") }
                             return@batchTodo false
@@ -2023,10 +2027,39 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
         if (addMenuOpen) key(addMenuRequestId) {
             AddMenuDialog(
                 onDismiss = { addMenuOpen = false },
-                onQuickCapture = { addMenuOpen = false; addOpen = true },
+                onCapture = { title ->
+                    val item = Item(title = title, detail = "", kind = "收集箱")
+                    saveItemsWithEvent(listOf(item) + items,
+                        TaskRecorder.event(TaskEventType.TASK_CREATED, item.id, item.title))
+                },
                 onAddTodo = { addMenuOpen = false; addTodoOpen = true },
-                onGamePlan = { addMenuOpen = false; gamePlanOpen = true }
+                onAddPlan = { addMenuOpen = false; addWantedOpen = true },
+                onAddSchedule = { addMenuOpen = false; addScheduleOpen = true },
+                onAddReminder = { addMenuOpen = false; addReminderOpen = true }
             )
+        }
+        if (addWantedOpen) SimpleTitleDialog("新建计划", "计划名称", onDismiss = { addWantedOpen = false }) { title ->
+            val plan = WantedPlanActions.create(goals, title)
+            if (plan != null && saveGoals(goals + plan)) { addWantedOpen = false; true } else false
+        }
+        if (addScheduleOpen) GlobalTimeCreateDialog("新建日程", onDismiss = { addScheduleOpen = false }) { title, at ->
+            val item = Item(title = title, detail = TaskScheduleText.scheduledDetail(at, 60), kind = "任务", scheduledAt = at)
+            if (saveItemsWithEvents(listOf(item) + items, listOf(
+                    TaskRecorder.event(TaskEventType.TASK_CREATED, item.id, item.title),
+                    TaskRecorder.event(TaskEventType.TASK_SCHEDULED, item.id, item.title, scheduledAt = at)
+                ))) { addScheduleOpen = false; true } else false
+        }
+        if (addReminderOpen) GlobalTimeCreateDialog("新建提醒", onDismiss = { addReminderOpen = false },
+            existing = remember(reminderRevision) { StandaloneReminders.all(context) },
+            onCompleteReminder = { reminder ->
+                if (StandaloneReminders.complete(context, reminder.id, reminder.triggerAt)) {
+                    StandaloneReminders.cancel(context, reminder)
+                    reminderRevision++
+                }
+            }) { title, at ->
+            val saved = StandaloneReminders.create(context, title, at)
+            if (saved) { addReminderOpen = false; reminderRevision++; ReminderScheduler.restoreStandaloneReminders(context) }
+            saved
         }
         if (addTodoOpen) TodoCreateDialog(
             onDismiss = { addTodoOpen = false },

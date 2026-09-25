@@ -61,7 +61,10 @@ object ReminderScheduler {
         scheduleDailyMealReminders(context, store.loadBaselineProfile())
         scheduleDailyWindDown(context, store.loadBaselineProfile())
         restoreTaskReminders(context)
+        restoreStandaloneReminders(context)
     }
+
+    fun restoreStandaloneReminders(context: Context) = StandaloneReminders.restore(context)
 
     fun scheduleDailyStatusCheckIn(
         context: Context,

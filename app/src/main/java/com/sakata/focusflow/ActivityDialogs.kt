@@ -4,10 +4,13 @@ import android.app.TimePickerDialog
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -21,32 +24,42 @@ private data class ActivityDialogDraft(val category: String, val customName: Str
 /** 活动转场草稿：关闭后重开恢复正在填写的内容（8.1.0 草稿保险箱）。 */
 private data class ActivityTransitionDraft(val extensionMinutes: Int, val reason: String, val endTimeChoice: String)
 
-/** 加号菜单：快速记录仍为首项，待办另有明确入口。 */
-@Composable internal fun AddMenuDialog(onDismiss: () -> Unit, onQuickCapture: () -> Unit, onAddTodo: () -> Unit, onGamePlan: () -> Unit) {
+/** 快速记录在顶部；四个明确的新建入口保持等权。 */
+@Composable internal fun AddMenuDialog(
+    onDismiss: () -> Unit,
+    onCapture: (String) -> Boolean,
+    onAddTodo: () -> Unit,
+    onAddPlan: () -> Unit,
+    onAddSchedule: () -> Unit,
+    onAddReminder: () -> Unit
+) {
+    val vault = LocalDraftVault.current
+    var capture by remember { mutableStateOf(vault.load<String>("globalQuickCapture").orEmpty()) }
+    fun saveCapture() {
+        if (capture.isNotBlank() && onCapture(capture.trim())) {
+            capture = ""
+            vault.clear("globalQuickCapture")
+            onDismiss()
+        }
+    }
     AppDialog(
         onDismissRequest = onDismiss,
         title = { Text("添加") },
         text = { Column(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-            // 收编：无显式底色的 Card → FocusCard，显式保留 Card 默认底色 surfaceContainerHighest。
-            FocusCard(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest) {
-                Column(Modifier.fillMaxWidth().clickable(onClick = onQuickCapture).padding(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text("快速记录", fontWeight = FontWeight.SemiBold)
-                    Text("记一个想法，稍后再安排。", style = MaterialTheme.typography.bodySmall)
+            OutlinedTextField(value = capture, onValueChange = {
+                capture = it.take(200); vault.save("globalQuickCapture", capture)
+            }, modifier = Modifier.fillMaxWidth(), label = { Text("快速记录到收集箱") },
+                singleLine = true, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { saveCapture() }))
+            TextButton(enabled = capture.isNotBlank(), onClick = ::saveCapture) { Text("记录") }
+            listOf(
+                listOf("新建待办" to onAddTodo, "新建计划" to onAddPlan),
+                listOf("新建日程" to onAddSchedule, "新建提醒" to onAddReminder)
+            ).forEach { row -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                row.forEach { (label, action) ->
+                    OutlinedButton(onClick = action, modifier = Modifier.weight(1f).heightIn(min = 52.dp)) { Text(label) }
                 }
-            }
-            FocusCard(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest) {
-                Column(Modifier.fillMaxWidth().clickable(onClick = onAddTodo).padding(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text("新增待办", fontWeight = FontWeight.SemiBold)
-                    Text("先写标题，可以不定时间。", style = MaterialTheme.typography.bodySmall)
-                }
-            }
-            // 收编：无显式底色的 Card → FocusCard，显式保留 Card 默认底色 surfaceContainerHighest。
-            FocusCard(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest) {
-                Column(Modifier.fillMaxWidth().clickable(onClick = onGamePlan).padding(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text("安排空闲活动（时间）", fontWeight = FontWeight.SemiBold)
-                    Text("游戏/视频/学习/休息/运动，按空闲安排时间，到点提醒开始与收尾（游戏/视频可检测前台）。", style = MaterialTheme.typography.bodySmall)
-                }
-            }
+            } }
         } },
         confirmButton = { TextButton(onClick = onDismiss) { Text("取消") } }
     )

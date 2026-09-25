@@ -87,12 +87,14 @@ internal fun TodoListSection(
     onAdd: () -> Unit,
     onComplete: (Item) -> Unit,
     onDetail: (Item) -> Unit,
-    onBatchAction: (Set<Long>, TodoBatchAction) -> Boolean
+    onBatchAction: (Set<Long>, TodoBatchAction, Long?, Boolean) -> Boolean
 ) {
+    val context = LocalContext.current
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     val groupExpanded = remember { mutableStateMapOf("已过安排或截止" to true, "已安排" to true, "未安排" to true, "已完成" to false) }
     var selecting by remember { mutableStateOf(false) }
     var selectedIds by remember { mutableStateOf(emptySet<Long>()) }
+    var keepBatchTime by remember { mutableStateOf(true) }
     val selectable = items.filter { it.kind == "任务" && !it.done && it.goalId == null && it.parentCaptureId == null &&
         items.none { child -> child.parentCaptureId == it.id } }.mapTo(mutableSetOf()) { it.id }
     LaunchedEffect(selectable) { selectedIds = selectedIds.intersect(selectable) }
@@ -117,13 +119,33 @@ internal fun TodoListSection(
         TextButton(onClick = { selectedIds = if (selectedIds == selectable) emptySet() else selectable }) {
             Text(if (selectedIds == selectable) "取消全选" else "全选普通待办")
         }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Checkbox(checked = keepBatchTime, onCheckedChange = { keepBatchTime = it })
+            Text("改期时保留原具体时刻；关闭则仅指定日期")
+        }
+        TextButton(enabled = selectedIds.isNotEmpty(), onClick = {
+            val tomorrow = TaskHistory.dayStartOf(dateAt(1, 12))
+            if (onBatchAction(selectedIds, TodoBatchAction.MOVE_DATE, tomorrow, keepBatchTime)) {
+                selecting = false; selectedIds = emptySet()
+            }
+        }) { Text("所选移到明天") }
         androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp), maxItemsInEachRow = 2) {
             TodoBatchAction.entries.forEach { action ->
                 val canRun = selectedIds.isNotEmpty() && (action != TodoBatchAction.CLEAR_TIME ||
                     items.filter { it.id in selectedIds }.all { it.scheduledAt != null })
                 OutlinedButton(enabled = canRun, onClick = {
-                    if (onBatchAction(selectedIds, action)) { selecting = false; selectedIds = emptySet() }
+                    if (action == TodoBatchAction.MOVE_DATE) {
+                        val calendar = Calendar.getInstance()
+                        DatePickerDialog(context, { _, year, month, day ->
+                            val date = Calendar.getInstance().apply {
+                                set(year, month, day, 12, 0, 0); set(Calendar.MILLISECOND, 0)
+                            }.timeInMillis.let(TaskHistory::dayStartOf)
+                            if (onBatchAction(selectedIds, action, date, keepBatchTime)) {
+                                selecting = false; selectedIds = emptySet()
+                            }
+                        }, calendar.get(Calendar.YEAR), calendar.get(Calendar.MONTH), calendar.get(Calendar.DAY_OF_MONTH)).show()
+                    } else if (onBatchAction(selectedIds, action, null, keepBatchTime)) { selecting = false; selectedIds = emptySet() }
                 }) { Text(action.label) }
             }
         }

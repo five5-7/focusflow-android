@@ -7,6 +7,7 @@ import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.content.pm.PackageManager
 import androidx.core.app.NotificationCompat
 import com.sakata.focusflow.data.CoreDataRepository
@@ -44,6 +45,36 @@ class ReminderReceiver : BroadcastReceiver() {
             runtime.repository
         } else null
         when (intent.action) {
+            ACTION_STANDALONE_DUE -> {
+                val id = intent.getLongExtra(EXTRA_STANDALONE_ID, -1L)
+                val at = intent.getLongExtra(EXTRA_STANDALONE_AT, -1L)
+                if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
+                val reminder = StandaloneReminders.markDelivered(context, id, at) ?: return
+                ensureChannel(manager, CHANNEL_STANDALONE, "自定义提醒")
+                val notificationId = (id % Int.MAX_VALUE).toInt()
+                val complete = PendingIntent.getBroadcast(context, 0,
+                    Intent(context, ReminderReceiver::class.java).apply {
+                        action = ACTION_STANDALONE_COMPLETE
+                        data = Uri.parse("focusflow://standalone/complete/$id")
+                        putExtra(EXTRA_STANDALONE_ID, id); putExtra(EXTRA_STANDALONE_AT, at)
+                    }, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+                val open = PendingIntent.getActivity(context, 0, Intent(context, MainActivity::class.java),
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+                manager.notify(notificationId, NotificationCompat.Builder(context, CHANNEL_STANDALONE)
+                    .setSmallIcon(android.R.drawable.ic_popup_reminder)
+                    .setContentTitle(reminder.title)
+                    .setContentText("你设置的提醒已到时间。")
+                    .setContentIntent(open)
+                    .addAction(0, "完成本次提醒", complete)
+                    .setAutoCancel(true).build())
+                return
+            }
+            ACTION_STANDALONE_COMPLETE -> {
+                val id = intent.getLongExtra(EXTRA_STANDALONE_ID, -1L)
+                if (StandaloneReminders.complete(context, id, intent.getLongExtra(EXTRA_STANDALONE_AT, -1L)))
+                    manager.cancel((id % Int.MAX_VALUE).toInt())
+                return
+            }
             ACTION_STATUS_CHECK_IN -> {
                 val settings = store.loadStatusCheckInSettings()
                 val expectedAt = intent.getLongExtra(EXTRA_STATUS_PROMPT_EXPECTED_AT, -1L)
@@ -838,6 +869,10 @@ class ReminderReceiver : BroadcastReceiver() {
         const val EXTRA_NEXT_STEP = "next_step"
         const val EXTRA_SESSION_ID = "session_id"
         const val EXTRA_ACTIVITY_ENDS_AT = "activity_ends_at"
+        const val ACTION_STANDALONE_DUE = "com.sakata.focusflow.STANDALONE_DUE"
+        const val ACTION_STANDALONE_COMPLETE = "com.sakata.focusflow.STANDALONE_COMPLETE"
+        const val EXTRA_STANDALONE_ID = "standalone_id"
+        const val EXTRA_STANDALONE_AT = "standalone_at"
         const val EXTRA_STATUS_PROMPT_EXPECTED_AT = "status_prompt_expected_at"
         const val EXTRA_STATUS_PROMPT_TEST = "status_prompt_test"
         const val EXTRA_STATUS_PROMPT_INDEX = "status_prompt_index"
@@ -860,6 +895,7 @@ class ReminderReceiver : BroadcastReceiver() {
         private const val CHANNEL_ACTIVITY_END = "focusflow_activity_end_v3"
         private const val CHANNEL_ACTIVITY_END_GENTLE = "focusflow_activity_end_gentle_v3"
         const val CHANNEL_TASK = "focusflow_task_reminders"
+        private const val CHANNEL_STANDALONE = "focusflow_custom_reminders_v1"
         private const val CHANNEL_STATUS_CHECK_IN = "focusflow_status_check_in_v2"
         private const val CHANNEL_WIND_DOWN = "focusflow_wind_down_v2"
         const val CHANNEL_MEAL = "focusflow_meal_reminders_v2"
