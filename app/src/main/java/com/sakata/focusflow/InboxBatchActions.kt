@@ -3,6 +3,7 @@ package com.sakata.focusflow
 internal enum class InboxBatchAction(val label: String) {
     TO_TASK("转待办"),
     TO_WANTED("合并为想做"),
+    TO_PLAN("归入已有计划"),
     REFERENCE("留作参考"),
     KEEP("暂时保留"),
     DELETE("删除")
@@ -29,7 +30,7 @@ internal object InboxBatchActions {
 
         val changed = when (action) {
             // Plan creation needs a task + plan transaction; handled by WantedPlanActions.
-            InboxBatchAction.TO_WANTED -> return InboxBatchResult(items, emptyList(), emptyList())
+            InboxBatchAction.TO_WANTED, InboxBatchAction.TO_PLAN -> return InboxBatchResult(items, emptyList(), emptyList())
             InboxBatchAction.TO_TASK -> items.map { item ->
                 if (item.id in selectedIds) item.preservingNote().copy(
                     kind = "任务", detail = "尚未安排具体时间", scheduledAt = null,
@@ -54,6 +55,24 @@ internal object InboxBatchActions {
             TaskRecorder.event(type, item.id, item.title, extra = action.label, at = at)
         }
         return InboxBatchResult(changed, events, targets)
+    }
+
+    /** All selected captures keep their IDs and notes; a stale or nested selection changes nothing. */
+    fun attachToPlan(items: List<Item>, selectedIds: Set<Long>, goal: Goal,
+                     at: Long = System.currentTimeMillis()): InboxBatchResult {
+        val selected = items.filter { it.id in selectedIds }
+        if (goal.state != PlanState.IN_PROGRESS || selectedIds.isEmpty() || selected.size != selectedIds.size ||
+            selected.any { item -> item.done || item.kind != "收集箱" ||
+                CaptureRoute.fromKey(item.captureRoute) != CaptureRoute.INBOX ||
+                item.parentCaptureId != null || items.any { it.parentCaptureId == item.id } ||
+                item.title.startsWith("重新安排：") }) return InboxBatchResult(items, emptyList(), emptyList())
+        val changed = items.map { item -> if (item.id in selectedIds) item.preservingNote().copy(
+            kind = "任务", detail = "属于${if (goal.weeklyTarget == 0) "计划" else "目标"}：${goal.title} · 尚未安排具体时间",
+            goalId = goal.id, scheduledAt = null, dayOnly = false, windowStartAt = null, windowEndAt = null
+        ) else item }
+        val events = selected.map { TaskRecorder.event(TaskEventType.TASK_ATTACHED_TO_PLAN,
+            it.id, it.title, extra = goal.title, at = at) }
+        return InboxBatchResult(changed, events, selected)
     }
 
     fun undoDelete(current: List<Item>, original: List<Item>, deleted: List<Item>, at: Long = System.currentTimeMillis(), extra: String = "撤回批量删除"): InboxBatchResult {

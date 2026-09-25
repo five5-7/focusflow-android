@@ -46,10 +46,11 @@ internal object WantedPlanActions {
         return plan.copy(state = to)
     }
 
-    fun edit(plan: Goal, title: String, outcome: String, notes: String): Goal? {
+    fun edit(plan: Goal, title: String, outcome: String, notes: String, deadlineAt: Long? = plan.deadlineAt): Goal? {
         val name = title.trim()
-        if (plan.state != PlanState.WANTED || name.isEmpty()) return null
-        return plan.copy(title = name, desiredOutcome = outcome.trim(), sourceNotes = notes.trim())
+        if (plan.weeklyTarget != 0 || plan.state !in setOf(PlanState.WANTED, PlanState.IN_PROGRESS) ||
+            name.isEmpty() || (deadlineAt != null && deadlineAt <= 0L)) return null
+        return plan.copy(title = name, desiredOutcome = outcome.trim(), sourceNotes = notes.trim(), deadlineAt = deadlineAt)
     }
 
     fun linkedTask(items: List<Item>, plan: Goal, title: String): CreatedTodo {

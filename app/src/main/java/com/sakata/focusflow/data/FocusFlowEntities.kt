@@ -157,7 +157,8 @@ data class PlanEntity(
     @ColumnInfo(name = "completion_week_key") val completionWeekKey: Long,
     @ColumnInfo(name = "desired_outcome") val desiredOutcome: String,
     @ColumnInfo(name = "first_action") val firstAction: String,
-    @ColumnInfo(name = "source_notes") val sourceNotes: String
+    @ColumnInfo(name = "source_notes") val sourceNotes: String,
+    @ColumnInfo(name = "deadline_at") val deadlineAt: Long? = null
 ) {
     companion object {
         const val ACTIVE = "active"
@@ -179,7 +180,8 @@ data class PlanEntity(
             completionWeekKey = goal.completionWeekKey,
             desiredOutcome = goal.desiredOutcome,
             firstAction = goal.firstAction,
-            sourceNotes = goal.sourceNotes
+            sourceNotes = goal.sourceNotes,
+            deadlineAt = goal.deadlineAt
         )
     }
 }

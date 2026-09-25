@@ -29,7 +29,8 @@ object StoredGoalsCodec {
                 firstAction = goal.optString("firstAction", ""),
                 sourceNotes = goal.optString("sourceNotes", ""),
                 state = PlanState.fromKey(goal.optString("state", PlanState.IN_PROGRESS.key))
-                    ?: PlanState.IN_PROGRESS
+                    ?: PlanState.IN_PROGRESS,
+                deadlineAt = goal.optLong("deadlineAt").takeIf { it > 0 }
             )
         }
     }.getOrDefault(emptyList())
@@ -52,6 +53,7 @@ object StoredGoalsCodec {
             put("firstAction", goal.firstAction)
             put("sourceNotes", goal.sourceNotes)
             put("state", goal.state.key)
+            put("deadlineAt", goal.deadlineAt ?: 0)
         }) }
     }.toString()
 

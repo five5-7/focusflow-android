@@ -26,6 +26,33 @@ class InboxBatchActionsTest {
         assertTrue(result.events.all { it.type == TaskEventType.CAPTURE_ROUTED && it.recordedAt == 1000L })
     }
 
+    @Test fun attachesSeveralCapturesToExistingPlanWithoutLosingNotesOrAddingSchedule() {
+        val items = listOf(inbox(1), inbox(2), inbox(3))
+        val plan = Goal(id = 9, title = "论文", weeklyTarget = 0, durationMinutes = 30)
+        val result = InboxBatchActions.attachToPlan(items, setOf(1L, 3L), plan, at = 1000)
+        assertEquals(listOf(1L, 2L, 3L), result.items.map { it.id })
+        assertEquals(listOf(9L, null, 9L), result.items.map { it.goalId })
+        assertEquals(listOf("原说明1", "原说明3"), listOf(result.items[0].userNote, result.items[2].userNote))
+        assertTrue(result.items.filter { it.goalId == plan.id }.all { it.kind == "任务" && it.scheduledAt == null })
+        assertEquals(listOf(1L, 3L), result.events.map { it.itemId })
+        assertTrue(result.events.all { it.type == TaskEventType.TASK_ATTACHED_TO_PLAN && it.recordedAt == 1000L })
+    }
+
+    @Test fun rejectsStaleNestedAndPausedPlanSelectionsAtomically() {
+        val parent = inbox(1)
+        val child = inbox(2).copy(parentCaptureId = parent.id)
+        val items = listOf(parent, child, inbox(3))
+        val plan = Goal(id = 9, title = "论文", weeklyTarget = 0, durationMinutes = 30)
+        listOf(setOf(1L, 3L), setOf(2L, 3L), setOf(3L, 999L)).forEach { ids ->
+            val result = InboxBatchActions.attachToPlan(items, ids, plan)
+            assertEquals(items, result.items)
+            assertTrue(result.events.isEmpty())
+        }
+        val paused = InboxBatchActions.attachToPlan(items, setOf(3L), plan.copy(state = PlanState.PAUSED))
+        assertEquals(items, paused.items)
+        assertTrue(paused.events.isEmpty())
+    }
+
     @Test fun keepingOnlyRecordsReviewAndDoesNotReplaceCreationOrContent() {
         val items = listOf(inbox(1), inbox(2))
         val result = InboxBatchActions.apply(items, setOf(2L), InboxBatchAction.KEEP, at = 2000)

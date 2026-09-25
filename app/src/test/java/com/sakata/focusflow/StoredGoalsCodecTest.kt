@@ -2,6 +2,7 @@ package com.sakata.focusflow
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -20,6 +21,7 @@ class StoredGoalsCodecTest {
         assertEquals("", goal.firstAction)
         assertEquals(1234L, goal.completionWeekKey)
         assertEquals(PlanState.IN_PROGRESS, goal.state)
+        assertNull(goal.deadlineAt)
     }
 
     @Test
@@ -38,7 +40,8 @@ class StoredGoalsCodecTest {
             minimumCompletionsThisWeek = 1,
             completionWeekKey = 5678L,
             desiredOutcome = "稳定通过模拟考试",
-            firstAction = "先做一套模拟题并标记错题"
+            firstAction = "先做一套模拟题并标记错题",
+            deadlineAt = 1_800_000_000_000L
         )
 
         assertEquals(listOf(original), StoredGoalsCodec.decodeGoals(StoredGoalsCodec.encodeGoals(listOf(original))))
