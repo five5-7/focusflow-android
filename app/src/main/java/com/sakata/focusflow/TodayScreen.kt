@@ -140,6 +140,10 @@ import kotlinx.coroutines.delay
     }
     val overviewScrollState = rememberScrollState()
     var tomorrowOpen by remember { mutableStateOf(false) }
+    var todaySelecting by remember { mutableStateOf(false) }
+    var selectedTodayIds by remember { mutableStateOf(emptySet<Long>()) }
+    val todaySelectableIds = remember(items, now / 60_000L) { TodayBatchSelection.eligibleIds(items, now) }
+    LaunchedEffect(todaySelectableIds) { selectedTodayIds = selectedTodayIds.intersect(todaySelectableIds) }
     var inboxFilter by remember { mutableStateOf("全部") }
     var expandedInboxId by remember { mutableStateOf<Long?>(null) }
     var inboxSelecting by remember { mutableStateOf(false) }
@@ -193,10 +197,33 @@ import kotlinx.coroutines.delay
             }
         }
         if (tasks.isNotEmpty()) FocusCard(containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-            modifier = Modifier.fillMaxWidth().clickable(onClick = onOpenSchedule)) {
+            modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                Text("今天已安排 · ${tasks.size}  ›", fontWeight = FontWeight.Bold)
-                tasks.forEach { entry -> Text("${formatMinute(entry.startMinute)} · ${entry.title}", style = MaterialTheme.typography.bodySmall) }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Text("今天已安排 · ${tasks.size}", fontWeight = FontWeight.Bold)
+                    if (todaySelectableIds.isNotEmpty()) TextButton(onClick = {
+                        todaySelecting = !todaySelecting; selectedTodayIds = emptySet()
+                    }) { Text(if (todaySelecting) "完成整理" else "整理多项") }
+                    else TextButton(onClick = onOpenSchedule) { Text("去日程 ›") }
+                }
+                if (!todaySelecting) tasks.forEach { entry -> Text("${formatMinute(entry.startMinute)} · ${entry.title}",
+                    modifier = Modifier.fillMaxWidth().clickable(onClick = onOpenSchedule), style = MaterialTheme.typography.bodySmall) }
+                else {
+                    Text("已选 ${selectedTodayIds.size} 项 · 关联计划与子任务请单独处理", style = MaterialTheme.typography.bodySmall)
+                    TextButton(onClick = { selectedTodayIds = if (selectedTodayIds == todaySelectableIds) emptySet() else todaySelectableIds }) {
+                        Text(if (selectedTodayIds == todaySelectableIds) "取消全选" else "全选可整理任务")
+                    }
+                    items.filter { it.id in todaySelectableIds }.sortedBy { it.scheduledAt }.forEach { item ->
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().clickable {
+                            selectedTodayIds = if (item.id in selectedTodayIds) selectedTodayIds - item.id else selectedTodayIds + item.id
+                        }) {
+                            Checkbox(checked = item.id in selectedTodayIds, onCheckedChange = { checked ->
+                                selectedTodayIds = if (checked) selectedTodayIds + item.id else selectedTodayIds - item.id
+                            })
+                            Text(item.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+                }
             }
         }
         if (recoveryCandidates.isNotEmpty()) FocusCard(containerColor = MaterialTheme.colorScheme.surfaceVariant) {
