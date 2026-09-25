@@ -42,6 +42,13 @@ class RecoveryInsightsTest {
         assertNull(RecoveryInsights.overdueLabel(stale.copy(done = true), now))
     }
 
+    @Test fun `all day task has no overdue label before the calendar day ends`() {
+        val allDay = Item(title = "全天", kind = "任务", dayOnly = true,
+            scheduledAt = TaskHistory.dayStartOf(now))
+        assertNull(RecoveryInsights.overdueLabel(allDay, now))
+        assertTrue(RecoveryInsights.overdueLabel(allDay, now + 24 * 60 * 60_000L) != null)
+    }
+
     @Test fun `weekly summary reports completion reschedules misses and repeated period`() {
         val monday = WeekReview.weekStartOf(now)
         fun at(day: Int, hour: Int) = monday + day * 24 * 60 * 60_000L + hour * 60 * 60_000L

@@ -29,9 +29,18 @@ object RecoveryInsights {
     }
 
     fun overdueLabel(item: Item, now: Long = System.currentTimeMillis()): String? {
-        val scheduledAt = item.scheduledAt ?: return null
-        val overdueBy = now - (scheduledAt + item.durationMinutes.coerceAtLeast(1) * 60_000L)
-        if (item.done || overdueBy <= 0L) return null
+        if (!missedWindow(item, now)) return null
+        val scheduledAt = requireNotNull(item.scheduledAt)
+        val overdueBy = now - (if (item.dayOnly) {
+            java.util.Calendar.getInstance().apply {
+                timeInMillis = scheduledAt
+                set(java.util.Calendar.HOUR_OF_DAY, 0)
+                set(java.util.Calendar.MINUTE, 0)
+                set(java.util.Calendar.SECOND, 0)
+                set(java.util.Calendar.MILLISECOND, 0)
+                add(java.util.Calendar.DAY_OF_YEAR, 1)
+            }.timeInMillis
+        } else scheduledAt + item.durationMinutes.coerceAtLeast(1) * 60_000L)
         val days = overdueBy / (24 * 60 * 60_000L)
         val hours = overdueBy / (60 * 60_000L)
         return when {
