@@ -11,8 +11,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import java.time.Instant
+import java.time.ZoneId
 
 @Composable
 internal fun PlanCoursesSection(
@@ -31,8 +34,19 @@ internal fun PlanCoursesSection(
     onEditCourse: (Course) -> Unit,
     onIgnoreCourse: (Course) -> Unit,
     onToggleCourse: (Course) -> Unit,
-    onDeleteCourses: (Set<Course>) -> Unit
+    onDeleteCourses: (Set<Course>) -> Unit,
+    reminderSettings: CourseReminderSettings,
+    reminderPeriodTable: CoursePeriodTable,
+    onReminderGlobalChange: (Boolean) -> Unit,
+    onReminderOverrideChange: (Course, Boolean?) -> Unit
 ) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text("课程提醒", fontWeight = FontWeight.Bold)
+            Text("默认上课前 10 分钟；单条课次可覆盖总开关", style = MaterialTheme.typography.labelSmall)
+        }
+        Switch(checked = reminderSettings.enabled, onCheckedChange = onReminderGlobalChange)
+    }
     Text("从教务网导入", fontWeight = FontWeight.Bold)
     FilledTonalButton(
         enabled = !courseImportRunning,
@@ -78,7 +92,8 @@ FocusCard(
         onIgnoreCourse
     )
     HorizontalDivider()
-    ConfirmedCourses(confirmedCourses, onEditCourse, onToggleCourse, onDeleteCourses)
+    ConfirmedCourses(confirmedCourses, onEditCourse, onToggleCourse, onDeleteCourses,
+        reminderSettings, reminderPeriodTable, onReminderOverrideChange)
 }
 
 @Composable
@@ -158,7 +173,10 @@ private fun PendingCourses(
 }
 
 @Composable
-private fun ConfirmedCourses(confirmed: List<Course>, onEdit: (Course) -> Unit, onToggle: (Course) -> Unit, onDelete: (Set<Course>) -> Unit) {
+private fun ConfirmedCourses(confirmed: List<Course>, onEdit: (Course) -> Unit, onToggle: (Course) -> Unit,
+    onDelete: (Set<Course>) -> Unit, reminderSettings: CourseReminderSettings,
+    reminderPeriodTable: CoursePeriodTable,
+    onReminderOverrideChange: (Course, Boolean?) -> Unit) {
     var selecting by remember { mutableStateOf(false) }
     var selected by remember { mutableStateOf(emptySet<Course>()) }
     var pendingDelete by remember { mutableStateOf<Set<Course>?>(null) }
@@ -267,6 +285,23 @@ private fun ConfirmedCourses(confirmed: List<Course>, onEdit: (Course) -> Unit, 
             }
         }
     }
+    if (confirmed.isNotEmpty()) {
+        HorizontalDivider()
+        Text("按课次设置提醒", fontWeight = FontWeight.SemiBold)
+        confirmed.sortedWith(courseMeetingOrder).forEach { course ->
+            Column(Modifier.fillMaxWidth()) {
+                Text("${course.title} · ${weekdayName(course.weekday)} ${course.startPeriod}–${course.endPeriod} 节",
+                    style = MaterialTheme.typography.bodySmall)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf(null to "跟随总开关", true to "提醒", false to "关闭").forEach { (value, label) ->
+                        FilterChip(selected = reminderSettings.overrides[course.id] == value,
+                            onClick = { onReminderOverrideChange(course, value) }, label = { Text(label) })
+                    }
+                }
+                NextCourseLocationEditor(course, reminderPeriodTable)
+            }
+        }
+    }
     pendingDelete?.let { targets ->
         AppDialog(
             onDismissRequest = { pendingDelete = null },
@@ -286,6 +321,47 @@ private fun ConfirmedCourses(confirmed: List<Course>, onEdit: (Course) -> Unit, 
             dismissButton = { TextButton(onClick = { pendingDelete = null }) { Text("取消") } }
         )
     }
+}
+
+@Composable
+private fun NextCourseLocationEditor(course: Course, table: CoursePeriodTable) {
+    val context = LocalContext.current
+    // Offer today's room until class starts, even if the ten-minute alert has already fired.
+    val next = CourseReminderPolicy.nextTrigger(course, table,
+        System.currentTimeMillis() - CourseReminderPolicy.ADVANCE_MINUTES * 60_000L, ZoneId.systemDefault())
+        ?: return
+    val day = Instant.ofEpochMilli(next + CourseReminderPolicy.ADVANCE_MINUTES * 60_000L)
+        .atZone(ZoneId.systemDefault()).toLocalDate()
+    var temporary by remember(course.id, day, context) {
+        mutableStateOf(CourseLocationOverrides.get(context, course.id, day.toEpochDay()))
+    }
+    var editing by remember(course.id, day) { mutableStateOf(false) }
+    var draft by remember(course.id, day) { mutableStateOf("") }
+    val label = "${day.monthValue} 月 ${day.dayOfMonth} 日"
+    TextButton(onClick = { draft = temporary ?: course.building; editing = true }) {
+        Text("$label 本次地点：${temporary ?: course.building.ifBlank { "待确认" }} · 修改")
+    }
+    if (editing) AlertDialog(
+        onDismissRequest = { editing = false },
+        title = { Text("仅调整 $label 的上课地点") },
+        text = { OutlinedTextField(value = draft, onValueChange = { draft = it.take(100) },
+            label = { Text("本次地点") }, singleLine = true) },
+        confirmButton = { TextButton(enabled = draft.isNotBlank(), onClick = {
+            if (CourseLocationOverrides.set(context, course.id, day.toEpochDay(), draft)) {
+                temporary = draft.trim(); editing = false
+            }
+        }) { Text("保存") } },
+        dismissButton = {
+            Row {
+                if (temporary != null) TextButton(onClick = {
+                    if (CourseLocationOverrides.set(context, course.id, day.toEpochDay(), null)) {
+                        temporary = null; editing = false
+                    }
+                }) { Text("恢复固定地点") }
+                TextButton(onClick = { editing = false }) { Text("取消") }
+            }
+        }
+    )
 }
 
 @Composable

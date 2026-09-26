@@ -410,6 +410,7 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
     }
     var courses by remember { mutableStateOf(startup.courses) }
     var coursePeriodTable by remember { mutableStateOf(startup.coursePeriodTable) }
+    var courseReminderSettings by remember { mutableStateOf(CourseReminders.load(context)) }
     var coursePeriodTableConfigured by remember { mutableStateOf(startup.coursePeriodTableConfigured) }
     var courseTimetableCompact by remember { mutableStateOf(startup.courseTimetableCompact) }
     var courseTimetableTrailingDaysExpanded by remember { mutableStateOf(startup.courseTimetableTrailingDaysExpanded) }
@@ -421,6 +422,7 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
     fun persistCourses(updated: List<Course>): Boolean {
         val result = coreDataRepository.replaceCourses(updated, courses)
         if (result.applied) {
+            CourseReminders.sync(context, courses, updated, coursePeriodTable, courseReminderSettings)
             courses = updated
             if (items.any { it.kind == "重复模板" && it.repeatFrequency == "class_day" }) {
                 RepeatActions.refreshRepository(context)
@@ -1577,6 +1579,7 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                         coursePeriodTableConfigured = true
                         CourseGapPlanner.configure(table)
                         store.saveCoursePeriodTable(table)
+                        CourseReminders.sync(context, courses, courses, table, courseReminderSettings)
                     },
                     onCourseTimetableCompactChange = { compact ->
                         courseTimetableCompact = compact
@@ -1683,6 +1686,23 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                     },
                     onDeleteCourses = { targets ->
                         persistCourses(removeCoursesById(courses, targets))
+                    },
+                    courseReminderSettings = courseReminderSettings,
+                    courseReminderPeriodTable = coursePeriodTable,
+                    onCourseReminderGlobalChange = { enabled ->
+                        if (CourseReminders.setGlobal(context, enabled)) {
+                            courseReminderSettings = courseReminderSettings.copy(enabled = enabled)
+                            CourseReminders.sync(context, courses, courses, coursePeriodTable, courseReminderSettings)
+                        }
+                    },
+                    onCourseReminderOverrideChange = { course, enabled ->
+                        if (CourseReminders.setOverride(context, course.id, enabled)) {
+                            courseReminderSettings = courseReminderSettings.copy(overrides =
+                                courseReminderSettings.overrides.toMutableMap().apply {
+                                    if (enabled == null) remove(course.id) else put(course.id, enabled)
+                                })
+                            CourseReminders.sync(context, courses, courses, coursePeriodTable, courseReminderSettings)
+                        }
                     },
                     goals = goals,
                     onAddGoal = { goalFinderSuggestion = ""; addGoalOpen = true },
@@ -2114,8 +2134,13 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
         if (addReminderOpen) GlobalTimeCreateDialog("新建提醒", onDismiss = { addReminderOpen = false },
             existing = remember(reminderRevision) { StandaloneReminders.all(context) },
             onCompleteReminder = { reminder ->
-                if (StandaloneReminders.complete(context, reminder.id, reminder.triggerAt)) {
+                if (StandaloneReminders.complete(context, reminder.id, reminder.scheduledAt)) {
                     StandaloneReminders.cancel(context, reminder)
+                    context.getSystemService(android.app.NotificationManager::class.java)
+                        .apply {
+                            cancel(StandaloneReminders.notificationTag(reminder.id), 0)
+                            cancel((reminder.id % Int.MAX_VALUE).toInt())
+                        }
                     reminderRevision++
                 }
             }) { title, at ->

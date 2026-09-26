@@ -65,6 +65,7 @@ object ReminderScheduler {
         scheduleRepeatRefresh(context)
         restoreTaskReminders(context)
         restoreStandaloneReminders(context)
+        CourseReminders.restore(context)
     }
 
     fun restoreStandaloneReminders(context: Context) = StandaloneReminders.restore(context)

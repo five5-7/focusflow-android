@@ -57,8 +57,12 @@ internal fun GlobalTimeCreateDialog(title: String, onDismiss: () -> Unit,
                 Text("已有提醒", style = MaterialTheme.typography.titleSmall)
                 existing.filter { it.completedAt == null }.take(5).forEach { reminder ->
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("${reminder.title} · ${formatDateTime(reminder.triggerAt)}",
-                            modifier = Modifier.weight(1f), maxLines = 1)
+                        Column(Modifier.weight(1f)) {
+                            Text("${reminder.title} · ${formatDateTime(reminder.triggerAt)}", maxLines = 1)
+                            reminder.snoozedUntil?.let { next ->
+                                Text("下次通知：${formatDateTime(next)}", style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
                         TextButton(onClick = { onCompleteReminder(reminder) }) { Text("取消") }
                     }
                 }

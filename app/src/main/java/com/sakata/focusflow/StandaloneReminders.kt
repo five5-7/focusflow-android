@@ -15,19 +15,24 @@ internal data class StandaloneReminder(
     val title: String,
     val triggerAt: Long,
     val deliveredAt: Long? = null,
-    val completedAt: Long? = null
-)
+    val completedAt: Long? = null,
+    val snoozedUntil: Long? = null
+) {
+    val scheduledAt: Long get() = snoozedUntil ?: triggerAt
+}
 
 internal object StandaloneReminders {
     private const val FILE = "standalone_reminders"
     private const val KEY = "entries"
+    fun notificationTag(id: Long): String = "standalone:$id"
 
     @Synchronized fun all(context: Context): List<StandaloneReminder> = runCatching {
         val array = JSONArray(context.getSharedPreferences(FILE, Context.MODE_PRIVATE).getString(KEY, "[]"))
         (0 until array.length()).map { index ->
             val entry = array.getJSONObject(index)
             StandaloneReminder(entry.getLong("id"), entry.getString("title"), entry.getLong("triggerAt"),
-                entry.optLong("deliveredAt").takeIf { it > 0 }, entry.optLong("completedAt").takeIf { it > 0 })
+                entry.optLong("deliveredAt").takeIf { it > 0 }, entry.optLong("completedAt").takeIf { it > 0 },
+                entry.optLong("snoozedUntil").takeIf { it > 0 })
         }.filter { it.id > 0 && it.triggerAt > 0 }
     }.getOrDefault(emptyList())
 
@@ -35,6 +40,7 @@ internal object StandaloneReminders {
         val encoded = JSONArray().apply { entries.forEach { entry -> put(JSONObject().apply {
             put("id", entry.id); put("title", entry.title); put("triggerAt", entry.triggerAt)
             put("deliveredAt", entry.deliveredAt ?: 0L); put("completedAt", entry.completedAt ?: 0L)
+            put("snoozedUntil", entry.snoozedUntil ?: 0L)
         }) } }.toString()
         return context.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit().putString(KEY, encoded).commit()
     }
@@ -52,7 +58,7 @@ internal object StandaloneReminders {
     @Synchronized fun markDelivered(context: Context, id: Long, expectedAt: Long,
                                     now: Long = System.currentTimeMillis()): StandaloneReminder? {
         val current = all(context)
-        val entry = current.firstOrNull { it.id == id && it.triggerAt == expectedAt &&
+        val entry = current.firstOrNull { it.id == id && it.scheduledAt == expectedAt &&
             it.completedAt == null && it.deliveredAt == null && expectedAt <= now } ?: return null
         return entry.copy(deliveredAt = now).takeIf { updated ->
             save(context, current.map { if (it.id == id) updated else it })
@@ -62,9 +68,20 @@ internal object StandaloneReminders {
     @Synchronized fun complete(context: Context, id: Long, expectedAt: Long,
                                now: Long = System.currentTimeMillis()): Boolean {
         val current = all(context)
-        val entry = current.firstOrNull { it.id == id && it.triggerAt == expectedAt && it.completedAt == null }
+        val entry = current.firstOrNull { it.id == id && it.scheduledAt == expectedAt && it.completedAt == null }
             ?: return false
         return save(context, current.map { if (it.id == id) entry.copy(completedAt = now) else it })
+    }
+
+    /** Snooze only changes the next notification time; the original user time stays intact. */
+    @Synchronized fun snooze(context: Context, id: Long, expectedAt: Long, deliveredAt: Long,
+                             minutes: Int = 10, now: Long = System.currentTimeMillis()): Boolean {
+        if (minutes !in 5..180) return false
+        val current = all(context)
+        val entry = current.firstOrNull { it.id == id && it.scheduledAt == expectedAt &&
+            it.deliveredAt == deliveredAt && deliveredAt > 0 && it.completedAt == null } ?: return false
+        return save(context, current.map { if (it.id == id)
+            entry.copy(snoozedUntil = now + minutes * 60_000L, deliveredAt = null) else it })
     }
 
     fun pendingIntent(context: Context, reminder: StandaloneReminder): PendingIntent = PendingIntent.getBroadcast(
@@ -73,17 +90,17 @@ internal object StandaloneReminders {
             action = ReminderReceiver.ACTION_STANDALONE_DUE
             data = Uri.parse("focusflow://standalone/${reminder.id}")
             putExtra(ReminderReceiver.EXTRA_STANDALONE_ID, reminder.id)
-            putExtra(ReminderReceiver.EXTRA_STANDALONE_AT, reminder.triggerAt)
+            putExtra(ReminderReceiver.EXTRA_STANDALONE_AT, reminder.scheduledAt)
         }, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
 
     fun restore(context: Context, now: Long = System.currentTimeMillis()) {
         val manager = context.getSystemService(AlarmManager::class.java)
         all(context).forEach { reminder ->
-            if (reminder.completedAt == null && reminder.deliveredAt == null && reminder.triggerAt > now) {
+            if (reminder.completedAt == null && reminder.deliveredAt == null && reminder.scheduledAt > now) {
                 val pending = pendingIntent(context, reminder)
                 if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || manager.canScheduleExactAlarms())
-                    manager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, reminder.triggerAt, pending)
-                else manager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, reminder.triggerAt, pending)
+                    manager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, reminder.scheduledAt, pending)
+                else manager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, reminder.scheduledAt, pending)
             }
         }
     }

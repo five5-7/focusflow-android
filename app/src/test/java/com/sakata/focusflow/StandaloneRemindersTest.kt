@@ -29,4 +29,26 @@ class StandaloneRemindersTest {
         assertFalse(StandaloneReminders.complete(context, entry.id, entry.triggerAt, now + 60_004))
         assertNotNull(StandaloneReminders.all(context).single().completedAt)
     }
+
+    @Test fun `snooze moves only notification and rejects replayed actions`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        context.getSharedPreferences("standalone_reminders", Context.MODE_PRIVATE).edit().clear().commit()
+        val now = 1_800_000_000_000L
+        assertTrue(StandaloneReminders.create(context, "开会", now + 60_000, now))
+        val original = StandaloneReminders.all(context).single()
+        val delivered = StandaloneReminders.markDelivered(context, original.id, original.triggerAt, now + 60_001)!!
+        assertFalse(StandaloneReminders.snooze(context, original.id, original.triggerAt,
+            delivered.deliveredAt!! - 1, now = now + 60_002))
+        assertTrue(StandaloneReminders.snooze(context, original.id, original.triggerAt,
+            delivered.deliveredAt!!, now = now + 60_002))
+        val snoozed = StandaloneReminders.all(context).single()
+        assertEquals(original.triggerAt, snoozed.triggerAt)
+        assertEquals(now + 11 * 60_000L + 2, snoozed.scheduledAt)
+        assertFalse(StandaloneReminders.snooze(context, original.id, original.triggerAt,
+            delivered.deliveredAt!!, now = now + 60_003))
+        assertFalse(StandaloneReminders.complete(context, original.id, original.triggerAt))
+        assertNull(StandaloneReminders.markDelivered(context, original.id, original.triggerAt, snoozed.scheduledAt))
+        assertNotNull(StandaloneReminders.markDelivered(context, original.id, snoozed.scheduledAt, snoozed.scheduledAt))
+        assertTrue(StandaloneReminders.complete(context, original.id, snoozed.scheduledAt))
+    }
 }
