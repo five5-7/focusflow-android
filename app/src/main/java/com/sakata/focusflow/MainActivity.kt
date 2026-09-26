@@ -383,7 +383,6 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
     var amapKey by remember { mutableStateOf(startup.amapKey) }
     var campusCenter by remember { mutableStateOf(startup.campusCenter) }
     var tutorialSearch by remember { mutableStateOf(startup.tutorialSearch) }
-    var aiWeeklySummary by remember { mutableStateOf(startup.aiWeeklySummary) }
     var tutorialSearchOpen by remember { mutableStateOf(false) }
     var tutorialFinderOpen by remember { mutableStateOf(false) }
     var finderContext by remember { mutableStateOf("") }
@@ -1596,7 +1595,7 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                     campusLifeEnabled = campusLifeEnabled,
                     onCampusLifeRequired = { scope.launch { snackbarHostState.showSnackbar(CampusLifePolicy.disabledMessage()) } },
                     page = planPage,
-                                    onPageChange = { goTo(pageSnapshot().copy(planPage = it)); if (it == PlanPage.REVIEW) gameSessions = store.loadGameSessions(); if (it == PlanPage.HISTORY) taskEvents = readCoreData().taskEvents },
+                                    onPageChange = { goTo(pageSnapshot().copy(planPage = it)); if (it == PlanPage.HISTORY) taskEvents = readCoreData().taskEvents },
                     onResume = { item ->
                         val result = TaskActions.resume(items, item)
                         saveItemsWithEvent(result.items, result.event)
@@ -1805,12 +1804,10 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                     },
                     autoPlanMessage = autoPlanMessage,
                     tutorialSearch = tutorialSearch,
-                    aiWeeklySummary = aiWeeklySummary,
                     courseVision = courseVision,
                     onSearchTutorial = { tutorialSearchOpen = true },
                     onVideoAnalysis = { videoAnalysisOpen = true },
                     feedback = feedback,
-                    gameSessions = gameSessions,
                     checkIns = statusCheckIns,
                     taskEvents = taskEvents,
                     onReplaceTaskEvents = { updated ->
@@ -1906,9 +1903,6 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                 }, tutorialSearch = tutorialSearch, onTutorialSearchSettingsChange = { updated ->
                     tutorialSearch = updated
                     store.saveTutorialSearchSettings(updated)
-                }, aiWeeklySummary = aiWeeklySummary, onAiWeeklySummarySettingsChange = { updated ->
-                    aiWeeklySummary = updated
-                    store.saveAiWeeklySummarySettings(updated)
                 }, courseVision = courseVision, onCourseVisionSettingsChange = { updated ->
                     courseVision = updated
                     store.saveCourseVisionSettings(updated)

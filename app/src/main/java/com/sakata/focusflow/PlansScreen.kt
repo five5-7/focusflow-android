@@ -11,9 +11,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 
-@Composable internal fun PlansScreen(modifier: Modifier, items: List<Item>, courses: List<Course>, profile: CommuteProfile, lifeStage: LifeStage?, campusLifeEnabled: Boolean, onCampusLifeRequired: () -> Unit, page: PlanPage?, onPageChange: (PlanPage?) -> Unit, onResume: (Item) -> Unit, onAddTodo: () -> Unit, onCompleteTodo: (Item) -> Unit, onTodoDetail: (Item) -> Unit, onBatchTodo: (Set<Long>, TodoBatchAction, Long?, Boolean) -> Boolean, onPauseRepeat: (Item, Boolean) -> Unit, onRepeatRuleAction: (Item, String) -> Unit, onConfirmCourse: (Course) -> Unit, onConfirmSafeCourses: () -> Unit, onIgnoreCourse: (Course) -> Unit, onClearAwaitingCourses: () -> Unit, onAddCourse: () -> Unit, courseImportRunning: Boolean, courseImportMessage: String?, onImportCourses: () -> Unit, onImportZju: () -> Unit, onEditCourse: (Course) -> Unit, onToggleCourse: (Course) -> Unit, onDeleteCourses: (Set<Course>) -> Unit, goals: List<Goal>, onAddGoal: () -> Unit, onEditGoal: (Goal) -> Unit, onDeleteGoal: (Goal) -> Unit, onScheduleGoal: (Goal, GoalSuggestion) -> Unit, onChooseGoalTime: (Goal) -> Unit, onScheduleFlexible: (Item, Int, Int) -> Unit, resources: List<LearningResource>, onAddResource: () -> Unit, onSelectResource: (LearningResource) -> Unit, onDeleteResource: (LearningResource) -> Unit, onDeselectResource: () -> Unit, onSummarizeResource: (LearningResource) -> Unit, onAutoPlanGoals: () -> Unit, onCreateWanted: (String) -> Boolean, onEditPlan: (Goal, String, String, String, Long?) -> Boolean, onStartWanted: (Goal, String) -> Boolean, onAddPlanTask: (Goal, String) -> Boolean, onMovePlanTask: (Goal, Item, String) -> Boolean, onFocusPlanTask: (Goal, Item?) -> Boolean, onChangeGoalState: (Goal, PlanState) -> Unit, autoPlanMessage: String?, tutorialSearch: TutorialSearchSettings, aiWeeklySummary: AiWeeklySummarySettings, courseVision: CourseVisionSettings, onSearchTutorial: () -> Unit, onVideoAnalysis: () -> Unit, feedback: List<TaskFeedback>, gameSessions: List<GameSessionRecord>, checkIns: List<StatusCheckIn>, taskEvents: List<TaskEvent>, onReplaceTaskEvents: (List<TaskEvent>) -> Boolean, store: PrototypeStore, courseReminderSettings: CourseReminderSettings, courseReminderPeriodTable: CoursePeriodTable, onCourseReminderGlobalChange: (Boolean) -> Unit, onCourseReminderOverrideChange: (Course, Boolean?) -> Unit) {
-    // AI 周总结生效 key：独立 key 留空时沿用教程搜索的硅基流动 key。
-    val weeklySummaryKey = aiWeeklySummary.apiKey.ifBlank { tutorialSearch.apiKey }
+@Composable internal fun PlansScreen(modifier: Modifier, items: List<Item>, courses: List<Course>, profile: CommuteProfile, lifeStage: LifeStage?, campusLifeEnabled: Boolean, onCampusLifeRequired: () -> Unit, page: PlanPage?, onPageChange: (PlanPage?) -> Unit, onResume: (Item) -> Unit, onAddTodo: () -> Unit, onCompleteTodo: (Item) -> Unit, onTodoDetail: (Item) -> Unit, onBatchTodo: (Set<Long>, TodoBatchAction, Long?, Boolean) -> Boolean, onPauseRepeat: (Item, Boolean) -> Unit, onRepeatRuleAction: (Item, String) -> Unit, onConfirmCourse: (Course) -> Unit, onConfirmSafeCourses: () -> Unit, onIgnoreCourse: (Course) -> Unit, onClearAwaitingCourses: () -> Unit, onAddCourse: () -> Unit, courseImportRunning: Boolean, courseImportMessage: String?, onImportCourses: () -> Unit, onImportZju: () -> Unit, onEditCourse: (Course) -> Unit, onToggleCourse: (Course) -> Unit, onDeleteCourses: (Set<Course>) -> Unit, goals: List<Goal>, onAddGoal: () -> Unit, onEditGoal: (Goal) -> Unit, onDeleteGoal: (Goal) -> Unit, onScheduleGoal: (Goal, GoalSuggestion) -> Unit, onChooseGoalTime: (Goal) -> Unit, onScheduleFlexible: (Item, Int, Int) -> Unit, resources: List<LearningResource>, onAddResource: () -> Unit, onSelectResource: (LearningResource) -> Unit, onDeleteResource: (LearningResource) -> Unit, onDeselectResource: () -> Unit, onSummarizeResource: (LearningResource) -> Unit, onAutoPlanGoals: () -> Unit, onCreateWanted: (String) -> Boolean, onEditPlan: (Goal, String, String, String, Long?) -> Boolean, onStartWanted: (Goal, String) -> Boolean, onAddPlanTask: (Goal, String) -> Boolean, onMovePlanTask: (Goal, Item, String) -> Boolean, onFocusPlanTask: (Goal, Item?) -> Boolean, onChangeGoalState: (Goal, PlanState) -> Unit, autoPlanMessage: String?, tutorialSearch: TutorialSearchSettings, courseVision: CourseVisionSettings, onSearchTutorial: () -> Unit, onVideoAnalysis: () -> Unit, feedback: List<TaskFeedback>, checkIns: List<StatusCheckIn>, taskEvents: List<TaskEvent>, onReplaceTaskEvents: (List<TaskEvent>) -> Boolean, store: PrototypeStore, courseReminderSettings: CourseReminderSettings, courseReminderPeriodTable: CoursePeriodTable, onCourseReminderGlobalChange: (Boolean) -> Unit, onCourseReminderOverrideChange: (Course, Boolean?) -> Unit) {
     // 假期阶段：空挡与目标建议不把课程当作安排（课程管理页仍用完整列表）。
     // 8.1.0 第三轮：以下都是每次重组重算的派生值，按输入缓存，避免导航时多花一帧。
     val planningCourses = remember(courses, lifeStage, campusLifeEnabled) {
@@ -156,130 +154,6 @@ import kotlinx.coroutines.launch
                 onSummarizeResource = onSummarizeResource
             )
             PlanPage.HISTORY -> PlanHistorySection(taskEvents, onReplaceTaskEvents)
-            PlanPage.REVIEW -> {
-                val executionSummary = RecoveryInsights.weeklySummary(items, System.currentTimeMillis(), taskEvents)
-                FocusCard(containerColor = MaterialTheme.colorScheme.primaryContainer) {
-                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text("本周执行概览", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text(executionSummary.completionPercent?.let { "$it%" } ?: "—", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                                Text("计划完成率", style = MaterialTheme.typography.labelMedium)
-                            }
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text("${executionSummary.rescheduledCount}", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                                Text("改期", style = MaterialTheme.typography.labelMedium)
-                            }
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text("${executionSummary.missedCount}", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                                Text("未处理", style = MaterialTheme.typography.labelMedium)
-                            }
-                        }
-                        Text(
-                            if (executionSummary.plannedCount == 0) "本周尚无定时安排；有计划后再显示完成率。"
-                            else "已完成 ${executionSummary.completedCount}/${executionSummary.plannedCount} 项日程。",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        executionSummary.frequentReschedulePeriod?.let { period ->
-                            Text("本周改期较常发生在$period；下周可尝试缩短该时段任务或预留缓冲。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
-                        }
-                    }
-                }
-                if (weeklyGoals.isEmpty()) Text("创建目标并积累完成记录后，这里会给出调整建议。", style = MaterialTheme.typography.bodySmall)
-                else {
-                    val totalFull = weeklyGoals.sumOf { GoalPlanner.completedThisWeek(it) }
-                    val totalTarget = weeklyGoals.sumOf { it.weeklyTarget }
-                    Text(if (totalFull >= totalTarget) "本周累计 $totalFull / $totalTarget 次，目标全部达成。" else "本周累计 $totalFull / $totalTarget 次。", fontWeight = FontWeight.Bold)
-                    FeedbackInsights.analyze(feedback)?.let { insight ->
-                        // 收编：ElevatedCard → FocusCard，显式保留 surfaceContainerLow 底色与 1dp 默认阴影。
-                        FocusCard(
-                            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-                            elevation = 1.dp
-                        ) {
-                            Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Text("完成反馈趋势", fontWeight = FontWeight.Bold)
-                                Text("${insight.totalCount} 次完成反馈 · 最常见阻碍：${insight.topBarriers.joinToString(" · ") { "${it.first}（${it.second} 次）" }}", style = MaterialTheme.typography.bodySmall)
-                                Text("难度：${insight.difficultyCounts.entries.sortedByDescending { it.value }.joinToString(" · ") { "${it.key} ${it.value} 次" }} · 最低版本 ${(insight.minimumRatio * 100).toInt()}%", style = MaterialTheme.typography.bodySmall)
-                                Text(insight.advice, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
-                            }
-                        }
-                    }
-                }
-                if (feedback.isNotEmpty() && feedback.size < FeedbackInsights.MIN_FEEDBACK) {
-                    Text("再积累 ${FeedbackInsights.MIN_FEEDBACK - feedback.size} 次完成反馈后给出长期建议。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                GameStats.summary(gameSessions)?.let { summary ->
-                    // 收编：ElevatedCard → FocusCard，显式保留 surfaceContainerLow 底色与 1dp 默认阴影。
-                    FocusCard(
-                        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-                        elevation = 1.dp
-                    ) {
-                        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text("活动自律", fontWeight = FontWeight.Bold)
-                            Text(summary, style = MaterialTheme.typography.bodySmall)
-                            GameStats.advice(gameSessions)?.let { advice -> Text(advice, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary) }
-                        }
-                    }
-                }
-                HorizontalDivider()
-                Text("AI 周总结", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                Text("每个目标的调整建议在其卡片下方（数据式）；这里按本周真实记录（目标完成、常见阻碍、游戏自律）生成一段简短 AI 复盘。", style = MaterialTheme.typography.bodySmall)
-                if (!aiWeeklySummary.enabled || weeklySummaryKey.isBlank()) {
-                    Text("需在 设置 → 高级工具 → AI 周总结 开启并填写硅基流动 key。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                } else {
-                    var summarizing by remember { mutableStateOf(false) }
-                    var weeklySummary by remember { mutableStateOf<String?>(null) }
-                    var summaryError by remember { mutableStateOf<String?>(null) }
-                    val scope = rememberCoroutineScope()
-                    Button(enabled = !summarizing, onClick = {
-                        summarizing = true
-                        summaryError = null
-                        weeklySummary = null
-                        val dataText = buildString {
-                            append("本周目标：\n")
-                            weeklyGoals.forEach { g ->
-                                append("- ${g.title}：完成 ${GoalPlanner.completedThisWeek(g)} / ${g.weeklyTarget} 次")
-                                val barrier = feedback.filter { it.goalId == g.id && it.barrier != "无" }.groupingBy { it.barrier }.eachCount().maxByOrNull { it.value }?.key
-                                if (barrier != null) append("，常见阻碍：$barrier")
-                                append("\n")
-                            }
-                            GameStats.summary(gameSessions)?.let { append("\n活动自律：$it\n") }
-                        }
-                        scope.launch {
-                            val summary = SiliconFlowClient.weeklySummary(weeklySummaryKey, tutorialSearch.model, dataText)
-                            summarizing = false
-                            if (summary == null) summaryError = "请求失败，请检查网络或模型名" else weeklySummary = summary
-                        }
-                    }) { Text(if (summarizing) "总结中…" else "生成本周 AI 总结") }
-                    summaryError?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
-                    weeklySummary?.let { FocusCard(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)) { Text(it, Modifier.fillMaxWidth().padding(12.dp), style = MaterialTheme.typography.bodySmall) } }
-                }
-                weeklyGoals.forEach { goal ->
-                    val history = WeekReview.history(goal, feedback)
-                    // 收编：ElevatedCard → FocusCard，显式保留 surfaceContainerLow 底色与 1dp 默认阴影。
-                    FocusCard(
-                        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-                        elevation = 1.dp
-                    ) { Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                        Text(goal.title, fontWeight = FontWeight.SemiBold)
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                            val full = GoalPlanner.completedThisWeek(goal)
-                            val minimum = GoalPlanner.minimumCompletedThisWeek(goal)
-                            Text(if (minimum > 0) "本周 $full / ${goal.weeklyTarget} 次 · 最低版本 $minimum 次" else "本周 $full / ${goal.weeklyTarget} 次", style = MaterialTheme.typography.bodySmall)
-                            Text("近 4 周：${history.joinToString(" · ")}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        FocusFlowProgressBar(
-                            progress = GoalPlanner.completedThisWeek(goal).toFloat() / goal.weeklyTarget,
-                            thickness = 6.dp
-                        )
-                        val startLabel = WeekReview.weekLabel(GoalPlanner.currentWeekKey() - 3 * 7 * 24 * 60 * 60_000L)
-                        Text("$startLabel 周起每周完成次数（含最低版本）；反馈可跳过，未记录不计入。", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        HorizontalDivider()
-                        Text(GoalPlanner.weeklyAdvice(goal, feedback.filter { it.createdAt >= GoalPlanner.currentWeekKey() }), style = MaterialTheme.typography.bodySmall)
-                    } }
-                }
-            }
             PlanPage.PAUSED -> {
                 if (paused.isEmpty()) Text("暂停的任务会集中放在这里，不占用日程。", style = MaterialTheme.typography.bodySmall)
                 paused.forEach { item ->

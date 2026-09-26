@@ -5,7 +5,6 @@ internal enum class PlanPage(val title: String) {
     COURSES("课程"),
     GAPS("空挡建议"),
     GOALS("目标与执行"),
-    REVIEW("本周回顾"),
     HISTORY("历史记录"),
     TOOLBOX("资料工具箱"),
     PAUSED("暂停项目")
