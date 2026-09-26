@@ -1,11 +1,14 @@
 package com.sakata.focusflow
 
+import android.app.AlarmManager
 import android.app.Application
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import androidx.test.core.app.ApplicationProvider
+import java.time.LocalDate
+import java.time.ZoneId
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -13,6 +16,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
@@ -60,5 +64,41 @@ class CourseReminderStorageTest {
                 data = Uri.parse("focusflow://course/reminder/${course.id}")
             }, PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE)
         assertNull(pending)
+    }
+
+    @Test fun `delivered marker is isolated per meeting id`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        context.getSharedPreferences("course_reminder_settings", Context.MODE_PRIVATE).edit().clear().commit()
+        assertTrue(CourseReminders.markNotified(context, 771L, 1_000L))
+        assertTrue(CourseReminders.markNotified(context, 772L, 1_000L))
+        assertFalse(CourseReminders.markNotified(context, 771L, 1_000L))
+        assertFalse(CourseReminders.markNotified(context, 772L, 1_000L))
+        assertTrue(CourseReminders.markNotified(context, 771L, 2_000L))
+        assertTrue(CourseReminders.markNotified(context, 772L, 2_000L))
+    }
+
+    @Test fun `same meeting id drops the old alarm and reschedules after a period change`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        context.getSharedPreferences("course_reminder_settings", Context.MODE_PRIVATE).edit().clear().commit()
+        val zone = ZoneId.systemDefault()
+        val tomorrow = LocalDate.now(zone).plusDays(1)
+        val tableA = CoursePeriodTable(listOf(CoursePeriodTime(8 * 60, 8 * 60 + 45)))
+        val tableB = CoursePeriodTable(listOf(CoursePeriodTime(9 * 60, 9 * 60 + 45)))
+        val course = Course("实验", tomorrow.dayOfWeek.value, 1, 1, "东一", CampusZone.OTHER,
+            needsConfirmation = false, id = 501L)
+        val firstTrigger = tomorrow.atTime(7, 50).atZone(zone).toInstant().toEpochMilli()
+        val secondTrigger = tomorrow.atTime(8, 50).atZone(zone).toInstant().toEpochMilli()
+        val shadow = Shadows.shadowOf(context.getSystemService(AlarmManager::class.java))
+
+        PrototypeStore(context).saveCoursePeriodTable(tableA)
+        CourseReminders.sync(context, emptyList(), listOf(course), tableA, CourseReminderSettings(enabled = true))
+        val first = shadow.scheduledAlarms.single()
+        assertEquals(firstTrigger, first.triggerAtMs)
+
+        PrototypeStore(context).saveCoursePeriodTable(tableB)
+        CourseReminders.sync(context, listOf(course), listOf(course), tableB, CourseReminderSettings(enabled = true))
+        val rescheduled = shadow.scheduledAlarms
+        assertEquals(1, rescheduled.size)
+        assertEquals(secondTrigger, rescheduled.single().triggerAtMs)
     }
 }

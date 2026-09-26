@@ -129,7 +129,7 @@ class TaskReminderPolicyTest {
 
     @Test fun `slot end reminder is scheduled once and rejects stale delivery`() {
         val start = now + 5 * 60_000L
-        val task = Item(id = 82L, title = "写报告", kind = "任务", scheduledAt = start,
+        val task = Item(id = 82L, title = "写报告", detail = "", kind = "任务", scheduledAt = start,
             durationMinutes = 30)
         val inProgress = TaskReminderPolicy.pendingReminders(listOf(task),
             ActivityReminderSettings(scheduleAdvanceMinutes = 10), start + 1_000L)

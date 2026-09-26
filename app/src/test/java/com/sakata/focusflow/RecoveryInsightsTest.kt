@@ -43,7 +43,7 @@ class RecoveryInsightsTest {
     }
 
     @Test fun `all day task has no overdue label before the calendar day ends`() {
-        val allDay = Item(title = "全天", kind = "任务", dayOnly = true,
+        val allDay = Item(title = "全天", detail = "", kind = "任务", dayOnly = true,
             scheduledAt = TaskHistory.dayStartOf(now))
         assertNull(RecoveryInsights.overdueLabel(allDay, now))
         assertTrue(RecoveryInsights.overdueLabel(allDay, now + 24 * 60 * 60_000L) != null)

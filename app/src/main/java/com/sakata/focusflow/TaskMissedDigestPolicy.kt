@@ -41,6 +41,6 @@ internal object TaskMissedDigestPolicy {
                 event.scheduledAt >= yesterday && event.scheduledAt < today &&
                 event.recordedAt >= today
         }.map { it.itemId to it.title }
-        return (current + archived).distinctBy { it.first }.map { it.second }
+        return (current + archived).distinctBy { it.first }.map { it.second }.toList()
     }
 }

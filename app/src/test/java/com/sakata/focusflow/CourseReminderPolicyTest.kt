@@ -55,4 +55,17 @@ class CourseReminderPolicyTest {
         val start = CourseReminderPolicy.startAt(sunday, day, table, london)
         assertEquals(day.atTime(8, 0).atZone(london).toInstant().toEpochMilli(), start)
     }
+
+    @Test fun `london spring transition rolls the weekly trigger with a 167 hour gap`() {
+        val london = ZoneId.of("Europe/London")
+        val sunday = course.copy(weekday = 7)
+        val march22 = LocalDate.of(2026, 3, 22)
+        val march29 = LocalDate.of(2026, 3, 29)
+        val first = requireNotNull(CourseReminderPolicy.nextTrigger(sunday, table,
+            march22.minusDays(1).atStartOfDay(london).toInstant().toEpochMilli(), london))
+        val second = requireNotNull(CourseReminderPolicy.nextTrigger(sunday, table, first + 1, london))
+        assertEquals(march22.atTime(7, 50).atZone(london).toInstant().toEpochMilli(), first)
+        assertEquals(march29.atTime(7, 50).atZone(london).toInstant().toEpochMilli(), second)
+        assertEquals(167 * 60 * 60_000L, second - first)
+    }
 }

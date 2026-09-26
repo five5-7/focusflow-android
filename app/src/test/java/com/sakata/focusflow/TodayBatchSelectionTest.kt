@@ -12,7 +12,7 @@ class TodayBatchSelectionTest {
 
     @Test fun `selection includes only remaining independent tasks today`() {
         val now = at(25, 12)
-        val eligible = Item(id = 1, title = "下午待办", kind = "任务", scheduledAt = at(25, 14))
+        val eligible = Item(id = 1, title = "下午待办", detail = "", kind = "任务", scheduledAt = at(25, 14))
         val missed = eligible.copy(id = 2, scheduledAt = at(25, 9))
         val tomorrow = eligible.copy(id = 3, scheduledAt = at(26, 9))
         val goal = eligible.copy(id = 4, goalId = 50)
@@ -27,8 +27,8 @@ class TodayBatchSelectionTest {
 
     @Test fun `today move and unschedule use exact batch undo`() {
         val now = at(25, 12)
-        val timed = Item(id = 11, title = "下午", kind = "任务", scheduledAt = at(25, 15))
-        val allDay = Item(id = 12, title = "全天", kind = "任务", scheduledAt = at(25, 0), dayOnly = true)
+        val timed = Item(id = 11, title = "下午", detail = "", kind = "任务", scheduledAt = at(25, 15))
+        val allDay = Item(id = 12, title = "全天", detail = "", kind = "任务", scheduledAt = at(25, 0), dayOnly = true)
         val original = listOf(timed, allDay)
         val ids = TodayBatchSelection.eligibleIds(original, now)
         val moved = TodoBatchActions.apply(original, ids, TodoBatchAction.MOVE_DATE,

@@ -7,7 +7,7 @@ import org.junit.Test
 
 class ActivityTaskReplanTest {
     @Test fun `replan keeps the linked task and rejects a stale or past selection`() {
-        val task = Item(id = 77L, title = "复习", kind = "任务", scheduledAt = 100_000L,
+        val task = Item(id = 77L, title = "复习", detail = "", kind = "任务", scheduledAt = 100_000L,
             repeatTemplateId = 9L, repeatOccurrenceDay = 0L)
         val session = ActivitySession(id = 88L, name = "复习", taskId = task.id,
             actualStartAt = 1_000L, plannedStartAt = 1_000L, endsAt = 61_000L)
