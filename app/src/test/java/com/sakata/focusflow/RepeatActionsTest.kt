@@ -25,6 +25,10 @@ class RepeatActionsTest {
         assertEquals(1, next.items.count { it.kind == "重复历史" })
         assertEquals(day(2026, 9, 26), next.items.first { it.kind == "任务" }.repeatOccurrenceDay)
         assertEquals(1, next.events.count { it.type == TaskEventType.REPEAT_MISSED })
+        assertEquals(first + 9 * 60 * 60_000L,
+            next.events.single { it.type == TaskEventType.REPEAT_MISSED }.scheduledAt)
+        assertEquals(1, RecoveryInsights.weeklySummary(next.items, day(2026, 9, 26),
+            created.events + next.events).missedCount)
         val muchLater = RepeatActions.refresh(next.items, day(2026, 10, 10))
         assertEquals(1, muchLater.items.count { it.kind == "任务" && !it.done })
         assertEquals(2, muchLater.items.count { it.kind == "重复历史" })
@@ -110,6 +114,44 @@ class RepeatActionsTest {
         val deleted = RepeatActions.deleteRule(created.items, rule, friday + 60_000L)
         assertEquals("回收站", deleted.items.first { it.id == rule.id }.kind)
         assertEquals("重复模板", TrashActions.restore(deleted.items, setOf(rule.id)).items.first { it.id == rule.id }.kind)
+    }
+
+    @Test fun `paused stopped and canceled occurrences leave execution denominator but skips remain`() {
+        val friday = day(2026, 9, 25)
+        val created = RepeatActions.create(emptyList(), "练习", "daily", friday, at = friday)
+        val rule = created.items.first { it.kind == "重复模板" }
+        val instance = created.items.first { it.kind == "任务" }
+        assertEquals(1, TaskHistory.daySummary(created.events, friday).scheduledCount)
+        val paused = RepeatActions.pause(created.items, rule, true, friday)
+        assertEquals(0, TaskHistory.daySummary(created.events + paused.events, friday).scheduledCount)
+        assertEquals(0, RecoveryInsights.weeklySummary(paused.items, friday,
+            created.events + paused.events).plannedCount)
+        val stopped = RepeatActions.stop(created.items, rule, friday)
+        assertEquals(0, TaskHistory.daySummary(created.events + stopped.events, friday).scheduledCount)
+        val canceled = RepeatActions.cancelInstance(created.items, instance, friday)
+        assertEquals(0, TaskHistory.daySummary(created.events + canceled.events, friday).scheduledCount)
+        val skipped = RepeatActions.skip(created.items, instance, friday)
+        assertEquals(1, TaskHistory.daySummary(created.events + skipped.events, friday).scheduledCount)
+        val lateStop = RepeatActions.stop(created.items, rule, day(2026, 9, 26))
+        assertEquals(1, TaskHistory.daySummary(created.events + lateStop.events, friday).scheduledCount)
+        assertEquals("本次未处理", lateStop.items.first { it.id == instance.id }.detail)
+        assertEquals(1, lateStop.events.count { it.type == TaskEventType.REPEAT_MISSED })
+        val completedInstance = instance.copy(done = true)
+        val completedItems = created.items.map { if (it.id == instance.id) completedInstance else it }
+        assertTrue(RepeatActions.cancelInstance(completedItems, completedInstance, friday).events.isEmpty())
+    }
+
+    @Test fun `pausing after a timed slot ends keeps the missed fact`() {
+        val friday = day(2026, 9, 25)
+        val created = RepeatActions.create(emptyList(), "练习", "daily", friday,
+            minute = 9 * 60, at = friday)
+        val rule = created.items.first { it.kind == "重复模板" }
+        val instance = created.items.first { it.kind == "任务" }
+        val pauseAt = friday + 11 * 60 * 60_000L
+        val paused = RepeatActions.pause(created.items, rule, true, pauseAt)
+        assertEquals("本次未处理", paused.items.first { it.id == instance.id }.detail)
+        assertEquals(1, paused.events.count { it.type == TaskEventType.REPEAT_MISSED })
+        assertEquals(1, TaskHistory.daySummary(created.events + paused.events, friday).scheduledCount)
     }
 
 }

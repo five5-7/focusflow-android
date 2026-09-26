@@ -1,5 +1,7 @@
 package com.sakata.focusflow
 
+import java.util.Calendar
+
 data class PendingTaskReminder(
     val itemId: Long,
     val title: String,
@@ -11,7 +13,8 @@ data class PendingTaskReminder(
 enum class TaskReminderStage {
     ADVANCE,
     DUE,
-    MISSED
+    MISSED,
+    DEADLINE
 }
 
 enum class AlarmDeliveryMode {
@@ -36,6 +39,15 @@ enum class ReminderTestResult {
 object TaskReminderPolicy {
     private val excludedKinds = setOf("收集箱", "暂停", "游戏", "活动", "回收站", "重复历史", "重复模板")
 
+    /** Due dates are stored as local midnight; remind at 18:00 on that date. */
+    fun deadlineReminderAt(dueAt: Long): Long = Calendar.getInstance().apply {
+        timeInMillis = dueAt
+        set(Calendar.HOUR_OF_DAY, 18)
+        set(Calendar.MINUTE, 0)
+        set(Calendar.SECOND, 0)
+        set(Calendar.MILLISECOND, 0)
+    }.timeInMillis
+
     fun nextReminder(
         items: List<Item>,
         settings: ActivityReminderSettings,
@@ -52,7 +64,12 @@ object TaskReminderPolicy {
             .filter { item ->
                 !item.done && !item.dayOnly &&
                     item.kind !in excludedKinds &&
-                    item.scheduledAt?.let { start -> start + item.durationMinutes.coerceAtLeast(1) * 60_000L > now } == true
+                    item.scheduledAt?.let { start ->
+                        val end = start + item.durationMinutes.coerceAtLeast(1) * 60_000L
+                        end > now || (item.kind == "任务" && item.dueAt?.let { due ->
+                            deadlineReminderAt(due) > maxOf(now, end + 60 * 60_000L)
+                        } == true)
+                    } == true
             }
             .flatMap { item ->
                 val startsAt = requireNotNull(item.scheduledAt)
@@ -75,8 +92,14 @@ object TaskReminderPolicy {
                         stage = TaskReminderStage.ADVANCE
                     )
                 }
-                if (item.kind == "任务") reminders += PendingTaskReminder(item.id, title, startsAt,
-                    startsAt + item.durationMinutes.coerceAtLeast(1) * 60_000L, TaskReminderStage.MISSED)
+                val slotEnd = startsAt + item.durationMinutes.coerceAtLeast(1) * 60_000L
+                if (item.kind == "任务" && slotEnd > now) reminders += PendingTaskReminder(item.id, title, startsAt,
+                    slotEnd, TaskReminderStage.MISSED)
+                val due = item.dueAt
+                if (item.kind == "任务" && due != null &&
+                    deadlineReminderAt(due) > maxOf(now, slotEnd + 60 * 60_000L))
+                    reminders += PendingTaskReminder(item.id, title, startsAt,
+                        deadlineReminderAt(due), TaskReminderStage.DEADLINE)
                 reminders.asSequence()
             }
             .sortedWith(compareBy<PendingTaskReminder> { it.triggerAt }.thenBy { it.stage })
@@ -113,6 +136,18 @@ object TaskMissedReminderPolicy {
             item.scheduledAt != expectedStartsAt || expectedStartsAt <= 0L) return false
         val endAt = expectedStartsAt + item.durationMinutes.coerceAtLeast(1) * 60_000L
         return now >= endAt && now - endAt <= 2 * 60 * 60_000L
+    }
+}
+
+/** A deadline notification is only for the same still open task and original explicit due time. */
+object TaskDeadlineReminderPolicy {
+    fun matches(item: Item?, expectedStartsAt: Long, expectedDueAt: Long,
+                now: Long = System.currentTimeMillis()): Boolean {
+        if (item == null || item.done || item.kind != "任务" || item.dayOnly ||
+            item.scheduledAt != expectedStartsAt || item.dueAt != expectedDueAt) return false
+        val end = expectedStartsAt + item.durationMinutes.coerceAtLeast(1) * 60_000L
+        val trigger = TaskReminderPolicy.deadlineReminderAt(expectedDueAt)
+        return trigger > end + 60 * 60_000L && now >= trigger && now - trigger <= 2 * 60 * 60_000L
     }
 }
 

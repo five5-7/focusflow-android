@@ -156,6 +156,11 @@ object TaskHistory {
         return calendar.timeInMillis
     }
 
+    private fun nextDayStart(millis: Long): Long = Calendar.getInstance().apply {
+        timeInMillis = dayStartOf(millis)
+        add(Calendar.DAY_OF_YEAR, 1)
+    }.timeInMillis
+
     private fun isSameDay(first: Long, second: Long): Boolean {
         val left = Calendar.getInstance().apply { timeInMillis = first }
         val right = Calendar.getInstance().apply { timeInMillis = second }
@@ -170,6 +175,15 @@ object TaskHistory {
         TaskEventType.TASK_RESCHEDULED
     )
 
+    private val REPEAT_EXCLUSIONS = setOf("有课日条件不满足", "暂停重复", "停止重复", "取消重复本次")
+
+    /** Canceled conditional and pending repeat occurrences were never due for execution. */
+    fun excludedRepeatIds(events: List<TaskEvent>, from: Long, until: Long): Set<Long> = events.asSequence()
+        .filter { it.type == TaskEventType.TASK_UNSCHEDULED && it.extra in REPEAT_EXCLUSIONS &&
+            it.scheduledAt >= from && it.scheduledAt < until &&
+            it.recordedAt < nextDayStart(it.scheduledAt) }
+        .map { it.itemId }.toSet()
+
     private val CHANGE_EVENTS = setOf(
         TaskEventType.TASK_SCHEDULED,
         TaskEventType.TASK_RESCHEDULED,
@@ -181,7 +195,7 @@ object TaskHistory {
         TaskEventType.TASK_RESTORED
     )
 
-    private fun currentCompletions(events: List<TaskEvent>): List<TaskEvent> {
+    internal fun currentCompletions(events: List<TaskEvent>): List<TaskEvent> {
         val latest = mutableMapOf<Long, TaskEvent>()
         events.forEach { event ->
             if (event.type != TaskEventType.TASK_COMPLETED && event.type != TaskEventType.TASK_UNCOMPLETED) return@forEach
@@ -192,16 +206,14 @@ object TaskHistory {
     }
 
     fun daySummary(events: List<TaskEvent>, dayStart: Long): DayTaskSummary {
-        val conditionNotMetIds = events.asSequence()
-            .filter { it.type == TaskEventType.TASK_UNSCHEDULED &&
-                it.extra == "有课日条件不满足" && it.scheduledAt > 0 && isSameDay(it.scheduledAt, dayStart) }
-            .map { it.itemId }.toSet()
+        val nextDay = nextDayStart(dayStart)
+        val excludedIds = excludedRepeatIds(events, dayStart, nextDay)
         val plannedIds = events.asSequence()
             .filter { it.type in PLAN_EVENTS && it.scheduledAt > 0 && isSameDay(it.scheduledAt, dayStart) }
             .map { it.itemId }
             .filter { it != 0L }
             .toSet()
-            .minus(conditionNotMetIds)
+            .minus(excludedIds)
         val completedIds = currentCompletions(events).asSequence()
             .filter { isSameDay(it.recordedAt, dayStart) }
             .map { it.itemId }
@@ -220,7 +232,9 @@ object TaskHistory {
     /** 最近 [days] 天逐日统计，旧 → 新，最后一项是今天。 */
     fun lastDays(events: List<TaskEvent>, days: Int = 7, now: Long = System.currentTimeMillis()): List<DayTaskSummary> {
         val today = dayStartOf(now)
-        return (0 until days).map { offset -> today - offset * 24L * 60 * 60 * 1000 }
+        return (0 until days).map { offset -> Calendar.getInstance().apply {
+            timeInMillis = today; add(Calendar.DAY_OF_YEAR, -offset)
+        }.timeInMillis }
             .map { daySummary(events, it) }
             .reversed()
     }

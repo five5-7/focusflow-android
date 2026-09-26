@@ -65,7 +65,7 @@ internal object RepeatActions {
                         item.preservingNote().copy(kind = "重复历史", detail = "本次未处理", scheduledAt = null,
                             dayOnly = false, windowStartAt = null, windowEndAt = null) else item }
                     expired.forEach { events += TaskRecorder.event(TaskEventType.REPEAT_MISSED,
-                        it.id, it.title, at = at) }
+                        it.id, it.title, scheduledAt = it.scheduledAt ?: it.repeatOccurrenceDay ?: 0L, at = at) }
                 }
                 if (current.any { it.repeatTemplateId == template.id && it.kind == "任务" && !it.done &&
                     it.scheduledAt?.let(TaskHistory::dayStartOf) == it.repeatOccurrenceDay })
@@ -103,20 +103,24 @@ internal object RepeatActions {
         return RepeatResult(current, events)
     }
 
-    fun pause(items: List<Item>, template: Item, paused: Boolean): RepeatResult {
+    fun pause(items: List<Item>, template: Item, paused: Boolean, at: Long = System.currentTimeMillis()): RepeatResult {
         if (template.kind != "重复模板" || template.repeatPaused == paused ||
             items.none { it == template }) return RepeatResult(items, emptyList())
         val pending = if (paused) items.filter { it.kind == "任务" && !it.done && it.repeatTemplateId == template.id }
             else emptyList()
+        val missed = pending.filter { RecoveryInsights.missedWindow(it, at) }.mapTo(mutableSetOf()) { it.id }
         return RepeatResult(items.map { item -> when {
             item.id == template.id -> item.copy(repeatPaused = paused)
             item.id in pending.map { it.id } -> item.preservingNote().copy(kind = "重复历史",
-                detail = "暂停时未处理", scheduledAt = null, dayOnly = false)
+                detail = if (item.id in missed) "本次未处理" else "暂停时未处理",
+                scheduledAt = null, dayOnly = false)
             else -> item
         } }, listOf(TaskRecorder.event(TaskEventType.REPEAT_RULE_CHANGED, template.id, template.title,
-            extra = if (paused) "暂停" else "继续")) + pending.map {
-            TaskRecorder.event(TaskEventType.TASK_UNSCHEDULED, it.id, it.title,
-                extra = "暂停重复", scheduledAt = it.scheduledAt ?: 0L)
+            extra = if (paused) "暂停" else "继续", at = at)) + pending.map {
+            if (it.id in missed) TaskRecorder.event(TaskEventType.REPEAT_MISSED, it.id, it.title,
+                scheduledAt = it.scheduledAt ?: it.repeatOccurrenceDay ?: 0L, at = at)
+            else TaskRecorder.event(TaskEventType.TASK_UNSCHEDULED, it.id, it.title,
+                extra = "暂停重复", scheduledAt = it.scheduledAt ?: 0L, at = at)
         })
     }
 
@@ -124,14 +128,21 @@ internal object RepeatActions {
     fun stop(items: List<Item>, template: Item, at: Long = System.currentTimeMillis()): RepeatResult {
         if (template.kind != "重复模板" || items.none { it == template }) return RepeatResult(items, emptyList())
         val pending = items.filter { it.repeatTemplateId == template.id && it.kind == "任务" && !it.done }
+        val missed = pending.filter { RecoveryInsights.missedWindow(it, at) }.mapTo(mutableSetOf()) { it.id }
         return RepeatResult(items.map { item -> when {
             item.id == template.id -> item.copy(kind = "已停止重复", repeatPaused = true)
             item.id in pending.map { it.id } -> item.preservingNote().copy(kind = "重复历史",
-                detail = "规则停止，取消本次", scheduledAt = null, dayOnly = false,
+                detail = if (item.id in missed) "本次未处理" else "规则停止，取消本次",
+                scheduledAt = null, dayOnly = false,
                 windowStartAt = null, windowEndAt = null)
             else -> item
         } }, listOf(TaskRecorder.event(TaskEventType.REPEAT_RULE_CHANGED, template.id, template.title,
-            extra = "停止", at = at)))
+            extra = "停止", at = at)) + pending.map {
+            if (it.id in missed) TaskRecorder.event(TaskEventType.REPEAT_MISSED, it.id, it.title,
+                scheduledAt = it.scheduledAt ?: it.repeatOccurrenceDay ?: 0L, at = at)
+            else TaskRecorder.event(TaskEventType.TASK_UNSCHEDULED, it.id, it.title,
+                scheduledAt = it.scheduledAt ?: 0L, extra = "停止重复", at = at)
+        })
     }
 
     /** Deletion is recoverable; prior occurrences and events remain accessible. */
@@ -159,13 +170,20 @@ internal object RepeatActions {
     }
 
     fun cancelInstance(items: List<Item>, instance: Item, at: Long = System.currentTimeMillis()): RepeatResult {
-        if (instance.kind != "任务" || instance.repeatTemplateId == null || items.none { it == instance })
+        if (instance.kind != "任务" || instance.done || instance.repeatTemplateId == null || items.none { it == instance })
             return RepeatResult(items, emptyList())
+        val missed = RecoveryInsights.missedWindow(instance, at)
         val changed = items.map { if (it.id == instance.id) it.preservingNote().copy(
-            kind = "重复历史", detail = "本次已取消", scheduledAt = null, dayOnly = false,
+            kind = "重复历史", detail = if (missed) "本次未处理" else "本次已取消",
+            scheduledAt = null, dayOnly = false,
             windowStartAt = null, windowEndAt = null) else it }
-        return RepeatResult(changed, listOf(TaskRecorder.event(TaskEventType.TASK_DELETED,
-            instance.id, instance.title, at = at)))
+        return RepeatResult(changed, listOf(
+            if (missed) TaskRecorder.event(TaskEventType.REPEAT_MISSED, instance.id, instance.title,
+                scheduledAt = instance.scheduledAt ?: instance.repeatOccurrenceDay ?: 0L, at = at)
+            else TaskRecorder.event(TaskEventType.TASK_UNSCHEDULED, instance.id, instance.title,
+                scheduledAt = instance.scheduledAt ?: 0L, extra = "取消重复本次", at = at),
+            TaskRecorder.event(TaskEventType.TASK_DELETED, instance.id, instance.title, at = at)
+        ))
     }
 
     private fun plusDays(day: Long, days: Int): Long = Calendar.getInstance().apply {

@@ -209,6 +209,8 @@ internal fun TodoListSection(
     if (templates.isNotEmpty()) {
         Text("重复规则 · ${templates.size}", style = MaterialTheme.typography.titleSmall)
         templates.forEach { template ->
+            val history = remember(items, template.id) { RepeatHistorySummary.from(items, template.id) }
+            Column {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text("${template.title} · ${when (template.repeatFrequency) { "daily" -> "每天"; "weekly" -> "每周"; else -> "有课日" }}${if (template.kind == "已停止重复") " · 已停止" else if (template.repeatPaused) " · 已暂停" else ""}",
                     modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -219,6 +221,9 @@ internal fun TodoListSection(
                     TextButton(onClick = { onRepeatRuleAction(template, "stop") }) { Text("停止") }
                     TextButton(onClick = { deletingRule = template }) { Text("删除") }
                 }
+            }
+            if (history.hasHistory) Text(history.label(), style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }

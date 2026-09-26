@@ -67,6 +67,9 @@ class PrototypeStore(context: Context) {
     fun saveInboxReviewEnabled(enabled: Boolean): Boolean = preferences.edit()
         .putBoolean("inbox_review_enabled", enabled).commit()
     fun loadInboxReviewLastAt(): Long = preferences.getLong("inbox_review_last_at", 0L).coerceAtLeast(0L)
+    fun loadMissedDigestDeliveredDayKey(): Long = preferences.getLong("missed_digest_delivered_day_key", 0L)
+    fun markMissedDigestDeliveredDayKey(dayKey: Long): Boolean = preferences.edit()
+        .putLong("missed_digest_delivered_day_key", dayKey).commit()
     fun saveInboxReviewLastAt(at: Long): Boolean = preferences.edit()
         .putLong("inbox_review_last_at", at.coerceAtLeast(0L)).commit()
 

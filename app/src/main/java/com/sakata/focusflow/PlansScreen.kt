@@ -168,7 +168,7 @@ import kotlinx.coroutines.launch
                             }
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 Text("${executionSummary.missedCount}", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                                Text("待恢复", style = MaterialTheme.typography.labelMedium)
+                                Text("未处理", style = MaterialTheme.typography.labelMedium)
                             }
                         }
                         Text(

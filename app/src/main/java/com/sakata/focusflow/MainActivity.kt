@@ -1913,6 +1913,7 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                     activitySettings = updated
                     store.saveActivityReminderSettings(updated)
                     activeSession?.let { ReminderScheduler.scheduleActivityReminders(context, it, updated) }
+                    ReminderScheduler.scheduleMissedDigest(context)
                     ReminderScheduler.restoreTaskReminders(context)
                 }, onStatusCheckInSettingsChange = { updated ->
                     if ((updated.enabled && !statusCheckInSettings.enabled) ||

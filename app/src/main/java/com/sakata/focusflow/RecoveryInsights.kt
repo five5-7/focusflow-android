@@ -68,14 +68,15 @@ object RecoveryInsights {
 
     fun weeklySummary(items: List<Item>, now: Long = System.currentTimeMillis(), events: List<BaselineEvent> = emptyList()): WeeklyExecutionSummary {
         val start = WeekReview.weekStartOf(now)
+        val end = weekEnd(start)
         val planned = items.filter { item ->
-            sequenceOf(item.scheduledAt, item.recoverySourceScheduledAt).filterNotNull().any { it in start until start + WEEK_MILLIS }
+            sequenceOf(item.scheduledAt, item.recoverySourceScheduledAt).filterNotNull().any { it in start until end }
         }
-        val completed = planned.count { it.done && it.completedAt?.let { time -> time in start until start + WEEK_MILLIS } == true }
+        val completed = planned.count { it.done && it.completedAt?.let { time -> time in start until end } == true }
         val rescheduleTimes = if (events.isNotEmpty()) events
-            .filter { it.type == BaselineEventType.TASK_RESCHEDULED && it.recordedAt in start until start + WEEK_MILLIS }
+            .filter { it.type == BaselineEventType.TASK_RESCHEDULED && it.recordedAt in start until end }
             .map(BaselineEvent::recordedAt)
-        else items.mapNotNull(Item::lastRescheduledAt).filter { it in start until start + WEEK_MILLIS }
+        else items.mapNotNull(Item::lastRescheduledAt).filter { it in start until end }
         val missed = planned.count { item ->
             !item.done && (item.scheduledAt ?: item.recoverySourceScheduledAt ?: now) + item.durationMinutes.coerceAtLeast(1) * 60_000L < now
         }
@@ -89,28 +90,34 @@ object RecoveryInsights {
 
     /**
      * 事件优先版：6.5 起本周统计以发生过的事件为准（删除/放回不改写历史）。
-     * [taskEvents] 为空时回退上面的 items 推导。missedCount 保持 items 现算（本就是"待恢复"的当前态语义）。
+     * [taskEvents] 为空时回退上面的 items 推导；归档的重复未处理本次仍计入周内未处理数。
      */
     @JvmName("weeklySummaryWithTaskEvents")
     fun weeklySummary(items: List<Item>, now: Long, taskEvents: List<TaskEvent>): WeeklyExecutionSummary {
         if (taskEvents.isEmpty()) return weeklySummary(items, now)
         val start = WeekReview.weekStartOf(now)
+        val end = weekEnd(start)
         // 计划数 = 本周出现过的计划项（按 itemId 去重），与旧 items 版"本周计划集合"同义；
-        // 完成数 = 本周计划集合 ∩ 本周完成过的任务（按 itemId 去重）——旧版完成率分母/分子语义保持一致，删除任务的事件仍计入。
+        // 完成数取仍有效的完成事件；立即撤回后不能继续算已完成，删除任务仍保留历史事件。
         val plannedIds = taskEvents.asSequence()
-            .filter { it.type in setOf(TaskEventType.TASK_CREATED, TaskEventType.TASK_SCHEDULED, TaskEventType.TASK_RESCHEDULED) && it.scheduledAt in start until start + WEEK_MILLIS }
+            .filter { it.type in setOf(TaskEventType.TASK_CREATED, TaskEventType.TASK_SCHEDULED, TaskEventType.TASK_RESCHEDULED) && it.scheduledAt in start until end }
             .map { it.itemId }.filter { it != 0L }.toSet()
-        val completedIds = taskEvents.asSequence()
-            .filter { it.type == TaskEventType.TASK_COMPLETED && it.recordedAt in start until start + WEEK_MILLIS }
+            .minus(TaskHistory.excludedRepeatIds(taskEvents, start, end))
+        val completedIds = TaskHistory.currentCompletions(taskEvents).asSequence()
+            .filter { it.recordedAt in start until end }
             .map { it.itemId }.filter { it != 0L }.toSet()
         val rescheduleTimes = taskEvents
-            .filter { it.type == TaskEventType.TASK_RESCHEDULED && it.recordedAt in start until start + WEEK_MILLIS }
+            .filter { it.type == TaskEventType.TASK_RESCHEDULED && it.recordedAt in start until end }
             .map(TaskEvent::recordedAt)
-        val missed = items.count { item ->
+        val currentlyMissed = items.asSequence().filter { item ->
             !item.done && item.kind == "任务" &&
-                sequenceOf(item.scheduledAt, item.recoverySourceScheduledAt).filterNotNull().any { it in start until start + WEEK_MILLIS } &&
+                sequenceOf(item.scheduledAt, item.recoverySourceScheduledAt).filterNotNull().any { it in start until end } &&
                 (item.scheduledAt ?: item.recoverySourceScheduledAt ?: now) + item.durationMinutes.coerceAtLeast(1) * 60_000L < now
-        }
+        }.map { it.id }.toSet()
+        val archivedRepeatMisses = taskEvents.asSequence()
+            .filter { it.type == TaskEventType.REPEAT_MISSED && it.scheduledAt in start until end }
+            .map { it.itemId }.toSet()
+        val missed = (currentlyMissed + archivedRepeatMisses).intersect(plannedIds).size
         val period = rescheduleTimes.map(::dayPeriod)
             .groupingBy { it }.eachCount()
             .maxByOrNull { it.value }
@@ -125,5 +132,7 @@ object RecoveryInsights {
         else -> "晚上"
     }
 
-    private const val WEEK_MILLIS = 7L * 24 * 60 * 60 * 1000
+    private fun weekEnd(start: Long): Long = Calendar.getInstance().apply {
+        timeInMillis = start; add(Calendar.DAY_OF_YEAR, 7)
+    }.timeInMillis
 }

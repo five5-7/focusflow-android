@@ -5,6 +5,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.util.Calendar
 
 class TaskReminderPolicyTest {
     private val now = 1_000_000L
@@ -73,6 +74,30 @@ class TaskReminderPolicyTest {
         val item = Item(id = 6, title = "任务", detail = "", kind = "任务", scheduledAt = now + 60_000L)
 
         assertNull(TaskReminderPolicy.nextReminder(listOf(item), ActivityReminderSettings(scheduleRemindersEnabled = false), now))
+    }
+
+    @Test fun `only explicit future deadline adds one reminder after the missed slot`() {
+        val morning = Calendar.getInstance().apply {
+            set(2026, Calendar.SEPTEMBER, 26, 9, 0, 0); set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
+        val start = morning - 5 * 60_000L
+        val due = TaskHistory.dayStartOf(morning)
+        val trigger = TaskReminderPolicy.deadlineReminderAt(due)
+        val task = Item(id = 88, title = "交稿", detail = "", kind = "任务",
+            scheduledAt = start, durationMinutes = 1, dueAt = due)
+        val reminders = TaskReminderPolicy.pendingReminders(listOf(task), ActivityReminderSettings(), morning)
+        assertEquals(listOf(TaskReminderStage.DEADLINE), reminders.map { it.stage })
+        assertEquals(due + 18 * 60 * 60_000L, reminders.single().triggerAt)
+        assertTrue(TaskDeadlineReminderPolicy.matches(task, start, due, trigger))
+        assertFalse(TaskDeadlineReminderPolicy.matches(task.copy(dueAt = due + 24 * 60 * 60_000L), start, due,
+            trigger))
+        assertFalse(TaskDeadlineReminderPolicy.matches(task.copy(scheduledAt = morning), start, due,
+            trigger))
+        assertFalse(TaskDeadlineReminderPolicy.matches(task.copy(done = true), start, due,
+            trigger))
+        assertFalse(TaskDeadlineReminderPolicy.matches(task, start, due, trigger + 2 * 60 * 60_000L + 1))
+        assertTrue(TaskReminderPolicy.pendingReminders(listOf(task), ActivityReminderSettings(),
+            trigger + 30 * 60_000L).isEmpty())
     }
 
     @Test

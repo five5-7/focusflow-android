@@ -11,6 +11,7 @@ import android.net.Uri
 import android.content.pm.PackageManager
 import androidx.core.app.NotificationCompat
 import com.sakata.focusflow.data.CoreDataRepository
+import com.sakata.focusflow.data.CoreDataReadResult
 import com.sakata.focusflow.data.CoreDataRepositoryOperations
 import com.sakata.focusflow.data.CoreDataRuntimeAccess
 import com.sakata.focusflow.data.CoreDataRuntimeResolution
@@ -39,6 +40,7 @@ class ReminderReceiver : BroadcastReceiver() {
         var activityName = intent.getStringExtra(EXTRA_ACTIVITY_NAME) ?: "当前活动"
         var nextStep = intent.getStringExtra(EXTRA_NEXT_STEP).orEmpty()
         val store = PrototypeStore(context)
+        if (intent.action == ACTION_TASK_MISSED_DIGEST) ReminderScheduler.scheduleMissedDigest(context)
         val coreDataRepository = if (intent.action in CORE_DATA_ACTIONS) {
             val runtime = CoreDataRuntimeAccess.resolve(context)
             if (runtime !is CoreDataRuntimeResolution.Ready) return
@@ -48,6 +50,28 @@ class ReminderReceiver : BroadcastReceiver() {
             ACTION_REPEAT_REFRESH -> {
                 RepeatActions.refreshRepository(context)
                 ReminderScheduler.scheduleRepeatRefresh(context)
+                return
+            }
+            ACTION_TASK_MISSED_DIGEST -> {
+                val now = System.currentTimeMillis()
+                val today = TaskMissedDigestPolicy.todayStart(now)
+                if (!TaskMissedDigestPolicy.isFresh(intent.getLongExtra(EXTRA_DIGEST_DAY, -1L),
+                        store.loadMissedDigestDeliveredDayKey(), now) ||
+                    !store.loadActivityReminderSettings().scheduleRemindersEnabled ||
+                    store.loadQuietHoursSettings().let { it.isMuted(now) || it.inQuietHours(now) } ||
+                    context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
+                val snapshot = (requireNotNull(coreDataRepository).read() as? CoreDataReadResult.Ready)?.snapshot ?: return
+                val titles = TaskMissedDigestPolicy.missedTitles(snapshot.items, snapshot.taskEvents, today, now)
+                if (titles.isEmpty() || !store.markMissedDigestDeliveredDayKey(TaskMissedDigestPolicy.localDayKey(now))) return
+                ensureChannel(manager, CHANNEL_TASK, "FocusFlow 任务提醒")
+                val open = PendingIntent.getActivity(context, 0, Intent(context, MainActivity::class.java),
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+                val detail = titles.take(3).joinToString("、") + if (titles.size > 3) "等" else ""
+                manager.notify(TASK_DIGEST_NOTIFICATION_ID, NotificationCompat.Builder(context, CHANNEL_TASK)
+                    .setSmallIcon(android.R.drawable.ic_popup_reminder)
+                    .setContentTitle("昨天有 ${titles.size} 项安排尚未处理")
+                    .setContentText("$detail；打开 FocusFlow 查看并决定下一步。")
+                    .setContentIntent(open).setAutoCancel(true).build())
                 return
             }
             ACTION_STANDALONE_DUE -> {
@@ -215,6 +239,12 @@ class ReminderReceiver : BroadcastReceiver() {
             ACTION_TASK_MISSED -> {
                 showTaskMissedNotification(context, manager, requireNotNull(coreDataRepository),
                     intent.getLongExtra(EXTRA_TASK_ID, -1L), intent.getLongExtra(EXTRA_TASK_START_AT, -1L))
+                return
+            }
+            ACTION_TASK_DEADLINE -> {
+                showTaskDeadlineNotification(context, manager, requireNotNull(coreDataRepository),
+                    intent.getLongExtra(EXTRA_TASK_ID, -1L), intent.getLongExtra(EXTRA_TASK_START_AT, -1L),
+                    intent.getLongExtra(EXTRA_TASK_DUE_AT, -1L))
                 return
             }
             ACTION_TASK_TEST -> {
@@ -529,6 +559,27 @@ class ReminderReceiver : BroadcastReceiver() {
             .setContentTitle("原定时段已结束：${task.title}")
             .setContentText("这项待办还没有处理，可以完成或重新安排。")
             .setContentIntent(openApp)
+            .addAction(0, "完成", taskActionIntent(context, ACTION_TASK_COMPLETE, taskId, startsAt, id, 11))
+            .setAutoCancel(true).build())
+    }
+
+    private fun showTaskDeadlineNotification(
+        context: Context, manager: NotificationManager, repository: CoreDataRepository,
+        taskId: Long, startsAt: Long, dueAt: Long
+    ) {
+        if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED ||
+            !PrototypeStore(context).loadActivityReminderSettings().scheduleRemindersEnabled) return
+        val task = CoreDataRepositoryOperations.findTask(repository, taskId) ?: return
+        if (!TaskDeadlineReminderPolicy.matches(task, startsAt, dueAt)) return
+        ensureChannel(manager, CHANNEL_TASK, "FocusFlow 任务提醒")
+        val id = ((taskId + 40_000L) % Int.MAX_VALUE).toInt()
+        val open = PendingIntent.getActivity(context, 0, Intent(context, MainActivity::class.java),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        manager.notify(id, NotificationCompat.Builder(context, CHANNEL_TASK)
+            .setSmallIcon(android.R.drawable.ic_popup_reminder)
+            .setContentTitle("即将截止：${task.title}")
+            .setContentText("这项待办还没有处理；可以完成或重新安排。")
+            .setContentIntent(open)
             .addAction(0, "完成", taskActionIntent(context, ACTION_TASK_COMPLETE, taskId, startsAt, id, 11))
             .setAutoCancel(true).build())
     }
@@ -864,6 +915,10 @@ class ReminderReceiver : BroadcastReceiver() {
         const val ACTION_TASK_ADVANCE = "com.sakata.focusflow.TASK_ADVANCE"
         const val ACTION_TASK_DUE = "com.sakata.focusflow.TASK_DUE"
         const val ACTION_TASK_MISSED = "com.sakata.focusflow.TASK_MISSED"
+        const val ACTION_TASK_DEADLINE = "com.sakata.focusflow.TASK_DEADLINE"
+        const val ACTION_TASK_MISSED_DIGEST = "com.sakata.focusflow.TASK_MISSED_DIGEST"
+        const val EXTRA_DIGEST_DAY = "digest_day"
+        private const val TASK_DIGEST_NOTIFICATION_ID = 200_211
         const val ACTION_TASK_TEST = "com.sakata.focusflow.TASK_TEST"
         const val ACTION_TASK_COMPLETE = "com.sakata.focusflow.TASK_COMPLETE"
         const val ACTION_TASK_SNOOZE = "com.sakata.focusflow.TASK_SNOOZE"
@@ -894,6 +949,8 @@ class ReminderReceiver : BroadcastReceiver() {
             ACTION_TASK_ADVANCE,
             ACTION_TASK_DUE,
             ACTION_TASK_MISSED,
+            ACTION_TASK_DEADLINE,
+            ACTION_TASK_MISSED_DIGEST,
             ACTION_TASK_COMPLETE,
             ACTION_TASK_SNOOZE,
             ACTION_TASK_SKIP,
@@ -914,6 +971,7 @@ class ReminderReceiver : BroadcastReceiver() {
         const val EXTRA_TASK_ID = "task_id"
         const val EXTRA_TASK_TITLE = "task_title"
         const val EXTRA_TASK_START_AT = "task_start_at"
+        const val EXTRA_TASK_DUE_AT = "task_due_at"
         const val EXTRA_NOTIFICATION_ID = "notification_id"
         const val EXTRA_OPEN_STATUS_CHECK_IN = "open_status_check_in"
         const val EXTRA_OPEN_QUICK_CAPTURE = "open_quick_capture"
