@@ -88,6 +88,8 @@ internal object CourseReminders {
     fun sync(context: Context, old: List<Course>, current: List<Course>, table: CoursePeriodTable,
              settings: CourseReminderSettings = load(context)) {
         (old.map { it.id } + current.map { it.id }).distinct().forEach { cancel(context, it) }
+        // The reference table is a planning placeholder, not a verified bell schedule.
+        if (!PrototypeStore(context).hasCoursePeriodTable()) return
         val now = System.currentTimeMillis()
         val zone = ZoneId.systemDefault()
         val manager = context.getSystemService(AlarmManager::class.java)
@@ -116,7 +118,9 @@ internal object CourseReminders {
         val snapshot = (runtime.repository.read() as? CoreDataReadResult.Ready)?.snapshot ?: return null
         val course = snapshot.courses.singleOrNull { it.id == id } ?: return null
         if (!load(context).enabledFor(course)) return null
-        val table = PrototypeStore(context).loadCoursePeriodTable()
+        val store = PrototypeStore(context)
+        if (!store.hasCoursePeriodTable()) return null
+        val table = store.loadCoursePeriodTable()
         val zone = ZoneId.systemDefault()
         val date = Instant.ofEpochMilli(expectedAt).atZone(zone).toLocalDate()
         val start = listOf(date, date.plusDays(1)).firstNotNullOfOrNull {

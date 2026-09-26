@@ -40,6 +40,7 @@ internal fun PlanCoursesSection(
     onReminderGlobalChange: (Boolean) -> Unit,
     onReminderOverrideChange: (Course, Boolean?) -> Unit
 ) {
+    val periodConfigured = PrototypeStore(LocalContext.current).hasCoursePeriodTable()
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Text("课程提醒", fontWeight = FontWeight.Bold)
@@ -47,6 +48,8 @@ internal fun PlanCoursesSection(
         }
         Switch(checked = reminderSettings.enabled, onCheckedChange = onReminderGlobalChange)
     }
+    if (!periodConfigured) Text("请先在日程 → 课表确认节次时间；确认前课程提醒不会发送。",
+        style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     Text("从教务网导入", fontWeight = FontWeight.Bold)
     FilledTonalButton(
         enabled = !courseImportRunning,
@@ -93,7 +96,7 @@ FocusCard(
     )
     HorizontalDivider()
     ConfirmedCourses(confirmedCourses, onEditCourse, onToggleCourse, onDeleteCourses,
-        reminderSettings, reminderPeriodTable, onReminderOverrideChange)
+        reminderSettings, reminderPeriodTable, periodConfigured, onReminderOverrideChange)
 }
 
 @Composable
@@ -175,7 +178,7 @@ private fun PendingCourses(
 @Composable
 private fun ConfirmedCourses(confirmed: List<Course>, onEdit: (Course) -> Unit, onToggle: (Course) -> Unit,
     onDelete: (Set<Course>) -> Unit, reminderSettings: CourseReminderSettings,
-    reminderPeriodTable: CoursePeriodTable,
+    reminderPeriodTable: CoursePeriodTable, periodConfigured: Boolean,
     onReminderOverrideChange: (Course, Boolean?) -> Unit) {
     var selecting by remember { mutableStateOf(false) }
     var selected by remember { mutableStateOf(emptySet<Course>()) }
@@ -298,7 +301,7 @@ private fun ConfirmedCourses(confirmed: List<Course>, onEdit: (Course) -> Unit, 
                             onClick = { onReminderOverrideChange(course, value) }, label = { Text(label) })
                     }
                 }
-                NextCourseLocationEditor(course, reminderPeriodTable)
+                if (periodConfigured) NextCourseLocationEditor(course, reminderPeriodTable)
             }
         }
     }

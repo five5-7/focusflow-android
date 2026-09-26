@@ -1,7 +1,10 @@
 package com.sakata.focusflow
 
 import android.app.Application
+import android.app.PendingIntent
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import androidx.test.core.app.ApplicationProvider
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -41,5 +44,21 @@ class CourseReminderStorageTest {
         assertFalse(CourseReminders.markNotified(context, 771L, 1_000L))
         assertFalse(CourseReminders.markNotified(context, 771L, 999L))
         assertTrue(CourseReminders.markNotified(context, 771L, 2_000L))
+    }
+
+    @Test fun `unconfirmed period table never schedules reference-time course alarm`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        context.getSharedPreferences("focusflow", Context.MODE_PRIVATE).edit()
+            .remove("course_period_table").commit()
+        val course = Course("实验", 1, 1, 1, "东一", CampusZone.OTHER,
+            needsConfirmation = false, id = 987654321L)
+        CourseReminders.sync(context, emptyList(), listOf(course), CoursePeriodTable.reference(),
+            CourseReminderSettings(enabled = true))
+        val pending = PendingIntent.getBroadcast(context, 0,
+            Intent(context, ReminderReceiver::class.java).apply {
+                action = ReminderReceiver.ACTION_COURSE_DUE
+                data = Uri.parse("focusflow://course/reminder/${course.id}")
+            }, PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE)
+        assertNull(pending)
     }
 }
