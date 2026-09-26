@@ -52,7 +52,7 @@
 
 - Start by reporting the checked-out branch, HEAD, working-tree state, and the approved phase.
 - Read the live repository as the source of truth; do not infer completion only from roadmap labels.
-- This checkout is the live one; `D:\focusflow\focusflow-android` and `focusflow-android-6.4` are older snapshots.
-  On this machine git needs `-c safe.directory=D:/focusflow/focusflow-android-8.0.0` (workspace owner SID differs),
+- This checkout is the live one; the older snapshots (`focusflow-android`, `focusflow-android-6.4`, `focusflow-android-8.0.0`) are archived under `D:\focusflow\legacy\snapshots\`.
+  On this machine git needs `-c safe.directory=D:/focusflow/legacy/snapshots/focusflow-android-8.0.0` when opening the archived 8.0.0 repo (workspace owner SID differs; the global `safe.directory` entry still points at the old path),
   and helper scripts under `D:\focusflow\.tmp\` must stay ASCII-only (PowerShell 5.1 mangles non-BOM UTF-8).
 - Stop at the end of the assigned phase and report changed files, observed test evidence, risks, and next-step recommendation.
