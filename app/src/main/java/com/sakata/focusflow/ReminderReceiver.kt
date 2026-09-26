@@ -517,7 +517,8 @@ class ReminderReceiver : BroadcastReceiver() {
     ) {
         if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
         val store = PrototypeStore(context)
-        if (!store.loadActivityReminderSettings().scheduleRemindersEnabled) return
+        if (!store.loadActivityReminderSettings().scheduleRemindersEnabled ||
+            store.loadQuietHoursSettings().isMuted()) return
         val task = CoreDataRepositoryOperations.findTask(
             repository,
             taskId
@@ -546,8 +547,10 @@ class ReminderReceiver : BroadcastReceiver() {
         context: Context, manager: NotificationManager, repository: CoreDataRepository,
         taskId: Long, startsAt: Long
     ) {
+        val store = PrototypeStore(context)
         if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED ||
-            !PrototypeStore(context).loadActivityReminderSettings().scheduleRemindersEnabled) return
+            !store.loadActivityReminderSettings().scheduleRemindersEnabled ||
+            store.loadQuietHoursSettings().isMuted()) return
         val task = CoreDataRepositoryOperations.findTask(repository, taskId) ?: return
         if (!TaskMissedReminderPolicy.matches(task, startsAt)) return
         ensureChannel(manager, CHANNEL_TASK, "FocusFlow 任务提醒")
@@ -567,8 +570,10 @@ class ReminderReceiver : BroadcastReceiver() {
         context: Context, manager: NotificationManager, repository: CoreDataRepository,
         taskId: Long, startsAt: Long, dueAt: Long
     ) {
+        val store = PrototypeStore(context)
         if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED ||
-            !PrototypeStore(context).loadActivityReminderSettings().scheduleRemindersEnabled) return
+            !store.loadActivityReminderSettings().scheduleRemindersEnabled ||
+            store.loadQuietHoursSettings().isMuted()) return
         val task = CoreDataRepositoryOperations.findTask(repository, taskId) ?: return
         if (!TaskDeadlineReminderPolicy.matches(task, startsAt, dueAt)) return
         ensureChannel(manager, CHANNEL_TASK, "FocusFlow 任务提醒")
