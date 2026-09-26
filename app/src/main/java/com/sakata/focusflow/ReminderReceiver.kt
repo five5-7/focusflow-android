@@ -112,6 +112,7 @@ class ReminderReceiver : BroadcastReceiver() {
                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU &&
                     context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
                 val reminder = StandaloneReminders.markDelivered(context, id, at) ?: return
+                if (store.loadQuietHoursSettings().isMuted()) return
                 ensureChannel(manager, CHANNEL_STANDALONE, "自定义提醒")
                 val complete = PendingIntent.getBroadcast(context, 0,
                     Intent(context, ReminderReceiver::class.java).apply {
