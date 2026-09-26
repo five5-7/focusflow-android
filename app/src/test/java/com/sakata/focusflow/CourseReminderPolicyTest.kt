@@ -18,6 +18,7 @@ class CourseReminderPolicyTest {
     @Test fun `default is off and a single meeting can override either direction`() {
         assertFalse(CourseReminderSettings().enabledFor(course))
         assertTrue(CourseReminderSettings(overrides = mapOf(42L to true)).enabledFor(course))
+        assertFalse(CourseReminderSettings(overrides = mapOf(42L to true)).enabledFor(course.copy(id = 43L)))
         assertFalse(CourseReminderSettings(enabled = true, overrides = mapOf(42L to false)).enabledFor(course))
     }
 

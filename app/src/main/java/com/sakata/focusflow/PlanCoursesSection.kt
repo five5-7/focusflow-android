@@ -337,7 +337,7 @@ private fun NextCourseLocationEditor(course: Course, table: CoursePeriodTable) {
     }
     var editing by remember(course.id, day) { mutableStateOf(false) }
     var draft by remember(course.id, day) { mutableStateOf("") }
-    val label = "${day.monthValue} 月 ${day.dayOfMonth} 日"
+    val label = day.toString()
     TextButton(onClick = { draft = temporary ?: course.building; editing = true }) {
         Text("$label 本次地点：${temporary ?: course.building.ifBlank { "待确认" }} · 修改")
     }

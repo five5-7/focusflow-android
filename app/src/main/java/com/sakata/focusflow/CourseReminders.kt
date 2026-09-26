@@ -52,7 +52,8 @@ internal object CourseReminders {
 
     fun load(context: Context): CourseReminderSettings {
         val prefs = context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
-        return CourseReminderSettings(prefs.getBoolean(GLOBAL, false), prefs.all.mapNotNull { (key, value) ->
+        val globallyEnabled = runCatching { prefs.getBoolean(GLOBAL, false) }.getOrDefault(false)
+        return CourseReminderSettings(globallyEnabled, prefs.all.mapNotNull { (key, value) ->
             if (!key.startsWith(PREFIX) || value !is Boolean) null
             else key.removePrefix(PREFIX).toLongOrNull()?.let { it to value }
         }.toMap())
@@ -62,15 +63,17 @@ internal object CourseReminders {
         context.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit().putBoolean(GLOBAL, enabled).commit()
 
     fun setOverride(context: Context, id: Long, enabled: Boolean?): Boolean {
+        if (id <= 0) return false
         val edit = context.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit()
         if (enabled == null) edit.remove(PREFIX + id) else edit.putBoolean(PREFIX + id, enabled)
         return edit.commit()
     }
 
     @Synchronized fun markNotified(context: Context, id: Long, expectedAt: Long): Boolean {
+        if (id <= 0 || expectedAt <= 0) return false
         val prefs = context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
         val key = DELIVERED_PREFIX + id
-        if (prefs.getLong(key, -1L) >= expectedAt) return false
+        if (runCatching { prefs.getLong(key, -1L) }.getOrDefault(-1L) >= expectedAt) return false
         return prefs.edit().putLong(key, expectedAt).commit()
     }
 
@@ -140,8 +143,10 @@ internal object CourseLocationOverrides {
     private const val FILE = "course_location_overrides"
 
     fun get(context: Context, meetingId: Long, epochDay: Long): String? =
-        context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
-            .getString("${meetingId}_$epochDay", null)?.takeIf { it.isNotBlank() }
+        runCatching {
+            context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
+                .getString("${meetingId}_$epochDay", null)?.takeIf { it.isNotBlank() }
+        }.getOrNull()
 
     fun set(context: Context, meetingId: Long, epochDay: Long, place: String?): Boolean {
         if (meetingId <= 0 || epochDay < 0 || (place?.trim()?.length ?: 0) > 100) return false
