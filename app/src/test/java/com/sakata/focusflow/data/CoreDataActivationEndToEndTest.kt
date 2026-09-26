@@ -304,7 +304,9 @@ class CoreDataActivationEndToEndTest {
                 name = "session-$id",
                 plannedStartAt = id,
                 actualStartAt = id,
-                endsAt = id + 60_000L
+                endsAt = id + 60_000L,
+                status = ActivitySession.STATUS_COMPLETED,
+                actualEndAt = id + 60_000L
             )
             assertTrue(CoreDataRepositoryOperations.saveActivitySession(repository, session).applied)
         }
@@ -334,7 +336,9 @@ class CoreDataActivationEndToEndTest {
             name = "next activity",
             plannedStartAt = 1_000L,
             actualStartAt = 1_000L,
-            endsAt = 61_000L
+            endsAt = 61_000L,
+            status = ActivitySession.STATUS_COMPLETED,
+            actualEndAt = 61_000L
         )
 
         val result = CoreDataRepositoryOperations.saveActivitySession(ready.repository, newSession)

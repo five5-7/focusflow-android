@@ -236,7 +236,8 @@ class CoreDataRepositoryTest {
             assertTrue(
                 CoreDataRepositoryOperations.saveActivitySession(
                     repository,
-                    ActivitySession(id, "session-$id", actualStartAt = id, endsAt = id + 60_000L)
+                    ActivitySession(id, "session-$id", actualStartAt = id, endsAt = id + 60_000L,
+                        status = ActivitySession.STATUS_COMPLETED, actualEndAt = id + 60_000L)
                 ).applied
             )
         }

@@ -94,8 +94,8 @@ class Stage4RoomUpgradeTest {
             sqlite.version = 2
         }
         val database = Room.databaseBuilder(context, FocusFlowDatabase::class.java, name)
-            .addMigrations(FocusFlowDatabase.MIGRATION_2_3, FocusFlowDatabase.MIGRATION_3_4)
-            .allowMainThreadQueries().build()
+            .addMigrations(FocusFlowDatabase.MIGRATION_2_3, FocusFlowDatabase.MIGRATION_3_4,
+                FocusFlowDatabase.MIGRATION_4_5).allowMainThreadQueries().build()
         try {
             val plan = database.planDao().all().single().toLegacy()
             assertEquals(8L, plan.id)
