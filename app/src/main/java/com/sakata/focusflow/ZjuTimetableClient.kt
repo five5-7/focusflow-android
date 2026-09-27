@@ -186,27 +186,18 @@ internal object ZjuTimetableClient {
             if (index.code !in 200..299) {
                 return ZjuTimetableFetchResult.Failure("读取当前学期失败（HTTP ${index.code}），可改用指定学期重试。")
             }
-            year = parseSemesterOption(index.body, "xnm")
-                ?: return ZjuTimetableFetchResult.Failure("无法读取当前学年，请改用指定学期重试。")
-            term = parseSemesterOption(index.body, "xqm")
-                ?: return ZjuTimetableFetchResult.Failure("无法读取当前学期，请改用指定学期重试。")
+            year = selectAutoOption(parseSemesterOptions(index.body, "xnm"))
+                ?: return ZjuTimetableFetchResult.Failure("无法读取当前学年（选项缺失或重复），请重新登录后重试，或改用指定学期。")
+            term = selectAutoOption(parseSemesterOptions(index.body, "xqm"))
+                ?: return ZjuTimetableFetchResult.Failure("无法读取当前学期（选项缺失或重复），请重新登录后重试，或改用指定学期。")
         }
-        val termDisplay = term.value.substringAfter('|', term.text).ifBlank { term.text }
+        val termDisplay = termDisplayOf(term)
 
         progress(ZjuImportStage.FETCHING_TIMETABLE)
         val timetableUrl = "$ZDBK_BASE/jwglxt/kbcx/xskbcx_cxXsKb.html?gnmkdm=N253508&su=${encode(username)}"
         val payload = session.post(
             timetableUrl,
-            encodeForm(
-                listOf(
-                    "xnm" to year.value,
-                    "xqm" to term.value,
-                    "xqmmc" to termDisplay,
-                    "xxqf" to "0",
-                    "xsfs" to "0",
-                    "captcha_value" to ""
-                )
-            ),
+            encodeForm(timetableRequestForm(year, term)),
             mapOf(
                 "Referer" to indexUrl,
                 "Content-Type" to "application/x-www-form-urlencoded; charset=UTF-8",
@@ -264,23 +255,67 @@ internal object ZjuTimetableClient {
         return output
     }
 
-    internal fun parseSemesterOption(html: String, id: String): ZjuSemesterOption? {
+    /** 解析下拉中的全部有效选项（value 与解码、去空白后仍非空的项）。 */
+    internal fun parseSemesterOptions(html: String, id: String): List<ZjuSemesterOption> {
         val select = Regex("<select\\b([^>]*)>([\\s\\S]*?)</select>", RegexOption.IGNORE_CASE)
             .findAll(html)
             .firstOrNull { match ->
                 attribute(match.groupValues[1], "id") == id || attribute(match.groupValues[1], "name") == id
-            } ?: return null
-        val options = optionTag.findAll(select.groupValues[2]).mapNotNull { match ->
-            val value = attribute(match.groupValues[1], "value").orEmpty()
+            } ?: return emptyList()
+        return optionTag.findAll(select.groupValues[2]).mapNotNull { match ->
+            val value = decodeHtml(attribute(match.groupValues[1], "value").orEmpty()).trim()
             if (value.isBlank()) return@mapNotNull null
             ZjuSemesterOption(
-                value = decodeHtml(value),
-                text = decodeHtml(match.groupValues[2].replace(htmlTag, "")).trim(),
+                value = value,
+                text = decodeHtml(match.groupValues[2].replace(htmlTag, "")).trim().ifBlank { value },
                 selected = Regex("\\bselected\\b", RegexOption.IGNORE_CASE).containsMatchIn(match.groupValues[1])
             )
         }.toList()
-        return options.firstOrNull { it.selected } ?: options.firstOrNull()
     }
+
+    /**
+     * 自动路径选择：唯一 selected 优先；无 selected 时仅接受唯一候选；
+     * 多选、重复 value 或空候选均返回 null（明确失败，不猜第一项）。
+     */
+    internal fun selectAutoOption(options: List<ZjuSemesterOption>): ZjuSemesterOption? {
+        if (options.isEmpty() || hasDuplicateValues(options)) return null
+        val selected = options.filter { it.selected }
+        return when (selected.size) {
+            1 -> selected.single()
+            0 -> options.singleOrNull()
+            else -> null
+        }
+    }
+
+    /** 按原始 value 定位选项；value 空白、不存在或选项集含重复 value 时返回 null。 */
+    internal fun findOptionByValue(options: List<ZjuSemesterOption>, value: String?): ZjuSemesterOption? {
+        val wanted = value.orEmpty().trim()
+        if (wanted.isBlank() || hasDuplicateValues(options)) return null
+        return options.firstOrNull { it.value == wanted }
+    }
+
+    /** 请求展示值：value 中 `|` 之后的部分，否则 option 文本（保持既有规则）。 */
+    internal fun termDisplayOf(term: ZjuSemesterOption): String =
+        term.value.substringAfter('|', term.text).ifBlank { term.text }
+
+    /** 课表查询表单：学年/学期必须逐字使用所选 option 的原始 value。 */
+    internal fun timetableRequestForm(
+        year: ZjuSemesterOption,
+        term: ZjuSemesterOption
+    ): List<Pair<String, String>> = listOf(
+        "xnm" to year.value,
+        "xqm" to term.value,
+        "xqmmc" to termDisplayOf(term),
+        "xxqf" to "0",
+        "xsfs" to "0",
+        "captcha_value" to ""
+    )
+
+    private fun hasDuplicateValues(options: List<ZjuSemesterOption>): Boolean =
+        options.groupingBy { it.value }.eachCount().any { it.value > 1 }
+
+    internal fun parseSemesterOption(html: String, id: String): ZjuSemesterOption? =
+        selectAutoOption(parseSemesterOptions(html, id))
 
     private fun rsaEncrypt(password: CharArray, modulusHex: String, exponentHex: String): String {
         val encoded = Charsets.UTF_8.encode(CharBuffer.wrap(password))
