@@ -58,4 +58,19 @@ class ZjuTimetableClientTest {
         assertEquals("12", ZjuTerm.SPRING_SUMMER.code)
         assertEquals("16", ZjuTerm.SHORT.code)
     }
+
+    @Test
+    fun `fetch success keeps request codes beside display names`() {
+        val success = ZjuTimetableFetchResult.Success(
+            payload = "{}",
+            schoolYear = "2026-2027",
+            semester = "秋冬",
+            schoolYearCode = "2026",
+            termCode = "3"
+        )
+        assertEquals("2026-2027", success.schoolYear)
+        assertEquals("秋冬", success.semester)
+        assertEquals("2026", success.schoolYearCode)
+        assertEquals("3", success.termCode)
+    }
 }

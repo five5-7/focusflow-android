@@ -6,10 +6,29 @@ internal sealed interface ZjuTimetableParseResult {
     data class Success(
         val batch: CourseImportBatch,
         val invalidRows: Int,
-        val nonWeeklyRows: Int
+        val nonWeeklyRows: Int,
+        val candidates: List<ZjuTimetableCandidateRow> = emptyList()
     ) : ZjuTimetableParseResult
 
     data class Failure(val message: String) : ZjuTimetableParseResult
+}
+
+/**
+ * 只读、仅内存的逐行候选元数据，与原始 `kbList` 行序号一一绑定。
+ *
+ * `externalSelectionKeyCandidate` 只是响应中出现的候选值（真实样本里的 `xkkh`），
+ * 尚未证明等同教学班身份，不得用于自动归并、落库或界面展示。
+ */
+internal data class ZjuTimetableCandidateRow(
+    val sourceRowIndex: Int,
+    val schoolYearCode: String,
+    val termCode: String,
+    val externalSelectionKeyCandidate: String,
+    val weekday: Int?,
+    val startPeriod: Int?,
+    val endPeriod: Int?
+) {
+    val hasRequestCodes: Boolean get() = schoolYearCode.isNotBlank() && termCode.isNotBlank()
 }
 
 /**
@@ -23,7 +42,11 @@ internal object ZjuTimetableParser {
     private val htmlTag = Regex("<[^>]+>")
     private val integer = Regex("\\d+")
 
-    fun parse(payload: String): ZjuTimetableParseResult {
+    fun parse(
+        payload: String,
+        schoolYearCode: String? = null,
+        termCode: String? = null
+    ): ZjuTimetableParseResult {
         if (payload.isBlank()) return ZjuTimetableParseResult.Failure("教务系统没有返回课表数据，请重新登录后再试。")
         if (payload.length > MAX_PAYLOAD_CHARS) return ZjuTimetableParseResult.Failure("教务课表响应过大，已停止导入。")
         val trimmed = payload.trim()
@@ -40,8 +63,11 @@ internal object ZjuTimetableParser {
         val rows = root.optJSONArray("kbList")
             ?: return ZjuTimetableParseResult.Failure("教务响应中没有 kbList，当前页面格式可能已变化。")
 
+        val requestYearCode = schoolYearCode.orEmpty().trim()
+        val requestTermCode = termCode.orEmpty().trim()
         val courses = mutableListOf<Course>()
         val places = mutableListOf<String>()
+        val candidates = mutableListOf<ZjuTimetableCandidateRow>()
         var invalidRows = 0
         var nonWeeklyRows = 0
         for (index in 0 until rows.length()) {
@@ -61,6 +87,15 @@ internal object ZjuTimetableParser {
                 sectionNumbers.size >= 2 -> sectionNumbers.last()
                 else -> start
             }
+            candidates += ZjuTimetableCandidateRow(
+                sourceRowIndex = index,
+                schoolYearCode = requestYearCode,
+                termCode = requestTermCode,
+                externalSelectionKeyCandidate = row.firstText("xkkh"),
+                weekday = weekday,
+                startPeriod = start,
+                endPeriod = end
+            )
             val title = row.firstText("kcmc", "kcm").ifBlank { parts.getOrNull(0).orEmpty() }
             val rawLocation = row.firstText("cdmc", "jxdd").ifBlank { parts.getOrNull(3).orEmpty() }
             val location = normalizeLocation(rawLocation)
@@ -96,7 +131,8 @@ internal object ZjuTimetableParser {
                 newPlaces = places.distinct().take(50)
             ),
             invalidRows = invalidRows,
-            nonWeeklyRows = nonWeeklyRows
+            nonWeeklyRows = nonWeeklyRows,
+            candidates = candidates
         )
     }
 

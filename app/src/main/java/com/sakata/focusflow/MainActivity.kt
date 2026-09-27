@@ -819,7 +819,9 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
         globalLoading = false
         if (result.resultCode == android.app.Activity.RESULT_OK) {
             val payload = result.data?.getStringExtra(ZjuTimetableImportActivity.EXTRA_TIMETABLE_PAYLOAD).orEmpty()
-            when (val parsed = ZjuTimetableParser.parse(payload)) {
+            val schoolYearCode = result.data?.getStringExtra(ZjuTimetableImportActivity.EXTRA_SCHOOL_YEAR_CODE)
+            val termCode = result.data?.getStringExtra(ZjuTimetableImportActivity.EXTRA_TERM_CODE)
+            when (val parsed = ZjuTimetableParser.parse(payload, schoolYearCode, termCode)) {
                 is ZjuTimetableParseResult.Success -> {
                     applyImportedCourses(parsed.batch)
                     val cautions = buildList {

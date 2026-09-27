@@ -1,6 +1,7 @@
 package com.sakata.focusflow
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -47,5 +48,72 @@ class ZjuTimetableParserTest {
         val result = ZjuTimetableParser.parse(payload) as ZjuTimetableParseResult.Success
         assertEquals(1, result.invalidRows)
         assertEquals("有效课程", result.batch.courses.single().title)
+    }
+
+    @Test
+    fun `candidate rows keep original indices after invalid rows are filtered`() {
+        val payload = """{"kbList":[{"xqj":"8","djj":"1","skcd":"2","kcb":"无效课程<br>1-16周<br>老师<br>东1"},{"xqj":"2","djj":"1","skcd":"2","kcb":"有效课程<br>1-16周<br>老师<br>北2"},"junk"]}"""
+        val result = ZjuTimetableParser.parse(payload) as ZjuTimetableParseResult.Success
+        assertEquals(2, result.invalidRows)
+        assertEquals(listOf(0, 1), result.candidates.map { it.sourceRowIndex })
+        assertEquals(8, result.candidates.first().weekday ?: 0)
+        assertEquals("有效课程", result.batch.courses.single().title)
+    }
+
+    @Test
+    fun `missing fields yield blank candidate metadata and never drop the row index`() {
+        val payload = """{"kbList":[{"kcb":"只有标题<br>1-16周"}]}"""
+        val result = ZjuTimetableParser.parse(payload) as ZjuTimetableParseResult.Success
+        assertEquals(1, result.invalidRows)
+        val candidate = result.candidates.single()
+        assertEquals(0, candidate.sourceRowIndex)
+        assertEquals("", candidate.externalSelectionKeyCandidate)
+        assertEquals(null, candidate.weekday)
+        assertEquals(null, candidate.startPeriod)
+        assertEquals(null, candidate.endPeriod)
+        assertFalse(candidate.hasRequestCodes)
+    }
+
+    @Test
+    fun `request codes flow into every candidate and stay blank when absent`() {
+        val payload = """{"kbList":[{"xqj":"1","djj":"1","skcd":"2","kcb":"甲<br>1-16周<br>师<br>东1zwf","xkkh":"KEY-1"},{"xqj":"2","djj":"3","skcd":"2","kcb":"乙<br>1-16周<br>师<br>东2zwf","xkkh":"KEY-2"}]}"""
+        val withCodes = ZjuTimetableParser.parse(payload, " 2026 ", " 3 ") as ZjuTimetableParseResult.Success
+        assertEquals(listOf("2026", "2026"), withCodes.candidates.map { it.schoolYearCode })
+        assertEquals(listOf("3", "3"), withCodes.candidates.map { it.termCode })
+        assertTrue(withCodes.candidates.all { it.hasRequestCodes })
+
+        val withoutCodes = ZjuTimetableParser.parse(payload) as ZjuTimetableParseResult.Success
+        assertTrue(withoutCodes.candidates.none { it.hasRequestCodes })
+        assertEquals("", withoutCodes.candidates.first().schoolYearCode)
+        assertEquals("", withoutCodes.candidates.first().termCode)
+    }
+
+    @Test
+    fun `duplicate selection keys stay per row and never group courses`() {
+        val payload = """{"kbList":[{"xqj":"1","djj":"1","skcd":"2","kcb":"甲<br>1-16周<br>师<br>东1zwf","xkkh":"KEY-1"},{"xqj":"3","djj":"3","skcd":"2","kcb":"甲<br>1-16周<br>师<br>东2zwf","xkkh":"KEY-1"},{"xqj":"5","djj":"5","skcd":"2","kcb":"乙<br>1-16周<br>师<br>西1zwf","xkkh":"KEY-2"}]}"""
+        val result = ZjuTimetableParser.parse(payload) as ZjuTimetableParseResult.Success
+        assertEquals(
+            listOf("KEY-1", "KEY-1", "KEY-2"),
+            result.candidates.map { it.externalSelectionKeyCandidate }
+        )
+        assertEquals(3, result.batch.courses.size)
+    }
+
+    @Test
+    fun `same title with different selection keys stays independent`() {
+        val payload = """{"kbList":[{"xqj":"1","djj":"1","skcd":"2","kcb":"大学物理<br>1-16周<br>师<br>东1zwf","xkkh":"CLASS-A"},{"xqj":"1","djj":"3","skcd":"2","kcb":"大学物理<br>1-16周<br>师<br>东1zwf","xkkh":"CLASS-B"}]}"""
+        val result = ZjuTimetableParser.parse(payload) as ZjuTimetableParseResult.Success
+        assertEquals(
+            listOf("CLASS-A", "CLASS-B"),
+            result.candidates.map { it.externalSelectionKeyCandidate }
+        )
+        assertEquals(listOf("大学物理", "大学物理"), result.batch.courses.map { it.title })
+    }
+
+    @Test
+    fun `top level personal fields never surface in parsed output`() {
+        val payload = """{"xh":"SECRET-ID","xm":"SECRET-NAME","xy":"SECRET-COLLEGE","kbList":[{"xqj":"1","djj":"1","skcd":"2","kcb":"甲<br>1-16周<br>师<br>东1zwf","xkkh":"KEY-1"}]}"""
+        val result = ZjuTimetableParser.parse(payload, "2026", "3") as ZjuTimetableParseResult.Success
+        assertFalse(result.toString().contains("SECRET"))
     }
 }

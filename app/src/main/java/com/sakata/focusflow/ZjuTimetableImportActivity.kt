@@ -189,6 +189,8 @@ class ZjuTimetableImportActivity : ComponentActivity() {
                                             .putExtra(EXTRA_TIMETABLE_PAYLOAD, result.payload)
                                             .putExtra(EXTRA_SCHOOL_YEAR, result.schoolYear)
                                             .putExtra(EXTRA_SEMESTER, result.semester)
+                                            .putExtra(EXTRA_SCHOOL_YEAR_CODE, result.schoolYearCode)
+                                            .putExtra(EXTRA_TERM_CODE, result.termCode)
                                     )
                                     finish()
                                 }
@@ -257,6 +259,8 @@ class ZjuTimetableImportActivity : ComponentActivity() {
         const val EXTRA_TIMETABLE_PAYLOAD = "zju_timetable_payload"
         const val EXTRA_SCHOOL_YEAR = "zju_school_year"
         const val EXTRA_SEMESTER = "zju_semester"
+        const val EXTRA_SCHOOL_YEAR_CODE = "zju_school_year_code"
+        const val EXTRA_TERM_CODE = "zju_term_code"
     }
 }
 

@@ -32,7 +32,9 @@ internal sealed interface ZjuTimetableFetchResult {
     data class Success(
         val payload: String,
         val schoolYear: String,
-        val semester: String
+        val semester: String,
+        val schoolYearCode: String,
+        val termCode: String
     ) : ZjuTimetableFetchResult
 
     data class Failure(val message: String) : ZjuTimetableFetchResult
@@ -213,10 +215,10 @@ internal object ZjuTimetableClient {
         ).body
 
         progress(ZjuImportStage.PARSING)
-        return when (val parsed = ZjuTimetableParser.parse(payload)) {
+        return when (val parsed = ZjuTimetableParser.parse(payload, year.value, term.value)) {
             is ZjuTimetableParseResult.Success -> {
                 progress(ZjuImportStage.DONE)
-                ZjuTimetableFetchResult.Success(payload, year.text, termDisplay)
+                ZjuTimetableFetchResult.Success(payload, year.text, termDisplay, year.value, term.value)
             }
             is ZjuTimetableParseResult.Failure -> ZjuTimetableFetchResult.Failure(parsed.message)
         }
