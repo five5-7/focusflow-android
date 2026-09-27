@@ -2,6 +2,7 @@ package com.sakata.focusflow
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -54,6 +55,31 @@ class CourseReminderPolicyTest {
         val london = ZoneId.of("Europe/London")
         val start = CourseReminderPolicy.startAt(sunday, day, table, london)
         assertEquals(day.atTime(8, 0).atZone(london).toInstant().toEpochMilli(), start)
+    }
+
+    @Test fun `startAt rejects mismatched weekday inverted periods and invalid tables`() {
+        assertNull(CourseReminderPolicy.startAt(course, monday.plusDays(1), table, zone))
+        assertNull(CourseReminderPolicy.startAt(course.copy(endPeriod = 0), monday, table, zone))
+        assertNull(CourseReminderPolicy.startAt(course, monday, CoursePeriodTable(emptyList()), zone))
+        assertNull(CourseReminderPolicy.startAt(course, monday,
+            CoursePeriodTable(List(21) { CoursePeriodTime(it * 60, it * 60 + 30) }), zone))
+        assertNull(CourseReminderPolicy.startAt(course, monday,
+            CoursePeriodTable(listOf(CoursePeriodTime(600, 650), CoursePeriodTime(620, 700))), zone))
+    }
+
+    @Test fun `effectiveFrom gates activation until its first matching day`() {
+        val nextMonday = monday.plusWeeks(1)
+        val future = course.copy(effectiveFromEpochDay = nextMonday.toEpochDay())
+        assertNull(CourseReminderPolicy.startAt(future, monday, table, zone))
+        assertNotNull(CourseReminderPolicy.startAt(future, nextMonday, table, zone))
+    }
+
+    @Test fun `now exactly at the trigger point rolls to the next week`() {
+        val start = monday.atTime(8, 0).atZone(zone).toInstant().toEpochMilli()
+        val trigger = start - 10 * 60_000L
+        assertEquals(trigger, CourseReminderPolicy.nextTrigger(course, table, trigger - 1, zone))
+        assertEquals(start + 7 * 24 * 60 * 60_000L - 10 * 60_000L,
+            CourseReminderPolicy.nextTrigger(course, table, trigger, zone))
     }
 
     @Test fun `london spring transition rolls the weekly trigger with a 167 hour gap`() {

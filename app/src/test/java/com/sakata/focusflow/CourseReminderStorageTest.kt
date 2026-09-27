@@ -77,6 +77,59 @@ class CourseReminderStorageTest {
         assertTrue(CourseReminders.markNotified(context, 772L, 2_000L))
     }
 
+    @Test fun `markNotified rejects non-positive ids and timestamps`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        context.getSharedPreferences("course_reminder_settings", Context.MODE_PRIVATE).edit().clear().commit()
+        assertFalse(CourseReminders.markNotified(context, 0L, 1_000L))
+        assertFalse(CourseReminders.markNotified(context, -5L, 1_000L))
+        assertFalse(CourseReminders.markNotified(context, 771L, 0L))
+        assertFalse(CourseReminders.markNotified(context, 771L, -1L))
+        assertTrue(CourseReminders.markNotified(context, 771L, 1_000L))
+        assertFalse(CourseReminders.markNotified(context, 771L, 1_000L))
+        assertFalse(CourseReminders.markNotified(context, 771L, 999L))
+        assertFalse(CourseReminders.markNotified(context, 0L, 2_000L))
+        assertFalse(CourseReminders.markNotified(context, 771L, 1_000L))
+    }
+
+    @Test fun `load keeps valid overrides and ignores malformed keys`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        context.getSharedPreferences("course_reminder_settings", Context.MODE_PRIVATE).edit().clear()
+            .putBoolean("meeting_771", true)
+            .putBoolean("meeting_772", false)
+            .putBoolean("meeting_abc", true)
+            .putBoolean("meeting_772x", true)
+            .putString("meeting_773", "yes")
+            .putBoolean("delivered_771", true)
+            .commit()
+        val settings = CourseReminders.load(context)
+        assertEquals(setOf(771L, 772L), settings.overrides.keys)
+        assertTrue(settings.enabledFor(Course("实验", 1, 1, 1, "东一", CampusZone.OTHER, needsConfirmation = false, id = 771L)))
+        assertFalse(settings.enabledFor(Course("实验", 1, 1, 1, "东一", CampusZone.OTHER, needsConfirmation = false, id = 772L)))
+        assertFalse(settings.enabled)
+    }
+
+    @Test fun `location-only resync keeps trigger time and meeting id`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        context.getSharedPreferences("course_reminder_settings", Context.MODE_PRIVATE).edit().clear().commit()
+        val zone = ZoneId.systemDefault()
+        val tomorrow = LocalDate.now(zone).plusDays(1)
+        val table = CoursePeriodTable(listOf(CoursePeriodTime(8 * 60, 8 * 60 + 45)))
+        val course = Course("实验", tomorrow.dayOfWeek.value, 1, 1, "东一", CampusZone.OTHER,
+            needsConfirmation = false, id = 601L)
+        PrototypeStore(context).saveCoursePeriodTable(table)
+        val shadow = Shadows.shadowOf(context.getSystemService(AlarmManager::class.java))
+
+        CourseReminders.sync(context, emptyList(), listOf(course), table, CourseReminderSettings(enabled = true))
+        val before = shadow.scheduledAlarms.single().triggerAtMs
+        val moved = course.copy(building = "西二")
+        CourseReminders.sync(context, listOf(course), listOf(moved), table, CourseReminderSettings(enabled = true))
+
+        val alarm = shadow.scheduledAlarms.single()
+        assertEquals(before, alarm.triggerAtMs)
+        val saved = Shadows.shadowOf(alarm.operation).savedIntent
+        assertEquals(601L, saved.getLongExtra(ReminderReceiver.EXTRA_COURSE_ID, -1L))
+    }
+
     @Test fun `same meeting id drops the old alarm and reschedules after a period change`() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         context.getSharedPreferences("course_reminder_settings", Context.MODE_PRIVATE).edit().clear().commit()
