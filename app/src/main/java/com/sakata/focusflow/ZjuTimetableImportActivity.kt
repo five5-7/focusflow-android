@@ -176,7 +176,7 @@ class ZjuTimetableImportActivity : ComponentActivity() {
                             )
                             finish()
                         }
-                        is ZjuTimetableFetchResult.Failure -> importState.failure = outcome.message
+                        is ZjuTimetableFetchResult.Failure -> importState.applyFetchFailure(outcome)
                     }
                 }
 
@@ -375,7 +375,7 @@ internal class ZjuImportViewModel(
                             is ZjuTimetableFetchResult.Failure -> {
                                 // 保留失败时的 currentStage（与第一阶段一致）。
                                 running = false
-                                failure = result.message
+                                applyFetchFailure(result)
                                 outcome = result
                             }
                         }
@@ -392,6 +392,27 @@ internal class ZjuImportViewModel(
     /** 终态已被 Activity 处理（失败已展示或已 setResult/finish），清掉避免重复消费。 */
     fun consumeOutcome() {
         outcome = null
+    }
+
+    /**
+     * 第二阶段失败的统一处理：普通失败只显示文案；会话已失效（登录失效/验证码）时还必须清掉
+     * 旧学期选项，否则按钮仍是可点的“导入所选学期”，用户会做一次注定失败的重复请求。
+     * 两条终态路径（onComplete 直写、LaunchedEffect 观察 outcome）都走这里，避免行为分叉。
+     */
+    fun applyFetchFailure(result: ZjuTimetableFetchResult.Failure) {
+        failure = result.message
+        if (!result.sessionInvalid) return
+        options = null
+        pendingSession = null
+        selectedYearValue = null
+        selectedTermValue = null
+        currentStage = null
+        // 解析层的文案自己已经说了"重新登录/重新认证"时不再追加，避免出现重复句或自相矛盾。
+        failure = if (result.message.contains("重新登录") || result.message.contains("重新完成统一身份认证")) {
+            result.message
+        } else {
+            "${result.message}请重新登录后再导入。"
+        }
     }
 
     /** 用户主动重新登录：作废待确认会话并回到账号输入。 */

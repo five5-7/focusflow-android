@@ -9,6 +9,7 @@ import java.util.ArrayDeque
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -23,6 +24,7 @@ class ZjuTimetableSessionTest {
         private val queues = mutableMapOf<String, ArrayDeque<ZjuHttpResponse>>()
         val posts = mutableListOf<Pair<String, String>>()
         private var postInterceptor: (() -> Unit)? = null
+        private var getInterceptor: ((String) -> Unit)? = null
         private var cancelAction: (() -> Unit)? = null
         private val cancels = java.util.concurrent.atomic.AtomicInteger(0)
 
@@ -32,6 +34,11 @@ class ZjuTimetableSessionTest {
 
         fun setPostInterceptor(interceptor: () -> Unit) {
             postInterceptor = interceptor
+        }
+
+        /** 按 URL 生效的 GET 拦截器：用于在下游请求"在途"时检查外部状态（如密码数组是否已清零）。 */
+        fun setGetInterceptor(interceptor: (String) -> Unit) {
+            getInterceptor = interceptor
         }
 
         fun setCancelAction(action: () -> Unit) {
@@ -53,7 +60,10 @@ class ZjuTimetableSessionTest {
             return queues.getValue(key).removeFirst()
         }
 
-        override fun get(url: String, totalTimeoutMs: Long?): ZjuHttpResponse = next("GET", url)
+        override fun get(url: String, totalTimeoutMs: Long?): ZjuHttpResponse {
+            getInterceptor?.invoke(url)
+            return next("GET", url)
+        }
 
         override fun post(
             url: String,
@@ -88,11 +98,7 @@ class ZjuTimetableSessionTest {
     private fun FakeTransport.stubTimetable() {
         enqueue(
             "POST", "xskbcx_cxXsKb",
-            ZjuHttpResponse(
-                200,
-                URI("https://zdbk.zju.edu.cn/jwglxt/kbcx/xskbcx_cxXsKb.html"),
-                """{"kbList":[{"xqj":"1","djj":"1","skcd":"2","kcb":"课程<br>1-16周<br>老师<br>东1zwf","xkkh":"KEY-1"}]}"""
-            )
+            ZjuHttpResponse(200, URI("https://zdbk.zju.edu.cn/jwglxt/kbcx/xskbcx_cxXsKb.html"), TIMETABLE_JSON)
         )
     }
 
@@ -136,10 +142,27 @@ class ZjuTimetableSessionTest {
         return requireNotNull(result)
     }
 
+    /** 记录到期安排但不真正等待 10 分钟：让 TTL 相关断言保持确定性。 */
+    private class RecordingExpiryScheduler : ZjuTimetableClient.ZjuExpiryScheduler {
+        val delays = mutableListOf<Long>()
+        val actions = mutableListOf<() -> Unit>()
+
+        override fun schedule(delayMillis: Long, action: () -> Unit) {
+            delays += delayMillis
+            actions += action
+        }
+
+        /** 模拟"时间到了"：把已安排的回调执行一遍。 */
+        fun fireAll() {
+            actions.toList().forEach { runCatching { it() } }
+        }
+    }
+
     private fun begin(
         transport: FakeTransport,
         password: CharArray = "secret".toCharArray(),
-        now: Long = System.currentTimeMillis()
+        now: Long = System.currentTimeMillis(),
+        expiryScheduler: ZjuTimetableClient.ZjuExpiryScheduler? = null
     ): ZjuSemesterOptionsResult = awaitOptions { complete ->
         ZjuTimetableClient.beginSession(
             username = "student",
@@ -147,7 +170,8 @@ class ZjuTimetableSessionTest {
             onProgress = {},
             onComplete = complete,
             now = now,
-            transportFactory = { transport }
+            transportFactory = { transport },
+            expiryScheduler = expiryScheduler ?: ZjuTimetableClient.ZjuExpiryScheduler { _, _ -> }
         )
     }
 
@@ -165,6 +189,206 @@ class ZjuTimetableSessionTest {
             onComplete = complete,
             now = now
         )
+    }
+
+    /**
+     * 延迟返回的假传输：即使被 cancel 也照样把排队的合法课表交出去。
+     * 用来证伪"到期后靠 transport.cancel() 打断请求"这条唯一判据。
+     */
+    @Test
+    fun `logged-out host detection only fires on the identity provider or domain root`() {
+        // 复验指出的覆盖缺口：这条启发式原来只有静态依据。用纯函数直接钉住判定边界。
+        fun loggedOut(url: String) = isLoggedOutRedirect(URI(url))
+
+        assertTrue("CAS host must count as logged out", loggedOut("https://zjuam.zju.edu.cn/cas/login"))
+        assertTrue("domain root must count as logged out", loggedOut("https://zju.edu.cn/"))
+        assertFalse("timetable page is not a logout", loggedOut("https://zdbk.zju.edu.cn/jwglxt/kbcx/xskbcx_cxXsKb.html"))
+        assertFalse("a gateway error on the same host is not a logout", loggedOut("https://zdbk.zju.edu.cn/502.html"))
+        assertFalse("domain subpage is not a logout", loggedOut("https://zju.edu.cn/some/page"))
+    }
+
+    @Test
+    fun `an expired session must not deliver a successful timetable even if the transport ignores cancel`() {
+        // Sol review6 的阻断项：到期与"正在下载课表"并发时，成功收尾必须和到期移除在同一锁下定序；
+        // 不能只靠 transport.cancel() 打断请求（真实 disconnect 也不该是唯一判据）。
+        val scheduler = RecordingExpiryScheduler()
+        val transport = FakeTransport().apply { stubLoginAndIndex(INDEX_HTML_A) }
+        val options = begin(transport, expiryScheduler = scheduler) as ZjuSemesterOptionsResult.Success
+
+        val postEntered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        // 关键：先排一份**合法课表**，并让假传输无视 cancel（cancelAction 不解除阻塞）。
+        transport.stubTimetable()
+        transport.setPostInterceptor { postEntered.countDown(); release.await(5, TimeUnit.SECONDS) }
+
+        val outcomes = java.util.concurrent.atomic.AtomicInteger(0)
+        var result: ZjuTimetableFetchResult? = null
+        val latch = CountDownLatch(1)
+        Thread {
+            ZjuTimetableClient.confirmSelectedSemester(
+                handle = options.handle,
+                yearValue = "2026-2027",
+                termValue = "2|短",
+                onProgress = {},
+                onComplete = { value -> outcomes.incrementAndGet(); result = value; latch.countDown() }
+            )
+        }.start()
+        assertTrue("POST must be in flight", postEntered.await(3, TimeUnit.SECONDS))
+
+        scheduler.fireAll() // 在途期间到期
+        release.countDown()
+        awaitLatch(latch)
+        settle()
+
+        assertEquals(1, outcomes.get())
+        val failure = requireNotNull(result) as? ZjuTimetableFetchResult.Failure
+        assertTrue("expired attempt must fail, got $result", failure != null)
+        assertEquals("本次登录已过期，请重新登录后再导入。", failure!!.message)
+        assertTrue("expired failure must invalidate the session", failure.sessionInvalid)
+        // 句柄不可再用，且不会再发出请求。
+        assertTrue(confirm(options.handle, "2026-2027", "2|短") is ZjuTimetableFetchResult.Failure)
+        assertEquals(1, transport.timetablePosts().size)
+    }
+
+    @Test
+    fun `an expiry before the request is sent prevents any timetable POST`() {
+        // Sol review6 的第二个边界：到期发生在"确认线程已启动、POST 尚未发出"之间。
+        // 注意不要在这里嵌套 awaitLatch：worker 会卡在 beforePost 上，而 awaitLatch 需要主线程泵 looper。
+        val scheduler = RecordingExpiryScheduler()
+        val transport = FakeTransport().apply {
+            stubLoginAndIndex(INDEX_HTML_A)
+            stubTimetable()
+        }
+        val options = begin(transport, expiryScheduler = scheduler) as ZjuSemesterOptionsResult.Success
+
+        val workerPaused = CountDownLatch(1)
+        val resume = CountDownLatch(1)
+        var result: ZjuTimetableFetchResult? = null
+        val done = CountDownLatch(1)
+        Thread {
+            ZjuTimetableClient.confirmSelectedSemester(
+                handle = options.handle,
+                yearValue = "2026-2027",
+                termValue = "2|短",
+                onProgress = {},
+                onComplete = { value -> result = value; done.countDown() },
+                beforePost = {
+                    workerPaused.countDown()
+                    resume.await(5, TimeUnit.SECONDS)
+                }
+            )
+        }.start()
+
+        assertTrue("worker must pause before POST", workerPaused.await(3, TimeUnit.SECONDS))
+        scheduler.fireAll() // POST 之前到期
+        resume.countDown()
+        awaitLatch(done)
+
+        val failure = requireNotNull(result) as? ZjuTimetableFetchResult.Failure
+        assertTrue("expired attempt must fail, got $result", failure != null)
+        assertTrue(failure!!.sessionInvalid)
+        assertEquals("no timetable POST may be sent after expiry", 0, transport.timetablePosts().size)
+    }
+
+    @Test
+    fun `a non-login html error page stays retryable instead of forcing a re-login`() {
+        // review5 #4 的边界修正：只有"明确是登录页"或"登出域名"才判会话失效；
+        // 5xx／维护页这类 HTML 只是这次请求失败，句柄应保留以便原地重试。
+        val transport = FakeTransport().apply {
+            stubLoginAndIndex(INDEX_HTML_A)
+            enqueue(
+                "POST", "xskbcx_cxXsKb",
+                ZjuHttpResponse(
+                    502,
+                    URI("https://zdbk.zju.edu.cn/jwglxt/kbcx/xskbcx_cxXsKb.html"),
+                    "<html><head><title>502 Bad Gateway</title></head><body>nginx</body></html>"
+                )
+            )
+        }
+        val options = begin(transport) as ZjuSemesterOptionsResult.Success
+
+        val first = confirm(options.handle, "2026-2027", "2|短")
+        assertTrue(first is ZjuTimetableFetchResult.Failure)
+        val failure = first as ZjuTimetableFetchResult.Failure
+        assertEquals("无法解析教务课表响应，请确认当前页面是“学生课表查询”。", failure.message)
+        assertFalse("a gateway error page must not force a re-login", failure.sessionInvalid)
+
+        // 句柄仍在：恢复后可直接重试成功。
+        transport.stubTimetable()
+        assertTrue(confirm(options.handle, "2026-2027", "2|短") is ZjuTimetableFetchResult.Success)
+        assertEquals(2, transport.timetablePosts().size)
+    }
+
+    @Test
+    fun `a logged-out response with a valid timetable body is still a session loss`() {
+        // review7 阻断：传输层已证明最终跳转不是课表页时，合法 JSON 也不能把它推翻成成功。
+        val transport = FakeTransport().apply {
+            stubLoginAndIndex(INDEX_HTML_A)
+            enqueue(
+                "POST", "xskbcx_cxXsKb",
+                ZjuHttpResponse(
+                    200,
+                    URI("https://zjuam.zju.edu.cn/cas/login"),
+                    TIMETABLE_JSON,
+                    loggedOut = true
+                )
+            )
+        }
+        val options = begin(transport) as ZjuSemesterOptionsResult.Success
+
+        val first = confirm(options.handle, "2026-2027", "2|短")
+        val failure = first as? ZjuTimetableFetchResult.Failure
+        assertTrue("a logged-out response must never be parsed as success, got $first", failure != null)
+        assertEquals("教务登录已失效，请重新完成统一身份认证。", failure!!.message)
+        assertTrue(failure.sessionInvalid)
+
+        // 原句柄不可复用，也不会再发请求。
+        assertTrue(confirm(options.handle, "2026-2027", "2|短") is ZjuTimetableFetchResult.Failure)
+        assertEquals(1, transport.timetablePosts().size)
+    }
+
+    @Test
+    fun `a logged-out response with an empty body reports a session loss`() {
+        // review7：空正文原先落到 EMPTY_PAYLOAD（"没有返回课表数据"），登出时该给明确的重新认证提示。
+        val transport = FakeTransport().apply {
+            stubLoginAndIndex(INDEX_HTML_A)
+            enqueue(
+                "POST", "xskbcx_cxXsKb",
+                ZjuHttpResponse(
+                    200,
+                    URI("https://zjuam.zju.edu.cn/cas/login"),
+                    "",
+                    loggedOut = true
+                )
+            )
+        }
+        val options = begin(transport) as ZjuSemesterOptionsResult.Success
+
+        val failure = confirm(options.handle, "2026-2027", "2|短") as ZjuTimetableFetchResult.Failure
+        assertEquals("教务登录已失效，请重新完成统一身份认证。", failure.message)
+        assertTrue(failure.sessionInvalid)
+    }
+
+    @Test
+    fun `a logged-out redirect invalidates the session`() {
+        // 传输层判定"登出域名"时，即使正文没有登录页特征也要判会话失效。
+        val transport = FakeTransport().apply {
+            stubLoginAndIndex(INDEX_HTML_A)
+            enqueue(
+                "POST", "xskbcx_cxXsKb",
+                ZjuHttpResponse(
+                    200,
+                    URI("https://zjuam.zju.edu.cn/cas/login"),
+                    "<html><body>redirected</body></html>",
+                    loggedOut = true
+                )
+            )
+        }
+        val options = begin(transport) as ZjuSemesterOptionsResult.Success
+
+        val failure = confirm(options.handle, "2026-2027", "2|短") as ZjuTimetableFetchResult.Failure
+        assertEquals("教务登录已失效，请重新完成统一身份认证。", failure.message)
+        assertTrue(failure.sessionInvalid)
     }
 
     @Test
@@ -219,6 +443,236 @@ class ZjuTimetableSessionTest {
         transport.stubTimetable()
         assertTrue(confirm(options.handle, "2026-2027", "2|短") is ZjuTimetableFetchResult.Success)
         assertEquals(2, transport.timetablePosts().size)
+    }
+
+    // ── Sol code-review5 的四项修正：对应测试 ─────────────────────────────────
+
+    @Test
+    fun `a login page response invalidates the session instead of inviting a retry`() {
+        // Sol review5 #1：登录页返回 ⇒ 会话已失效，原地重试不可能成功。
+        val transport = FakeTransport().apply {
+            stubLoginAndIndex(INDEX_HTML_A)
+            enqueue(
+                "POST", "xskbcx_cxXsKb",
+                ZjuHttpResponse(
+                    200,
+                    URI("https://zdbk.zju.edu.cn/jwglxt/kbcx/xskbcx_cxXsKb.html"),
+                    "<html><body>统一身份认证登录</body></html>"
+                )
+            )
+        }
+        val options = begin(transport) as ZjuSemesterOptionsResult.Success
+
+        val first = confirm(options.handle, "2026-2027", "2|短")
+        assertTrue(first is ZjuTimetableFetchResult.Failure)
+        val failure = first as ZjuTimetableFetchResult.Failure
+        assertEquals("教务登录已失效，请重新完成统一身份认证。", failure.message)
+        // 关键：必须标记会话不可用，UI 才能清掉旧选项并要求重新登录。
+        assertTrue("session must be invalidated", failure.sessionInvalid)
+
+        // 可证伪点：会话已作废 ⇒ 再次确认不得再发 POST，而是直接报"已使用或已过期"。
+        val second = confirm(options.handle, "2026-2027", "2|短")
+        assertTrue(second is ZjuTimetableFetchResult.Failure)
+        assertEquals("学期选项已使用或已过期，请重新登录并读取学期选项。", (second as ZjuTimetableFetchResult.Failure).message)
+        assertEquals("expired session must not issue another POST", 1, transport.timetablePosts().size)
+    }
+
+    @Test
+    fun `a captcha challenge invalidates the session instead of inviting a retry`() {
+        // Sol review5 #1：验证码同样需要重新认证，重试不可能成功。
+        val transport = FakeTransport().apply {
+            stubLoginAndIndex(INDEX_HTML_A)
+            enqueue(
+                "POST", "xskbcx_cxXsKb",
+                ZjuHttpResponse(
+                    200,
+                    URI("https://zdbk.zju.edu.cn/jwglxt/kbcx/xskbcx_cxXsKb.html"),
+                    """{"captcha_error":"true"}"""
+                )
+            )
+        }
+        val options = begin(transport) as ZjuSemesterOptionsResult.Success
+
+        val failure = confirm(options.handle, "2026-2027", "2|短") as ZjuTimetableFetchResult.Failure
+        assertTrue(failure.sessionInvalid)
+        assertTrue(failure.message.contains("验证码"))
+        assertTrue(confirm(options.handle, "2026-2027", "2|短") is ZjuTimetableFetchResult.Failure)
+        assertEquals(1, transport.timetablePosts().size)
+    }
+
+    @Test
+    fun `an expired session is cleaned up without another begin or confirm call`() {
+        // Sol review5 #2：TTL 不能只在"下一次调用"时清理——用户把页面放着不动也要作废。
+        val scheduler = RecordingExpiryScheduler()
+        val transport = FakeTransport().apply { stubLoginAndIndex(INDEX_HTML_A) }
+        val options = begin(transport, expiryScheduler = scheduler) as ZjuSemesterOptionsResult.Success
+
+        assertEquals("exactly one expiry must be scheduled", 1, scheduler.delays.size)
+        // 生产按"已过时间"扣减，所以允许几毫秒误差；关键是**接近 10 分钟且不超过它**。
+        val delay = scheduler.delays.single()
+        assertTrue("expiry must be bound to the 10 minute TTL, was $delay", delay in (10 * 60_000L - 5_000L)..(10 * 60_000L))
+
+        // 时间到（没有第二次 begin/confirm）：传输必须被取消，句柄必须失效。
+        scheduler.fireAll()
+
+        assertTrue("expired session must cancel its transport", transport.canceledCount() >= 1)
+        val reuse = confirm(options.handle, "2026-2027", "2|短")
+        assertTrue(reuse is ZjuTimetableFetchResult.Failure)
+        assertEquals("学期选项已使用或已过期，请重新登录并读取学期选项。", (reuse as ZjuTimetableFetchResult.Failure).message)
+        assertEquals("expired session must not issue a request", 0, transport.timetablePosts().size)
+    }
+
+    @Test
+    fun `the password array is cleared as soon as the login request returns`() {
+        // Sol review5 #3：明文密码在认证请求返回后必须立即清零，而不是等读完首页 option（最长 40 秒）。
+        val homePageSeen = CountDownLatch(1)
+        var passwordStateAtHomePage: Boolean? = null
+        val password = "secret".toCharArray()
+        val transport = FakeTransport().apply {
+            stubLoginAndIndex(INDEX_HTML_A)
+            // 首页 GET 期间（认证已完成、option 还没读完）检查调用方持有的数组。
+            setGetInterceptor { url ->
+                if (url.contains("xskbcx_cxXskbcxIndex")) {
+                    passwordStateAtHomePage = password.all { it == '\u0000' }
+                    homePageSeen.countDown()
+                }
+            }
+        }
+
+        begin(transport, password = password)
+
+        assertTrue("home page must have been requested", homePageSeen.await(1, TimeUnit.SECONDS))
+        assertEquals(
+            "password must already be cleared while the home page is still being read",
+            true,
+            passwordStateAtHomePage
+        )
+        assertTrue(password.all { it == '\u0000' })
+    }
+
+    @Test
+    fun `an expired session is not restored even if a confirm is in flight`() {
+        // 复验指出的回填缺陷：到期发生在确认请求在途时，若失败路径把条目放回静态表，
+        // 就等于把"超时条目滞留"又做回来（Sol review5 #2 要消灭的正是它）。
+        val scheduler = RecordingExpiryScheduler()
+        val transport = FakeTransport().apply { stubLoginAndIndex(INDEX_HTML_A) }
+        val options = begin(transport, expiryScheduler = scheduler) as ZjuSemesterOptionsResult.Success
+
+        val postEntered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        transport.setPostInterceptor { postEntered.countDown(); release.await(5, TimeUnit.SECONDS) }
+
+        val outcomes = java.util.concurrent.atomic.AtomicInteger(0)
+        var result: ZjuTimetableFetchResult? = null
+        val latch = CountDownLatch(1)
+        ZjuTimetableClient.confirmSelectedSemester(
+            handle = options.handle,
+            yearValue = "2026-2027",
+            termValue = "2|短",
+            onProgress = {},
+            onComplete = { value -> outcomes.incrementAndGet(); result = value; latch.countDown() }
+        )
+        assertTrue("confirm must be in flight", postEntered.await(3, TimeUnit.SECONDS))
+
+        // 确认在途时到期。
+        scheduler.fireAll()
+        release.countDown()
+        awaitLatch(latch)
+        settle()
+
+        assertEquals(1, outcomes.get())
+        assertTrue(requireNotNull(result) is ZjuTimetableFetchResult.Failure)
+        // 关键断言：不得被回填 —— 再次确认不允许发出任何请求。
+        val reuse = confirm(options.handle, "2026-2027", "2|短")
+        assertTrue(reuse is ZjuTimetableFetchResult.Failure)
+        assertEquals("学期选项已使用或已过期，请重新登录并读取学期选项。", (reuse as ZjuTimetableFetchResult.Failure).message)
+        assertEquals("expired session must never be restored", 1, transport.timetablePosts().size)
+    }
+
+    @Test
+    fun `a term that differs only by display text is a mismatch`() {
+        // 复验的覆盖缺口：学期分支此前无用例。回显文字与所选学期不同 ⇒ 必须失败关闭。
+        val mismatch = ZjuTimetableParser.parse(
+            """{"xnm":"2026-2027","xqm":"夏","kbList":[{"xqj":"1","djj":"1","skcd":"2","kcb":"课程<br>1-16周"}]}""",
+            "2026-2027",
+            "1|秋"
+        )
+        assertTrue(mismatch is ZjuTimetableParseResult.Failure)
+        assertEquals(ZjuParseFailureReason.SEMESTER_MISMATCH, (mismatch as ZjuTimetableParseResult.Failure).reason)
+
+        // 单字回显但文字一致（真实形态）⇒ 不得误判；两个「短」无法区分，因此也不判失败。
+        val shortTerm = ZjuTimetableParser.parse(
+            """{"xnm":"2026-2027","xqm":"短","kbList":[{"xqj":"1","djj":"1","skcd":"2","kcb":"课程<br>1-16周<br>老师<br>东1zwf"}]}""",
+            "2026-2027",
+            "2|短"
+        )
+        assertTrue("single-character echo must not be misjudged", shortTerm is ZjuTimetableParseResult.Success)
+
+        // 响应未回显学期 ⇒ 无法核对，不判失败。
+        val noEcho = ZjuTimetableParser.parse(
+            """{"xnm":"2026-2027","kbList":[{"xqj":"1","djj":"1","skcd":"2","kcb":"课程<br>1-16周<br>老师<br>东1zwf"}]}""",
+            "2026-2027",
+            "1|秋"
+        )
+        assertTrue(noEcho is ZjuTimetableParseResult.Success)
+    }
+
+    @Test
+    fun `another confirmation after expiry is reported as an invalid session`() {
+        // Sol review5 #2 的 UI 失效要求：到期后再点必须被告知"无效会话"，UI 才会清掉旧选项并要求重新登录。
+        val scheduler = RecordingExpiryScheduler()
+        val transport = FakeTransport().apply { stubLoginAndIndex(INDEX_HTML_A) }
+        val options = begin(transport, expiryScheduler = scheduler) as ZjuSemesterOptionsResult.Success
+
+        scheduler.fireAll()
+
+        val failure = confirm(options.handle, "2026-2027", "2|短") as ZjuTimetableFetchResult.Failure
+        // 到期条目已被移除，因此走"已使用或已过期"分支；关键是它必须标记为无效会话。
+        assertEquals("学期选项已使用或已过期，请重新登录并读取学期选项。", failure.message)
+        assertTrue("expired handle must report an invalid session", failure.sessionInvalid)
+    }
+
+    @Test
+    fun `a server year that differs from the request is a mismatch`() {
+        // Sol review5 #4 的合成反例：请求 2026-2027，响应回显 2025-2026 ⇒ 必须失败关闭。
+        val mismatch = ZjuTimetableParser.parse(
+            """{"xnm":"2025-2026","xqm":"秋","kbList":[{"xqj":"1","djj":"1","skcd":"2","kcb":"课程<br>1-16周"}]}""",
+            "2026-2027",
+            "1|秋"
+        )
+        assertTrue("mismatched year must not produce Success", mismatch is ZjuTimetableParseResult.Failure)
+        val failure = mismatch as ZjuTimetableParseResult.Failure
+        assertEquals(ZjuParseFailureReason.SEMESTER_MISMATCH, failure.reason)
+        assertTrue(failure.message.contains("2025-2026"))
+
+        // 对照：回显与请求一致 ⇒ 正常成功（证明上一条不是"永远失败"）。
+        val consistent = ZjuTimetableParser.parse(
+            """{"xnm":"2026-2027","xqm":"秋","kbList":[{"xqj":"1","djj":"1","skcd":"2","kcb":"课程<br>1-16周<br>老师<br>东1zwf"}]}""",
+            "2026-2027",
+            "1|秋"
+        )
+        assertTrue("consistent echo must succeed", consistent is ZjuTimetableParseResult.Success)
+    }
+
+    @Test
+    fun `parse failures carry a recoverable or terminal reason`() {
+        // Sol review5 #1 的实现前提：重试策略必须由**结构化原因**决定，而不是匹配中文文案。
+        fun reasonOf(payload: String): ZjuParseFailureReason =
+            (ZjuTimetableParser.parse(payload, "2026-2027", "1|秋") as ZjuTimetableParseResult.Failure).reason
+
+        assertEquals(ZjuParseFailureReason.SESSION_LOST, reasonOf("<html><body>登录</body></html>"))
+        assertEquals(ZjuParseFailureReason.CAPTCHA_REQUIRED, reasonOf("""{"captcha_error":"true"}"""))
+        assertEquals(ZjuParseFailureReason.MALFORMED, reasonOf("""{"kbList":"""))
+        assertEquals(ZjuParseFailureReason.NO_KB_LIST, reasonOf("""{"xnm":"2026-2027"}"""))
+        assertEquals(ZjuParseFailureReason.EMPTY_PAYLOAD, reasonOf("   "))
+        assertFalse(ZjuParseFailureReason.SESSION_LOST.isRecoverable)
+        assertFalse(ZjuParseFailureReason.CAPTCHA_REQUIRED.isRecoverable)
+        assertFalse(ZjuParseFailureReason.EMPTY_PAYLOAD.isRecoverable)
+        assertTrue(ZjuParseFailureReason.MALFORMED.isRecoverable)
+        assertTrue(ZjuParseFailureReason.NO_KB_LIST.isRecoverable)
+        assertTrue(ZjuParseFailureReason.TOO_LARGE.isRecoverable)
+        // 学期不一致可重试（换一个学期），但必须仍然失败关闭。
+        assertTrue(ZjuParseFailureReason.SEMESTER_MISMATCH.isRecoverable)
     }
 
     @Test
@@ -737,6 +1191,10 @@ class ZjuTimetableSessionTest {
     }
 
     private companion object {
+        /** 一份合法的课表响应：用于"已知登出 + 合法正文"这类反例，证明登出信号不被正文推翻。 */
+        const val TIMETABLE_JSON =
+            """{"kbList":[{"xqj":"1","djj":"1","skcd":"2","kcb":"课程<br>1-16周<br>老师<br>东1zwf","xkkh":"KEY-1"}]}"""
+
         val CAS_FORM = """
             <form>
               <input type="hidden" name="execution" value="e1s1">

@@ -15,6 +15,9 @@ import java.net.URLEncoder
 import java.nio.CharBuffer
 import java.util.Timer
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledExecutorService
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
@@ -39,7 +42,11 @@ internal sealed interface ZjuTimetableFetchResult {
         val termCode: String
     ) : ZjuTimetableFetchResult
 
-    data class Failure(val message: String) : ZjuTimetableFetchResult
+    data class Failure(
+        val message: String,
+        /** true 表示教务会话已不可用：不要指望原地重试，UI 应清掉旧选项并要求重新登录。 */
+        val sessionInvalid: Boolean = false
+    ) : ZjuTimetableFetchResult
 }
 
 internal data class ZjuCasFormField(val name: String, val value: String, val type: String)
@@ -78,7 +85,16 @@ internal interface ZjuHttpClient {
     ): ZjuHttpResponse
 }
 
-internal data class ZjuHttpResponse(val code: Int, val url: URI, val body: String)
+internal data class ZjuHttpResponse(
+    val code: Int,
+    val url: URI,
+    val body: String,
+    /**
+     * 响应是否表明"已登出"（被重定向到校外／统一身份认证域名）。
+     * 由此区分"会话失效"与"服务器返回了错误页"——后者只是这次请求失败，不该逼用户重新登录。
+     */
+    val loggedOut: Boolean = false
+)
 
 /**
  * 浙江大学课表原生短链路。账号和密码不写入文件、SharedPreferences 或日志；
@@ -105,35 +121,76 @@ internal object ZjuTimetableClient {
     /** 保护“取消检查 + 放回 pendingSessions”这一对操作的原子性。 */
     private val restoreLock = Any()
 
+    /** 到期清理的执行器：一条定时线程服务全部会话，不为每个会话各起线程。 */
+    private val expiryExecutor: ScheduledExecutorService by lazy {
+        Executors.newSingleThreadScheduledExecutor { runnable ->
+            Thread(runnable, "FocusFlow-ZjuSessionExpiry").apply { isDaemon = true }
+        }
+    }
+
     /**
-     * 待确认会话。`canceled` 由 [cancelSession] 置位，[ZjuHttpClient.cancel] 负责中断在途网络请求；
-     * 取消后即使网络路径返回成功也不再消耗句柄。
+     * 安排一次到期回调；抽成接口只为了让测试能注入假调度器（不依赖真实等待 10 分钟）。
+     * 不返回可取消句柄：到期回调 [expireSession] 对已消费/已取消/已到期的句柄都是幂等空操作，
+     * 因此没必要维护"取消任务"的簿记（少一张表、少一处泄漏面）。
+     */
+    internal fun interface ZjuExpiryScheduler {
+        fun schedule(delayMillis: Long, action: () -> Unit)
+    }
+
+    /** 默认调度器：交给 [expiryExecutor]（守护线程）。 */
+    private val defaultExpiryScheduler = ZjuExpiryScheduler { delay, action ->
+        runCatching { expiryExecutor.schedule(action, delay, TimeUnit.MILLISECONDS) }
+        Unit
+    }
+
+    /**
+     * 待确认会话。两个"作废"标志分工不同：
+     * - [canceled]：用户主动取消（[cancelSession]/[cancelTransport]）。在途失败会因此报成"导入已取消"。
+     * - [expired]：TTL 到期（[expireSession]）。在途失败如实报成超时/网络错误，但**同样禁止回填**——
+     *   否则已到期条目会被 `restorePendingLocked` 放回进程级静态表，等于把 Sol 要修的"超时条目滞留"又做回来。
+     *
+     * `timetableUrl` 在创建时算好（而不是每次用账号拼），这样作废后清掉账号也不会影响在途请求，
+     * 也不会出现 `su=` 为空的请求。
      */
     private class PendingSession(
+        val id: Long,
         val transport: ZjuHttpClient,
-        val username: String,
+        username: String,
         val indexUrl: String,
+        val timetableUrl: String,
         val yearOptions: List<ZjuSemesterOption>,
         val termOptions: List<ZjuSemesterOption>,
         val createdAt: Long,
-        val canceled: AtomicBoolean = AtomicBoolean(false)
+        val canceled: AtomicBoolean = AtomicBoolean(false),
+        val expired: AtomicBoolean = AtomicBoolean(false)
     ) {
-        fun requestCancel() {
-            canceled.set(true)
-            runCatching { transport.cancel() }
+        @Volatile
+        var username: String = username
+            private set
+
+        fun clearAccount() {
+            username = ""
         }
+
+        /** 条目是否已不可用（被取消或已到期）：不可用就不许再回填进静态表。 */
+        fun isVoid(): Boolean = canceled.get() || expired.get()
+
+        /** 是否因 TTL 到期而作废（与"用户取消"区分，用于文案与 UI 处置）。 */
+        fun isExpired(): Boolean = expired.get()
     }
 
     /**
      * 一次确认尝试的结果，三种形态互斥：
      * - [result] 非空：成功。
-     * - [failureMessage] 非空且 [sessionUsable] 为 true：这次请求失败但会话仍有效（网络/超时/解析），句柄放回以便原地重试。
-     * - [failureMessage] 非空且 [sessionUsable] 为 false：取消——不放回句柄。
+     * - [failureMessage] 非空且 [sessionUsable] 为 true：这次请求失败但会话仍有效（网络/超时/可恢复的解析失败），句柄放回以便原地重试。
+     * - [failureMessage] 非空且 [sessionUsable] 为 false：取消，或会话已不可用（登录失效/验证码）——两种情况都不放回句柄。
      */
     private class ConfirmAttempt(
         val result: ZjuTimetableFetchResult.Success?,
         val failureMessage: String?,
-        val sessionUsable: Boolean
+        val sessionUsable: Boolean,
+        /** true 时把 [ZjuTimetableFetchResult.Failure.sessionInvalid] 置位，让 UI 清掉旧选项并要求重新登录。 */
+        val sessionInvalid: Boolean = false
     )
 
     /** 第一步：登录并读取首页学年/学期选项；密码在本次调用内清零。 */
@@ -143,7 +200,8 @@ internal object ZjuTimetableClient {
         onProgress: (ZjuImportStage) -> Unit,
         onComplete: (ZjuSemesterOptionsResult) -> Unit,
         now: Long = System.currentTimeMillis(),
-        transportFactory: () -> ZjuHttpClient = { HttpSession() }
+        transportFactory: () -> ZjuHttpClient = { HttpSession() },
+        expiryScheduler: ZjuExpiryScheduler = defaultExpiryScheduler
     ) {
         purgeExpiredSessions(now)
         val transport = try {
@@ -157,7 +215,7 @@ internal object ZjuTimetableClient {
             Thread {
                 var currentStage = ZjuImportStage.CONNECTING
                 val result = try {
-                    beginSessionBlocking(username.trim(), password, transport, now) { stage ->
+                    beginSessionBlocking(username.trim(), password, transport, now, expiryScheduler) { stage ->
                         currentStage = stage
                         dispatch(onProgress, stage)
                     }
@@ -193,7 +251,9 @@ internal object ZjuTimetableClient {
         termValue: String,
         onProgress: (ZjuImportStage) -> Unit,
         onComplete: (ZjuTimetableFetchResult) -> Unit,
-        now: Long = System.currentTimeMillis()
+        now: Long = System.currentTimeMillis(),
+        /** 测试钩子：在工作线程真正发请求之前调用，用来摆出"到期早于 POST"的确定性时序。 */
+        beforePost: () -> Unit = {}
     ) {
         // 取走句柄、校验、登记在途必须与 cancelSession 互斥：否则落在“取走”与“登记”之间的取消
         // 会在两张表里都找不到句柄而被静默丢弃。
@@ -203,11 +263,25 @@ internal object ZjuTimetableClient {
         synchronized(restoreLock) {
             val taken = pendingSessions.remove(handle.id)
             if (taken == null) {
-                dispatch(onComplete, ZjuTimetableFetchResult.Failure("学期选项已使用或已过期，请重新登录并读取学期选项。"))
+                // 句柄已不可用（用过/取消/到期）：标 sessionInvalid，让 UI 清掉旧选项并要求重新登录，
+                // 而不是留一个可点但注定失败的"导入所选学期"。
+                dispatch(
+                    onComplete,
+                    ZjuTimetableFetchResult.Failure("学期选项已使用或已过期，请重新登录并读取学期选项。", sessionInvalid = true)
+                )
                 return
             }
             if (now - taken.createdAt > SESSION_TTL_MS) {
-                dispatch(onComplete, ZjuTimetableFetchResult.Failure("学期选项已过期，请重新登录并读取学期选项。"))
+                // TTL 早退分支：与到期回调同语义地作废（置 expired、清账号），
+                // 断开传输放在锁外——真实 disconnect 会阻塞，别拖住其它会话。
+                taken.expired.set(true)
+                taken.clearAccount()
+                val expiredTransport = taken.transport
+                dispatch(
+                    onComplete,
+                    ZjuTimetableFetchResult.Failure("学期选项已过期，请重新登录并读取学期选项。", sessionInvalid = true)
+                )
+                runCatching { expiredTransport.cancel() }
                 return
             }
             val chosenYear = findOptionByValue(taken.yearOptions, yearValue)
@@ -218,7 +292,7 @@ internal object ZjuTimetableClient {
                 return
             }
             if (taken.canceled.get()) {
-                dispatch(onComplete, ZjuTimetableFetchResult.Failure(CANCELED_MESSAGE))
+                dispatch(onComplete, ZjuTimetableFetchResult.Failure(EXPIRED_MESSAGE, sessionInvalid = true))
                 return
             }
             inFlightSessions[handle.id] = taken
@@ -230,39 +304,65 @@ internal object ZjuTimetableClient {
             Thread {
                 try {
                     val attempt = try {
+                        beforePost()
                         confirmBlocking(pending, year, term) { stage -> dispatch(onProgress, stage) }
                     } catch (_: SocketTimeoutException) {
                         if (pending.canceled.get()) ConfirmAttempt(null, CANCELED_MESSAGE, false)
-                        else ConfirmAttempt(null, timeoutMessage(ZjuImportStage.FETCHING_TIMETABLE), true)
+                        else ConfirmAttempt(
+                            null,
+                            timeoutMessage(ZjuImportStage.FETCHING_TIMETABLE),
+                            sessionUsable = true,
+                            // 在途期间到期：文案仍是超时，但 UI 必须按"会话无效"清选项并要求重新登录。
+                            sessionInvalid = pending.isExpired()
+                        )
                     } catch (_: java.net.UnknownHostException) {
                         if (pending.canceled.get()) ConfirmAttempt(null, CANCELED_MESSAGE, false)
-                        else ConfirmAttempt(null, "无法连接浙江大学教务，请检查网络或稍后重试。", true)
+                        else ConfirmAttempt(
+                            null,
+                            "无法连接浙江大学教务，请检查网络或稍后重试。",
+                            sessionUsable = true,
+                            sessionInvalid = pending.isExpired()
+                        )
                     } catch (error: Throwable) {
                         if (pending.canceled.get()) ConfirmAttempt(null, CANCELED_MESSAGE, false)
-                        else ConfirmAttempt(null, failureMessageOf(error), true)
+                        else ConfirmAttempt(
+                            null,
+                            failureMessageOf(error),
+                            sessionUsable = true,
+                            sessionInvalid = pending.isExpired()
+                        )
                     }
-                    // 收尾只有这一处：摘除在途登记与按需放回句柄都在 finalizeAttempt 的同一临界区内完成。
+                    // 收尾只有这一处：摘除在途登记、成功/失效的最终定序、按需放回句柄都在
+                    // finalizeAttempt 的同一临界区内完成。
                     // 不要再在别处（尤其是不持锁的 finally）摘除——那会在“摘除”与“放回”之间留出
                     // 两张表都查不到的窗口，落在其中的取消会被静默丢弃、句柄还会被复活。
-                    if (attempt.failureMessage == null) {
-                        // 成功：句柄已消耗，不放回。
-                        finalizeAttempt(handle.id, pending, restore = false)
-                    } else {
-                        finalizeAttempt(handle.id, pending, restore = attempt.sessionUsable)
-                    }
+                    val stillValid = finalizeAttempt(
+                        handle.id,
+                        pending,
+                        success = attempt.failureMessage == null,
+                        // 失败时只有"句柄仍可用"才放回：取消与会话失效（登录失效/验证码）都不放回。
+                        restorable = attempt.sessionUsable
+                    )
                     val outcome = when {
+                        // 条目在收尾前作废：区分"用户取消"与"到期"，不把用户取消误报成登录过期。
+                        !stillValid -> if (pending.canceled.get()) {
+                            ZjuTimetableFetchResult.Failure(CANCELED_MESSAGE)
+                        } else {
+                            ZjuTimetableFetchResult.Failure(EXPIRED_MESSAGE, sessionInvalid = true)
+                        }
                         attempt.result != null -> attempt.result
-                        attempt.failureMessage != null ->
-                            ZjuTimetableFetchResult.Failure(requireNotNull(attempt.failureMessage))
-                        else -> ZjuTimetableFetchResult.Failure("课表导入失败，请稍后重试。")
+                        attempt.failureMessage != null -> ZjuTimetableFetchResult.Failure(
+                            requireNotNull(attempt.failureMessage),
+                            sessionInvalid = attempt.sessionInvalid
+                        )
+                        else -> ZjuTimetableFetchResult.Failure("课表导入失败，请稍后重试。", sessionInvalid = true)
                     }
                     // 回调本身不允许把异常带回这里，否则收尾就白做了。
                     runCatching { dispatch(onComplete, outcome) }
                 } catch (error: Throwable) {
                     // 兜底：上面的 catch 体或收尾本身抛错（例如 OOM）时，仍要摘掉在途登记，
                     // 否则 inFlightSessions 没有别的清扫路径，条目会带着账号与会话驻留到进程结束。
-                    // finalizeAttempt 自身持锁且幂等（restore=false 时不碰两张表），重复调用无害。
-                    runCatching { finalizeAttempt(handle.id, pending, restore = false) }
+                    runCatching { finalizeAttempt(handle.id, pending, success = false, restorable = false) }
                     runCatching { dispatch(onComplete, ZjuTimetableFetchResult.Failure(failureMessageOf(error))) }
                 }
             }.apply {
@@ -272,7 +372,7 @@ internal object ZjuTimetableClient {
             }
         } catch (error: Throwable) {
             // 线程创建等同步异常：同样走统一的收尾，保证恰好一次回调与完整清理。
-            finalizeAttempt(handle.id, pending, restore = true)
+            finalizeAttempt(handle.id, pending, success = false, restorable = true)
             dispatch(onComplete, ZjuTimetableFetchResult.Failure(failureMessageOf(error)))
         }
     }
@@ -314,8 +414,39 @@ internal object ZjuTimetableClient {
         inFlightSessions.entries.removeIf { entry ->
             (entry.value.transport === transport).also { if (it) removed += entry.value }
         }
-        removed.forEach { it.canceled.set(true) }
+        removed.forEach { disposeEntry(it) }
         return removed
+    }
+
+    /** 条目被取出后的统一善后（须在持有 [restoreLock] 时调用）：置取消标志、清账号。 */
+    private fun disposeEntry(entry: PendingSession) {
+        entry.canceled.set(true)
+        entry.clearAccount()
+    }
+
+    // ── 到期清理 ─────────────────────────────────────────────────────────────
+
+    /** 为句柄安排到期清理；全进程只有一条定时线程，不为每个会话起线程。 */
+    private fun scheduleExpiry(id: Long, now: Long, scheduler: ZjuExpiryScheduler) {
+        val elapsed = (System.currentTimeMillis() - now).coerceAtLeast(0L)
+        val delay = (SESSION_TTL_MS - elapsed).coerceAtLeast(0L)
+        scheduler.schedule(delay) { expireSession(id) }
+    }
+
+    /**
+     * 到点清理：无条件移除该句柄（待确认与在途都算），中断传输并清账号。
+     * 与 [cancelSession] 的区别是**不置 canceled 标志**——这样在途请求会把失败如实报成超时/网络错误，
+     * 而不是误报成"用户取消了导入"。对已消费/已取消的句柄是幂等空操作。
+     */
+    internal fun expireSession(id: Long) {
+        val removed = synchronized(restoreLock) {
+            listOfNotNull(pendingSessions.remove(id), inFlightSessions.remove(id)).onEach { entry ->
+                // 必须先置 expired，再（可能）让在途请求走完：这样它的失败路径不会把条目回填回来。
+                entry.expired.set(true)
+                entry.clearAccount()
+            }
+        }
+        removed.forEach { runCatching { it.transport.cancel() } }
     }
 
     /**
@@ -323,22 +454,36 @@ internal object ZjuTimetableClient {
      * 两件事必须在同一个临界区内完成——否则 cancelSession 可能正好落在“已摘除、未放回”的窗口里，
      * 两张表都查不到句柄，取消被静默丢弃，随后句柄还会被原样放回（留下无人可达的孤儿会话）。
      */
-    private fun finalizeAttempt(id: Long, pending: PendingSession, restore: Boolean) {
+    /**
+     * 一次确认尝试的统一收尾（唯一收尾点）。**成功/失效的最终定序与"到期移除"在同一把锁下完成**：
+     * 先摘除在途登记，再复查 [PendingSession.isVoid]——若期间到点（[expireSession] 已置 expired），
+     * 成功结果作废。
+     *
+     * @param success 这次尝试是否拿到了成功结果。
+     * @param restorable 失败时是否允许把句柄放回（取消与会话已失效都不允许）。
+     * @return true 表示结果仍然有效；false 表示条目已在收尾前作废，调用方必须投递失效失败。
+     */
+    private fun finalizeAttempt(id: Long, pending: PendingSession, success: Boolean, restorable: Boolean): Boolean {
         synchronized(restoreLock) {
             inFlightSessions.remove(id)
-            if (restore) restorePendingLocked(id, pending)
+            if (success) return !pending.isVoid()
+            if (restorable && !pending.isVoid()) pendingSessions.putIfAbsent(id, pending)
+            return true
         }
     }
 
-    /** 需要在持有 [restoreLock] 时调用：取消检查与放回必须原子，已持锁时直接调用。 */
+    /** 需要在持有 [restoreLock] 时调用：不可用（已取消/已到期）的条目一律不许回填。 */
     private fun restorePendingLocked(id: Long, pending: PendingSession) {
-        if (!pending.canceled.get()) pendingSessions.putIfAbsent(id, pending)
+        if (!pending.isVoid()) pendingSessions.putIfAbsent(id, pending)
     }
 
     private fun purgeExpiredSessions(now: Long) {
         val expired = pendingSessions.entries.filter { now - it.value.createdAt > SESSION_TTL_MS }
         expired.forEach { entry ->
-            if (pendingSessions.remove(entry.key, entry.value)) entry.value.requestCancel()
+            if (pendingSessions.remove(entry.key, entry.value)) {
+                disposeEntry(entry.value)
+                runCatching { entry.value.transport.cancel() }
+            }
         }
     }
 
@@ -366,7 +511,10 @@ internal object ZjuTimetableClient {
     /** 主线程 Handler；取不到时返回 null，由 [dispatch] 走直接回调分支。 */
     private fun mainHandler(): Handler? = runCatching { Handler(Looper.getMainLooper()) }.getOrNull()
 
-    private const val CANCELED_MESSAGE = "导入已取消。"
+    internal const val CANCELED_MESSAGE = "导入已取消。"
+
+    /** 到期与"用户取消"分开表述：到期不是用户按了取消，而是这次登录的有效期到了。 */
+    internal const val EXPIRED_MESSAGE = "本次登录已过期，请重新登录后再导入。"
 
     /** 登录前确认未被取消，避免取消与线程启动之间的竞态让已取消的会话继续发出请求。 */
     private fun beginSessionBlocking(
@@ -374,14 +522,17 @@ internal object ZjuTimetableClient {
         password: CharArray,
         transport: ZjuHttpClient,
         now: Long,
+        expiryScheduler: ZjuExpiryScheduler,
         progress: (ZjuImportStage) -> Unit
     ): ZjuSemesterOptionsResult {
         // 取消与登录线程启动之间存在竞态：这里再确认一次，避免已取消的句柄仍发出新请求。
         if (transport.isCanceled()) return ZjuSemesterOptionsResult.Failure(CANCELED_MESSAGE)
-        val result = beginSessionRequest(username, password, transport, now, progress)
+        val result = beginSessionRequest(username, password, transport, now, expiryScheduler, progress)
         if (!transport.isCanceled()) return result
         // 取消发生时请求可能已登记句柄；清掉这条无人可达的会话，避免它占着账号信息等到 TTL。
-        pendingSessions.entries.removeIf { it.value.transport === transport }
+        // cancelTransportLocked 要求持锁，这里必须显式加锁（它内部只动标志位与表项，断开在锁外）。
+        val canceled = synchronized(restoreLock) { cancelTransportLocked(transport) }
+        canceled.forEach { runCatching { it.transport.cancel() } }
         return ZjuSemesterOptionsResult.Failure(CANCELED_MESSAGE)
     }
 
@@ -391,6 +542,7 @@ internal object ZjuTimetableClient {
         password: CharArray,
         transport: ZjuHttpClient,
         now: Long,
+        expiryScheduler: ZjuExpiryScheduler,
         progress: (ZjuImportStage) -> Unit
     ): ZjuSemesterOptionsResult {
         if (username.isBlank() || password.isEmpty()) {
@@ -445,6 +597,9 @@ internal object ZjuTimetableClient {
                 }
             }
         )
+        // 认证请求已经带着密文提交，明文密码此后再无用途：立即清零，而不是等到整个
+        // beginSessionBlocking 返回（那还要等读首页 option，最长 40 秒）。
+        password.fill('\u0000')
         val finalHost = login.url.host.orEmpty()
         if (!finalHost.equals("zdbk.zju.edu.cn", ignoreCase = true)) {
             val wrongCredentials = listOf(
@@ -474,14 +629,22 @@ internal object ZjuTimetableClient {
             return ZjuSemesterOptionsResult.Failure("学年或学期选项存在重复，无法安全选择，请稍后重试。")
         }
         val handle = ZjuTimetableSessionHandle(sessionIds.incrementAndGet())
-        pendingSessions[handle.id] = PendingSession(
-            transport = transport,
-            username = username,
-            indexUrl = indexUrl,
-            yearOptions = yearOptions,
-            termOptions = termOptions,
-            createdAt = now
-        )
+        synchronized(restoreLock) {
+            pendingSessions[handle.id] = PendingSession(
+                id = handle.id,
+                transport = transport,
+                username = username,
+                indexUrl = indexUrl,
+                // 请求 URL 在创建时算好：作废时清掉账号后，在途请求仍用正确的 su，不会出现空 su。
+                timetableUrl = "$ZDBK_BASE/jwglxt/kbcx/xskbcx_cxXsKb.html?gnmkdm=N253508&su=${encode(username)}",
+                yearOptions = yearOptions,
+                termOptions = termOptions,
+                createdAt = now
+            )
+        }
+        // 与句柄绑定的到期清理：不依赖"下一次 beginSession 才 purge"。用户把页面放着不动时，
+        // 到点也必须撤掉已认证会话与账号，否则与"会话不保存"的承诺冲突。
+        scheduleExpiry(handle.id, now, expiryScheduler)
         return ZjuSemesterOptionsResult.Success(handle, yearOptions, termOptions)
     }
 
@@ -496,12 +659,14 @@ internal object ZjuTimetableClient {
         term: ZjuSemesterOption,
         progress: (ZjuImportStage) -> Unit
     ): ConfirmAttempt {
-        // 取消与确认线程启动之间存在竞态：这里再确认一次，避免已取消的句柄仍发出课表请求。
+        // 取消与到期都必须在发请求前后复查：句柄已作废时不得再发请求，也不得把响应当成成功。
         if (pending.canceled.get()) return ConfirmAttempt(null, CANCELED_MESSAGE, false)
+        if (pending.isExpired()) return ConfirmAttempt(null, EXPIRED_MESSAGE, false, sessionInvalid = true)
         progress(ZjuImportStage.FETCHING_TIMETABLE)
-        val timetableUrl = "$ZDBK_BASE/jwglxt/kbcx/xskbcx_cxXsKb.html?gnmkdm=N253508&su=${encode(pending.username)}"
+        val timetableUrl = pending.timetableUrl
         if (pending.canceled.get()) return ConfirmAttempt(null, CANCELED_MESSAGE, false)
-        val payload = pending.transport.post(
+        if (pending.isExpired()) return ConfirmAttempt(null, EXPIRED_MESSAGE, false, sessionInvalid = true)
+        val response = pending.transport.post(
             timetableUrl,
             encodeForm(timetableRequestForm(year, term)),
             mapOf(
@@ -509,11 +674,23 @@ internal object ZjuTimetableClient {
                 "Content-Type" to "application/x-www-form-urlencoded; charset=UTF-8",
                 "X-Requested-With" to "XMLHttpRequest"
             )
-        ).body
+        )
+        val payload = response.body
         if (pending.canceled.get()) return ConfirmAttempt(null, CANCELED_MESSAGE, false)
+        // 到期发生在 POST 期间：即使拿到的是合法课表也不能算成功（最终定序在 finalizeAttempt 里再做一次）。
+        if (pending.isExpired()) return ConfirmAttempt(null, EXPIRED_MESSAGE, false, sessionInvalid = true)
 
         progress(ZjuImportStage.PARSING)
-        return when (val parsed = ZjuTimetableParser.parse(payload, year.value, term.value)) {
+        return when (
+            val parsed = ZjuTimetableParser.parse(
+                payload,
+                year.value,
+                term.value,
+                // 与请求表单 xqmmc 同一来源：value 不含 `|` 时显示文字来自 option 文本。
+                termDisplay = termDisplayOf(term),
+                loggedOut = response.loggedOut
+            )
+        ) {
             is ZjuTimetableParseResult.Success -> {
                 progress(ZjuImportStage.DONE)
                 ConfirmAttempt(
@@ -526,9 +703,10 @@ internal object ZjuTimetableClient {
                 result = null,
                 // 解析层的可执行文案（登录失效 / 验证码 / 格式变化）原样带回 UI，不替换成“请重试”。
                 failureMessage = parsed.message,
-                // 句柄保持有效：再点一次会重新请求教务，若会话真的失效会再次得到同一条可执行文案，
-                // 用户据此去重新登录；句柄本身由 10 分钟 TTL 兜底，不会永久滞留。
-                sessionUsable = true
+                // 会话已失效或需要验证码时，原地重试不可能成功：句柄必须作废，UI 要求重新登录。
+                // 判定用**结构化原因**，不匹配中文文案（文案会改，改了就静默失效）。
+                sessionUsable = parsed.reason.isRecoverable,
+                sessionInvalid = !parsed.reason.isRecoverable
             )
         }
     }
@@ -793,7 +971,7 @@ internal object ZjuTimetableClient {
                 ) {
                     connection.disconnect()
                     activeConnection.compareAndSet(connection, null)
-                    return ZjuHttpResponse(code, uri, "")
+                    return ZjuHttpResponse(code, uri, "", loggedOut = isLoggedOutHost(uri))
                 }
                 val stream = if (code in 200..299) connection.inputStream else connection.errorStream
                 val responseBody = stream?.let { input ->
@@ -813,7 +991,7 @@ internal object ZjuTimetableClient {
                 activeConnection.compareAndSet(connection, null)
                 if (canceled.get()) throw SocketTimeoutException("教务导入已取消")
                 if (deadlineReached.get()) throw SocketTimeoutException("教务请求已超过总时限")
-                return ZjuHttpResponse(code, uri, responseBody)
+                return ZjuHttpResponse(code, uri, responseBody, loggedOut = isLoggedOutHost(uri))
             }
             throw IllegalStateException("浙江大学认证跳转次数过多，已停止登录。")
             } catch (error: java.io.IOException) {
@@ -832,5 +1010,21 @@ internal object ZjuTimetableClient {
                 throw SecurityException("认证跳转离开浙江大学官方域名，已停止登录。")
             }
         }
+
+        /** 传输层的登出判定：见文件级 [isLoggedOutRedirect]。 */
+        private fun isLoggedOutHost(uri: URI): Boolean = isLoggedOutRedirect(uri)
     }
+}
+
+/**
+ * 响应是否落在"已登出"的域名上：被重定向到校内 CAS（`zjuam`）或事务域根首页，
+ * 都说明这次请求其实没进到课表查询。**仅凭"返回 HTML"不足以判定**——
+ * 5xx／维护页／网关页也是 HTML，那只是这次请求失败，不该逼用户重新登录。
+ * internal 以便测试直接覆盖这条判定（避免只能靠真实网络重定向）。
+ */
+internal fun isLoggedOutRedirect(uri: URI): Boolean {
+    val host = uri.host?.lowercase().orEmpty()
+    if (host == "zjuam.zju.edu.cn") return true
+    // 事务域根首页（"/" 或空）也算登出：这与"深链接页面"区分开。
+    return host == "zju.edu.cn" && uri.path.orEmpty().trim('/').isBlank()
 }
