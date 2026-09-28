@@ -101,6 +101,8 @@ class ZjuTimetableImportActivityTest {
         val model = loggedInModel()
         assertNotNull("precondition: options must be loaded", model.options)
         assertNotNull("precondition: a pending session must exist", model.pendingSession)
+        // 设一个非空阶段，否则下面的 assertNull 是空断言（登录成功时它本来就是 null）。
+        model.currentStage = ZjuImportStage.PARSING
 
         // 1) 会话失效（到期文案）：必须清掉旧选项并把按钮退回重新登录。
         model.applyFetchFailure(
@@ -113,23 +115,35 @@ class ZjuTimetableImportActivityTest {
         assertNull("stale session must be cleared", model.pendingSession)
         assertNull(model.selectedYearValue)
         assertNull(model.selectedTermValue)
-        assertNull(model.currentStage)
+        assertNull("failed stage must be reset", model.currentStage)
         // 文案自带"重新登录"时不得再追加一次（否则出现重复句）。
         assertEquals("本次登录已过期，请重新登录后再导入。", model.failure)
 
         // 2) 验证码文案：同样清选项，且只追加一次后缀（它自己不含"重新登录"）。
+        //    文案取解析器原文，避免"手写变体"掩盖真实行为。
         val captcha = loggedInModel()
         captcha.applyFetchFailure(
             ZjuTimetableFetchResult.Failure(
-                "教务要求输入验证码，请在官方页面完成验证后重试。",
+                "教务系统要求完成验证码，请在官方页面验证后重试。",
                 sessionInvalid = true
             )
         )
         assertNull(captcha.options)
         assertEquals(
-            "教务要求输入验证码，请在官方页面完成验证后重试。请重新登录后再导入。",
+            "教务系统要求完成验证码，请在官方页面验证后重试。请重新登录后再导入。",
             captcha.failure
         )
+
+        // 2b) 登录失效文案（SESSION_LOST）：它自带"重新完成统一身份认证"，不得再追加后缀。
+        val sessionLost = loggedInModel()
+        sessionLost.applyFetchFailure(
+            ZjuTimetableFetchResult.Failure(
+                "教务登录已失效，请重新完成统一身份认证。",
+                sessionInvalid = true
+            )
+        )
+        assertNull(sessionLost.options)
+        assertEquals("教务登录已失效，请重新完成统一身份认证。", sessionLost.failure)
 
         // 3) 普通可重试失败：保留选项，只改文案（不得清掉用户已读到的学期列表）。
         val retryable = loggedInModel()

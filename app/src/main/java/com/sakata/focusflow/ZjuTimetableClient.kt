@@ -257,7 +257,7 @@ internal object ZjuTimetableClient {
     ) {
         // 取走句柄、校验、登记在途必须与 cancelSession 互斥：否则落在“取走”与“登记”之间的取消
         // 会在两张表里都找不到句柄而被静默丢弃。
-        val prepared = prepareConfirm(handle, yearValue, termValue, now, onComplete)
+        val prepared = prepareConfirm(handle, yearValue, termValue, now)
         val pending: PendingSession
         val year: ZjuSemesterOption
         val term: ZjuSemesterOption
@@ -430,11 +430,6 @@ internal object ZjuTimetableClient {
         removed.forEach { runCatching { it.transport.cancel() } }
     }
 
-    /**
-     * 一次确认尝试的统一收尾：摘除在途登记，并在请求本身失败（非取消）时把句柄放回待确认。
-     * 两件事必须在同一个临界区内完成——否则 cancelSession 可能正好落在“已摘除、未放回”的窗口里，
-     * 两张表都查不到句柄，取消被静默丢弃，随后句柄还会被原样放回（留下无人可达的孤儿会话）。
-     */
     /** [prepareConfirm] 的结果：只有 [Ready] 才允许发请求；作废与拒绝都在锁外投递。 */
     private sealed interface ConfirmPreparation {
         class Ready(
@@ -458,8 +453,7 @@ internal object ZjuTimetableClient {
         handle: ZjuTimetableSessionHandle,
         yearValue: String,
         termValue: String,
-        now: Long,
-        onComplete: (ZjuTimetableFetchResult) -> Unit
+        now: Long
     ): ConfirmPreparation = synchronized(restoreLock) {
         val taken = pendingSessions.remove(handle.id)
             ?: return@synchronized ConfirmPreparation.Rejected(

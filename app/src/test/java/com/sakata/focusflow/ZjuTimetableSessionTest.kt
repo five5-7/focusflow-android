@@ -196,9 +196,11 @@ class ZjuTimetableSessionTest {
      * 用来证伪"到期后靠 transport.cancel() 打断请求"这条唯一判据。
      */
     @Test
-    fun `a cancel that lands after the response is reported as canceled, not expired`() {
-        // D1 的 cancelled 分支此前零覆盖：用户主动取消恰好落在"响应已到、收尾未做"之间时，
-        // 必须报"导入已取消"，而不是把用户的取消说成"登录已过期"并要求重新登录。
+    fun `a cancel while the request is in flight is reported as canceled, not expired`() {
+        // 用户主动取消必须报"导入已取消"，不能把取消说成"登录已过期"。
+        // 摆出的时序是"POST 在途时取消"：响应在取消之后才交付，因此走 POST 返回后的取消复查。
+        // 注：「响应已到达、收尾未做时取消」那条分支（`!stillValid` 的 canceled 侧）仍无用例——
+        // 它只在解析期间被作废时可达，而 parse 没有注入点，已在回执里登记为覆盖缺口。
         val transport = FakeTransport().apply { stubLoginAndIndex(INDEX_HTML_A) }
         val options = begin(transport) as ZjuSemesterOptionsResult.Success
 
