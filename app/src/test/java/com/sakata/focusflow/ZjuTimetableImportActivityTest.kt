@@ -1,0 +1,164 @@
+package com.sakata.focusflow
+
+import android.app.Application
+import android.os.Looper
+import androidx.lifecycle.ViewModelProvider
+import java.net.URI
+import java.util.ArrayDeque
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNotSame
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.Robolectric
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
+import org.robolectric.Shadows
+import org.robolectric.annotation.Config
+
+/**
+ * 覆盖 ZjuTimetableImportActivity 的真实创建路径（此前没有任何测试构造过它）：
+ * Compose 内容能否建立、ViewModelProvider 能否取到无参构造的 ViewModel，以及配置变更后
+ * 同一个 ViewModel 的进行中状态/待确认会话是否保留（缺陷 1 依赖这一保留语义）。
+ */
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [35], application = Application::class)
+class ZjuTimetableImportActivityTest {
+    /** 最小可注入传输：登录与选项读取全部离线完成。 */
+    private class StubTransport : ZjuHttpClient {
+        private val queues = mutableMapOf<String, ArrayDeque<ZjuHttpResponse>>()
+
+        fun enqueue(method: String, urlPart: String, response: ZjuHttpResponse) {
+            queues.getOrPut("$method $urlPart") { ArrayDeque() }.addLast(response)
+        }
+
+        private fun next(method: String, url: String): ZjuHttpResponse {
+            val key = queues.keys.firstOrNull { it.startsWith("$method ") && url.contains(it.substringAfter("$method ")) }
+                ?: error("no $method stub for $url")
+            return queues.getValue(key).removeFirst()
+        }
+
+        override fun get(url: String, totalTimeoutMs: Long?): ZjuHttpResponse = next("GET", url)
+
+        override fun post(
+            url: String,
+            body: String,
+            headers: Map<String, String>,
+            readTimeoutMs: Int,
+            skipResponseBodyAtHost: String?,
+            onRedirect: (URI) -> Unit
+        ): ZjuHttpResponse = next("POST", url)
+    }
+
+    private fun StubTransport.stubLoginAndIndex() {
+        enqueue("GET", "cas/login", ZjuHttpResponse(200, URI("https://zjuam.zju.edu.cn/cas/login"), CAS_FORM))
+        enqueue("GET", "cas/login", ZjuHttpResponse(200, URI("https://zjuam.zju.edu.cn/cas/login"), CAS_FORM))
+        enqueue(
+            "GET", "getPubKey",
+            ZjuHttpResponse(200, URI("https://zjuam.zju.edu.cn/cas/v2/getPubKey"), """{"modulus":"e1","exponent":"3"}""")
+        )
+        enqueue("POST", "cas/login", ZjuHttpResponse(200, URI("https://zdbk.zju.edu.cn/jwglxt/xtgl/index"), ""))
+        enqueue(
+            "GET", "xskbcx_cxXskbcxIndex",
+            ZjuHttpResponse(
+                200,
+                URI("https://zdbk.zju.edu.cn/jwglxt/kbcx/xskbcx_cxXskbcxIndex.html"),
+                """
+                    <select id="xnm"><option value="2026-2027" selected>2026-2027</option></select>
+                    <select id="xqm"><option value="2|短" selected>短</option></select>
+                """.trimIndent()
+            )
+        )
+    }
+
+    private fun driveUntil(timeoutMs: Long, condition: () -> Boolean) {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (!condition() && System.currentTimeMillis() < deadline) {
+            Thread.sleep(10)
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+        }
+    }
+
+    /** 离线跑完第一步登录，得到一个持有待确认会话的 ViewModel。 */
+    private fun loggedInModel(): ZjuImportViewModel {
+        val transport = StubTransport().apply { stubLoginAndIndex() }
+        val model = ZjuImportViewModel { transport }
+        model.startLogin("student", "secret".toCharArray())
+        driveUntil(timeoutMs = 5_000) {
+            val options = model.options
+            options != null || !model.running
+        }
+        return model
+    }
+
+    @Test
+    fun `activity creates its content and resolves the import view model`() {
+        val controller = Robolectric.buildActivity(ZjuTimetableImportActivity::class.java).setup()
+        val activity = controller.get()
+        val model = ViewModelProvider(activity)[ZjuImportViewModel::class.java]
+        assertNotNull(model)
+        controller.pause().stop().destroy()
+    }
+
+    @Test
+    fun `the import view model survives a configuration change`() {
+        val controller = Robolectric.buildActivity(ZjuTimetableImportActivity::class.java).setup()
+        val activity = controller.get()
+        val model = ViewModelProvider(activity)[ZjuImportViewModel::class.java]
+        model.currentStage = ZjuImportStage.AUTHENTICATING
+        model.running = true
+
+        // 必须真的改变一个配置限定符：Robolectric 只在配置发生变化时才走销毁重建，
+        // 不改限定符时 configurationChange() 只是 onConfigurationChanged，断言会退化成恒真。
+        RuntimeEnvironment.setQualifiers("+night")
+        val recreated = controller.configurationChange().get()
+
+        // 先证明“重建确实发生了”，否则后面的“ViewModel 保留”没有任何意义。
+        assertNotSame("activity must be recreated by the configuration change", activity, recreated)
+        assertSame(model, ViewModelProvider(recreated)[ZjuImportViewModel::class.java])
+        assertSame(ZjuImportStage.AUTHENTICATING, model.currentStage)
+        assertTrue(model.running)
+        runCatching { controller.pause().stop().destroy() }
+    }
+
+    @Test
+    fun `leaving the page stops a login that completed too late`() {
+        val model = loggedInModel()
+        val handle = requireNotNull(model.pendingSession)
+        assertNotNull(model.options)
+
+        // 用户已经离开页面（ViewModel 仍存活但界面不再消费结果）：待确认会话必须被作废，
+        // 不能留在引擎里等 TTL（否则页面文案“账号、密码与会话均不保存”不成立）。
+        model.cancelAllWaiting()
+
+        assertNull("pending session must be dropped on leave", model.pendingSession)
+        assertFalse(model.running)
+        // 该句柄随即不可再用，必须重新登录。
+        var outcome: ZjuTimetableFetchResult? = null
+        ZjuTimetableClient.confirmSelectedSemester(
+            handle = handle,
+            yearValue = "2026-2027",
+            termValue = "2|短",
+            onProgress = {},
+            onComplete = { value -> outcome = value }
+        )
+        driveUntil(timeoutMs = 5_000) { outcome != null }
+        assertTrue(outcome is ZjuTimetableFetchResult.Failure)
+        val failure = outcome as ZjuTimetableFetchResult.Failure
+        assertEquals("学期选项已使用或已过期，请重新登录并读取学期选项。", failure.message)
+    }
+
+    private companion object {
+        val CAS_FORM = """
+            <form>
+              <input type="hidden" name="execution" value="e1s1">
+              <input name="username" value="">
+              <input type="password" name="password">
+            </form>
+        """.trimIndent()
+    }
+}
