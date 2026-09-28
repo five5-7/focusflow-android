@@ -54,20 +54,32 @@ class ReminderReceiverTest {
 
     private data class DueCourse(val id: Long, val expectedAt: Long, val startAt: Long)
 
-    /** Seeds a course starting within the next five minutes; near midnight the start moves to next day. */
+    /**
+     * 种一门“刚好到点”的课：实际开始时间取当前分钟（提前量已过去 ≈5 分钟，属于接收端要处理的正常迟到广播）。
+     *
+     * 节次表必须始终合法（`0 ≤ startMinute < endMinute ≤ 1440`，见 `CoursePeriodTable.isValid`），
+     * 而接收端按 `periodStart(1)` 反查开始时间，所以首节必须正好落在课次开始分钟上。
+     * 因此当“当前分钟 + 45”会越过午夜时，改为把课次日期挪到昨天、开始时间锚定在 23:15：
+     * 既保证 `endMinute = 1440` 合法，又让星期几与 45 分钟窗口仍然自洽。
+     * （此前用 `minuteNow + 5` 直接算，23:10–23:54 会生成非法表；次日 00:20 之后又会因夹断而查不到开始时间。）
+     */
     private fun seedDueCourse(context: Context, id: Long = 911L, building: String = "东一"): DueCourse {
         val zone = ZoneId.systemDefault()
         val minuteNow = Calendar.getInstance().let { it.get(Calendar.HOUR_OF_DAY) * 60 + it.get(Calendar.MINUTE) }
-        val wrapsToNextDay = minuteNow + 5 >= 24 * 60
-        val startMinute = (minuteNow + 5) % (24 * 60)
-        val courseDate = if (wrapsToNextDay) LocalDate.now(zone).plusDays(1) else LocalDate.now(zone)
+        val today = LocalDate.now(zone)
+        val anchorStart = 23 * 60 + 15
+        val wrapsPastMidnight = minuteNow + 45 > 24 * 60
+        val startMinute = if (wrapsPastMidnight) anchorStart else minuteNow
+        val courseDate = if (wrapsPastMidnight) today.minusDays(1) else today
         val startAt = courseDate.atTime(startMinute / 60, startMinute % 60).atZone(zone).toInstant().toEpochMilli()
         val expectedAt = startAt - CourseReminderPolicy.ADVANCE_MINUTES * 60_000L
         val course = Course("实验", courseDate.dayOfWeek.value, 1, 1, building, CampusZone.OTHER,
             needsConfirmation = false, id = id)
         val store = PrototypeStore(context)
         store.saveCourses(listOf(course))
-        store.saveCoursePeriodTable(CoursePeriodTable(listOf(CoursePeriodTime(startMinute, startMinute + 45))))
+        store.saveCoursePeriodTable(
+            CoursePeriodTable(listOf(CoursePeriodTime(startMinute, minOf(startMinute + 45, 24 * 60))))
+        )
         assertTrue(CourseReminders.setGlobal(context, true))
         return DueCourse(id, expectedAt, startAt)
     }
