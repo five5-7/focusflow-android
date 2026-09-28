@@ -111,6 +111,40 @@ class ZjuTimetableParserTest {
     }
 
     @Test
+    fun `candidate rows carry the course title for identity checks`() {
+        val payload = """{"kbList":[{"xqj":"1","djj":"1","skcd":"2","kcmc":"高等数学","xkkh":"KEY-1"},{"xqj":"3","djj":"3","skcd":"2","kcmc":"线性代数","xkkh":"KEY-1"}]}"""
+        val result = ZjuTimetableParser.parse(payload, "2026-2027", "1|秋") as ZjuTimetableParseResult.Success
+
+        assertEquals(listOf("高等数学", "线性代数"), result.candidates.map { it.title })
+    }
+
+    @Test
+    fun `one selection key with two different titles ends up needing review`() {
+        // 端到端：解析器填的 title 必须真的让候选预览把"同号异标题"标成待核对，
+        // 而不是各测一半（解析器不测 title、预览只吃手工构造的行）。
+        val payload = """{"kbList":[{"xqj":"1","djj":"1","skcd":"2","kcmc":"高等数学","xkkh":"KEY-1"},{"xqj":"3","djj":"3","skcd":"2","kcmc":"线性代数","xkkh":"KEY-1"}]}"""
+        val result = ZjuTimetableParser.parse(payload, "2026-2027", "1|秋") as ZjuTimetableParseResult.Success
+
+        val group = CourseIdentityPreview.group(result.candidates).single()
+        assertEquals(CourseIdentityPreview.PreviewStatus.NEEDS_REVIEW, group.status)
+        assertEquals(
+            listOf(CourseIdentityPreview.PreviewReviewReason.CONFLICTING_TITLES),
+            group.reviewReasons
+        )
+    }
+
+    @Test
+    fun `one selection key with the same title twice is a multi meeting candidate`() {
+        val payload = """{"kbList":[{"xqj":"1","djj":"1","skcd":"2","kcmc":"高等数学","xkkh":"KEY-1"},{"xqj":"3","djj":"3","skcd":"2","kcmc":"高等数学","xkkh":"KEY-1"}]}"""
+        val result = ZjuTimetableParser.parse(payload, "2026-2027", "1|秋") as ZjuTimetableParseResult.Success
+
+        val group = CourseIdentityPreview.group(result.candidates).single()
+        assertEquals(CourseIdentityPreview.PreviewStatus.MULTI_MEETING_CANDIDATE, group.status)
+        assertTrue(group.reviewReasons.isEmpty())
+        assertEquals(listOf(0, 1), group.rows.map { it.sourceRowIndex })
+    }
+
+    @Test
     fun `top level personal fields never surface in parsed output`() {
         val payload = """{"xh":"SECRET-ID","xm":"SECRET-NAME","xy":"SECRET-COLLEGE","kbList":[{"xqj":"1","djj":"1","skcd":"2","kcb":"甲<br>1-16周<br>师<br>东1zwf","xkkh":"KEY-1"}]}"""
         val result = ZjuTimetableParser.parse(payload, "2026", "3") as ZjuTimetableParseResult.Success

@@ -77,7 +77,13 @@ internal data class ZjuTimetableCandidateRow(
     val externalSelectionKeyCandidate: String,
     val weekday: Int?,
     val startPeriod: Int?,
-    val endPeriod: Int?
+    val endPeriod: Int?,
+    /**
+     * 课程标题原文（仅用于候选分组的"同号异标题/缺标题"核对，不参与身份判定）。
+     * **必须显式传入**：漏传会削弱核对（空标题在预览里是待核对项，而非"一致"），
+     * 因此不给默认值，让新调用点在编译期就被要求作决定。
+     */
+    val title: String
 ) {
     val hasRequestCodes: Boolean get() = schoolYearCode.isNotBlank() && termCode.isNotBlank()
 }
@@ -180,6 +186,7 @@ internal object ZjuTimetableParser {
                 sectionNumbers.size >= 2 -> sectionNumbers.last()
                 else -> start
             }
+            val title = row.firstText("kcmc", "kcm").ifBlank { parts.getOrNull(0).orEmpty() }
             candidates += ZjuTimetableCandidateRow(
                 sourceRowIndex = index,
                 schoolYearCode = requestYearCode,
@@ -187,9 +194,9 @@ internal object ZjuTimetableParser {
                 externalSelectionKeyCandidate = row.firstText("xkkh"),
                 weekday = weekday,
                 startPeriod = start,
-                endPeriod = end
+                endPeriod = end,
+                title = title
             )
-            val title = row.firstText("kcmc", "kcm").ifBlank { parts.getOrNull(0).orEmpty() }
             val rawLocation = row.firstText("cdmc", "jxdd").ifBlank { parts.getOrNull(3).orEmpty() }
             val location = normalizeLocation(rawLocation)
             if (title.isBlank() || weekday == null || weekday !in 1..7 || start == null || start !in 1..20 || end == null || end < start) {
