@@ -1228,7 +1228,11 @@ class ZjuTimetableSessionTest {
     }
 
     private companion object {
-        /** 一份合法的课表响应：用于"已知登出 + 合法正文"这类反例，证明登出信号不被正文推翻。 */
+        /**
+         * 一份**可被解析成功**的课表响应（只含 `kbList`，不带 `xnm`/`xqm` 回显）：
+         * 用于"已知登出 + 合法正文"这类反例——它足以证伪"登出被解析成成功"，
+         * 因为旧实现在 `loggedOut=true` 时也会把它解析成 Success。
+         */
         const val TIMETABLE_JSON =
             """{"kbList":[{"xqj":"1","djj":"1","skcd":"2","kcb":"课程<br>1-16周<br>老师<br>东1zwf","xkkh":"KEY-1"}]}"""
 
