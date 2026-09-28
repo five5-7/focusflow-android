@@ -96,6 +96,49 @@ class ZjuTimetableImportActivityTest {
     }
 
     @Test
+    fun `apply fetch failure clears the stale semester options and never repeats the suffix`() {
+        // applyFetchFailure 此前零引用（复验点名），而它决定"会话失效后按钮还能不能点"。
+        val model = loggedInModel()
+        assertNotNull("precondition: options must be loaded", model.options)
+        assertNotNull("precondition: a pending session must exist", model.pendingSession)
+
+        // 1) 会话失效（到期文案）：必须清掉旧选项并把按钮退回重新登录。
+        model.applyFetchFailure(
+            ZjuTimetableFetchResult.Failure(
+                "本次登录已过期，请重新登录后再导入。",
+                sessionInvalid = true
+            )
+        )
+        assertNull("stale options must be cleared", model.options)
+        assertNull("stale session must be cleared", model.pendingSession)
+        assertNull(model.selectedYearValue)
+        assertNull(model.selectedTermValue)
+        assertNull(model.currentStage)
+        // 文案自带"重新登录"时不得再追加一次（否则出现重复句）。
+        assertEquals("本次登录已过期，请重新登录后再导入。", model.failure)
+
+        // 2) 验证码文案：同样清选项，且只追加一次后缀（它自己不含"重新登录"）。
+        val captcha = loggedInModel()
+        captcha.applyFetchFailure(
+            ZjuTimetableFetchResult.Failure(
+                "教务要求输入验证码，请在官方页面完成验证后重试。",
+                sessionInvalid = true
+            )
+        )
+        assertNull(captcha.options)
+        assertEquals(
+            "教务要求输入验证码，请在官方页面完成验证后重试。请重新登录后再导入。",
+            captcha.failure
+        )
+
+        // 3) 普通可重试失败：保留选项，只改文案（不得清掉用户已读到的学期列表）。
+        val retryable = loggedInModel()
+        retryable.applyFetchFailure(ZjuTimetableFetchResult.Failure("下载课表数据超时，请稍后重试。"))
+        assertNotNull("a retryable failure must keep the options", retryable.options)
+        assertEquals("下载课表数据超时，请稍后重试。", retryable.failure)
+    }
+
+    @Test
     fun `activity creates its content and resolves the import view model`() {
         val controller = Robolectric.buildActivity(ZjuTimetableImportActivity::class.java).setup()
         val activity = controller.get()

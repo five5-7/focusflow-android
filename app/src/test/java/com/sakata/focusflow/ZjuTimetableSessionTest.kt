@@ -196,6 +196,41 @@ class ZjuTimetableSessionTest {
      * 用来证伪"到期后靠 transport.cancel() 打断请求"这条唯一判据。
      */
     @Test
+    fun `a cancel that lands after the response is reported as canceled, not expired`() {
+        // D1 的 cancelled 分支此前零覆盖：用户主动取消恰好落在"响应已到、收尾未做"之间时，
+        // 必须报"导入已取消"，而不是把用户的取消说成"登录已过期"并要求重新登录。
+        val transport = FakeTransport().apply { stubLoginAndIndex(INDEX_HTML_A) }
+        val options = begin(transport) as ZjuSemesterOptionsResult.Success
+
+        val postEntered = CountDownLatch(1)
+        val released = CountDownLatch(1)
+        transport.stubTimetable()
+        transport.setPostInterceptor { postEntered.countDown(); released.await(5, TimeUnit.SECONDS) }
+        transport.setCancelAction { released.countDown() }
+
+        var result: ZjuTimetableFetchResult? = null
+        val latch = CountDownLatch(1)
+        Thread {
+            ZjuTimetableClient.confirmSelectedSemester(
+                handle = options.handle,
+                yearValue = "2026-2027",
+                termValue = "2|短",
+                onProgress = {},
+                onComplete = { value -> result = value; latch.countDown() }
+            )
+        }.start()
+        assertTrue("POST must be in flight", postEntered.await(3, TimeUnit.SECONDS))
+
+        ZjuTimetableClient.cancelSession(options.handle)
+        released.countDown()
+        awaitLatch(latch)
+
+        val failure = requireNotNull(result) as? ZjuTimetableFetchResult.Failure
+        assertTrue("canceled attempt must fail, got $result", failure != null)
+        assertEquals("导入已取消。", failure!!.message)
+    }
+
+    @Test
     fun `logged-out host detection only fires on the identity provider or domain root`() {
         // 复验指出的覆盖缺口：这条启发式原来只有静态依据。用纯函数直接钉住判定边界。
         fun loggedOut(url: String) = isLoggedOutRedirect(URI(url))

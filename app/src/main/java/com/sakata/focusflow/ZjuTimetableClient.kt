@@ -257,48 +257,29 @@ internal object ZjuTimetableClient {
     ) {
         // 取走句柄、校验、登记在途必须与 cancelSession 互斥：否则落在“取走”与“登记”之间的取消
         // 会在两张表里都找不到句柄而被静默丢弃。
+        val prepared = prepareConfirm(handle, yearValue, termValue, now, onComplete)
         val pending: PendingSession
         val year: ZjuSemesterOption
         val term: ZjuSemesterOption
-        synchronized(restoreLock) {
-            val taken = pendingSessions.remove(handle.id)
-            if (taken == null) {
-                // 句柄已不可用（用过/取消/到期）：标 sessionInvalid，让 UI 清掉旧选项并要求重新登录，
-                // 而不是留一个可点但注定失败的"导入所选学期"。
-                dispatch(
-                    onComplete,
-                    ZjuTimetableFetchResult.Failure("学期选项已使用或已过期，请重新登录并读取学期选项。", sessionInvalid = true)
-                )
-                return
-            }
-            if (now - taken.createdAt > SESSION_TTL_MS) {
-                // TTL 早退分支：与到期回调同语义地作废（置 expired、清账号），
-                // 断开传输放在锁外——真实 disconnect 会阻塞，别拖住其它会话。
-                taken.expired.set(true)
-                taken.clearAccount()
-                val expiredTransport = taken.transport
+        when (prepared) {
+            is ConfirmPreparation.Expired -> {
+                // TTL 早退：与到期回调同语义地作废，断开传输在锁外（真实 disconnect 会阻塞）。
                 dispatch(
                     onComplete,
                     ZjuTimetableFetchResult.Failure("学期选项已过期，请重新登录并读取学期选项。", sessionInvalid = true)
                 )
-                runCatching { expiredTransport.cancel() }
+                runCatching { prepared.transport.cancel() }
                 return
             }
-            val chosenYear = findOptionByValue(taken.yearOptions, yearValue)
-            val chosenTerm = findOptionByValue(taken.termOptions, termValue)
-            if (chosenYear == null || chosenTerm == null) {
-                restorePendingLocked(handle.id, taken)
-                dispatch(onComplete, ZjuTimetableFetchResult.Failure("所选学年或学期不在本次读取的选项中，请重新选择。"))
+            is ConfirmPreparation.Rejected -> {
+                dispatch(onComplete, ZjuTimetableFetchResult.Failure(prepared.message, sessionInvalid = prepared.sessionInvalid))
                 return
             }
-            if (taken.canceled.get()) {
-                dispatch(onComplete, ZjuTimetableFetchResult.Failure(EXPIRED_MESSAGE, sessionInvalid = true))
-                return
+            is ConfirmPreparation.Ready -> {
+                pending = prepared.pending
+                year = prepared.year
+                term = prepared.term
             }
-            inFlightSessions[handle.id] = taken
-            pending = taken
-            year = chosenYear
-            term = chosenTerm
         }
         try {
             Thread {
@@ -454,6 +435,58 @@ internal object ZjuTimetableClient {
      * 两件事必须在同一个临界区内完成——否则 cancelSession 可能正好落在“已摘除、未放回”的窗口里，
      * 两张表都查不到句柄，取消被静默丢弃，随后句柄还会被原样放回（留下无人可达的孤儿会话）。
      */
+    /** [prepareConfirm] 的结果：只有 [Ready] 才允许发请求；作废与拒绝都在锁外投递。 */
+    private sealed interface ConfirmPreparation {
+        class Ready(
+            val pending: PendingSession,
+            val year: ZjuSemesterOption,
+            val term: ZjuSemesterOption
+        ) : ConfirmPreparation
+
+        /** 句柄已过 TTL：条目已作废，[transport] 由调用方在锁外断开。 */
+        class Expired(val transport: ZjuHttpClient) : ConfirmPreparation
+
+        /** 其它拒绝：文案与是否标记会话失效。 */
+        class Rejected(val message: String, val sessionInvalid: Boolean = false) : ConfirmPreparation
+    }
+
+    /**
+     * 取走句柄、校验选项、登记在途——全部在一把锁内完成，且**锁内不做任何可能阻塞的操作**
+     * （不投递回调、不 disconnect）。TTL 早退把传输带出来，由调用方在锁外断开。
+     */
+    private fun prepareConfirm(
+        handle: ZjuTimetableSessionHandle,
+        yearValue: String,
+        termValue: String,
+        now: Long,
+        onComplete: (ZjuTimetableFetchResult) -> Unit
+    ): ConfirmPreparation = synchronized(restoreLock) {
+        val taken = pendingSessions.remove(handle.id)
+            ?: return@synchronized ConfirmPreparation.Rejected(
+                // 句柄已不可用（用过/取消/到期）：标 sessionInvalid，让 UI 清掉旧选项并要求重新登录，
+                // 而不是留一个可点但注定失败的"导入所选学期"。
+                "学期选项已使用或已过期，请重新登录并读取学期选项。",
+                sessionInvalid = true
+            )
+        if (now - taken.createdAt > SESSION_TTL_MS) {
+            // 与到期回调同语义地作废：置 expired、清账号；断开由调用方在锁外做。
+            taken.expired.set(true)
+            taken.clearAccount()
+            return@synchronized ConfirmPreparation.Expired(taken.transport)
+        }
+        val chosenYear = findOptionByValue(taken.yearOptions, yearValue)
+        val chosenTerm = findOptionByValue(taken.termOptions, termValue)
+        if (chosenYear == null || chosenTerm == null) {
+            restorePendingLocked(handle.id, taken)
+            return@synchronized ConfirmPreparation.Rejected("所选学年或学期不在本次读取的选项中，请重新选择。")
+        }
+        if (taken.canceled.get()) {
+            return@synchronized ConfirmPreparation.Rejected(EXPIRED_MESSAGE, sessionInvalid = true)
+        }
+        inFlightSessions[handle.id] = taken
+        ConfirmPreparation.Ready(taken, chosenYear, chosenTerm)
+    }
+
     /**
      * 一次确认尝试的统一收尾（唯一收尾点）。**成功/失效的最终定序与"到期移除"在同一把锁下完成**：
      * 先摘除在途登记，再复查 [PendingSession.isVoid]——若期间到点（[expireSession] 已置 expired），

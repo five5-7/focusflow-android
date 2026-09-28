@@ -821,8 +821,8 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
             val payload = result.data?.getStringExtra(ZjuTimetableImportActivity.EXTRA_TIMETABLE_PAYLOAD).orEmpty()
             val schoolYearCode = result.data?.getStringExtra(ZjuTimetableImportActivity.EXTRA_SCHOOL_YEAR_CODE)
             val termCode = result.data?.getStringExtra(ZjuTimetableImportActivity.EXTRA_TERM_CODE)
-            // 与导入页首次解析保持同源：学期显示文字来自 termCode 的 `|` 之后部分（导出时已按同一规则写入）。
-            val termDisplay = termCode?.substringAfter('|')?.trim().orEmpty()
+            // 与导入页首次解析严格同源：直接用它送出的学期显示文字（termDisplayOf），不再从 code 反推。
+            val termDisplay = result.data?.getStringExtra(ZjuTimetableImportActivity.EXTRA_SEMESTER).orEmpty()
             when (val parsed = ZjuTimetableParser.parse(payload, schoolYearCode, termCode, termDisplay = termDisplay)) {
                 is ZjuTimetableParseResult.Success -> {
                     applyImportedCourses(parsed.batch)
