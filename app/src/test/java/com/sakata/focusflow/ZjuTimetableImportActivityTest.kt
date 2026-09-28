@@ -50,7 +50,8 @@ class ZjuTimetableImportActivityTest {
             headers: Map<String, String>,
             readTimeoutMs: Int,
             skipResponseBodyAtHost: String?,
-            onRedirect: (URI) -> Unit
+            onRedirect: (URI) -> Unit,
+            totalTimeoutMs: Long?
         ): ZjuHttpResponse = next("POST", url)
     }
 

@@ -475,7 +475,9 @@ private fun ZjuTimetableImportScreen(
             CenterAlignedTopAppBar(
                 title = { Text("浙江大学教务导入", fontWeight = FontWeight.SemiBold) },
                 navigationIcon = {
-                    TextButton(onClick = onBack, enabled = !running) {
+                    // 运行中也要能离开：真机上曾出现登录请求长时间无响应，而这一屏当时按不动返回，
+                    // 用户被困在“验证账号 40%”。离开会走 onDestroy → cancelAllWaiting() 取消会话。
+                    TextButton(onClick = onBack) {
                         Text("‹", fontSize = 32.sp, lineHeight = 32.sp)
                     }
                 },
@@ -496,6 +498,19 @@ private fun ZjuTimetableImportScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             ImportHeader()
+            // 学期选择紧跟头部：读取选项成功后它必须落在首屏内，不能排在很高的凭据卡之后
+            // （真机上那样会被推到屏幕底部，用户得先滚动才发现要选学期）。
+            val readyOptions = options
+            if (readyOptions != null) {
+                SemesterOptionsCard(
+                    options = readyOptions,
+                    selectedYearValue = selectedYearValue,
+                    onSelectedYearValueChange = onSelectedYearValueChange,
+                    selectedTermValue = selectedTermValue,
+                    onSelectedTermValueChange = onSelectedTermValueChange,
+                    running = running
+                )
+            }
             CredentialCard(
                 username = username,
                 onUsernameChange = onUsernameChange,
@@ -517,17 +532,6 @@ private fun ZjuTimetableImportScreen(
                 },
                 onReset = onReset
             )
-            val readyOptions = options
-            if (readyOptions != null) {
-                SemesterOptionsCard(
-                    options = readyOptions,
-                    selectedYearValue = selectedYearValue,
-                    onSelectedYearValueChange = onSelectedYearValueChange,
-                    selectedTermValue = selectedTermValue,
-                    onSelectedTermValueChange = onSelectedTermValueChange,
-                    running = running
-                )
-            }
             ImportProgressCard(
                 currentStage = currentStage,
                 running = running,

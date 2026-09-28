@@ -71,12 +71,17 @@ class ZjuTimetableSessionTest {
             headers: Map<String, String>,
             readTimeoutMs: Int,
             skipResponseBodyAtHost: String?,
-            onRedirect: (URI) -> Unit
+            onRedirect: (URI) -> Unit,
+            totalTimeoutMs: Long?
         ): ZjuHttpResponse {
             posts += url to body
+            postDeadlines += url to totalTimeoutMs
             postInterceptor?.invoke()
             return next("POST", url)
         }
+
+        /** 每次 POST 的 url 与总时限：用来钉住"登录请求必须带总时限"。 */
+        val postDeadlines = mutableListOf<Pair<String, Long?>>()
 
         fun timetablePosts(): List<Pair<String, String>> = posts.filter { it.first.contains("xskbcx_cxXsKb") }
     }
@@ -354,6 +359,162 @@ class ZjuTimetableSessionTest {
         transport.stubTimetable()
         assertTrue(confirm(options.handle, "2026-2027", "2|短") is ZjuTimetableFetchResult.Success)
         assertEquals(2, transport.timetablePosts().size)
+    }
+
+    @Test
+    fun `a timing-out watchdog delivers its result even when cancelling the transport blocks`() {
+        // 顺序缺陷的回归测试：若先取消再投递，一次阻塞的 disconnect() 就会把"到点给结果"推迟。
+        val entered = CountDownLatch(1)
+        val cancelEntered = CountDownLatch(1)
+        val stuck = object : ZjuHttpClient {
+            override fun cancel() {
+                // 故意让 cancel 阻塞得比投递预算长得多。
+                cancelEntered.countDown()
+                Thread.sleep(3_000)
+            }
+
+            override fun isCanceled(): Boolean = false
+            override fun get(url: String, totalTimeoutMs: Long?): ZjuHttpResponse {
+                entered.countDown()
+                Thread.sleep(6_000)
+                throw IllegalStateException("worker finally returned")
+            }
+
+            override fun post(
+                url: String,
+                body: String,
+                headers: Map<String, String>,
+                readTimeoutMs: Int,
+                skipResponseBodyAtHost: String?,
+                onRedirect: (URI) -> Unit,
+                totalTimeoutMs: Long?
+            ): ZjuHttpResponse = error("stuck login must never reach POST")
+        }
+
+        var result: ZjuSemesterOptionsResult? = null
+        val done = CountDownLatch(1)
+        val startedAt = System.currentTimeMillis()
+        ZjuTimetableClient.beginSession(
+            username = "student",
+            password = "secret".toCharArray(),
+            onProgress = {},
+            onComplete = { value ->
+                result = value
+                done.countDown()
+            },
+            transportFactory = { stuck },
+            loginBudgetMs = 300
+        )
+
+        assertTrue("login must have started", entered.await(3, TimeUnit.SECONDS))
+        awaitLatch(done)
+        val elapsed = System.currentTimeMillis() - startedAt
+        assertTrue("timeout result must not wait for cancel(), took ${elapsed}ms", elapsed < 2_000)
+        assertEquals(
+            ZjuTimetableClient.LOGIN_TIMEOUT_MESSAGE,
+            (requireNotNull(result) as ZjuSemesterOptionsResult.Failure).message
+        )
+        // 投递提前了，但传输仍必须被取消（否则被卡的 worker 会一直跑到 TTL）。
+        assertTrue("the stuck transport must still be cancelled", cancelEntered.await(3, TimeUnit.SECONDS))
+    }
+
+    @Test
+    fun `a finished login stays usable after the watchdog budget elapses`() {
+        // 回归护栏：看门狗不得在登录已经成功后再去取消传输——那会把刚建好的会话永久置为已取消，
+        // 之后每次"导入所选学期"都会失败。注意：那个竞争窗口本身不可确定性构造
+        // （需要工作线程恰好越过看门狗的检查之后才抢到结果），所以这里钉的是**可观察后果**。
+        val transport = FakeTransport().apply {
+            stubLoginAndIndex(INDEX_HTML_A)
+            stubTimetable()
+        }
+        val options = awaitOptions { complete ->
+            ZjuTimetableClient.beginSession(
+                username = "student",
+                password = "secret".toCharArray(),
+                onProgress = {},
+                onComplete = complete,
+                transportFactory = { transport },
+                loginBudgetMs = 300
+            )
+        } as ZjuSemesterOptionsResult.Success
+
+        Thread.sleep(600) // 跨过 300ms 看门狗预算
+        settle()
+
+        // 直接钉住"看门狗没有去取消这个已完成的传输"：只断言 confirm 成功是**恒绿**的
+        // （FakeTransport 的 cancel 只计数、post 不查取消态），必须断言计数本身。
+        assertEquals("watchdog must not cancel a finished login", 0, transport.canceledCount())
+        assertTrue(
+            "a finished login must stay usable after the watchdog budget",
+            confirm(options.handle, "2026-2027", "2|短") is ZjuTimetableFetchResult.Success
+        )
+    }
+
+    @Test
+    fun `a login that never returns still yields exactly one timeout result`() {
+        // 真机缺陷：凭据请求长时间不返回，socket 读既不理读超时也不理 disconnect()，
+        // 界面会永远停在“验证账号 40%”。看门狗必须在墙钟预算内给出结果，且只给一次。
+        val entered = CountDownLatch(1)
+        val stuck = object : ZjuHttpClient {
+            // 故意不解除阻塞：模拟真机上 disconnect() 打不断的读。
+            override fun cancel() = Unit
+            override fun isCanceled(): Boolean = false
+            override fun get(url: String, totalTimeoutMs: Long?): ZjuHttpResponse {
+                entered.countDown()
+                Thread.sleep(800)
+                throw IllegalStateException("worker finally returned")
+            }
+            override fun post(
+                url: String,
+                body: String,
+                headers: Map<String, String>,
+                readTimeoutMs: Int,
+                skipResponseBodyAtHost: String?,
+                onRedirect: (URI) -> Unit,
+                totalTimeoutMs: Long?
+            ): ZjuHttpResponse = error("stuck login must never reach POST")
+        }
+
+        val outcomes = java.util.concurrent.atomic.AtomicInteger(0)
+        var result: ZjuSemesterOptionsResult? = null
+        val latch = CountDownLatch(1)
+        ZjuTimetableClient.beginSession(
+            username = "student",
+            password = "secret".toCharArray(),
+            onProgress = {},
+            onComplete = { value ->
+                outcomes.incrementAndGet()
+                result = value
+                latch.countDown()
+            },
+            transportFactory = { stuck },
+            loginBudgetMs = 300
+        )
+
+        assertTrue("login must have started", entered.await(3, TimeUnit.SECONDS))
+        awaitLatch(latch)
+        val failure = requireNotNull(result) as? ZjuSemesterOptionsResult.Failure
+        assertTrue("a stuck login must fail instead of hanging, got $result", failure != null)
+        assertEquals(ZjuTimetableClient.LOGIN_TIMEOUT_MESSAGE, failure!!.message)
+
+        // 工作线程稍后返回时不得再投递第二次。
+        Thread.sleep(1_200)
+        settle()
+        assertEquals("exactly one result must be delivered", 1, outcomes.get())
+    }
+
+    @Test
+    fun `the credential submission carries a total deadline`() {
+        // 真机缺陷（2026-09-28 OPPO PKJ110）：登录 POST 只有每跳读超时、没有总时限，
+        // 一条持续重定向的响应链会让界面停在“验证账号 40%”数分钟且没有任何反馈。
+        // 这里钉住"凭据提交必须带总时限"，防止以后有人把参数丢掉。
+        val transport = FakeTransport().apply { stubLoginAndIndex(INDEX_HTML_A) }
+
+        begin(transport)
+
+        val loginPost = transport.postDeadlines.firstOrNull { it.first.contains("cas/login") }
+        assertTrue("login POST must have been sent", loginPost != null)
+        assertEquals("login POST must carry a total deadline", 90_000L, loginPost!!.second)
     }
 
     @Test
@@ -1055,7 +1216,8 @@ class ZjuTimetableSessionTest {
                 headers: Map<String, String>,
                 readTimeoutMs: Int,
                 skipResponseBodyAtHost: String?,
-                onRedirect: (URI) -> Unit
+                onRedirect: (URI) -> Unit,
+                totalTimeoutMs: Long?
             ): ZjuHttpResponse = error("login must fail before any POST")
         }
         val outcomes = java.util.concurrent.atomic.AtomicInteger(0)
@@ -1106,7 +1268,8 @@ class ZjuTimetableSessionTest {
                 headers: Map<String, String>,
                 readTimeoutMs: Int,
                 skipResponseBodyAtHost: String?,
-                onRedirect: (URI) -> Unit
+                onRedirect: (URI) -> Unit,
+                totalTimeoutMs: Long?
             ): ZjuHttpResponse = error("cancelled login must not POST")
         }
         val outcomes = java.util.concurrent.atomic.AtomicInteger(0)
@@ -1204,7 +1367,8 @@ class ZjuTimetableSessionTest {
                 headers: Map<String, String>,
                 readTimeoutMs: Int,
                 skipResponseBodyAtHost: String?,
-                onRedirect: (URI) -> Unit
+                onRedirect: (URI) -> Unit,
+                totalTimeoutMs: Long?
             ): ZjuHttpResponse = error("cancelled login must not POST")
         }
         val model = ZjuImportViewModel { blocked }

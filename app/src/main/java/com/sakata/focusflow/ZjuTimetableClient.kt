@@ -2,6 +2,7 @@ package com.sakata.focusflow
 
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.InputStreamReader
@@ -81,7 +82,13 @@ internal interface ZjuHttpClient {
         headers: Map<String, String>,
         readTimeoutMs: Int = 18_000,
         skipResponseBodyAtHost: String? = null,
-        onRedirect: (URI) -> Unit = {}
+        onRedirect: (URI) -> Unit = {},
+        /**
+         * 整次请求（含重定向链）的**软期限**：只在"跳与跳之间"检查，靠 `disconnect()` 提前打断。
+         * 它能压住"持续重定向链"（最多 10 跳 × 每跳读超时），但**打断不了单跳内的阻塞读**——
+         * 那种情况由 `beginSession` 的墙钟看门狗兜底。登录 POST 必须带它。
+         */
+        totalTimeoutMs: Long? = null
     ): ZjuHttpResponse
 }
 
@@ -201,7 +208,13 @@ internal object ZjuTimetableClient {
         onComplete: (ZjuSemesterOptionsResult) -> Unit,
         now: Long = System.currentTimeMillis(),
         transportFactory: () -> ZjuHttpClient = { HttpSession() },
-        expiryScheduler: ZjuExpiryScheduler = defaultExpiryScheduler
+        expiryScheduler: ZjuExpiryScheduler = defaultExpiryScheduler,
+        /**
+         * 整个登录阶段的墙钟预算。真机缺陷（2026-09-28 OPPO PKJ110）：凭据 POST 曾长时间不返回
+         * ——socket 读既不理读超时也不理 disconnect()，界面就停在“验证账号 40%”没有下文。
+         * 因此这里不依赖传输层，到点必须给出一次结果。
+         */
+        loginBudgetMs: Long = LOGIN_BUDGET_MS
     ) {
         purgeExpiredSessions(now)
         val transport = try {
@@ -211,7 +224,28 @@ internal object ZjuTimetableClient {
             password.fill('\u0000')
             return
         }
+        // 恰好一次结果：看门狗与工作线程谁先到谁说话，后者到点后不再重复回调。
+        val settled = AtomicBoolean(false)
+        val watchdog = Timer("FocusFlow-ZjuLoginDeadline", true)
+        fun settle(result: ZjuSemesterOptionsResult) {
+            if (!settled.compareAndSet(false, true)) return
+            runCatching { watchdog.cancel() }
+            dispatch(onComplete, result)
+        }
         try {
+            watchdog.schedule(object : java.util.TimerTask() {
+                override fun run() {
+                    // 顺序很重要：先抢结果 → 再投递 → 最后才取消传输。
+                    // - 先抢：cancel 置位的 canceled 不会让被唤醒的工作线程抢到 CAS（否则文案会变成"导入已取消"）；
+                    //   若工作线程已经赢了，这里直接 return，也不会把它刚建好的会话取消掉。
+                    // - 先投递："到点必须给出结果"不能被可能阻塞的 disconnect() 拖住。
+                    if (!settled.compareAndSet(false, true)) return
+                    runCatching { watchdog.cancel() }
+                    // 回调本身抛错也不能吞掉下面的取消（否则被卡的 worker 会继续跑到 TTL）。
+                    runCatching { dispatch(onComplete, ZjuSemesterOptionsResult.Failure(LOGIN_TIMEOUT_MESSAGE)) }
+                    runCatching { transport.cancel() }
+                }
+            }, loginBudgetMs)
             Thread {
                 var currentStage = ZjuImportStage.CONNECTING
                 val result = try {
@@ -231,7 +265,7 @@ internal object ZjuTimetableClient {
                 } finally {
                     password.fill('\u0000')
                 }
-                dispatch(onComplete, result)
+                settle(result)
             }.apply {
                 name = "FocusFlow-ZjuImport"
                 isDaemon = true
@@ -240,7 +274,7 @@ internal object ZjuTimetableClient {
         } catch (error: Throwable) {
             // 线程创建失败等同步异常：仍保证一次回调，并把密码清零。
             password.fill('\u0000')
-            dispatch(onComplete, ZjuSemesterOptionsResult.Failure(failureMessageOf(error)))
+            settle(ZjuSemesterOptionsResult.Failure(failureMessageOf(error)))
         }
     }
 
@@ -543,6 +577,12 @@ internal object ZjuTimetableClient {
     /** 到期与"用户取消"分开表述：到期不是用户按了取消，而是这次登录的有效期到了。 */
     internal const val EXPIRED_MESSAGE = "本次登录已过期，请重新登录后再导入。"
 
+    /** 登录阶段整体超预算时的文案：与"某一跳读超时"区分开，便于用户与排查者理解。 */
+    internal const val LOGIN_TIMEOUT_MESSAGE = "登录长时间没有响应，已停止本次导入；请检查网络或稍后重试。"
+
+    /** 登录阶段墙钟预算：超过它就必须有结果，不依赖传输层能否被打断。 */
+    private const val LOGIN_BUDGET_MS = 100_000L
+
     /** 登录前确认未被取消，避免取消与线程启动之间的竞态让已取消的会话继续发出请求。 */
     private fun beginSessionBlocking(
         username: String,
@@ -622,7 +662,9 @@ internal object ZjuTimetableClient {
                 if (target.host.equals("zdbk.zju.edu.cn", ignoreCase = true)) {
                     progress(ZjuImportStage.ESTABLISHING_SESSION)
                 }
-            }
+            },
+            // 总时限：没有它，一条持续重定向的响应链会让用户停在“验证账号”数分钟且无从判断。
+            totalTimeoutMs = 90_000
         )
         // 认证请求已经带着密文提交，明文密码此后再无用途：立即清零，而不是等到整个
         // beginSessionBlocking 返回（那还要等读首页 option，最长 40 秒）。
@@ -703,6 +745,11 @@ internal object ZjuTimetableClient {
             )
         )
         val payload = response.body
+        // 真机取证用：仅 debug 构建输出**脱敏形状**（字段名/类型/非空比例/稳定指纹），
+        // 不含任何原始取值、课程名或地点原文。见 `ZjuResponseShape`。
+        if (BuildConfig.DEBUG) {
+            runCatching { Log.i("FocusFlowZjuShape", ZjuResponseShape.summarize(payload)) }
+        }
         if (pending.canceled.get()) return ConfirmAttempt(null, CANCELED_MESSAGE, false)
         // 到期发生在 POST 期间：即使拿到的是合法课表也不能算成功（最终定序在 finalizeAttempt 里再做一次）。
         if (pending.isExpired()) return ConfirmAttempt(null, EXPIRED_MESSAGE, false, sessionInvalid = true)
@@ -911,7 +958,8 @@ internal object ZjuTimetableClient {
             headers: Map<String, String>,
             readTimeoutMs: Int,
             skipResponseBodyAtHost: String?,
-            onRedirect: (URI) -> Unit
+            onRedirect: (URI) -> Unit,
+            totalTimeoutMs: Long?
         ): ZjuHttpResponse = request(
             "POST",
             url,
@@ -919,7 +967,8 @@ internal object ZjuTimetableClient {
             headers,
             readTimeoutMs,
             skipResponseBodyAtHost,
-            onRedirect
+            onRedirect,
+            totalTimeoutMs = totalTimeoutMs
         )
 
         private fun request(
