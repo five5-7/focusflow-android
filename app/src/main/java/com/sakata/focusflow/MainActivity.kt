@@ -1150,7 +1150,6 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
             }
         }
         val density = LocalDensity.current
-        val keyboardVisible = WindowInsets.ime.getBottom(density) > 0
         var floatingBarHeight by remember { mutableStateOf(112.dp) }
         val capturesGlassBackdrop = appearance.effectiveCardMaterial.samplesPageBackdrop
         // 默认关闭时连 HazeState 都不创建；开关或材质变化后才建立／释放共享捕获源。
@@ -1227,7 +1226,9 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
             },
         ) { padding ->
             CompositionLocalProvider(
-                LocalFloatingBottomPadding provides if (keyboardVisible) 0.dp else floatingBarHeight,
+                // Keep the scrollable page behind the floating bar even with the IME open;
+                // clipping its viewport above the bar cuts cards across a straight edge.
+                LocalFloatingBottomPadding provides floatingBarHeight,
                 LocalScrollingTopPadding provides if (hasTopNotice) 0.dp else topSafety
             ) {
             // Applied and consumed once for both root pages and their animated children.
@@ -1239,7 +1240,6 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
             // 同一个开关写 true 等于没变，Compose 不会重组。要修得改弹窗打开状态的建模方式（例如用 token 而不是 Boolean），
             // 属于独立改动，先按现状记录。
             val pageModifier = Modifier.padding(padding).consumeWindowInsets(padding)
-                .padding(bottom = if (keyboardVisible) floatingBarHeight else 0.dp)
                 .then(if (dialogLayerVisible) Modifier.clearAndSetSemantics {} else Modifier)
             // 假期或校园生活关闭时，课程不参与今日、日程、空挡与目标建议；原数据仍保留。
             val scheduleCourses = activeCourses
