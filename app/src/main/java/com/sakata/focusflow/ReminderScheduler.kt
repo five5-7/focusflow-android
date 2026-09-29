@@ -15,8 +15,9 @@ import java.util.Calendar
  * 提醒类型清单。**新增一类提醒必须在这里登记**，否则 ReminderRestoreCoverageTest 会红。
  *
  * 存在的理由：此前"某一类提醒有没有恢复步骤"只靠人记得——入口函数名（restoreUnifiedReminders）
- * 只说"活动"，实际恢复的是 9 类（按分组 6 组：活动、每日三项、重复刷新／漏做摘要、任务、独立提醒、课程）；
- * 游戏提醒则由 BootReceiver 单独调用。名字撒谎 + 没有守卫 ⇒ 新入口很容易静默漏掉某类提醒
+ * 只说"活动"，实际恢复的是 10 类（按分组 7 组：活动、每日三项、重复刷新／漏做摘要、任务、独立提醒、课程、游戏）。
+ * 游戏提醒原先只由 BootReceiver 单独恢复，2026-09-29 已并入本入口（本机 ColorOS 会推迟 BOOT_COMPLETED ⇒ 只靠它等于没恢复）。
+ * 名字撒谎 + 没有守卫 ⇒ 新入口很容易静默漏掉某类提醒
  * （漏了不报错，只在"该响时没响"）。
  */
 internal enum class ReminderRestoreStep {
@@ -34,10 +35,14 @@ internal enum class ReminderRestoreStep {
 
 /**
  * 由统一恢复入口（那次遍历）负责的类型，**顺序即数据**。
- * 顺序与原实现逐条一致（漏做摘要 → 活动 → 每日三项 → 重复刷新 → 任务 → 独立提醒 → 课程）。
+ * 除游戏外的 9 项与原实现的顺序逐条一致（漏做摘要 → 活动 → 每日三项 → 重复刷新 → 任务 → 独立提醒 → 课程）；
+ * 游戏**紧随漏做摘要之后、早于活动那一步**：活动步在核心数据运行时被 Blocked 时会早退（见下），
+ * 游戏若排在它后面，那种情况下就会被跳过——而旧路径（BootReceiver 无条件单独调用）是会恢复它的。
+ * 排在活动之前，Blocked 分支与旧路径的执行集合一致；Ready 分支两步互不依赖，先后无影响。
  */
 internal val REMINDER_RESTORE_ORDER: List<ReminderRestoreStep> = listOf(
     ReminderRestoreStep.MISSED_DIGEST,
+    ReminderRestoreStep.GAME,
     ReminderRestoreStep.ACTIVITY,
     ReminderRestoreStep.DAILY_STATUS,
     ReminderRestoreStep.DAILY_MEAL,
@@ -51,12 +56,14 @@ internal val REMINDER_RESTORE_ORDER: List<ReminderRestoreStep> = listOf(
 /**
  * **不由**统一入口恢复、而是在别处单独恢复的类型。
  *
- * GAME 目前只在 BootReceiver 里通过 restoreGameReminders 恢复（由 ReminderRestoreCoverageTest
- * 的源文本守卫钉住调用点）；任何新的恢复入口只要照着名字调统一入口，就会漏掉它。
- * 把它并进统一入口属**行为变更**（见 docs/9.0-stage6-unified-scheduling-design.md，未放行）。
+ * 2026-09-29 起**为空**：GAME 已并入 REMINDER_RESTORE_ORDER（见设计件 §4 第三步，已放行并落地）。
+ * 保留这个（可能为空的）清单，是为了让 ReminderRestoreCoverageTest 的
+ * 「每个类型必须登记在某一处」继续有效：将来若又出现「只该在别处恢复」的类型，
+ * 登记在这里、并在测试里写清原因。**注意**：现在有测试断言它必须为空
+ * （game sits in the unified order and the outside list is empty）——真要再往这里登记，必须同时改那条断言。
  */
 internal val REMINDER_RESTORED_OUTSIDE_UNIFIED_ENTRY: List<ReminderRestoreStep> = listOf(
-    ReminderRestoreStep.GAME
+    // 当前为空：全部类型都在 REMINDER_RESTORE_ORDER 里。
 )
 
 object ReminderScheduler {
@@ -84,11 +91,13 @@ object ReminderScheduler {
     /**
      * 统一恢复入口：把每一类提醒在开机／时间变更／权限变更后重新排上。
      *
-     * 名字里的 Activity 是历史遗留——它恢复的远不止活动（见 REMINDER_RESTORE_ORDER）。
-     * 改名（结构提交）与"把游戏提醒并进来"（行为提交）都留到单独一步。
+     * 旧名 restoreActivityReminders 里的 Activity 是历史遗留——它恢复的远不止活动（见 REMINDER_RESTORE_ORDER）；
+     * 改名已在 470c42f 落地；"把游戏提醒并进来"也已落地（GAME 现排在 ACTIVITY 之前，
+     * 因为活动步的早退会跳过它后面的所有步骤）。
      *
      * **已知缺陷（照登，本步未修）**：下面那句 ?: return 会在核心数据运行时落到 Blocked 时
-     * 跳过活动之后的全部步骤（每日三项、重复刷新、任务、独立提醒、课程）。Blocked 在代码里
+     * 跳过活动之后的全部步骤（每日三项、重复刷新、任务、独立提醒、课程）。**游戏已刻意排在活动之前**，
+     * 以便在 Blocked 时仍能恢复（与旧路径一致）。Blocked 在代码里
      * 有生产路径（见 CoreDataRuntime.kt 的 catch / source==NONE / 仓库装配失败 / 迁移失败分支），
      * 但触发条件是异常或损坏分支，**本构建未取证真机可达**；另外 resolve 结果按进程缓存，
      * 一旦落到 Blocked，本进程后续所有恢复都会继续早退。修复＝把早退收窄到只管活动那一步；
@@ -139,10 +148,9 @@ object ReminderScheduler {
                 ReminderRestoreStep.STANDALONE -> restoreStandaloneReminders(context)
                 ReminderRestoreStep.COURSE -> CourseReminders.restore(context)
 
-                // 游戏提醒故意不在这里恢复：它目前只由 BootReceiver 调用 restoreGameReminders（有源文本守卫）。
-                // 并进来是行为变更（未放行）。保留显式空分支，既让 when 穷尽（新增类型强制在此做决定），
-                // 又让"它没被统一覆盖"这件事在代码里看得见。
-                ReminderRestoreStep.GAME -> Unit
+                // 2026-09-29 第三步落地：游戏提醒并入统一恢复。此前它只由 BootReceiver 恢复，
+                // 而本机 ColorOS 会把 BOOT_COMPLETED 推迟到不可预期 ⇒ 实际上等于没恢复。
+                ReminderRestoreStep.GAME -> restoreGameReminders(context)
             }
         }
     }

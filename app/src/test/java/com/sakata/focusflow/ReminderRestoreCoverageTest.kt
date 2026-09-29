@@ -8,7 +8,8 @@ import org.junit.Test
  * 组③：**恢复覆盖即数据**的回归测试（纯 JVM，不碰通知、不碰闹钟）。
  *
  * 为什么需要它：统一恢复入口 `ReminderScheduler.restoreUnifiedReminders`（原名 `restoreActivityReminders`，
- * 2026-09-29 改名——原名只说"活动"，实际恢复的是 **9 类**）；游戏提醒由 `BootReceiver` 单独恢复。
+ * 2026-09-29 改名——原名只说"活动"，实际恢复的是 **10 类**）；其中游戏提醒已于同日并入统一入口，
+ * 不再由 `BootReceiver` 单独恢复。
  * 这里把类型清单钉成数据：新增枚举常量必须登记进两份清单之一，否则变红。
  *
  * **不要高估它**（复核席 B 逐条盘出的盲区，详见设计件 §4.1"这套数据不能保证什么"）：
@@ -21,28 +22,35 @@ class ReminderRestoreCoverageTest {
     private fun sourceFile(relative: String) = java.io.File(relative)
 
     @Test
-    fun `the bootstrap receiver still restores game reminders`() {
-        // 堵住盲区：第二份清单只是**声明**"GAME 在别处恢复"，删掉 BootReceiver 的调用点不会有任何测试变红。
-        // 这里直接读源码断言调用点仍在（同仓先例：LauncherIconResourceTest 用 File("src/main/...") 读真实文件）。
+    fun `game reminders are restored by the unified entry and nowhere else`() {
+        // 堵住盲区：两份清单都只是**声明**，调用点真的在不在没人守。这里读源码钉住**两端**：
+        // ① BootReceiver 不得再单独调用；② 统一入口的 GAME 分支必须真的调用。
+        // （同仓先例：LauncherIconResourceTest 用 File("src/main/...") 读真实源文件。）
         //
-        // 已知强度上限（复核席 A/B 指出）：源文本守卫只能证明"文本里还出现过这个调用"。
-        // 这里**剥掉行首注释**（`//`、`*`、`/*` 开头的行）再匹配，所以"把调用写进行首注释"过不了关；
-        // 但下列绕过仍然能过，不要把它当成语义守卫：
-        //   ① 行尾注释（`val x = 0 // restoreGameReminders(appContext)`）；
-        //   ② 块注释里不以 `*` 开头的裸行；
-        //   ③ 字符串字面量里出现该词；
-        //   ④ 把调用挪到别的函数里（本测试只看"文件里有没有这个词"）。
-        // 真正的语义守卫要等 §4 第三步（并入统一入口）落地。
+        // 已知强度上限（复核席 A/B 逐条指出，如实写下——**不要把它当语义守卫**）：
+        //   · 它只证明"文件里出现过／没出现过这段文本"，不证明语义，也不证明该分支可达。
+        //   · **误红方向**（更常见的运营成本）：① 存活行里写出该调用文本即红（行尾注释、日志字符串）；
+        //     ② 断言 B 用**单行精确文本** ⇒ 分支体折行、写成块体 `{ }`、参数改名、`->` 前后空格变化都会误红。
+        //   · **漏过方向**：负向断言可用间接调用绕过（包装函数——尤其定义在别的文件、方法引用
+        //     `ReminderScheduler::restoreGameReminders`、反射）；正向断言只要文本还在（写进字符串、
+        //     放进行尾注释、或让该分支不可达，例如遍历表达式里 `filterNot { it == GAME }`）就仍然绿。
+        // 已剥掉行首注释（`//`、`*`、`/*` 开头的行）再匹配，故"把调用写进行首注释"过不了关。
         val bootReceiver = sourceFile("src/main/java/com/sakata/focusflow/BootReceiver.kt")
+        val scheduler = sourceFile("src/main/java/com/sakata/focusflow/ReminderScheduler.kt")
         assertTrue("找不到 ${bootReceiver.path}", bootReceiver.isFile)
+        assertTrue("找不到 ${scheduler.path}", scheduler.isFile)
 
-        val codeLines = bootReceiver.readText().lineSequence()
+        fun codeLines(file: java.io.File) = file.readText().lineSequence()
             .map { it.trim() }
             .filterNot { it.startsWith("//") || it.startsWith("*") || it.startsWith("/*") }
 
         assertTrue(
-            "BootReceiver 必须继续调用 restoreGameReminders —— 否则 GAME 这一类就没有任何恢复入口",
-            codeLines.any { it.contains("restoreGameReminders(") }
+            "BootReceiver 不应再单独恢复游戏提醒（已并入统一入口，重复调用会让\"一个入口\"的说法失真）",
+            codeLines(bootReceiver).none { it.contains("restoreGameReminders(") }
+        )
+        assertTrue(
+            "统一入口的 GAME 分支必须真的调用 restoreGameReminders —— 否则 GAME 这一类就没有任何恢复入口",
+            codeLines(scheduler).any { it.contains("ReminderRestoreStep.GAME -> restoreGameReminders(context)") }
         )
     }
 
@@ -59,10 +67,11 @@ class ReminderRestoreCoverageTest {
     }
 
     @Test
-    fun `the unified restore order keeps the original step sequence`() {
+    fun `the unified restore order keeps the declared step sequence including game`() {
         assertEquals(
             listOf(
                 ReminderRestoreStep.MISSED_DIGEST,
+                ReminderRestoreStep.GAME,
                 ReminderRestoreStep.ACTIVITY,
                 ReminderRestoreStep.DAILY_STATUS,
                 ReminderRestoreStep.DAILY_MEAL,
@@ -77,10 +86,13 @@ class ReminderRestoreCoverageTest {
     }
 
     @Test
-    fun `game reminders are still declared as restored outside the unified entry`() {
-        // 把它并进统一入口是行为变更（未放行）；这条测试的作用是让"未放行"这件事在代码里可见，
-        // 一旦有人合并了两份清单，这里会红，提醒他去看设计件的授权边界。
-        assertTrue(REMINDER_RESTORED_OUTSIDE_UNIFIED_ENTRY.contains(ReminderRestoreStep.GAME))
-        assertTrue(!REMINDER_RESTORE_ORDER.contains(ReminderRestoreStep.GAME))
+    fun `game sits in the unified order and the outside list is empty`() {
+        // 2026-09-29 第三步落地：GAME 并入统一入口，"别处单独恢复"清单清空。
+        // 这条测试的作用是让那次行为变更在代码里可见：谁要把 GAME 挪回去，这里会红。
+        assertTrue(REMINDER_RESTORE_ORDER.contains(ReminderRestoreStep.GAME))
+        assertTrue(
+            "并入之后不应再有任何类型挂在\"别处单独恢复\"清单上",
+            REMINDER_RESTORED_OUTSIDE_UNIFIED_ENTRY.isEmpty()
+        )
     }
 }

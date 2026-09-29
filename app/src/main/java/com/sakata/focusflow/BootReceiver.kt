@@ -21,8 +21,8 @@ class BootReceiver : BroadcastReceiver() {
             CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
                 try {
                     val appContext = context.applicationContext
+                    // 游戏提醒也在这个统一入口里（2026-09-29 并入），此处不再单独调用。
                     ReminderScheduler.restoreUnifiedReminders(appContext)
-                    ReminderScheduler.restoreGameReminders(appContext)
                     if (PrototypeStore(appContext).loadQuickCaptureEnabled()) {
                         QuickCaptureService.start(appContext)
                     }
