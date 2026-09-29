@@ -69,6 +69,23 @@ internal object CourseReminders {
         return edit.commit()
     }
 
+    /** One preference commit for the merged meeting's override and delivery watermark. */
+    fun applyMerge(context: Context, survivorId: Long, deletedIds: List<Long>, enabled: Boolean?): Boolean {
+        val prefs = context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
+        val watermark = (listOf(survivorId) + deletedIds).maxOf { id ->
+            runCatching { prefs.getLong(DELIVERED_PREFIX + id, -1L) }.getOrDefault(-1L)
+        }
+        val edit = prefs.edit()
+        for (id in deletedIds) {
+            edit.remove(PREFIX + id)
+            edit.remove(DELIVERED_PREFIX + id)
+        }
+        if (enabled == null) edit.remove(PREFIX + survivorId)
+        else edit.putBoolean(PREFIX + survivorId, enabled)
+        if (watermark > 0L) edit.putLong(DELIVERED_PREFIX + survivorId, watermark)
+        return edit.commit()
+    }
+
     @Synchronized fun markNotified(context: Context, id: Long, expectedAt: Long): Boolean {
         if (id <= 0 || expectedAt <= 0) return false
         val prefs = context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
@@ -79,6 +96,7 @@ internal object CourseReminders {
 
     fun restore(context: Context) {
         val runtime = CoreDataRuntimeAccess.resolve(context) as? CoreDataRuntimeResolution.Ready ?: return
+        if (!CourseMergeOperation.recover(context, runtime.repository)) return
         val snapshot = (runtime.repository.read() as? CoreDataReadResult.Ready)?.snapshot ?: return
         val store = PrototypeStore(context)
         sync(context, snapshot.courses, snapshot.courses, store.loadCoursePeriodTable(), load(context))
@@ -145,6 +163,26 @@ internal object CourseReminders {
 /** A one-off room change is keyed by the meeting and calendar date; future weeks keep the base location. */
 internal object CourseLocationOverrides {
     private const val FILE = "course_location_overrides"
+
+    fun snapshot(context: Context, meetingId: Long): Map<Long, String> =
+        context.getSharedPreferences(FILE, Context.MODE_PRIVATE).all.mapNotNull { (key, value) ->
+            val day = key.removePrefix("${meetingId}_").takeIf { key.startsWith("${meetingId}_") }
+                ?.toLongOrNull()
+            if (day == null || day < 0 || value !is String || value.isBlank()) null
+            else day to value
+        }.toMap()
+
+    /** Apply the already-journaled target in one preference commit; retrying yields the same keys. */
+    fun applyMerge(context: Context, survivorId: Long, deletedIds: List<Long>, merged: Map<Long, String>): Boolean {
+        val prefs = context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
+        val prefixes = (listOf(survivorId) + deletedIds).map { "${it}_" }
+        val edit = prefs.edit()
+        prefs.all.keys.filter { key -> prefixes.any { prefix ->
+            key.startsWith(prefix) && key.removePrefix(prefix).toLongOrNull()?.let { it >= 0L } == true
+        } }.forEach { edit.remove(it) }
+        merged.forEach { (day, value) -> edit.putString("${survivorId}_$day", value) }
+        return edit.commit()
+    }
 
     fun get(context: Context, meetingId: Long, epochDay: Long): String? =
         runCatching {

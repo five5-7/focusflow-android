@@ -177,7 +177,10 @@ internal object CourseEditPlans {
         INVALID_EFFECTIVE_RANGE,
 
         /** 同一门课给了多条覆盖快照：无从判断哪条为准，交回调用方。 */
-        DUPLICATE_OVERRIDES
+        DUPLICATE_OVERRIDES,
+
+        /** 已存的临时地点超过当前允许长度，合并不能悄悄丢掉它。 */
+        CORRUPT_OVERRIDES
     }
 
     internal sealed interface CourseMergePlan {

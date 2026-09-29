@@ -207,7 +207,7 @@ class ReminderReceiverTest {
         assertTrue(CourseReminders.markNotified(context, due.id, due.expectedAt))
     }
 
-    @Test fun `standalone due shows complete and snooze actions`() {
+    @Test fun `standalone due shows complete snooze and open actions`() {
         val context = freshContext()
         val now = System.currentTimeMillis()
         assertTrue(StandaloneReminders.create(context, "开会", now - 5_000L, now - 60_000L))
@@ -220,7 +220,8 @@ class ReminderReceiverTest {
         val notification = requireNotNull(shadowNotifications.getNotification("standalone:${entry.id}", 0))
         assertEquals("开会", notification.extras.getCharSequence(Notification.EXTRA_TITLE).toString())
         assertEquals("你设置的提醒已到时间。", notification.extras.getCharSequence(Notification.EXTRA_TEXT).toString())
-        assertEquals(2, notification.actions.size)
+        assertEquals(listOf("完成本次提醒", "10 分钟后提醒", "打开处理"),
+            notification.actions.map { it.title.toString() })
     }
 
     @Test fun `muted standalone due consumes delivery before skipping the notification`() {

@@ -130,6 +130,9 @@ class MainActivity : ComponentActivity() {
                 return@launch
             }
             val coreDataRepository = (runtime as CoreDataRuntimeResolution.Ready).repository
+            val mergeRecoveryReady = withContext(Dispatchers.IO) {
+                CourseMergeOperation.recover(this@MainActivity, coreDataRepository)
+            }
             val startupSnapshot = withContext(Dispatchers.IO) {
                 FocusFlowStartupSnapshot.load(
                     store = startupStore,
@@ -148,7 +151,7 @@ class MainActivity : ComponentActivity() {
             FrameTimingRecorder.recordStartupFrames()
             setContent {
                 LaunchedEffect(Unit) { startupBackFallback.isEnabled = false }
-                FocusFlowApp(startupStore, coreDataRepository, startupSnapshot, startupPageBackdropBitmap, statusCheckInRequested, mealPromptRequested, mealFinishRequested, quickCaptureRequested, standaloneOpenRequested, permissionOnboardingPending) {
+                FocusFlowApp(startupStore, coreDataRepository, startupSnapshot, startupPageBackdropBitmap, statusCheckInRequested, mealPromptRequested, mealFinishRequested, quickCaptureRequested, standaloneOpenRequested, permissionOnboardingPending, mergeRecoveryReady) {
                     statusCheckInRequested = false
                     mealPromptRequested = null
                     mealFinishRequested = null
@@ -242,7 +245,7 @@ private fun loadStartupPageBackdrop(context: Context, appearance: AppearanceSpec
 }
 
 @Composable
-private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepository, startup: FocusFlowStartupSnapshot, startupPageBackdropBitmap: ImageBitmap?, statusCheckInRequested: Boolean, mealPromptRequested: MealType?, mealFinishRequested: MealType?, quickCaptureRequested: Boolean, standaloneOpenRequested: Pair<Long, Long>?, permissionOnboardingPending: Boolean, onRequestHandled: () -> Unit) {
+private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepository, startup: FocusFlowStartupSnapshot, startupPageBackdropBitmap: ImageBitmap?, statusCheckInRequested: Boolean, mealPromptRequested: MealType?, mealFinishRequested: MealType?, quickCaptureRequested: Boolean, standaloneOpenRequested: Pair<Long, Long>?, permissionOnboardingPending: Boolean, mergeRecoveryReady: Boolean, onRequestHandled: () -> Unit) {
     val context = LocalContext.current
     fun readCoreData() = (coreDataRepository.read() as CoreDataReadResult.Ready).snapshot
     var tab by remember { mutableIntStateOf(0) }
@@ -431,7 +434,9 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
     var courseEditor by remember { mutableStateOf<Course?>(null) }
     var addCourseOpen by remember { mutableStateOf(false) }
     var courseImportRunning by remember { mutableStateOf(false) }
-    var courseImportMessage by remember { mutableStateOf<String?>(null) }
+    var courseImportMessage by remember { mutableStateOf<String?>(
+        if (mergeRecoveryReady) null else "课程合并的覆盖设置尚未恢复；请保留数据并重启重试，课程提醒暂不重排。"
+    ) }
     fun persistCourses(updated: List<Course>): Boolean {
         val result = coreDataRepository.replaceCourses(updated, courses)
         if (result.applied) {
@@ -1713,6 +1718,33 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                     },
                     onDeleteCourses = { targets ->
                         persistCourses(removeCoursesById(courses, targets))
+                    },
+                    onMergeCourses = { ids, preferred, plan ->
+                        val before = courses
+                        when (CourseMergeOperation.apply(context, coreDataRepository, before, ids, preferred, plan)) {
+                            CourseMergeOperation.Outcome.APPLIED -> {
+                                val updated = readCoreData().courses
+                                courseReminderSettings = CourseReminders.load(context)
+                                CourseReminders.sync(context, before, updated, coursePeriodTable, courseReminderSettings)
+                                courses = updated
+                                if (items.any { it.kind == "重复模板" && it.repeatFrequency == "class_day" }) {
+                                    RepeatActions.refreshRepository(context)
+                                    items = readCoreData().items
+                                }
+                                courseImportMessage = "课程已合并；其他星期或节次仍保持独立。"
+                                true
+                            }
+                            CourseMergeOperation.Outcome.RECOVERY_PENDING -> {
+                                courses = readCoreData().courses
+                                courseImportMessage = "课程已写入，但覆盖设置恢复尚未完成；请重启重试，暂不重排提醒。"
+                                false
+                            }
+                            else -> {
+                                courses = readCoreData().courses
+                                courseImportMessage = "合并未完成：选中记录或设置已变化，或存储不可写。请核对后重试。"
+                                false
+                            }
+                        }
                     },
                     courseReminderSettings = courseReminderSettings,
                     courseReminderPeriodTable = coursePeriodTable,

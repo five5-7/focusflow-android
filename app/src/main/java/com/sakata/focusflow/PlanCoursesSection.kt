@@ -35,6 +35,7 @@ internal fun PlanCoursesSection(
     onIgnoreCourse: (Course) -> Unit,
     onToggleCourse: (Course) -> Unit,
     onDeleteCourses: (Set<Course>) -> Unit,
+    onMergeCourses: (Set<Long>, Long, CourseEditPlans.CourseMergePlan.Applied) -> Boolean,
     reminderSettings: CourseReminderSettings,
     reminderPeriodTable: CoursePeriodTable,
     onReminderGlobalChange: (Boolean) -> Unit,
@@ -95,7 +96,7 @@ FocusCard(
         onIgnoreCourse
     )
     HorizontalDivider()
-    ConfirmedCourses(confirmedCourses, onEditCourse, onToggleCourse, onDeleteCourses,
+    ConfirmedCourses(confirmedCourses, onEditCourse, onToggleCourse, onDeleteCourses, onMergeCourses,
         reminderSettings, reminderPeriodTable, periodConfigured, onReminderOverrideChange)
 }
 
@@ -177,12 +178,18 @@ private fun PendingCourses(
 
 @Composable
 private fun ConfirmedCourses(confirmed: List<Course>, onEdit: (Course) -> Unit, onToggle: (Course) -> Unit,
-    onDelete: (Set<Course>) -> Unit, reminderSettings: CourseReminderSettings,
+    onDelete: (Set<Course>) -> Unit,
+    onMerge: (Set<Long>, Long, CourseEditPlans.CourseMergePlan.Applied) -> Boolean,
+    reminderSettings: CourseReminderSettings,
     reminderPeriodTable: CoursePeriodTable, periodConfigured: Boolean,
     onReminderOverrideChange: (Course, Boolean?) -> Unit) {
+    val context = LocalContext.current
     var selecting by remember { mutableStateOf(false) }
     var selected by remember { mutableStateOf(emptySet<Course>()) }
     var pendingDelete by remember { mutableStateOf<Set<Course>?>(null) }
+    var preferredId by remember { mutableStateOf<Long?>(null) }
+    var pendingMerge by remember { mutableStateOf<PendingCourseMerge?>(null) }
+    var mergeError by remember { mutableStateOf<String?>(null) }
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
         Text("已确认课程", fontWeight = FontWeight.Bold)
         if (confirmed.isNotEmpty()) TextButton(onClick = {
@@ -199,22 +206,33 @@ private fun ConfirmedCourses(confirmed: List<Course>, onEdit: (Course) -> Unit, 
     }
     if (selecting) {
         val allSelected = confirmed.all { it in selected }
-        Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
+        Column(Modifier.fillMaxWidth()) {
             Text("已选 ${selected.size}/${confirmed.size} 门", style = MaterialTheme.typography.labelMedium)
-            Row {
-                TextButton(onClick = { selected = if (allSelected) emptySet() else confirmed.toSet() }) {
+            androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                TextButton(onClick = {
+                    selected = if (allSelected) emptySet() else confirmed.toSet()
+                    preferredId = selected.lastOrNull()?.id
+                }) {
                     Text(if (allSelected) "取消全选" else "全选")
                 }
+                TextButton(enabled = selected.size >= 2, onClick = {
+                    val chosen = confirmed.filter { it in selected }
+                    val preferred = preferredId?.takeIf { id -> chosen.any { it.id == id } } ?: chosen.last().id
+                    when (val plan = CourseMergeOperation.preview(context, chosen, preferred)) {
+                        is CourseEditPlans.CourseMergePlan.Applied -> {
+                            mergeError = null
+                            pendingMerge = PendingCourseMerge(chosen.mapTo(mutableSetOf()) { it.id }, preferred, plan)
+                        }
+                        is CourseEditPlans.CourseMergePlan.Rejected -> mergeError = plan.reason
+                    }
+                }) { Text("合并所选") }
                 TextButton(enabled = selected.isNotEmpty(), onClick = { pendingDelete = selected }) {
                     Text("删除所选", color = MaterialTheme.colorScheme.error)
                 }
             }
         }
     }
+    mergeError?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
     if (conflicting.isNotEmpty()) {
         Text(
             "⚠ ${conflicting.size} 门课程时间冲突，请编辑修正",
@@ -232,7 +250,10 @@ private fun ConfirmedCourses(confirmed: List<Course>, onEdit: (Course) -> Unit, 
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        if (selecting) Checkbox(checked = course in selected, onCheckedChange = { checked -> selected = if (checked) selected + course else selected - course })
+                        if (selecting) Checkbox(checked = course in selected, onCheckedChange = { checked ->
+                            selected = if (checked) selected + course else selected - course
+                            if (checked) preferredId = course.id
+                        })
                         Column(Modifier.weight(1f)) {
                             CourseIdentity(course, CONFLICT_TEXT_COLOR)
                         }
@@ -270,7 +291,10 @@ private fun ConfirmedCourses(confirmed: List<Course>, onEdit: (Course) -> Unit, 
                     val course = span.display
                     if (index > 0) HorizontalDivider()
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        if (selecting) Checkbox(checked = span.records.all { it in selected }, onCheckedChange = { checked -> selected = if (checked) selected + span.records else selected - span.records.toSet() })
+                        if (selecting) Checkbox(checked = span.records.all { it in selected }, onCheckedChange = { checked ->
+                            selected = if (checked) selected + span.records else selected - span.records.toSet()
+                            if (checked) preferredId = span.records.last().id
+                        })
                         Column(Modifier.weight(1f)) { CourseMeetingDetails(course) }
                     }
                     if (span.records.size > 1) Text("相邻时段合并展示 · ${span.records.size} 条原记录", style = MaterialTheme.typography.labelSmall)
@@ -324,7 +348,26 @@ private fun ConfirmedCourses(confirmed: List<Course>, onEdit: (Course) -> Unit, 
             dismissButton = { TextButton(onClick = { pendingDelete = null }) { Text("取消") } }
         )
     }
+    pendingMerge?.let { pending ->
+        AppDialog(onDismissRequest = { pendingMerge = null },
+            title = { Text("确认合并所选课程？") },
+            text = { Text(pending.plan.confirmationText) },
+            confirmButton = { Button(onClick = {
+                if (onMerge(pending.ids, pending.preferredId, pending.plan)) {
+                    selected = emptySet()
+                    selecting = false
+                }
+                pendingMerge = null
+            }) { Text("确认合并") } },
+            dismissButton = { TextButton(onClick = { pendingMerge = null }) { Text("取消") } })
+    }
 }
+
+private data class PendingCourseMerge(
+    val ids: Set<Long>,
+    val preferredId: Long,
+    val plan: CourseEditPlans.CourseMergePlan.Applied
+)
 
 @Composable
 private fun NextCourseLocationEditor(course: Course, table: CoursePeriodTable) {

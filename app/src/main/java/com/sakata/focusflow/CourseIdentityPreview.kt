@@ -148,7 +148,8 @@ internal object CourseIdentityPreview {
                 ((left + 1) until sorted.size).any { right ->
                     val a = sorted[left]
                     val b = sorted[right]
-                    a.weekday != null && a.weekday == b.weekday &&
+                    !a.hasInvalidMeeting() && !b.hasInvalidMeeting() &&
+                        a.weekday != null && a.weekday == b.weekday &&
                         a.startPeriod != null && a.endPeriod != null &&
                         b.startPeriod != null && b.endPeriod != null &&
                         a.startPeriod <= b.endPeriod && b.startPeriod <= a.endPeriod &&
