@@ -1,0 +1,170 @@
+# 9.0 阶段 6：测试缺口与回归矩阵
+
+- 日期：2026-09-26
+- 基线：`handoff/stage6-local` @ `818bd74`。阶段 6 代码提交 `5807ba1`、`2c16529`、`7e8cf3f`、`20e9dd8`、`92be9eb` 均在历史中；`48dc44f`、`818bd74` 仅更新交接文档。
+- 执行状态：**部分执行**（2026-09-26）。本机用 Gradle 8.13（`-g D:\focusflow\.gradle-home`，`ANDROID_HOME=%LOCALAPPDATA%\Android\Sdk`）运行 `:app:testDebugUnitTest --tests "com.sakata.focusflow.CourseReminderPolicyTest" --tests "com.sakata.focusflow.CourseReminderStorageTest"`：11 项通过（6＋5，0 失败／错误／跳过，BUILD SUCCESSFUL）。首次运行暴露的编译错误与修复见第 6 节。`StandaloneRemindersTest`（2）与 `QuietHoursTest`（4）本轮未执行，未运行项不代表通过。
+- 核对范围：`CourseReminderPolicyTest.kt`（原 5 个）、`CourseReminderStorageTest.kt`（原 3 个）、`StandaloneRemindersTest.kt`（2 个）、`QuietHoursTest.kt`（4 个），共 14 个；2026-09-26 另新增 3 个测试（见 1.1／1.2）。对应生产代码 `CourseReminders.kt`、`StandaloneReminders.kt`、`ReminderReceiver.kt`（课程与独立提醒分支）、`ReminderScheduler.kt`、`QuietHours.kt`、`PlanCoursesSection.kt`、`MainActivity.kt` 的入口。
+**历史基线说明（2026-09-27 补记）**：本文件开头至第 7 节保留 2026-09-26 的首次核对记录（“11 项通过、其余未执行”）；**最新执行结果以第 8 节为准**——2026-09-27 全量 debug 单测 148 类 901 项通过；release 变体、双构建、CI、OPPO／ColorOS 16 真机仍未执行。
+
+- 分类约定：
+  - **已核对存在**：函数真实存在；执行情况按节标注（1.1／1.2 已执行通过，1.3／1.4 尚未执行）。
+  - **待新增测试**：没有对应测试函数。
+  - **行为契约与待决定事项**：先记录现有行为与证据，改变语义须另行决定，不判定为代码缺陷。
+  - **待真机验证**：只能在 OPPO／ColorOS 16 上确认。
+  - **较低优先级回归项**：不影响本轮功能结论，可延后。
+
+## 1. 已核对存在（2026-09-26 历史记录）
+
+以下函数名与行号均已逐一核对存在；1.1、1.2 已于 2026-09-26 执行通过（证据见第 6 节），1.3、1.4 尚未执行。表中“预期输出”来自测试断言原文。
+
+### 1.1 课程提醒策略 `CourseReminderPolicyTest.kt`（纯 JUnit，6 个）
+
+| 输入 / 操作 | 测试断言的预期 | 测试函数 |
+| --- | --- | --- |
+| 默认设置；课次 42 覆盖为开；查课次 43；总开关开但 42 覆盖为关 | 默认关；42 开；43 不受影响仍关；42 关 | `default is off and a single meeting can override either direction` |
+| `needsConfirmation=true`；`effectiveUntil` 为前一天；`enabled=false`；`startPeriod=2`（节次表仅 1 节） | `startAt` 全部为 null | `pending and expired meetings have no alarm` |
+| `now = 开始前 20 分钟`；`now = 开始前 5 分钟`；节次表首节改为 9:00 | 触发点 = 开始前 10 分钟；滚到下周同一提前量；按新节次表 8:50 | `rescheduling uses current period start and rolls to next week after advance` |
+| 生效期从 5 周后的周一开始，`now` 为前一周周日 | 直接给出未来学期首日的 7:50 触发点 | `future term starts without reopening the application` |
+| 周日课程，2026-03-29，`Europe/London`，调用一次 `startAt` | 返回值等于“当天 08:00 伦敦本地时间”的同一换算。这是**单次时间换算断言**，不涉及跨夏令时切换周的 `nextTrigger` 周滚动 | `local period start stays at school wall time across daylight saving` |
+| 伦敦时间 2026-03-22 与 2026-03-29 两个周日（8:00 首节、提前 10 分钟），`nextTrigger` 从 03-22 触发点后 1 毫秒继续滚动 | 两个触发点的本地墙上时间均为 7:50；跨春季调钟间隔为 167 小时；第二次滚动返回 03-29 触发点 | `london spring transition rolls the weekly trigger with a 167 hour gap` |
+
+### 1.2 课程存储与广播去重 `CourseReminderStorageTest.kt`（Robolectric，5 个）
+
+| 输入 / 操作 | 测试断言的预期 | 测试函数 |
+| --- | --- | --- |
+| 默认读取；`setGlobal(true)`；课次 771 覆盖为关；覆盖重置为 null；按日期设置/读取/清除临时地点；读另一日期 | 默认关；覆盖为关；重置后跟随总开关；地点按课次＋日期存取，另一日期为 null，清除后为 null | `global switch override and one-off location survive reload` |
+| `markNotified(771, 1000)` 连续两次；再标更早的 999；再标更新的 2000 | true / false / false / true（同一课次、同一触发时刻只允许一次） | `duplicate due broadcast cannot notify twice` |
+| 课次 771 与 772 同一触发时刻分别 `markNotified`；再重复标记 771 | 两个课次各自独立标记成功；同课次同时间重复标记被拒绝 | `delivered marker is isolated per meeting id` |
+| 删除 `course_period_table` 键后，用 `CoursePeriodTable.reference()` 且总开关为开调用 `sync`，再以 `FLAG_NO_CREATE` 查询课程闹钟 | 不创建任何 PendingIntent | `unconfirmed period table never schedules reference-time course alarm` |
+| 同一课次 ID 先用 8:00 节次表排闹钟，再改存 9:00 节次表并 `sync(old = current = [course])` | 旧闹钟被取消，仅剩 1 条新闹钟，触发时刻从次日 7:50 变为次日 8:50 | `same meeting id drops the old alarm and reschedules after a period change` |
+
+### 1.3 独立提醒 `StandaloneRemindersTest.kt`（Robolectric，2 个）
+
+| 输入 / 操作 | 测试断言的预期 | 测试函数 |
+| --- | --- | --- |
+| 空标题创建；正常创建；用错误/未到点/正确/重复的 `expectedAt` 调 `markDelivered`；用错误/正确/重复的 `expectedAt` 调 `complete` | false / true；null / null / 非空 / null；false / true / false；完成后 `completedAt` 非空 | `independent reminder survives reload and stale broadcast cannot replay or complete another instance` |
+| 送达后用错误 `deliveredAt` 与正确 `deliveredAt` 调 `snooze`；重放 snooze；用旧/新 `scheduledAt` 调 complete 与 markDelivered | 错误拒绝、正确接受；`triggerAt` 不变、`scheduledAt = 调用 snooze 时的 now + 10 分钟`（本测试为起始 now + 11 分钟 + 2 毫秒）；重放拒绝；旧动作拒绝；新动作接受 | `snooze moves only notification and rejects replayed actions` |
+
+### 1.4 打扰控制 `QuietHoursTest.kt`（纯 JUnit，4 个）
+
+| 输入 / 操作 | 测试断言的预期 | 测试函数 |
+| --- | --- | --- |
+| 23:00–07:00 跨天时段：23:30、03:00、12:00 | 前两者在时段内，12:00 不在 | `inQuietHours_crossMidnight` |
+| `enabled=false` 的同一时段：23:30 | 不在时段内 | `inQuietHours_disabledNever` |
+| `muteUntil=12:00`：11:00、13:00 | 11:00 静音、13:00 不静音（未覆盖等值时刻） | `isMuted_untilTime` |
+| 按类型抑制：状态询问、饭点、睡前减速、活动结束 | 前三者被抑制，活动结束不被抑制 | `suppresses_byType` |
+
+## 2. 待新增测试
+
+以下行为没有对应测试函数，均为 **待新增测试**。
+
+标记（2026-09-27 补测前确认）：`本轮补`＝本轮新增纯逻辑／Robolectric 单元测试；`本轮补（重）`＝需要广播接收器或通知影子，工作量较大但本轮纳入；`真机`＝只能在目标设备核对。§3 的行为语义与 §4 的真机项不在本轮补测范围。**标记已执行，落地结果与测试名见第 8 节。**
+
+### 2.1 课程提醒
+
+| 输入 / 操作 | 需要固定的预期 | 标记 |
+| --- | --- | --- |
+| 接收端早退与恢复顺序（`ReminderReceiver.kt:53`、`:60`，注释在 `:59`）：`id <= 0`、`expectedAt <= 0`、`expectedAt > now`（含系统时间回调造成的“未来广播”）三条早退；迟到超过 30 分钟先 `restore` 再返回；正常路径先算 `occurrence`、再无条件 `restore`、最后才检查静音/权限/去重 | 各分支的副作用范围，尤其是“早退不 restore”与“静音、权限被拒、`occurrence` 为 null 时仍完成一轮 restore（全量 cancel＋reschedule）”这一有意语义 | 本轮补（重） |
+| 只改固定地点后的重排：`sync(old, current)` 的真实 `old != current` 调用在 `MainActivity.kt:425`；只改地点时仍会重排，但触发时刻不应改变 | 时间不变、通知内容更新、ID 不变 | 本轮补 |
+| 课程已删除/已改节次后的旧广播：`occurrence` 为 null 时只 `restore` 不弹通知 | 不出现过期内容、不误报 | 本轮补（重） |
+| `currentOccurrence`：未知课次 ID、该课次覆盖为关、无节次表、`expectedAt` 不匹配、跨日回看（`date + 1`） | 前四者 null；跨日匹配时返回有效 `(Course, start)` | 本轮补 |
+| `markNotified`：`id <= 0`、`expectedAt <= 0` | false | 本轮补 |
+| 损坏覆盖键解析：`CourseReminders.load`（`CourseReminders.kt:56-59`）对 `meeting_` 前缀非布尔值、非法数字后缀的容错 | 忽略坏键、保留好键、不崩溃 | 本轮补 |
+| `startAt` 其他门槛：日期星期与课程不符、`endPeriod < startPeriod`、节次表非法（空表、超 20 节、时间非递增）、`effectiveFrom` 落在未来周中 | 均为 null | 本轮补 |
+| `nextTrigger` 等值边界：`now` 恰等于触发点（现实现要求严格 `>`，会跳下周）；恢复发生在“提前 10 分钟”与“上课”之间 | 固定等值时刻跳下周的现有行为；确认恢复落在提前量与上课之间时是否仍跳过本周 | 本轮补 |
+| 课程通知内容：标题、`HH:mm 开始 · 地点` 文案、临时地点优先、空地点显示“地点待确认”；通知权限被拒；渠道与 `course:$id` 标签 | 与 `ReminderReceiver` 实现一致 | 本轮补（重） |
+
+### 2.2 独立提醒
+
+| 输入 / 操作 | 需要固定的预期 | 标记 |
+| --- | --- | --- |
+| `create`：标题超过 200 字；`triggerAt == now` | false | 本轮补 |
+| `all`：损坏 JSON；含 `id <= 0` 或 `triggerAt <= 0` 的条目 | 损坏时返回空表；非法条目被过滤 | 本轮补 |
+| `snooze`：`minutes` 越界（如 4、181）；对已完成条目 | false | 本轮补 |
+| `restore`：只排未来条目；snooze 窗口在关机期间流逝（`scheduledAt` 已过去且 `deliveredAt` 为空） | 明确不补发时的可见状态（应用内仍可见、不再自动提醒） | 本轮补 |
+| 接收路径：`markDelivered` 先于 `isMuted()` 的顺序及静音时被消费后的可见状态；通知权限被拒 | 与“静音跳过本轮”的语义一致且有测试固定 | 本轮补（重） |
+| 静音期间 `restore` 照常调度：`StandaloneReminders.restore`（`StandaloneReminders.kt:96-106`）没有静音检查 | 恢复时仍排未来闹钟；到点遇一次性静音时跳过该轮 | 本轮补 |
+| snooze 的 `snoozedUntil` 落进一次性静音窗口的连锁路径 | 到点先标记已送达，再因静音跳过通知；本轮不自动延后或重弹 | 本轮补 |
+| `QuietHoursSettings.isMuted` 的等值边界 | `muteUntil == now` 时放行；比截止时刻早 1 毫秒仍静音 | 本轮补 |
+
+### 2.3 临时地点
+
+| 输入 / 操作 | 需要固定的预期 | 标记 |
+| --- | --- | --- |
+| `get` 对损坏值的容错（`CourseReminders.kt:149-153`） | 返回 null，不崩溃 | 本轮补 |
+| 同键二次 `set` 覆盖写；保存前 trim（`CourseReminders.kt:159`） | 后写覆盖前写；保存值为 trim 后内容 | 本轮补 |
+| 长度边界：恰好 100 字与 101 字（现实现为 `> 100` 拒绝） | 100 通过、101 拒绝 | 本轮补 |
+| 同名不同课次的开关隔离在 UI 层按 `course.id`（`PlanCoursesSection.kt:300`） | 目前只有真机项，无单元级固定 | 真机 |
+
+## 3. 行为契约与待决定事项
+
+以下先记录现有行为；要改变产品语义须另行决定，不能把既定跳过行为直接记为代码缺陷。
+
+1. **一次性静音跳过本轮**：checkpoint 已承诺跳过本次到点提示。现代码中课程先恢复下周，再因静音跳过本周通知；独立提醒先标记送达，再跳过展示，不自动补发。若要在静音结束后重新提醒，应作为新需求决定；目前仅需确认应用内对这一轮的状态如何解释。
+2. **送达标记先于通知展示**：课程先 `markNotified` 再 `notify`，独立提醒先 `markDelivered` 再 `notify`。进程在两步间中断可能漏发；仓库规则优先避免过期或重复提示。若以后要重试发送，应先设计去重约束，不能直接改为可能重复弹出的重试。
+3. **免打扰按提醒类型处理，存在摘要例外**：课程与独立提醒路径只检查一次性静音 `isMuted()`，普通任务到点提醒也不按免打扰时段屏蔽；但昨日未处理事项合并通知在 `ReminderReceiver.kt:93` 明确用 `inQuietHours()` 屏蔽。现有 `QuietHours.kt` 注释没有写出这项摘要例外。应分别固定课程、独立提醒、普通任务、昨日摘要的当前行为，再决定注释或产品规则是否调整；不得笼统写“所有任务提醒不受免打扰影响”。
+
+## 4. 待真机验证（尚未执行）
+
+1. 未确认学校节次表时开启课程总开关：不应按参考时间发通知；确认节次表后，为一条已确认课程设置临近日期，检查提前 10 分钟、标题、开始时间与固定地点；待确认、停用、过期课程不应提醒。
+2. 提前把本次地点改为临时教室：这一次通知使用临时地点；下一周恢复固定地点。同名不同课次分别设置开/关，彼此不应串用；旧课表相邻记录应各自弹出，不误判为已合并课程。
+3. 闹钟建立后修改课程节次或地点、删除课程、关闭开关，再等待原时间：不能出现过期内容。重启、更新应用、调整时区或系统时间后检查未来提醒是否恢复；超过 30 分钟才送达的旧课程广播不弹出，后续周次仍有闹钟。
+4. 通知已经发出后修改临时地点：不应主动再次弹出通知（checkpoint 已承诺，原设备清单未列）。
+5. 独立提醒到点点击“10 分钟后提醒”：原设置时间保持，列表显示下次通知；旧通知的完成/稍后不能影响新一次。点击完成后无后续通知；一次性临时静音期间的本次到点提醒跳过。
+6. OPPO／ColorOS 16 上分别核对通知授权、精确闹钟可用和不可用、应用前台/后台/重启，以及通知渠道显示与旧版通知清除；记录实际触发时刻和设备状态，不将代码推断写成已验收。
+
+## 5. 较低优先级回归项
+
+- **旧通知渠道清理**：`ReminderReceiver.kt:840` 在创建渠道时就地删除 `LEGACY_CHANNELS`（`:1061-1064`），当前无测试。可在 Robolectric 固定“创建新渠道后旧渠道被删除”，并在真机设置页核对无残留。
+
+## 6. 本轮执行与编译阻断记录
+
+2026-09-26 首次在本机运行阶段 6 测试。命令：`:app:testDebugUnitTest --tests "com.sakata.focusflow.CourseReminderPolicyTest" --tests "com.sakata.focusflow.CourseReminderStorageTest"`（Gradle 8.13、`-g D:\focusflow\.gradle-home`、`ANDROID_HOME=%LOCALAPPDATA%\Android\Sdk`）。第一次运行在编译阶段失败，暴露本地阶段 5／6 提交此前从未被编译；修复后 11 项测试全部通过。
+
+| 阻断 | 位置与引入提交 | 处理 |
+| --- | --- | --- |
+| `TodayScreen(...)` 调用缺 3 个必填参数 | `MainActivity.kt:1530`；实参由 `e99061f`（阶段 5 首六项）从调用点移除，但 `TodayScreen.kt` 签名仍保留 | 删除 `TodayScreen.kt` 中已无引用的 `onStartActivity`／`onStartSuggestion`／`onReplanSuggestion` 参数（阶段 5 已移除对应入口，代码内无其他引用） |
+| 返回类型不匹配：`Sequence<String>` vs `List<String>` | `TaskMissedDigestPolicy.kt:44`，引入 `85ee37e` | 链式调用末尾补 `.toList()` |
+| 6 处 `Item(...)` 构造缺必填 `detail`（阶段 5 测试，从未编译） | `ActivityTaskReplanTest.kt:11`、`RecoveryInsightsTest.kt:47`、`TaskReminderPolicyTest.kt:133`、`TodayBatchSelectionTest.kt:15/30/31` | 补 `detail = ""`，不改变各测试语义 |
+
+最终证据（2026-09-26）：
+- `:app:testDebugUnitTest` → BUILD SUCCESSFUL（末次 52s）。
+- `app/build/test-results/testDebugUnitTest/TEST-com.sakata.focusflow.CourseReminderPolicyTest.xml`：tests=6、failures=0、errors=0、skipped=0，含新增的 `london spring transition rolls the weekly trigger with a 167 hour gap`。
+- 同目录 `TEST-com.sakata.focusflow.CourseReminderStorageTest.xml`：tests=5、failures=0、errors=0、skipped=0，含新增的 `delivered marker is isolated per meeting id` 与 `same meeting id drops the old alarm and reschedules after a period change`。
+- 三个新测试均通过，未暴露疑似缺陷；`StandaloneRemindersTest` 与 `QuietHoursTest` 本轮未运行。
+
+## 7. 结论（2026-09-26 历史结论）
+
+- 已核对存在 17 个测试函数（课程策略 6、课程存储 5、独立提醒 2、打扰控制 4）；其中课程策略 6 与课程存储 5 已执行通过，独立提醒 2 与打扰控制 4 本轮未执行。无 CI、双变体构建、签名 APK 或 OPPO 结果。
+- 第 2 节为待新增测试（本轮已补 3 项，见 1.1／1.2），第 3 节区分既定行为与待决定事项，第 4 节为待真机验证，第 5 节为较低优先级回归项。
+- 夏令时跨周滚动已由新测试覆盖（167 小时）；单次 `startAt` 换算与等值边界、恢复窗口等其余边界仍按第 2 节处理。
+- 本轮为运行测试修复了 2 处生产代码编译错误与 6 处既有测试构造调用（详见第 6 节）；未改数据模型、版本号或 `AGENTS.md`。上述改动已提交为 `779d013`（本文件同批），未推送、未合并、未发布。
+
+## 8. 本轮补测结果（2026-09-27，最新执行结果）
+
+按 §2 标记补齐测试；**未修改任何生产代码**。新增 3 个测试类并扩展 4 个既有测试类，共新增 29 项用例；§2.3 的「同名不同课次开关隔离」保持真机项，其余标记项全部落地。
+
+| §2 缺口 | 落地测试 | 结果 |
+| --- | --- | --- |
+| 2.1 接收端早退与恢复顺序 | `ReminderReceiverTest`：`early exits neither notify nor reschedule`、`late due broadcast restores without notifying`、`muted due broadcast still restores before the mute check`、`denied permission reschedules without notifying or marking delivered` | 通过 |
+| 2.1 只改地点后的重排 | `CourseReminderStorageTest.location-only resync keeps trigger time and meeting id`（校验闹钟 intent 中的课次 ID 与触发时刻不变） | 通过 |
+| 2.1 已删/改节次后的旧广播 | `ReminderReceiverTest.unknown course broadcast only restores` | 通过 |
+| 2.1 `currentOccurrence` | `CourseReminderOccurrenceTest`：`currentOccurrence only matches exact trigger and required state`（未知 ID、±1ms 不匹配、覆盖为关、无节次表）、`currentOccurrence accepts an adjacent-day lookback for early morning alarms` | 通过 |
+| 2.1 `markNotified` 非法输入 | `CourseReminderStorageTest.markNotified rejects non-positive ids and timestamps` | 通过 |
+| 2.1 损坏覆盖键解析 | `CourseReminderStorageTest.load keeps valid overrides and ignores malformed keys` | 通过 |
+| 2.1 `startAt` 其他门槛 | `CourseReminderPolicyTest.startAt rejects mismatched weekday inverted periods and invalid tables`、`effectiveFrom gates activation until its first matching day` | 通过 |
+| 2.1 `nextTrigger` 等值边界 | `CourseReminderPolicyTest.now exactly at the trigger point rolls to the next week`（“提前量与上课之间”沿用既有 167 小时用例） | 通过 |
+| 2.1 通知内容/权限/渠道 | `ReminderReceiverTest`：`due course notification uses title time and location then restores`（标题、`HH:mm 开始 · 地点`、渠道 `focusflow_course_reminders_v1`、标签 `course:<id>`）、`temporary location overrides the base building`、`blank building falls back to a pending-location label`、`denied permission...` | 通过 |
+| 2.2 `create`/`all`/`snooze`/`restore` 边界 | `StandaloneRemindersTest`：`create rejects blank overlong and non-future entries and trims titles`、`all returns empty for corrupted payload and filters invalid entries`、`snooze rejects out-of-range minutes and completed entries`、`restore schedules only future undelivered entries`（含关机期间流逝的 snooze 与仍未来的 snooze）、`quiet hours do not block restore scheduling` | 通过 |
+| 2.2 接收路径与静音消费顺序 | `ReminderReceiverTest`：`standalone due shows complete and snooze actions`、`muted standalone due consumes delivery before skipping the notification`、`denied permission keeps standalone reminder undelivered` | 通过 |
+| 2.2 snooze 落静音窗口 | `ReminderReceiverTest.snooze can land inside an active mute window and keeps the original time`（接收端“先标送达再判静音”由上一行用例固定） | 通过 |
+| 2.2 `isMuted` 等值边界 | `QuietHoursTest.isMuted_equalBoundaryAllows` | 通过 |
+| 2.3 损坏值/覆盖写/长度边界 | `CourseLocationOverridesTest`：`corrupted and blank stored values read as null`、`second set overwrites and stores trimmed text`、`length boundary accepts 100 characters and rejects 101` | 通过 |
+| 2.3 UI 隔离（同名不同课次） | 未补，保持真机项 | 未执行 |
+
+验证证据（2026-09-27，本机 Gradle 8.13 + Android SDK android-36，`-g D:\focusflow\.gradle-home`）：
+
+- 聚焦：`ReminderReceiverTest` 12、`CourseReminderPolicyTest` 9、`CourseReminderStorageTest` 8、`StandaloneRemindersTest` 7、`QuietHoursTest` 5、`CourseLocationOverridesTest` 3、`CourseReminderOccurrenceTest` 2，全部 0 失败/错误/跳过。
+- 全量：`:app:testDebugUnitTest` → **148 类 901 项，0 失败/错误/跳过**（较 `bc30da8` 记录的 145 类 865 项增加 3 类；其中 7 项为 `1142a31` 的 Zju 测试，29 项为本轮）。
+- `git diff --check` clean；未跑 release 变体、`assembleDebug`/`assembleRelease`、真机与 CI。
+- 测试证据 XML 为本机构建产物（`app/build/test-results/testDebugUnitTest/TEST-*.xml`），按仓库规则不入库；本节数字可由源码用例数与上述命令在本机复现。

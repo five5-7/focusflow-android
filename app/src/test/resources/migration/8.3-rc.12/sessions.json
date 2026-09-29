@@ -1,0 +1,30 @@
+[
+  {
+    "id": 801,
+    "name": "整理迁移说明",
+    "category": "学习",
+    "plannedStartAt": 1789992000000,
+    "actualStartAt": 1789992300000,
+    "endsAt": 1789996500000,
+    "nextStep": "核对测试",
+    "status": "completed",
+    "extensionCount": 1,
+    "extensionReason": "补完最后一段",
+    "actualEndAt": 1789996200000,
+    "endChoice": "完成"
+  },
+  {
+    "id": 802,
+    "name": "进行中的活动",
+    "category": "自定义",
+    "plannedStartAt": 1790000000000,
+    "actualStartAt": 1790000060000,
+    "endsAt": 1790003600000,
+    "nextStep": "继续",
+    "status": "extended",
+    "extensionCount": 2,
+    "extensionReason": "仍需处理",
+    "actualEndAt": 0,
+    "endChoice": ""
+  }
+]

@@ -4,10 +4,13 @@ import android.app.TimePickerDialog
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -21,26 +24,42 @@ private data class ActivityDialogDraft(val category: String, val customName: Str
 /** 活动转场草稿：关闭后重开恢复正在填写的内容（8.1.0 草稿保险箱）。 */
 private data class ActivityTransitionDraft(val extensionMinutes: Int, val reason: String, val endTimeChoice: String)
 
-/** 加号菜单：快速记录 / 安排空闲活动（触发方式，与原有入口不冲突）。 */
-@Composable internal fun AddMenuDialog(onDismiss: () -> Unit, onQuickCapture: () -> Unit, onGamePlan: () -> Unit) {
+/** 快速记录在顶部；四个明确的新建入口保持等权。 */
+@Composable internal fun AddMenuDialog(
+    onDismiss: () -> Unit,
+    onCapture: (String) -> Boolean,
+    onAddTodo: () -> Unit,
+    onAddPlan: () -> Unit,
+    onAddSchedule: () -> Unit,
+    onAddReminder: () -> Unit
+) {
+    val vault = LocalDraftVault.current
+    var capture by remember { mutableStateOf(vault.load<String>("globalQuickCapture").orEmpty()) }
+    fun saveCapture() {
+        if (capture.isNotBlank() && onCapture(capture.trim())) {
+            capture = ""
+            vault.clear("globalQuickCapture")
+            onDismiss()
+        }
+    }
     AppDialog(
         onDismissRequest = onDismiss,
         title = { Text("添加") },
         text = { Column(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-            // 收编：无显式底色的 Card → FocusCard，显式保留 Card 默认底色 surfaceContainerHighest。
-            FocusCard(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest) {
-                Column(Modifier.fillMaxWidth().clickable(onClick = onQuickCapture).padding(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text("快速记录", fontWeight = FontWeight.SemiBold)
-                    Text("记一个想法，稍后再安排。", style = MaterialTheme.typography.bodySmall)
+            OutlinedTextField(value = capture, onValueChange = {
+                capture = it.take(200); vault.save("globalQuickCapture", capture)
+            }, modifier = Modifier.fillMaxWidth(), label = { Text("快速记录到收集箱") },
+                singleLine = true, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { saveCapture() }))
+            TextButton(enabled = capture.isNotBlank(), onClick = ::saveCapture) { Text("记录") }
+            listOf(
+                listOf("新建待办" to onAddTodo, "新建计划" to onAddPlan),
+                listOf("新建日程" to onAddSchedule, "新建提醒" to onAddReminder)
+            ).forEach { row -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                row.forEach { (label, action) ->
+                    OutlinedButton(onClick = action, modifier = Modifier.weight(1f).heightIn(min = 52.dp)) { Text(label) }
                 }
-            }
-            // 收编：无显式底色的 Card → FocusCard，显式保留 Card 默认底色 surfaceContainerHighest。
-            FocusCard(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest) {
-                Column(Modifier.fillMaxWidth().clickable(onClick = onGamePlan).padding(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text("安排空闲活动（时间）", fontWeight = FontWeight.SemiBold)
-                    Text("游戏/视频/学习/休息/运动，按空闲安排时间，到点提醒开始与收尾（游戏/视频可检测前台）。", style = MaterialTheme.typography.bodySmall)
-                }
-            }
+            } }
         } },
         confirmButton = { TextButton(onClick = onDismiss) { Text("取消") } }
     )
@@ -266,6 +285,9 @@ internal fun activityTitleLabel(category: String): String = when (category) {
     upcomingCommitment: ActivityCommitment?,
     onDismiss: () -> Unit,
     onFinish: (actualEndAt: Long) -> Unit,
+    onPause: () -> Unit,
+    onCompleteTask: () -> Unit,
+    onRescheduleTask: () -> Unit,
     onStartNext: () -> Unit,
     onExtend: (minutes: Int, reason: String) -> Unit,
     onReplan: () -> Unit
@@ -297,6 +319,11 @@ internal fun activityTitleLabel(category: String): String = when (category) {
                     Text("下一步：${session.nextStep}")
                     Button(onClick = { vault.clear(draftKey); onStartNext() }, modifier = Modifier.fillMaxWidth()) { Text("结束并开始下一步") }
                 }
+                if (session.taskId != null) {
+                    OutlinedButton(onClick = { vault.clear(draftKey); onPause() }, modifier = Modifier.fillMaxWidth()) { Text("暂停计时，待办保留") }
+                    Button(onClick = { vault.clear(draftKey); onCompleteTask() }, modifier = Modifier.fillMaxWidth()) { Text("结束计时并完成待办") }
+                    OutlinedButton(onClick = { vault.clear(draftKey); onRescheduleTask() }, modifier = Modifier.fillMaxWidth()) { Text("改期后结束计时") }
+                }
                 HorizontalDivider()
                 Text("需要更多时间")
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -308,7 +335,7 @@ internal fun activityTitleLabel(category: String): String = when (category) {
                 conflict?.let { Text("延长到 ${formatTime(extensionEnd)} 会碰到 ${formatTime(it.startsAt)} 的 ${it.title}；FocusFlow 不会自动改动它。", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
                 if (canExtend) OutlinedButton(onClick = { vault.clear(draftKey); onExtend(extensionMinutes, reason) }, modifier = Modifier.fillMaxWidth()) { Text("确认延长") }
                 else Text("已达到设置中的连续延长提示上限。你仍可结束后重新开始，并重新作出约定。", style = MaterialTheme.typography.bodySmall)
-                TextButton(onClick = { vault.clear(draftKey); onReplan() }, modifier = Modifier.fillMaxWidth()) { Text("现在结束，但把下一步放回收集箱") }
+                if (session.taskId == null) TextButton(onClick = { vault.clear(draftKey); onReplan() }, modifier = Modifier.fillMaxWidth()) { Text("现在结束，但把下一步放回收集箱") }
             }
         },
         confirmButton = { Button(onClick = { vault.clear(draftKey); onFinish(if (endTimeChoice == "预计") session.endsAt else System.currentTimeMillis()) }) { Text("确认结束") } },

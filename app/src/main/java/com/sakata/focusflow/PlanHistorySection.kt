@@ -1,5 +1,13 @@
 package com.sakata.focusflow
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkHorizontally
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -45,39 +53,38 @@ internal fun PlanHistorySection(events: List<TaskEvent>, onReplaceEvents: (List<
     }
 
     val recent = TaskHistory.recentEvents(events, limit = 50)
+    val visibleIds = remember(recent) { recent.map { it.id }.toSet() }
+    val visibleSelection = selectedIds.intersect(visibleIds)
     Column(Modifier.fillMaxWidth()) {
         Text("最近事件", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         if (events.isNotEmpty()) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-            TextButton(onClick = { pendingDeleteIds = events.map { it.id }.toSet() }) {
-                Text("清空全部", color = MaterialTheme.colorScheme.error)
-            }
             TextButton(onClick = {
                 selecting = !selecting
                 selectedIds = emptySet()
             }) { Text(if (selecting) "完成" else "批量管理") }
         }
-        if (events.isNotEmpty()) Text(
+        if (events.isNotEmpty() && !selecting) TextButton(onClick = { pendingDeleteIds = events.map { it.id }.toSet() }) {
+            Text("清空全部", color = MaterialTheme.colorScheme.error)
+        }
+        if (events.isNotEmpty() && !selecting) Text(
             "清空全部只删除历史事件，不删除现有任务；完成率、改期次数和本周摘要会按剩余记录重算。",
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
-    if (selecting && recent.isNotEmpty()) {
-        val visibleIds = recent.map { it.id }.toSet()
-        val allVisibleSelected = visibleIds.all { it in selectedIds }
-        Column(Modifier.fillMaxWidth()) {
-            Text("已选 ${selectedIds.size}/${recent.size} 条", style = MaterialTheme.typography.labelMedium)
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                TextButton(onClick = { selectedIds = if (allVisibleSelected) emptySet() else visibleIds }) {
-                    Text(if (allVisibleSelected) "取消全选" else "全选当前")
-                }
-                TextButton(enabled = selectedIds.isNotEmpty(), onClick = { pendingDeleteIds = selectedIds }) {
-                    Text("删除所选", color = MaterialTheme.colorScheme.error)
-                }
-            }
-        }
-        if (events.size > recent.size) Text("批量列表显示最近 ${recent.size} 条；“清空全部”会删除全部 ${events.size} 条。", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    AnimatedVisibility(
+        visible = selecting && recent.isNotEmpty(),
+        enter = expandVertically(animationSpec = MotionSpec.quick()) + fadeIn(animationSpec = MotionSpec.quick()),
+        exit = shrinkVertically(animationSpec = MotionSpec.quick()) + fadeOut(animationSpec = MotionSpec.quick())
+    ) {
+        HistorySelectionToolbar(
+            selectedCount = visibleSelection.size,
+            visibleCount = recent.size,
+            onToggleAll = { selectedIds = if (visibleSelection.size == recent.size) emptySet() else visibleIds },
+            onDelete = { pendingDeleteIds = visibleSelection }
+        )
     }
+    if (selecting && events.size > recent.size) Text("批量列表显示最近 ${recent.size} 条；“清空全部”会删除全部 ${events.size} 条。", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     errorMessage?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
     if (recent.isEmpty()) {
         Text(
@@ -87,19 +94,37 @@ internal fun PlanHistorySection(events: List<TaskEvent>, onReplaceEvents: (List<
         )
     } else {
         recent.forEach { event ->
+            val checked = event.id in visibleSelection
+            val rowColor by animateColorAsState(
+                if (selecting && checked) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.65f)
+                else MaterialTheme.colorScheme.surfaceContainerLow,
+                MotionSpec.quick(), label = "historySelectionColor"
+            )
             // 收编：ElevatedCard → FocusCard，显式保留 surfaceContainerLow 底色与 1dp 默认阴影。
             FocusCard(
-                containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                containerColor = rowColor,
                 elevation = 1.dp
             ) {
                 Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                    if (selecting) Checkbox(
-                        checked = event.id in selectedIds,
-                        onCheckedChange = { checked -> selectedIds = if (checked) selectedIds + event.id else selectedIds - event.id }
-                    )
+                    AnimatedVisibility(
+                        visible = selecting,
+                        enter = expandHorizontally(animationSpec = MotionSpec.quick()) + fadeIn(animationSpec = MotionSpec.quick()),
+                        exit = shrinkHorizontally(animationSpec = MotionSpec.quick()) + fadeOut(animationSpec = MotionSpec.quick())
+                    ) {
+                        Checkbox(
+                            checked = checked,
+                            onCheckedChange = { next -> selectedIds = if (next) selectedIds + event.id else selectedIds - event.id }
+                        )
+                    }
                     Text(TaskRecorder.displayText(event), Modifier.weight(1f).padding(horizontal = 4.dp, vertical = 8.dp), style = MaterialTheme.typography.bodySmall)
-                    if (!selecting) TextButton(onClick = { pendingDeleteIds = setOf(event.id) }) {
-                        Text("删除", color = MaterialTheme.colorScheme.error)
+                    AnimatedVisibility(
+                        visible = !selecting,
+                        enter = expandHorizontally(animationSpec = MotionSpec.quick()) + fadeIn(animationSpec = MotionSpec.quick()),
+                        exit = shrinkHorizontally(animationSpec = MotionSpec.quick()) + fadeOut(animationSpec = MotionSpec.quick())
+                    ) {
+                        TextButton(onClick = { pendingDeleteIds = setOf(event.id) }) {
+                            Text("删除", color = MaterialTheme.colorScheme.error)
+                        }
                     }
                 }
             }
@@ -130,6 +155,27 @@ internal fun PlanHistorySection(events: List<TaskEvent>, onReplaceEvents: (List<
             },
             dismissButton = { TextButton(onClick = { pendingDeleteIds = null }) { Text("取消") } }
         )
+    }
+}
+
+/** Select only the currently displayed 50 events; clearing the complete history stays a separate action. */
+@Composable
+private fun HistorySelectionToolbar(
+    selectedCount: Int,
+    visibleCount: Int,
+    onToggleAll: () -> Unit,
+    onDelete: () -> Unit
+) {
+    FocusCard(containerColor = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp)) {
+            Text("已选 $selectedCount/$visibleCount 条", style = MaterialTheme.typography.labelMedium)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                TextButton(onClick = onToggleAll) { Text(if (selectedCount == visibleCount) "取消全选" else "全选当前") }
+                TextButton(enabled = selectedCount > 0, onClick = onDelete) {
+                    Text("删除所选", color = if (selectedCount > 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
     }
 }
 

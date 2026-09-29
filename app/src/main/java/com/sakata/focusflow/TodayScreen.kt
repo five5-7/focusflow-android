@@ -1,5 +1,7 @@
 package com.sakata.focusflow
 
+import android.app.DatePickerDialog
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -14,15 +16,22 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable internal fun TodayScreen(
     modifier: Modifier,
     items: List<Item>,
     inboxOpen: Boolean,
     onInboxOpenChange: (Boolean) -> Unit,
+    onCaptureToInbox: (String) -> Boolean,
     energyLevel: String,
     energyRecordedAt: Long,
     onEnergyLevelChange: (String) -> Unit,
@@ -36,6 +45,7 @@ import kotlinx.coroutines.delay
     checkIns: List<StatusCheckIn>,
     onRecordActivity: () -> Unit,
     onTaskDone: (Item) -> Unit,
+    onBatchToday: (Set<Long>, TodoBatchAction, Long?, Boolean) -> Boolean,
     goals: List<Goal>,
     feedback: List<TaskFeedback>,
     commuteProfile: CommuteProfile,
@@ -43,13 +53,13 @@ import kotlinx.coroutines.delay
     activeSession: ActivitySession?,
     activityHistory: List<ActivitySession>,
     nextCommitment: ActivityCommitment?,
-    onStartActivity: () -> Unit,
-    onStartSuggestion: (NextActionSuggestion, Boolean) -> Unit,
-    onReplanSuggestion: (Item) -> Unit,
     onReviewActivity: () -> Unit,
     onPickTime: (Item) -> Unit,
     onEdit: (Item) -> Unit,
     onOrganize: (Item) -> Unit,
+    onInboxToTodo: (Item) -> Unit,
+    onInboxToWanted: (Item) -> Unit,
+    onBatchOrganize: (Set<Long>, InboxBatchAction) -> Boolean,
     onCreateNextAction: (Item) -> Unit,
     onRestoreCapture: (Item) -> Unit,
     onShrink: (Item) -> Unit,
@@ -73,6 +83,12 @@ import kotlinx.coroutines.delay
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     var helpOpen by remember { mutableStateOf(false) }
     var statusPanelOpen by remember { mutableStateOf(false) }
+    var captureText by remember { mutableStateOf("") }
+    var pendingInboxDeleteIds by remember { mutableStateOf(emptySet<Long>()) }
+    val reviewContext = LocalContext.current
+    val reviewStore = remember(reviewContext) { PrototypeStore(reviewContext) }
+    var inboxReviewEnabled by remember { mutableStateOf(reviewStore.loadInboxReviewEnabled()) }
+    var inboxReviewLastAt by remember { mutableLongStateOf(reviewStore.loadInboxReviewLastAt()) }
     LaunchedEffect(activeSession?.id, activeSession?.endsAt) {
         while (true) {
             now = System.currentTimeMillis()
@@ -83,18 +99,19 @@ import kotlinx.coroutines.delay
     // 切换页签/返回前台时会在动画开始前掉一帧；这里按输入缓存，输入不变就不再计算。
     val inboxItems = remember(items) { items.filter { !it.done && it.kind == "收集箱" } }
     val pendingInboxItems = remember(inboxItems) { inboxItems.filter { CaptureRoute.fromKey(it.captureRoute) == CaptureRoute.INBOX } }
+    val capturedAt = remember(taskEvents) {
+        taskEvents.filter { it.type == TaskEventType.TASK_CREATED }
+            .groupBy { it.itemId }.mapValues { (_, events) -> events.minOf { it.recordedAt } }
+    }
+    val lastReviewedAt = remember(taskEvents) {
+        taskEvents.filter { it.type == TaskEventType.CAPTURE_ROUTED && it.extra == InboxBatchAction.KEEP.label }
+            .groupBy { it.itemId }.mapValues { (_, events) -> events.maxOf { it.recordedAt } }
+    }
     val progressItems = remember(inboxItems) { inboxItems.filter { CaptureRoute.fromKey(it.captureRoute) == CaptureRoute.PROGRESS } }
     val referenceItems = remember(inboxItems) { inboxItems.filter { CaptureRoute.fromKey(it.captureRoute) == CaptureRoute.REFERENCE } }
     val energyIsCurrent = StatusFreshnessPolicy.isCurrent(energyRecordedAt, now)
     val planningEnergy = if (energyIsCurrent) energyLevel else "正常"
-    val nextSuggestion = remember(items, nextCommitment, planningEnergy, goals, feedback, now, courses, commuteProfile) {
-        NextActionPlanner.recommend(items, nextCommitment, planningEnergy, goals, feedback, now, courses, commuteProfile)
-    }
-    val dailySummary = remember(items, now, taskEvents) { DailyLoopStats.summarize(items, now, taskEvents) }
-    // 6.9：已推荐去执行的任务不再重复出现在「需要恢复的安排」——推荐/恢复双入口去重（只影响 UI 展示）。
-    val recoveryCandidates = remember(items, now, nextSuggestion) {
-        RecoveryInsights.candidates(items, now).filter { it.item.id != nextSuggestion?.item?.id }
-    }
+    val recoveryCandidates = remember(items, now) { RecoveryInsights.candidates(items, now) }
     val completedTodayItems = remember(taskEvents, items, now) {
         if (taskEvents.isEmpty()) {
             items.filter { it.done && it.completedAt?.let(::isToday) == true }.sortedByDescending { it.completedAt }.map {
@@ -102,7 +119,6 @@ import kotlinx.coroutines.delay
             }
         } else TaskHistory.completedOn(taskEvents, TaskHistory.dayStartOf(now))
     }
-    val completedThisWeek = remember(items) { items.count { it.done && it.completedAt?.let(::isInCurrentWeek) == true } }
     val visibility = remember(
         baselineProfile, mealRecords, mealReminderEnabled, goals, items, courses,
         campusLifeEnabled, statusCheckInEnabled, checkIns, windDownEnabled
@@ -112,7 +128,7 @@ import kotlinx.coroutines.delay
             baselineComplete = baselineProfile.isComplete,
             mealRecordCount = mealRecords.size,
             mealReminderEnabled = mealReminderEnabled,
-            goalCount = goals.size + if (items.any { !it.done && it.goalId != null }) 1 else 0,
+            goalCount = goals.count { it.state == PlanState.IN_PROGRESS } + if (items.any { !it.done && it.goalId != null }) 1 else 0,
             confirmedCourseCount = courses.count { !it.needsConfirmation },
             lifeStage = baselineProfile.lifeStage,
             campusLifeEnabled = campusLifeEnabled,
@@ -123,10 +139,28 @@ import kotlinx.coroutines.delay
     )
     }
     val overviewScrollState = rememberScrollState()
+    var tomorrowOpen by remember { mutableStateOf(false) }
+    var todaySelecting by remember { mutableStateOf(false) }
+    var selectedTodayIds by remember { mutableStateOf(emptySet<Long>()) }
+    var keepTodayBatchTime by remember { mutableStateOf(true) }
+    val todayContext = LocalContext.current
+    val todaySelectableIds = remember(items, now / 60_000L) { TodayBatchSelection.eligibleIds(items, now) }
+    LaunchedEffect(todaySelectableIds) { selectedTodayIds = selectedTodayIds.intersect(todaySelectableIds) }
     var inboxFilter by remember { mutableStateOf("全部") }
+    var expandedInboxId by remember { mutableStateOf<Long?>(null) }
+    var inboxSelecting by remember { mutableStateOf(false) }
+    var selectedInboxIds by remember { mutableStateOf(emptySet<Long>()) }
+    val selectableInboxItems = remember(pendingInboxItems) {
+        pendingInboxItems.filterNot { it.title.startsWith("重新安排：") }
+    }
+    val selectableIds = remember(selectableInboxItems) { selectableInboxItems.mapTo(mutableSetOf()) { it.id } }
+    val activeSelection = selectedInboxIds.intersect(selectableIds)
+    val pendingAgeGroups = remember(pendingInboxItems, capturedAt, now / 60_000L) {
+        groupInboxByAge(pendingInboxItems, capturedAt, now)
+    }
     Box(modifier.fillMaxSize()) {
         AnimatedVisibility(
-            visible = !inboxOpen,
+            visible = !inboxOpen && !tomorrowOpen,
             // 8.1.0 第三轮：主页直接出现在副页下层（不放大、不淡入）；进入子页时它退到 0.96。
             enter = hubEnter(),
             exit = hubExit()
@@ -138,7 +172,10 @@ import kotlinx.coroutines.delay
         }
         TodayStatusPanel(
             expanded = statusPanelOpen,
-            onExpandedChange = { statusPanelOpen = it },
+            onExpandedChange = {
+                if (it) FrameTimingRecorder.recordExpansion("today_status")
+                statusPanelOpen = it
+            },
             lifeStage = baselineProfile.lifeStage,
             onSwitchLifeStage = onSwitchLifeStage,
             energyLevel = energyLevel,
@@ -151,133 +188,133 @@ import kotlinx.coroutines.delay
             onCommuteProfileChange = onCommuteProfileChange
         )
         val agenda = todayAgenda(courses, items, now)
-        val nowCal = java.util.Calendar.getInstance().apply { timeInMillis = now }
-        val currentMinute = nowCal.get(java.util.Calendar.HOUR_OF_DAY) * 60 + nowCal.get(java.util.Calendar.MINUTE)
-        val inClass = agenda.firstOrNull { it.isCourse && currentMinute in it.startMinute until (it.startMinute + 45) }
-        val upcoming = agenda.filter { it.startMinute >= currentMinute - 5 }.take(3)
-        val personalEnergyNotes = remember(now / 60_000L, checkIns) {
-            PersonalEnergyModel.display(PersonalEnergyModel.analyze(now, checkIns))
-        }
-        FocusCard(containerColor = MaterialTheme.colorScheme.primaryContainer) {
-            Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (activeSession != null) {
-                    val due = now >= activeSession.endsAt || activeSession.status == ActivitySession.STATUS_AWAITING_CONFIRMATION
-                    Text(if (due) "需要确认：${activeSession.name}" else "正在：${activeSession.name}", fontWeight = FontWeight.Bold)
-                    // 活动到点属于警示语义：使用固定警示色。
-                    Text(if (due) "已到预计结束时间 ${formatTime(activeSession.endsAt)}" else "剩余 ${formatActivityRemaining(activeSession.endsAt - now)} · 预计 ${formatTime(activeSession.endsAt)} 结束", color = if (due) MaterialTheme.colorScheme.error else Color.Unspecified)
-                    if (activeSession.nextStep.isNotBlank()) Text("下一步：${activeSession.nextStep}")
-                    if (activeSession.extensionCount > 0) Text("已延长 ${activeSession.extensionCount} 次${activeSession.extensionReason.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty()}", style = MaterialTheme.typography.bodySmall)
-                    Button(onClick = onReviewActivity) { Text(if (due) "处理到点" else "结束或调整") }
-                } else {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text("现在做什么", fontWeight = FontWeight.Bold)
-                            Text(latestStatusCheckIn?.let { "上次记录：${it.activity} · ${formatDateTime(it.recordedAt)}" } ?: "还没有记录正在进行的活动", style = MaterialTheme.typography.bodySmall)
-                        }
-                        TextButton(onClick = onRecordActivity) { Text("记录") }
-                    }
-                    personalEnergyNotes.forEach { advice -> Text(advice, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.tertiary) }
-                    HorizontalDivider()
-                    nextSuggestion?.let { suggestion ->
-                        val item = suggestion.item
-                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                RecoveryInsights.overdueLabel(item, now)?.let { label ->
-                                    Text(
-                                        "$label · 请选择完成、改时间或重新安排",
-                                        style = MaterialTheme.typography.labelMedium,
-                                        color = MaterialTheme.colorScheme.error,
-                                        fontWeight = FontWeight.SemiBold
-                                    )
-                                }
-                                Text(item.title, fontWeight = FontWeight.SemiBold)
-                                Text(item.detail)
-                                Text(suggestion.reason, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.tertiary)
-                            }
-                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Button(onClick = { onStartSuggestion(suggestion, false) }) { Text("开始") }
-                                suggestion.minimumVersion?.let { OutlinedButton(onClick = { onStartSuggestion(suggestion, true) }) { Text("最低版本") } }
-                                OutlinedButton(onClick = onStartActivity) { Text("自由开始") }
-                            }
-                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                                TextButton(onClick = { onReplanSuggestion(item) }) { Text("改时间") }
-                                TextButton(onClick = { onTaskDone(item) }) { Text("完成") }
-                            }
-                        }
-                    } ?: Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("没有必须现在做的事。你可以休息、随手记录一个想法，或开始一个活动。", style = MaterialTheme.typography.bodySmall)
-                        Button(onClick = onStartActivity) { Text("开始活动") }
-                    }
-                }
+        val fixed = agenda.filter(AgendaEntry::isCourse)
+        val tasks = agenda.filterNot(AgendaEntry::isCourse)
+        FocusCard(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+            modifier = Modifier.fillMaxWidth().clickable(onClick = onOpenSchedule)) {
+            Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                Text("课程与固定安排 · ${fixed.size}  ›", fontWeight = FontWeight.Bold)
+                fixed.forEach { entry -> Text("${formatMinute(entry.startMinute)} · ${entry.title} — ${entry.subtitle}", style = MaterialTheme.typography.bodySmall) }
+                if (fixed.isEmpty()) Text("今天没有课程或固定安排", style = MaterialTheme.typography.bodySmall)
             }
         }
-        FocusCard(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
-            modifier = Modifier.fillMaxWidth().clickable(onClick = onOpenSchedule)
-        ) {
-            Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        if (tasks.isNotEmpty()) FocusCard(containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+            modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Text("接下来", fontWeight = FontWeight.Bold)
-                    Text("日程 ›", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                    Text("今天已安排 · ${tasks.size}", fontWeight = FontWeight.Bold)
+                    if (todaySelectableIds.isNotEmpty()) TextButton(onClick = {
+                        todaySelecting = !todaySelecting; selectedTodayIds = emptySet()
+                    }) { Text(if (todaySelecting) "完成整理" else "整理多项") }
+                    else TextButton(onClick = onOpenSchedule) { Text("去日程 ›") }
                 }
-                if (inClass != null) Text("现在：${inClass.title}（${inClass.subtitle}）", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
-                if (upcoming.isEmpty()) Text("今天没有其他安排了。", style = MaterialTheme.typography.bodySmall)
-                else upcoming.forEach { entry -> Text("${formatMinute(entry.startMinute)} · ${entry.title} — ${entry.subtitle}", style = MaterialTheme.typography.bodySmall) }
-            }
-        }
-        if (recoveryCandidates.isNotEmpty()) {
-            // 收编：ElevatedCard(colors = surfaceVariant) → FocusCard，底色与 1dp 默认阴影逐项保留。
-            FocusCard(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                elevation = 1.dp
-            ) {
-                Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("需要恢复的安排", fontWeight = FontWeight.Bold)
-                    Text("选择一个更容易继续的下一步。", style = MaterialTheme.typography.bodySmall)
-                    recoveryCandidates.take(3).forEach { candidate ->
-                        val adjustment = ScheduleAdjuster.suggest(candidate, items, courses, commuteProfile)
-                        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                            Text(candidate.item.title.removePrefix("重新安排："), fontWeight = FontWeight.SemiBold)
-                            Text(
-                                if (candidate.reason == RecoveryReason.MISSED) {
-                                    RecoveryInsights.overdueLabel(candidate.item, now) ?: "原安排已错过"
-                                } else "已改期 ${candidate.item.rescheduleCount} 次",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            adjustment?.let {
-                                Text("建议：${it.reason}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.tertiary)
-                            }
-                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
-                                adjustment?.let {
-                                    TextButton(onClick = { onApplyAdjustment(candidate.item, it) }) { Text("执行建议") }
-                                }
-                                TextButton(onClick = { onShrink(candidate.item) }) { Text("缩为 15 分钟") }
-                            }
-                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
-                                TextButton(onClick = { onReplanSuggestion(candidate.item) }) { Text("重新安排") }
-                                TextButton(onClick = { onReturnToInbox(candidate.item) }) { Text("放回收集箱") }
-                            }
+                if (!todaySelecting) tasks.forEach { entry -> Text("${formatMinute(entry.startMinute)} · ${entry.title}",
+                    modifier = Modifier.fillMaxWidth().clickable(onClick = onOpenSchedule), style = MaterialTheme.typography.bodySmall) }
+                else {
+                    Text("已选 ${selectedTodayIds.size} 项 · 计划、重复和关联子任务请单独处理", style = MaterialTheme.typography.bodySmall)
+                    TextButton(onClick = { selectedTodayIds = if (selectedTodayIds == todaySelectableIds) emptySet() else todaySelectableIds }) {
+                        Text(if (selectedTodayIds == todaySelectableIds) "取消全选" else "全选可整理任务")
+                    }
+                    items.filter { it.id in todaySelectableIds }.sortedBy { it.scheduledAt }.forEach { item ->
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().clickable {
+                            selectedTodayIds = if (item.id in selectedTodayIds) selectedTodayIds - item.id else selectedTodayIds + item.id
+                        }) {
+                            Checkbox(checked = item.id in selectedTodayIds, onCheckedChange = { checked ->
+                                selectedTodayIds = if (checked) selectedTodayIds + item.id else selectedTodayIds - item.id
+                            })
+                            Text(item.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                     }
-                    if (recoveryCandidates.size > 3) Text("还有 ${recoveryCandidates.size - 3} 项可到日程继续处理。", style = MaterialTheme.typography.labelSmall)
+                    if (selectedTodayIds.isNotEmpty()) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(checked = keepTodayBatchTime, onCheckedChange = { keepTodayBatchTime = it })
+                            Text("改期保留原时刻；关闭则仅指定日期", style = MaterialTheme.typography.bodySmall)
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            TextButton(onClick = {
+                                val target = java.util.Calendar.getInstance().apply {
+                                    timeInMillis = now; add(java.util.Calendar.DAY_OF_YEAR, 1)
+                                }.timeInMillis
+                                if (onBatchToday(selectedTodayIds, TodoBatchAction.MOVE_DATE, target, keepTodayBatchTime)) {
+                                    todaySelecting = false; selectedTodayIds = emptySet()
+                                }
+                            }) { Text("移到明天") }
+                            TextButton(onClick = {
+                                val calendar = java.util.Calendar.getInstance().apply { timeInMillis = now }
+                                DatePickerDialog(todayContext, { _, year, month, day ->
+                                    val target = java.util.Calendar.getInstance().apply {
+                                        set(year, month, day, 12, 0, 0); set(java.util.Calendar.MILLISECOND, 0)
+                                    }.timeInMillis
+                                    if (onBatchToday(selectedTodayIds, TodoBatchAction.MOVE_DATE, target, keepTodayBatchTime)) {
+                                        todaySelecting = false; selectedTodayIds = emptySet()
+                                    }
+                                }, calendar.get(java.util.Calendar.YEAR), calendar.get(java.util.Calendar.MONTH),
+                                    calendar.get(java.util.Calendar.DAY_OF_MONTH)).show()
+                            }) { Text("选择日期") }
+                        }
+                        TextButton(onClick = {
+                            if (onBatchToday(selectedTodayIds, TodoBatchAction.CLEAR_TIME, null, false)) {
+                                todaySelecting = false; selectedTodayIds = emptySet()
+                            }
+                        }) { Text("改为未安排") }
+                    }
                 }
             }
         }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Text("收集箱", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-            TextButton(onClick = { onInboxOpenChange(true) }) { Text("${inboxItems.size} 项  ›") }
+        if (recoveryCandidates.isNotEmpty()) FocusCard(containerColor = MaterialTheme.colorScheme.surfaceVariant) {
+            Row(Modifier.fillMaxWidth().clickable(onClick = onOpenSchedule).padding(14.dp),
+                horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("需要处理 · ${recoveryCandidates.size} 项", fontWeight = FontWeight.Bold)
+                Text("去日程 ›", color = MaterialTheme.colorScheme.primary)
+            }
         }
-        if (inboxItems.isEmpty()) {
-            Text("暂时没有新想法，点底部 ＋ 随手记录。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        } else {
-            pendingInboxItems.take(2).forEach { item -> InboxItemCard(item, onPickTime, onEdit, onOrganize, onShrink, onPause, onAbandon) }
+        FocusCard(containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
+            Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (inboxItems.isNotEmpty()) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                        Text("收集箱 · ${inboxItems.size}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        TextButton(onClick = { onInboxOpenChange(true) }) { Text("查看全部 ›") }
+                    }
+                }
+                fun saveCapture() {
+                    val title = captureText.trim()
+                    if (title.isNotEmpty() && onCaptureToInbox(title)) captureText = ""
+                }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(
+                        value = captureText,
+                        onValueChange = { captureText = it },
+                        modifier = Modifier.weight(1f),
+                        placeholder = { Text("随手记一件事") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                        keyboardActions = KeyboardActions(onDone = { saveCapture() })
+                    )
+                    Button(onClick = { saveCapture() }, enabled = captureText.isNotBlank()) { Text("保存") }
+                }
+                if (inboxItems.isNotEmpty()) {
+                    pendingInboxItems.sortedWith(compareByDescending<Item> { capturedAt[it.id] ?: Long.MIN_VALUE })
+                        .take(2).forEach { item ->
+                            Row(
+                                Modifier.fillMaxWidth().clickable { onInboxOpenChange(true) }.padding(vertical = 4.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(item.title, Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                capturedAt[item.id]?.let { recordedAt ->
+                                    Text(captureAgeLabel(recordedAt, now), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+                        }
+                }
+            }
         }
         if (visibility.energy && !statusCheckInEnabled) {
             TextButton(onClick = onEnableStatusCheckIn) { Text("开启每日精力询问") }
         }
         val todayGoalTasks = items.filter {
-            !it.done && it.goalId != null && it.scheduledAt?.let { at -> ScheduleOccupation.sameDate(at, now) } == true
+            !it.done && it.goalId != null && !RecoveryInsights.missedWindow(it, now) &&
+                it.scheduledAt?.let { at -> ScheduleOccupation.sameDate(at, now) } == true
         }
         val goalsRemaining = goals.count { it.weeklyTarget > GoalPlanner.completedThisWeek(it) }
         if (visibility.goals && (todayGoalTasks.isNotEmpty() || goalsRemaining > 0)) {
@@ -309,31 +346,6 @@ import kotlinx.coroutines.delay
                 }
             }
         }
-        // 与周回顾「本周执行概览」统一的摘要卡风格：实色 primaryContainer + 零 elevation。
-        FocusCard(containerColor = MaterialTheme.colorScheme.primaryContainer) {
-            Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(dailySummary.completionPercent?.let { "$it%" } ?: "—", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                        Text("计划完成率", style = MaterialTheme.typography.labelMedium)
-                    }
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("${dailySummary.completedCount}", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                        Text("今日完成", style = MaterialTheme.typography.labelMedium)
-                    }
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("${dailySummary.rescheduledCount}", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                        Text("今日改期", style = MaterialTheme.typography.labelMedium)
-                    }
-                }
-                Text(
-                    if (dailySummary.plannedCount == 0) "今天尚未安排定时任务；完成率会在安排后开始计算。"
-                    else "已完成 ${dailySummary.completedPlannedCount}/${dailySummary.plannedCount} 项日程 · 本周共完成 $completedThisWeek 项 · 收集箱 ${dailySummary.inboxCount} 项",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
         if (completedTodayItems.isNotEmpty()) {
             // 收编：ElevatedCard → FocusCard，显式保留 surfaceContainerLow 底色与 1dp 默认阴影。
             FocusCard(
@@ -355,22 +367,6 @@ import kotlinx.coroutines.delay
             }
         }
         if (visibility.meals) MealTodayCard(records = mealRecords, profile = baselineProfile, skipDays = mealSkipDays, now = now, onPrompt = onMealPrompt, onFinish = onMealFinish)
-        val completedActivities = activityHistory.filter { it.actualEndAt?.let(::isToday) == true }
-        if (completedActivities.isNotEmpty()) {
-            // 收编：ElevatedCard → FocusCard，显式保留 surfaceContainerLow 底色与 1dp 默认阴影。
-            FocusCard(
-                containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-                elevation = 1.dp
-            ) {
-                Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                    Text("今日活动记录 · ${completedActivities.size} 次", fontWeight = FontWeight.Bold)
-                    completedActivities.take(3).forEach { session ->
-                        val minutes = (((session.actualEndAt ?: session.endsAt) - session.actualStartAt).coerceAtLeast(0) / 60_000L).toInt()
-                        Text("${session.name} · $minutes 分钟 · ${if (session.status == ActivitySession.STATUS_COMPLETED) "已结束" else "已重新安排"}", style = MaterialTheme.typography.bodySmall)
-                    }
-                }
-            }
-        }
         if (visibility.windDown) WindDownInsights.advice(baselineProfile, courses, items, checkIns, activityHistory, now)?.let { advice ->
             FocusCard(containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f)) {
                 Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -387,7 +383,43 @@ import kotlinx.coroutines.delay
                 }
             }
         }
+        val tomorrow = java.util.Calendar.getInstance().apply { timeInMillis = now; add(java.util.Calendar.DAY_OF_YEAR, 1) }.timeInMillis
+        val tomorrowAgenda = todayAgenda(courses, items, tomorrow, hideMissed = false)
+        FocusCard(containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+            modifier = Modifier.fillMaxWidth().clickable { tomorrowOpen = true }) {
+            Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("明天预览 · ${tomorrowAgenda.size} 项  ›", fontWeight = FontWeight.Bold)
+                tomorrowAgenda.take(2).forEach { Text("${if (it.isAllDay) "全天" else formatMinute(it.startMinute)} · ${it.title}", style = MaterialTheme.typography.bodySmall) }
+                if (tomorrowAgenda.size > 2) Text("还有 ${tomorrowAgenda.size - 2} 项", style = MaterialTheme.typography.labelSmall)
+                if (tomorrowAgenda.isEmpty()) Text("明天暂未安排", style = MaterialTheme.typography.bodySmall)
+            }
+        }
     }
+        }
+        BackHandler(enabled = tomorrowOpen) { tomorrowOpen = false }
+        SubpageMotion(tomorrowOpen.takeIf { it }) {
+            val tomorrow = java.util.Calendar.getInstance().apply { timeInMillis = now; add(java.util.Calendar.DAY_OF_YEAR, 1) }.timeInMillis
+            val entries = todayAgenda(courses, items, tomorrow, hideMissed = false)
+            PlanSubpageFrame(Modifier.fillMaxSize(), "明天的安排", titleAction = {
+                TextButton(onClick = { tomorrowOpen = false }) { Text("返回今日") }
+            }) {
+                if (entries.isEmpty()) Text("明天暂未安排")
+                entries.forEach { entry ->
+                    FocusCard(containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
+                        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("${if (entry.isAllDay) "全天" else formatMinute(entry.startMinute)} · ${entry.title}", fontWeight = FontWeight.SemiBold)
+                            Text(entry.subtitle, style = MaterialTheme.typography.bodySmall)
+                            val task = entry.itemId?.let { id -> items.firstOrNull { it.id == id && !it.done } }
+                            if (task != null) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                TextButton(onClick = { onPickTime(task) }) { Text("调整时间") }
+                                TextButton(onClick = { onTaskDone(task) }) { Text("完成") }
+                            } else if (entry.isCourse) TextButton(onClick = {
+                                tomorrowOpen = false; onOpenSchedule()
+                            }) { Text("查看课程日程") }
+                        }
+                    }
+                }
+            }
         }
         SubpageMotion(inboxOpen.takeIf { it }) {
             PlanSubpageFrame(Modifier.fillMaxSize(), "收集箱") {
@@ -403,7 +435,7 @@ import kotlinx.coroutines.delay
                     ).forEach { (label, count) ->
                         FilterChip(
                             selected = inboxFilter == label,
-                            onClick = { inboxFilter = label },
+                            onClick = { inboxFilter = label; inboxSelecting = false; selectedInboxIds = emptySet() },
                             label = { Text("$label $count") }
                         )
                     }
@@ -414,8 +446,90 @@ import kotlinx.coroutines.delay
                     }
                 } else {
                     if ((inboxFilter == "全部" || inboxFilter == "待整理") && pendingInboxItems.isNotEmpty()) {
-                        Text("待整理 · ${pendingInboxItems.size}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                        pendingInboxItems.forEach { item -> InboxItemCard(item, onPickTime, onEdit, onOrganize, onShrink, onPause, onAbandon) }
+                        val monthOldCount = pendingInboxItems.count { item ->
+                            capturedAt[item.id]?.let { it > 0L && it <= now - 30L * 24 * 60 * 60_000 } == true
+                        }
+                        if (inboxReviewEnabled && monthOldCount > 0 && now - inboxReviewLastAt >= 30L * 24 * 60 * 60_000) {
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically) {
+                                Text("$monthOldCount 条记录超过一个月尚未整理", Modifier.weight(1f),
+                                    style = MaterialTheme.typography.bodySmall)
+                                TextButton(onClick = {
+                                    if (reviewStore.saveInboxReviewLastAt(now)) inboxReviewLastAt = now
+                                }) { Text("知道了") }
+                            }
+                        }
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Text("待整理 · ${pendingInboxItems.size}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                            if (selectableInboxItems.isNotEmpty()) TextButton(onClick = {
+                                inboxSelecting = !inboxSelecting
+                                expandedInboxId = null
+                                selectedInboxIds = emptySet()
+                            }) { Text(if (inboxSelecting) "完成" else "整理多项") }
+                        }
+                        AnimatedVisibility(inboxSelecting) {
+                            FocusCard(containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
+                                Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                        Text("已选 ${activeSelection.size} 项", style = MaterialTheme.typography.titleSmall)
+                                        TextButton(onClick = {
+                                            selectedInboxIds = if (activeSelection.size == selectableIds.size) emptySet() else selectableIds
+                                        }) { Text(if (activeSelection.size == selectableIds.size) "清空" else "全选") }
+                                    }
+                                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp), maxItemsInEachRow = 2) {
+                                        InboxBatchAction.entries.forEach { action ->
+                                            OutlinedButton(onClick = {
+                                                if (action == InboxBatchAction.DELETE) {
+                                                    pendingInboxDeleteIds = activeSelection
+                                                } else if (onBatchOrganize(activeSelection, action)) {
+                                                    selectedInboxIds = emptySet()
+                                                    inboxSelecting = false
+                                                }
+                                            }, enabled = activeSelection.isNotEmpty()) { Text(action.label) }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        val displayGroups = if (inboxSelecting) listOf(
+                            "之前记录" to pendingAgeGroups.earlier.asReversed(),
+                            "最近记录" to pendingAgeGroups.recent.asReversed(),
+                            "记录时间未标记" to pendingAgeGroups.undated
+                        ) else listOf(
+                            "最近记录" to pendingAgeGroups.recent,
+                            "之前记录" to pendingAgeGroups.earlier,
+                            "记录时间未标记" to pendingAgeGroups.undated
+                        )
+                        displayGroups.forEach { (label, group) ->
+                            if (group.isNotEmpty()) {
+                                Text("$label · ${group.size}", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                group.forEach { item ->
+                                    InboxItemCard(
+                                        item = item,
+                                        recordedAt = capturedAt[item.id],
+                                        reviewedAt = lastReviewedAt[item.id],
+                                        now = now,
+                                        expanded = !inboxSelecting && expandedInboxId == item.id,
+                                        selecting = inboxSelecting && item.id in selectableIds,
+                                        selected = item.id in activeSelection,
+                                        canQuickConvert = item.id in selectableIds,
+                                        onToggle = {
+                                            if (inboxSelecting && item.id in selectableIds) selectedInboxIds =
+                                                if (item.id in activeSelection) activeSelection - item.id else activeSelection + item.id
+                                            else if (!inboxSelecting) expandedInboxId = if (expandedInboxId == item.id) null else item.id
+                                        },
+                                        onPickTime = onPickTime,
+                                        onEdit = onEdit,
+                                        onOrganize = onOrganize,
+                                        onToTodo = onInboxToTodo,
+                                        onToWanted = onInboxToWanted,
+                                        onShrink = onShrink,
+                                        onPause = onPause,
+                                        onAbandon = onAbandon
+                                    )
+                                }
+                            }
+                        }
                     }
                     if ((inboxFilter == "全部" || inboxFilter == "推进") && progressItems.isNotEmpty()) {
                         Text("逐步推进 · ${progressItems.size}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
@@ -441,6 +555,31 @@ import kotlinx.coroutines.delay
             }
         }
         if (helpOpen) HelpDialog(title = HelpCatalog.today.title, sections = HelpCatalog.today.sections, onDismiss = { helpOpen = false })
+        if (pendingInboxDeleteIds.isNotEmpty()) AlertDialog(
+            onDismissRequest = { pendingInboxDeleteIds = emptySet() },
+            title = { Text("删除所选记录？") },
+            text = { Text("将 ${pendingInboxDeleteIds.size} 条移入最近删除，可从设置中的数据与恢复找回。") },
+            confirmButton = { TextButton(onClick = {
+                val ids = pendingInboxDeleteIds
+                pendingInboxDeleteIds = emptySet()
+                if (onBatchOrganize(ids, InboxBatchAction.DELETE)) {
+                    selectedInboxIds = emptySet()
+                    inboxSelecting = false
+                }
+            }) { Text("删除") } },
+            dismissButton = { TextButton(onClick = { pendingInboxDeleteIds = emptySet() }) { Text("取消") } }
+        )
+    }
+}
+
+/** 只对有创建事件的条目显示记录年龄；旧条目不猜测创建时间。 */
+internal fun captureAgeLabel(recordedAt: Long, now: Long): String {
+    val minutes = ((now - recordedAt).coerceAtLeast(0) / 60_000L)
+    return when {
+        minutes < 1 -> "刚刚"
+        minutes < 60 -> "${minutes}分钟前"
+        minutes < 1_440 -> "${minutes / 60}小时前"
+        else -> "${minutes / 1_440}天前"
     }
 }
 
@@ -589,32 +728,75 @@ private fun StatusChoiceRow(label: String, options: List<String>, selected: Stri
     }
 }
 
-@Composable internal fun InboxItemCard(item: Item, onPickTime: (Item) -> Unit, onEdit: (Item) -> Unit, onOrganize: (Item) -> Unit, onShrink: (Item) -> Unit, onPause: (Item) -> Unit, onAbandon: (Item) -> Unit) {
-    // 收编进 FocusCard（维护者反馈"收集箱等没有渲染"）：ElevatedCard 不读卡片材质，
-    // 所以选柔光/纸感时收集箱卡片毫无反应。FocusCard 在默认材质下与原生 Card 渲染一致。
-    FocusCard(containerColor = MaterialTheme.colorScheme.surfaceContainerLow) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text(item.title, fontWeight = FontWeight.SemiBold)
-        Text(item.detail)
-        if (item.userNote != null && item.userNote.isNotBlank() && item.userNote != item.detail) {
-            Text("备注：${item.userNote}", style = MaterialTheme.typography.bodySmall)
+@Composable internal fun InboxItemCard(
+    item: Item,
+    recordedAt: Long?,
+    reviewedAt: Long?,
+    now: Long,
+    expanded: Boolean,
+    selecting: Boolean,
+    selected: Boolean,
+    canQuickConvert: Boolean,
+    onToggle: () -> Unit,
+    onPickTime: (Item) -> Unit,
+    onEdit: (Item) -> Unit,
+    onOrganize: (Item) -> Unit,
+    onToTodo: (Item) -> Unit,
+    onToWanted: (Item) -> Unit,
+    onShrink: (Item) -> Unit,
+    onPause: (Item) -> Unit,
+    onAbandon: (Item) -> Unit
+) {
+    var moreOpen by remember(item.id) { mutableStateOf(false) }
+    FocusCard(
+        modifier = Modifier.fillMaxWidth(),
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+    ) { Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp)) {
+        Row(
+            Modifier.fillMaxWidth().clickable(onClick = onToggle).padding(vertical = 5.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (selecting) Checkbox(checked = selected, onCheckedChange = { onToggle() })
+            Text(item.title, Modifier.weight(1f), fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            recordedAt?.takeIf { it > 0 }?.let {
+                Text(captureAgeLabel(it, now), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if (!selecting) Text(if (expanded) "收起" else "展开", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
         }
-        Text("预计 ${item.durationMinutes} 分钟 · 优先级 ${ItemPriority.fromKey(item.priority).label}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        if (!item.title.startsWith("重新安排：")) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = { onPickTime(item) }) { Text("安排时间") }
-                OutlinedButton(onClick = { onEdit(item) }) { Text("编辑") }
-                OutlinedButton(onClick = { onOrganize(item) }) { Text("整理") }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TextButton(onClick = { onAbandon(item) }, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("删除") }
-            }
-        } else {
-            Text("接下来", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                TextButton(onClick = { onPickTime(item) }) { Text("改期") }
-                TextButton(onClick = { onShrink(item) }) { Text("缩短") }
-                TextButton(onClick = { onPause(item) }) { Text("暂停") }
-                TextButton(onClick = { onAbandon(item) }) { Text("放弃") }
+        AnimatedVisibility(visible = expanded, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
+            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (item.detail.isNotBlank()) Text(item.detail)
+                if (item.userNote != null && item.userNote.isNotBlank() && item.userNote != item.detail) {
+                    Text("备注：${item.userNote}", style = MaterialTheme.typography.bodySmall)
+                }
+                Text("预计 ${item.durationMinutes} 分钟 · 优先级 ${ItemPriority.fromKey(item.priority).label}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                reviewedAt?.let { Text("上次回顾 ${captureAgeLabel(it, now)}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                if (!item.title.startsWith("重新安排：")) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        if (canQuickConvert) {
+                            TextButton(onClick = { onToTodo(item) }) { Text("转待办") }
+                            TextButton(onClick = { onToWanted(item) }) { Text("放入想做") }
+                        }
+                        Box {
+                            TextButton(onClick = { moreOpen = true }) { Text("更多") }
+                            DropdownMenu(expanded = moreOpen, onDismissRequest = { moreOpen = false }) {
+                                DropdownMenuItem(text = { Text("安排时间") }, onClick = { moreOpen = false; onPickTime(item) })
+                                DropdownMenuItem(text = { Text("整理到其他位置") }, onClick = { moreOpen = false; onOrganize(item) })
+                                DropdownMenuItem(text = { Text("编辑") }, onClick = { moreOpen = false; onEdit(item) })
+                                DropdownMenuItem(text = { Text("删除") }, onClick = { moreOpen = false; onAbandon(item) })
+                            }
+                        }
+                    }
+                } else {
+                    Text("接下来", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        TextButton(onClick = { onPickTime(item) }) { Text("改期") }
+                        TextButton(onClick = { onShrink(item) }) { Text("缩短") }
+                        TextButton(onClick = { onPause(item) }) { Text("暂停") }
+                        TextButton(onClick = { onAbandon(item) }) { Text("放弃") }
+                    }
+                }
             }
         }
     } }
@@ -622,7 +804,10 @@ private fun StatusChoiceRow(label: String, options: List<String>, selected: Stri
 
 @Composable private fun ProgressCaptureCard(item: Item, activeChild: Item?, onOrganize: (Item) -> Unit, onCreateNextAction: (Item) -> Unit, onRestore: (Item) -> Unit, onDelete: (Item) -> Unit, onComplete: (Item) -> Unit) {
     // 同上：收编进 FocusCard，让"逐步推进"的卡片也吃材质。
-    FocusCard(containerColor = MaterialTheme.colorScheme.surfaceContainerLow) { Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    FocusCard(
+        modifier = Modifier.fillMaxWidth(),
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+    ) { Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(item.title, fontWeight = FontWeight.SemiBold)
         Text(item.editableNote(), style = MaterialTheme.typography.bodySmall)
         Text(activeChild?.let { "当前步骤：${it.title}" } ?: item.nextAction.takeIf { it.isNotBlank() }?.let { "下一步：$it" } ?: "等待补充下一步，不必立即安排。", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Medium)
@@ -649,7 +834,10 @@ private fun StatusChoiceRow(label: String, options: List<String>, selected: Stri
 }
 
 @Composable private fun ReferenceCaptureCard(item: Item, onRestore: (Item) -> Unit, onDelete: (Item) -> Unit) {
-    FocusCard(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)) {
+    FocusCard(
+        modifier = Modifier.fillMaxWidth(),
+        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+    ) {
         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(item.title, fontWeight = FontWeight.SemiBold)
             Text(item.editableNote())
@@ -670,16 +858,62 @@ internal fun formatActivityRemaining(milliseconds: Long): String {
 }
 
 /** 今日安排摘要条目：课程或任务，按开始分钟排序。 */
-internal data class AgendaEntry(val startMinute: Int, val title: String, val subtitle: String, val isCourse: Boolean)
+internal data class AgendaEntry(val startMinute: Int, val title: String, val subtitle: String,
+                                val isCourse: Boolean, val itemId: Long? = null, val isAllDay: Boolean = false)
 
-internal fun todayAgenda(courses: List<Course>, items: List<Item>, now: Long = System.currentTimeMillis()): List<AgendaEntry> {
+internal fun todayAgenda(courses: List<Course>, items: List<Item>, now: Long = System.currentTimeMillis(),
+                         hideMissed: Boolean = true): List<AgendaEntry> {
     val weekday = weekdayOf(now)
     val todayCourses = courses.filter { !it.needsConfirmation && it.weekday == weekday }
         .map { AgendaEntry(CourseGapPlanner.periodStart(it.startPeriod), it.title, "第${it.startPeriod}–${it.endPeriod}节 · ${it.building}", true) }
-    val todayTasks = items.filter { !it.done && it.scheduledAt?.let { at -> ScheduleOccupation.sameDate(at, now) } == true }
+    val todayTasks = items.filter { !it.done && (!hideMissed || !RecoveryInsights.missedWindow(it, now)) &&
+        it.scheduledAt?.let { at -> ScheduleOccupation.sameDate(at, now) } == true }
         .mapNotNull { item -> item.scheduledAt?.let { s ->
             val calendar = java.util.Calendar.getInstance().apply { timeInMillis = s }
-            AgendaEntry(calendar.get(java.util.Calendar.HOUR_OF_DAY) * 60 + calendar.get(java.util.Calendar.MINUTE), item.title, "任务 · ${item.detail.ifBlank { "已安排" }}", false)
+            AgendaEntry(calendar.get(java.util.Calendar.HOUR_OF_DAY) * 60 + calendar.get(java.util.Calendar.MINUTE), item.title,
+                "任务 · ${item.detail.ifBlank { "已安排" }}", false, item.id, item.dayOnly)
         } }
     return (todayCourses + todayTasks).sortedBy { it.startMinute }
+}
+
+@Composable
+private fun TodayPermissionReminder(now: Long) {
+    val context = LocalContext.current
+    val store = remember(context) { PrototypeStore(context) }
+    var dismissed by remember { mutableStateOf(store.loadPermissionReminderDismissed()) }
+    var detailsOpen by remember { mutableStateOf(false) }
+    var confirmDismissOpen by remember { mutableStateOf(false) }
+    val permissionEntries = remember(now / 30_000L) { permissionCenterEntries(context) }
+    if (dismissed || permissionEntries.none { it.status == PermissionCenterStatus.ACTION_NEEDED }) return
+    FocusCard(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.78f)) {
+        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+            Text("后台与提醒状态", fontWeight = FontWeight.SemiBold)
+            Text(
+                PermissionCenterPolicy.summary(permissionEntries),
+                style = MaterialTheme.typography.bodySmall
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = { detailsOpen = true }) { Text("查看") }
+                TextButton(onClick = { confirmDismissOpen = true }) { Text("不再提示") }
+            }
+        }
+    }
+    if (detailsOpen) PermissionRequirementsDialog(
+        todayReminderDismissed = false,
+        onDismiss = { detailsOpen = false },
+        onRestoreTodayReminder = {}
+    )
+    if (confirmDismissOpen) AppDialog(
+        onDismissRequest = { confirmDismissOpen = false },
+        title = { Text("不再在今日页提示？") },
+        text = { Text("之后可在 设置 → 检查更新 上方的“权限与提醒”查看和恢复。") },
+        confirmButton = {
+            Button(onClick = {
+                    dismissed = true
+                    store.savePermissionReminderDismissed(true)
+                    confirmDismissOpen = false
+                }) { Text("确认不再提示") }
+        },
+        dismissButton = { TextButton(onClick = { confirmDismissOpen = false }) { Text("取消") } }
+    )
 }
