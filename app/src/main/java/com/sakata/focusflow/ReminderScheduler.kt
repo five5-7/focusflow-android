@@ -11,6 +11,54 @@ import com.sakata.focusflow.data.CoreDataRuntimeAccess
 import com.sakata.focusflow.data.CoreDataRuntimeResolution
 import java.util.Calendar
 
+/**
+ * 提醒类型清单。**新增一类提醒必须在这里登记**，否则 ReminderRestoreCoverageTest 会红。
+ *
+ * 存在的理由：此前"某一类提醒有没有恢复步骤"只靠人记得——入口函数名（restoreActivityReminders）
+ * 只说"活动"，实际恢复的是 9 类（按分组 6 组：活动、每日三项、重复刷新／漏做摘要、任务、独立提醒、课程）；
+ * 游戏提醒则由 BootReceiver 单独调用。名字撒谎 + 没有守卫 ⇒ 新入口很容易静默漏掉某类提醒
+ * （漏了不报错，只在"该响时没响"）。
+ */
+internal enum class ReminderRestoreStep {
+    MISSED_DIGEST,
+    ACTIVITY,
+    DAILY_STATUS,
+    DAILY_MEAL,
+    DAILY_WIND_DOWN,
+    REPEAT_REFRESH,
+    TASK,
+    STANDALONE,
+    COURSE,
+    GAME
+}
+
+/**
+ * 由统一恢复入口（那次遍历）负责的类型，**顺序即数据**。
+ * 顺序与原实现逐条一致（漏做摘要 → 活动 → 每日三项 → 重复刷新 → 任务 → 独立提醒 → 课程）。
+ */
+internal val REMINDER_RESTORE_ORDER: List<ReminderRestoreStep> = listOf(
+    ReminderRestoreStep.MISSED_DIGEST,
+    ReminderRestoreStep.ACTIVITY,
+    ReminderRestoreStep.DAILY_STATUS,
+    ReminderRestoreStep.DAILY_MEAL,
+    ReminderRestoreStep.DAILY_WIND_DOWN,
+    ReminderRestoreStep.REPEAT_REFRESH,
+    ReminderRestoreStep.TASK,
+    ReminderRestoreStep.STANDALONE,
+    ReminderRestoreStep.COURSE
+)
+
+/**
+ * **不由**统一入口恢复、而是在别处单独恢复的类型。
+ *
+ * GAME 目前只在 BootReceiver 里通过 restoreGameReminders 恢复（由 ReminderRestoreCoverageTest
+ * 的源文本守卫钉住调用点）；任何新的恢复入口只要照着名字调统一入口，就会漏掉它。
+ * 把它并进统一入口属**行为变更**（见 docs/9.0-stage6-unified-scheduling-design.md，未放行）。
+ */
+internal val REMINDER_RESTORED_OUTSIDE_UNIFIED_ENTRY: List<ReminderRestoreStep> = listOf(
+    ReminderRestoreStep.GAME
+)
+
 object ReminderScheduler {
     fun scheduleActivityEnd(context: Context, session: ActivitySession) {
         scheduleActivityReminders(context, session)
@@ -33,39 +81,70 @@ object ReminderScheduler {
         }
     }
 
+    /**
+     * 统一恢复入口：把每一类提醒在开机／时间变更／权限变更后重新排上。
+     *
+     * 名字里的 Activity 是历史遗留——它恢复的远不止活动（见 REMINDER_RESTORE_ORDER）。
+     * 改名（结构提交）与"把游戏提醒并进来"（行为提交）都留到单独一步。
+     *
+     * **已知缺陷（照登，本步未修）**：下面那句 ?: return 会在核心数据运行时落到 Blocked 时
+     * 跳过活动之后的全部步骤（每日三项、重复刷新、任务、独立提醒、课程）。Blocked 在代码里
+     * 有生产路径（见 CoreDataRuntime.kt 的 catch / source==NONE / 仓库装配失败 / 迁移失败分支），
+     * 但触发条件是异常或损坏分支，**本构建未取证真机可达**；另外 resolve 结果按进程缓存，
+     * 一旦落到 Blocked，本进程后续所有恢复都会继续早退。修复＝把早退收窄到只管活动那一步；
+     * 注意任务与课程各自也有同样的 Blocked 早退（见 restoreTaskReminders、CourseReminders.restore），
+     * 故只收窄这一处并不能让它们恢复。属行为变更，需单独确认。
+     */
     fun restoreActivityReminders(context: Context) {
         val store = PrototypeStore(context)
-        scheduleMissedDigest(context)
-        val runtime = CoreDataRuntimeAccess.resolve(context)
-        val repository = (runtime as? CoreDataRuntimeResolution.Ready)?.repository ?: return
-        CoreDataRepositoryOperations.latestActiveSession(repository)?.let { session ->
-            if (session.endsAt <= System.currentTimeMillis()) {
-                if (session.status != ActivitySession.STATUS_AWAITING_CONFIRMATION) {
-                    val marked = CoreDataRepositoryOperations.markActivitySessionAwaitingConfirmation(
-                        repository,
-                        session.id,
-                        session.endsAt
-                    )
-                    if (marked.applied) {
-                        context.sendBroadcast(Intent(context, ReminderReceiver::class.java).apply {
-                            action = ReminderReceiver.ACTION_ACTIVITY_END
-                            putExtra(ReminderReceiver.EXTRA_ACTIVITY_NAME, session.name)
-                            putExtra(ReminderReceiver.EXTRA_SESSION_ID, session.id)
-                            putExtra(ReminderReceiver.EXTRA_NEXT_STEP, session.nextStep)
-                            putExtra(ReminderReceiver.EXTRA_ACTIVITY_ENDS_AT, session.endsAt)
-                        })
+        REMINDER_RESTORE_ORDER.forEach { step ->
+            when (step) {
+                ReminderRestoreStep.MISSED_DIGEST -> scheduleMissedDigest(context)
+
+                ReminderRestoreStep.ACTIVITY -> {
+                    val runtime = CoreDataRuntimeAccess.resolve(context)
+                    val repository = (runtime as? CoreDataRuntimeResolution.Ready)?.repository ?: return
+                    CoreDataRepositoryOperations.latestActiveSession(repository)?.let { session ->
+                        if (session.endsAt <= System.currentTimeMillis()) {
+                            if (session.status != ActivitySession.STATUS_AWAITING_CONFIRMATION) {
+                                val marked = CoreDataRepositoryOperations.markActivitySessionAwaitingConfirmation(
+                                    repository,
+                                    session.id,
+                                    session.endsAt
+                                )
+                                if (marked.applied) {
+                                    context.sendBroadcast(Intent(context, ReminderReceiver::class.java).apply {
+                                        action = ReminderReceiver.ACTION_ACTIVITY_END
+                                        putExtra(ReminderReceiver.EXTRA_ACTIVITY_NAME, session.name)
+                                        putExtra(ReminderReceiver.EXTRA_SESSION_ID, session.id)
+                                        putExtra(ReminderReceiver.EXTRA_NEXT_STEP, session.nextStep)
+                                        putExtra(ReminderReceiver.EXTRA_ACTIVITY_ENDS_AT, session.endsAt)
+                                    })
+                                }
+                            }
+                        } else scheduleActivityReminders(context, session, store.loadActivityReminderSettings())
                     }
                 }
-            } else scheduleActivityReminders(context, session, store.loadActivityReminderSettings())
+
+                ReminderRestoreStep.DAILY_STATUS -> scheduleDailyStatusCheckIn(context, store.loadStatusCheckInSettings())
+                ReminderRestoreStep.DAILY_MEAL -> scheduleDailyMealReminders(context, store.loadBaselineProfile())
+                ReminderRestoreStep.DAILY_WIND_DOWN -> scheduleDailyWindDown(context, store.loadBaselineProfile())
+
+                ReminderRestoreStep.REPEAT_REFRESH -> {
+                    RepeatActions.refreshRepository(context)
+                    scheduleRepeatRefresh(context)
+                }
+
+                ReminderRestoreStep.TASK -> restoreTaskReminders(context)
+                ReminderRestoreStep.STANDALONE -> restoreStandaloneReminders(context)
+                ReminderRestoreStep.COURSE -> CourseReminders.restore(context)
+
+                // 游戏提醒故意不在这里恢复：它目前只由 BootReceiver 调用 restoreGameReminders（有源文本守卫）。
+                // 并进来是行为变更（未放行）。保留显式空分支，既让 when 穷尽（新增类型强制在此做决定），
+                // 又让"它没被统一覆盖"这件事在代码里看得见。
+                ReminderRestoreStep.GAME -> Unit
+            }
         }
-        scheduleDailyStatusCheckIn(context, store.loadStatusCheckInSettings())
-        scheduleDailyMealReminders(context, store.loadBaselineProfile())
-        scheduleDailyWindDown(context, store.loadBaselineProfile())
-        RepeatActions.refreshRepository(context)
-        scheduleRepeatRefresh(context)
-        restoreTaskReminders(context)
-        restoreStandaloneReminders(context)
-        CourseReminders.restore(context)
     }
 
     fun restoreStandaloneReminders(context: Context) = StandaloneReminders.restore(context)
