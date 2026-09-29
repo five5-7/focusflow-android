@@ -497,52 +497,83 @@ private fun ZjuTimetableImportScreen(
                 .padding(horizontal = 20.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            ImportHeader()
-            // 学期选择紧跟头部：读取选项成功后它必须落在首屏内，不能排在很高的凭据卡之后
-            // （真机上那样会被推到屏幕底部，用户得先滚动才发现要选学期）。
+            // 段落顺序由 ZJU_IMPORT_SECTION_ORDER 决定（顺序即数据）：真机反馈过"选学期太靠下"，
+            // 所以这个顺序是有要求的、不是随手排的——由 ZjuImportSectionOrderTest 钉住。
             val readyOptions = options
-            if (readyOptions != null) {
-                SemesterOptionsCard(
-                    options = readyOptions,
-                    selectedYearValue = selectedYearValue,
-                    onSelectedYearValueChange = onSelectedYearValueChange,
-                    selectedTermValue = selectedTermValue,
-                    onSelectedTermValueChange = onSelectedTermValueChange,
-                    running = running
-                )
+            ZJU_IMPORT_SECTION_ORDER.forEach { section ->
+                when (section) {
+                    ZjuImportSection.HEADER -> ImportHeader()
+
+                    // 学期选择紧跟头部：读取选项成功后它必须落在首屏内，不能排在很高的凭据卡之后
+                    // （真机上那样会被推到屏幕底部，用户得先滚动才发现要选学期）。
+                    ZjuImportSection.SEMESTER_OPTIONS -> if (readyOptions != null) {
+                        SemesterOptionsCard(
+                            options = readyOptions,
+                            selectedYearValue = selectedYearValue,
+                            onSelectedYearValueChange = onSelectedYearValueChange,
+                            selectedTermValue = selectedTermValue,
+                            onSelectedTermValueChange = onSelectedTermValueChange,
+                            running = running
+                        )
+                    }
+
+                    ZjuImportSection.CREDENTIALS -> CredentialCard(
+                        username = username,
+                        onUsernameChange = onUsernameChange,
+                        password = password,
+                        onPasswordChange = onPasswordChange,
+                        showPassword = showPassword,
+                        onTogglePassword = { showPassword = !showPassword },
+                        running = running,
+                        optionsReady = optionsReady,
+                        canStart = canStart,
+                        canConfirm = canConfirm,
+                        onStart = {
+                            focusManager.clearFocus()
+                            onStart()
+                        },
+                        onConfirm = {
+                            focusManager.clearFocus()
+                            onConfirm()
+                        },
+                        onReset = onReset
+                    )
+
+                    ZjuImportSection.PROGRESS -> ImportProgressCard(
+                        currentStage = currentStage,
+                        running = running,
+                        failed = failure != null
+                    )
+
+                    ZjuImportSection.FAILURE -> if (failure != null) FailureCard(failure)
+
+                    ZjuImportSection.BOUNDARY_NOTE -> ImportBoundaryNote()
+                }
             }
-            CredentialCard(
-                username = username,
-                onUsernameChange = onUsernameChange,
-                password = password,
-                onPasswordChange = onPasswordChange,
-                showPassword = showPassword,
-                onTogglePassword = { showPassword = !showPassword },
-                running = running,
-                optionsReady = optionsReady,
-                canStart = canStart,
-                canConfirm = canConfirm,
-                onStart = {
-                    focusManager.clearFocus()
-                    onStart()
-                },
-                onConfirm = {
-                    focusManager.clearFocus()
-                    onConfirm()
-                },
-                onReset = onReset
-            )
-            ImportProgressCard(
-                currentStage = currentStage,
-                running = running,
-                failed = failure != null
-            )
-            if (failure != null) FailureCard(failure)
-            ImportBoundaryNote()
             Spacer(Modifier.height(12.dp))
         }
     }
 }
+
+/**
+ * 导入页的段落。顺序本身是需求的一部分（真机反馈"选学期太靠下"），所以把它写成数据：
+ * 界面按序遍历，纯 JVM 测试断言完整顺序——想改顺序就必须同时改数据。
+ * 注意范围：它钉住的是**声明的顺序**，不是像素位置；"运行中返回键可点"不在其覆盖内。
+ */
+internal enum class ZjuImportSection { HEADER, SEMESTER_OPTIONS, CREDENTIALS, PROGRESS, FAILURE, BOUNDARY_NOTE }
+
+/**
+ * 段落顺序。**学期选择必须排在凭据卡之前**（选项读出来后要一眼可见，不必先滚动），
+ * 且前面只允许有页面头部——这就是"落在首屏内"在结构上的表达。
+ */
+internal val ZJU_IMPORT_SECTION_ORDER: List<ZjuImportSection> = listOf(
+    ZjuImportSection.HEADER,
+    ZjuImportSection.SEMESTER_OPTIONS,
+    ZjuImportSection.CREDENTIALS,
+    ZjuImportSection.PROGRESS,
+    ZjuImportSection.FAILURE,
+    ZjuImportSection.BOUNDARY_NOTE
+)
 
 @Composable
 private fun ImportHeader() {
