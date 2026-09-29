@@ -177,6 +177,7 @@ private fun PendingCourses(
 }
 
 @Composable
+@OptIn(ExperimentalLayoutApi::class)
 private fun ConfirmedCourses(confirmed: List<Course>, onEdit: (Course) -> Unit, onToggle: (Course) -> Unit,
     onDelete: (Set<Course>) -> Unit,
     onMerge: (Set<Long>, Long, CourseEditPlans.CourseMergePlan.Applied) -> Boolean,

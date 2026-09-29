@@ -69,7 +69,8 @@ internal object CourseMergeOperation {
         context: Context, repository: CoreDataRepository, expectedCourses: List<Course>,
         selectedIds: Set<Long>, preferredId: Long, expectedPlan: CourseEditPlans.CourseMergePlan.Applied
     ): Outcome {
-        if (!recover(context, repository)) return Outcome.RECOVERY_PENDING
+        if (!CourseSplitOperation.recover(context, repository) || !recover(context, repository))
+            return Outcome.RECOVERY_PENDING
         val current = (repository.read() as? CoreDataReadResult.Ready)?.snapshot?.courses ?: return Outcome.WRITE_FAILED
         if (current != expectedCourses || selectedIds.size < 2 || preferredId !in selectedIds) return Outcome.STALE
         val selected = current.filter { it.id in selectedIds }

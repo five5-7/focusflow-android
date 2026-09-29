@@ -625,7 +625,7 @@ internal fun timeOnSameDayAs(target: Long, minute: Int): Long =
     }.timeInMillis
 
 @OptIn(ExperimentalLayoutApi::class)
-@Composable internal fun CourseEditorDialog(existing: Course?, places: List<CampusPlace>, maxPeriod: Int = 13, onDismiss: () -> Unit, onOpenCommutePlaces: () -> Unit, onSave: (Course) -> Unit) {
+@Composable internal fun CourseEditorDialog(existing: Course?, places: List<CampusPlace>, maxPeriod: Int = 13, onDismiss: () -> Unit, onOpenCommutePlaces: () -> Unit, onSave: (Course, Long?) -> Unit) {
     val vault = LocalDraftVault.current
     val draftKey = if (existing != null) "courseEdit:${existing.id}" else "addCourse"
     val saved = vault.load<CourseEditorDraft>(draftKey)
@@ -642,6 +642,8 @@ internal fun timeOnSameDayAs(target: Long, minute: Int): Long =
     var enabled by remember(existing) { mutableStateOf(saved?.enabled ?: (existing?.enabled ?: true)) }
     var effectiveFrom by remember(existing) { mutableStateOf(saved?.effectiveFrom ?: existing?.effectiveFromEpochDay) }
     var effectiveUntil by remember(existing) { mutableStateOf(saved?.effectiveUntil ?: existing?.effectiveUntilEpochDay) }
+    var editFollowing by remember(existing) { mutableStateOf(false) }
+    var followingFrom by remember(existing) { mutableStateOf<Long?>(null) }
     fun persist() = vault.save(draftKey, CourseEditorDraft(title, weekday, startPeriod, lessonCount, place, customSelected, customName, enabled, effectiveFrom, effectiveUntil))
     val parsedStart = startPeriod.toIntOrNull()
     val parsedCount = lessonCount.toIntOrNull()
@@ -652,6 +654,22 @@ internal fun timeOnSameDayAs(target: Long, minute: Int): Long =
         title = { Text(if (existing == null) "新增课程" else "编辑课程") },
         // AppDialog 已提供有界滚动；这里不再嵌套第二层滚动，避免窄屏上地点行测量出异常空白。
         text = { Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (existing != null) {
+                Text("编辑范围", fontWeight = FontWeight.SemiBold)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(selected = !editFollowing, onClick = { editFollowing = false }, label = { Text("整条记录") })
+                    FilterChip(selected = editFollowing, onClick = { editFollowing = true }, label = { Text("从某日起的后续") })
+                }
+                if (editFollowing) {
+                    OutlinedButton(onClick = { showCourseDatePicker(context, followingFrom) { followingFrom = it } }) {
+                        Text(followingFrom?.let { "从 ${formatCourseDate(it)} 起" } ?: "选择分界日期")
+                    }
+                    Text("原记录在此前一天结束；新记录承接此后的临时地点和提醒开关。单次地点可在课程列表中编辑。",
+                        style = MaterialTheme.typography.bodySmall)
+                    if (followingFrom != null && CourseEditPlans.planCourseSplit(existing, followingFrom!!, existing.id) is CourseEditPlans.CourseSplitPlan.Rejected)
+                        Text("分界日期须晚于原起点，且不晚于原终点。", color = MaterialTheme.colorScheme.error)
+                }
+            }
             OutlinedTextField(value = title, onValueChange = { title = it; persist() }, label = { Text("课程名称") }, singleLine = true)
             Text("课程会按星期、开始节和连续节数排入课表与日程；当前节次表共 $maxPeriod 节。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) { (1..7).forEach { day -> FilterChip(selected = weekday == day, onClick = { weekday = day; persist() }, label = { Text(weekdayName(day)) }) } }
@@ -666,6 +684,7 @@ internal fun timeOnSameDayAs(target: Long, minute: Int): Long =
                 }
                 Switch(checked = enabled, onCheckedChange = { enabled = it; persist() })
             }
+            if (!editFollowing) {
             Text("生效期（可选）", fontWeight = FontWeight.SemiBold)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 OutlinedButton(onClick = { showCourseDatePicker(context, effectiveFrom) { effectiveFrom = it; persist() } }) {
@@ -678,6 +697,7 @@ internal fun timeOnSameDayAs(target: Long, minute: Int): Long =
             }
             if (effectiveFrom != null && effectiveUntil != null && effectiveFrom!! > effectiveUntil!!) {
                 Text("结束日期不能早于开始日期", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            }
             }
             Text("地点", fontWeight = FontWeight.SemiBold)
             Text("地点用于课程显示和已开启的出行时间估算；没有地点包时可直接自填。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -698,7 +718,7 @@ internal fun timeOnSameDayAs(target: Long, minute: Int): Long =
             if (customSelected) OutlinedTextField(value = customName, onValueChange = { customName = it; persist() }, label = { Text("地点名称（自填，按东/西/北自动猜分区）") }, singleLine = true, modifier = Modifier.fillMaxWidth())
             TextButton(onClick = onOpenCommutePlaces) { Text("管理地点与出行参数") }
         } },
-        confirmButton = { Button(enabled = title.isNotBlank() && parsedStart != null && parsedCount != null && parsedEnd != null && parsedStart in 1..maxPeriod && parsedCount in 1..maxPeriod && parsedEnd in parsedStart..maxPeriod && buildingName.isNotBlank() && (effectiveFrom == null || effectiveUntil == null || effectiveFrom!! <= effectiveUntil!!), onClick = {
+        confirmButton = { Button(enabled = title.isNotBlank() && parsedStart != null && parsedCount != null && parsedEnd != null && parsedStart in 1..maxPeriod && parsedCount in 1..maxPeriod && parsedEnd in parsedStart..maxPeriod && buildingName.isNotBlank() && (editFollowing && followingFrom != null && followingFrom!! > 0 && existing != null && CourseEditPlans.planCourseSplit(existing, followingFrom!!, existing.id) is CourseEditPlans.CourseSplitPlan.Applied || !editFollowing && (effectiveFrom == null || effectiveUntil == null || effectiveFrom!! <= effectiveUntil!!)), onClick = {
             vault.clear(draftKey)
             val zone = if (customSelected) CourseScreenshotParser.zoneByPrefix(buildingName) else (place?.zone ?: CampusZone.WEST_TEACHING)
             onSave(
@@ -714,7 +734,7 @@ internal fun timeOnSameDayAs(target: Long, minute: Int): Long =
                     effectiveFromEpochDay = effectiveFrom,
                     effectiveUntilEpochDay = effectiveUntil,
                     id = existing?.id ?: newItemId()
-                )
+                ), if (editFollowing) followingFrom else null
             )
         }) { Text("保存") } },
         dismissButton = {

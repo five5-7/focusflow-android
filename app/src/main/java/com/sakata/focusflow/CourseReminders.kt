@@ -86,6 +86,14 @@ internal object CourseReminders {
         return edit.commit()
     }
 
+    /** A new split record inherits the explicit setting, but not the old record's delivery watermark. */
+    fun applySplit(context: Context, successorId: Long, enabled: Boolean?): Boolean {
+        val edit = context.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit()
+        if (enabled == null) edit.remove(PREFIX + successorId)
+        else edit.putBoolean(PREFIX + successorId, enabled)
+        return edit.commit()
+    }
+
     @Synchronized fun markNotified(context: Context, id: Long, expectedAt: Long): Boolean {
         if (id <= 0 || expectedAt <= 0) return false
         val prefs = context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
@@ -97,6 +105,7 @@ internal object CourseReminders {
     fun restore(context: Context) {
         val runtime = CoreDataRuntimeAccess.resolve(context) as? CoreDataRuntimeResolution.Ready ?: return
         if (!CourseMergeOperation.recover(context, runtime.repository)) return
+        if (!CourseSplitOperation.recover(context, runtime.repository)) return
         val snapshot = (runtime.repository.read() as? CoreDataReadResult.Ready)?.snapshot ?: return
         val store = PrototypeStore(context)
         sync(context, snapshot.courses, snapshot.courses, store.loadCoursePeriodTable(), load(context))
@@ -181,6 +190,17 @@ internal object CourseLocationOverrides {
             key.startsWith(prefix) && key.removePrefix(prefix).toLongOrNull()?.let { it >= 0L } == true
         } }.forEach { edit.remove(it) }
         merged.forEach { (day, value) -> edit.putString("${survivorId}_$day", value) }
+        return edit.commit()
+    }
+
+    /** Move only dated overrides at or after the split boundary; a retry is idempotent. */
+    fun applySplit(context: Context, originalId: Long, successorId: Long, future: Map<Long, String>): Boolean {
+        val prefs = context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
+        val edit = prefs.edit()
+        future.forEach { (day, place) ->
+            edit.remove("${originalId}_$day")
+            edit.putString("${successorId}_$day", place)
+        }
         return edit.commit()
     }
 

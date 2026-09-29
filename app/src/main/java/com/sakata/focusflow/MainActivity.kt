@@ -131,7 +131,8 @@ class MainActivity : ComponentActivity() {
             }
             val coreDataRepository = (runtime as CoreDataRuntimeResolution.Ready).repository
             val mergeRecoveryReady = withContext(Dispatchers.IO) {
-                CourseMergeOperation.recover(this@MainActivity, coreDataRepository)
+                CourseMergeOperation.recover(this@MainActivity, coreDataRepository) &&
+                    CourseSplitOperation.recover(this@MainActivity, coreDataRepository)
             }
             val startupSnapshot = withContext(Dispatchers.IO) {
                 FocusFlowStartupSnapshot.load(
@@ -435,7 +436,7 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
     var addCourseOpen by remember { mutableStateOf(false) }
     var courseImportRunning by remember { mutableStateOf(false) }
     var courseImportMessage by remember { mutableStateOf<String?>(
-        if (mergeRecoveryReady) null else "课程合并的覆盖设置尚未恢复；请保留数据并重启重试，课程提醒暂不重排。"
+        if (mergeRecoveryReady) null else "课程编辑的覆盖设置尚未恢复；请保留数据并重启重试，课程提醒暂不重排。"
     ) }
     fun persistCourses(updated: List<Course>): Boolean {
         val result = coreDataRepository.replaceCourses(updated, courses)
@@ -2704,15 +2705,39 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
         }
         if (addCourseOpen) CourseEditorDialog(null, campusPlaces, maxPeriod = coursePeriodTable.periods.size, onDismiss = { addCourseOpen = false }, onOpenCommutePlaces = {
             addCourseOpen = false; suspendedCourseEditor = SuspendedCourseEditor(null); jumpTo(PageSnapshot(3, todayInboxOpen, planPage, SettingsSubPage.COMMUTE_PLACES, emptyList()))
-        }) addCourse@ { course ->
+        }) addCourse@ { course, _ ->
             if (!persistCourses(courses + course.copy(needsConfirmation = false))) return@addCourse
             ensureCoursePlaceInLibrary(course)
             addCourseOpen = false
         }
         courseEditor?.let { original -> CourseEditorDialog(original, campusPlaces, maxPeriod = coursePeriodTable.periods.size, onDismiss = { courseEditor = null }, onOpenCommutePlaces = {
             courseEditor = null; suspendedCourseEditor = SuspendedCourseEditor(original); jumpTo(PageSnapshot(3, todayInboxOpen, planPage, SettingsSubPage.COMMUTE_PLACES, emptyList()))
-        }) editCourse@ { edited ->
-            if (!persistCourses(courses.map { if (it == original) edited.copy(needsConfirmation = false) else it })) return@editCourse
+        }) editCourse@ { edited, followingFrom ->
+            if (followingFrom != null) {
+                val before = courses
+                when (CourseSplitOperation.apply(context, coreDataRepository, before, original, edited, followingFrom)) {
+                    CourseSplitOperation.Outcome.APPLIED -> {
+                        val updated = readCoreData().courses
+                        courseReminderSettings = CourseReminders.load(context)
+                        CourseReminders.sync(context, before, updated, coursePeriodTable, courseReminderSettings)
+                        courses = updated
+                        if (items.any { it.kind == "重复模板" && it.repeatFrequency == "class_day" }) {
+                            RepeatActions.refreshRepository(context)
+                            items = readCoreData().items
+                        }
+                    }
+                    CourseSplitOperation.Outcome.RECOVERY_PENDING -> {
+                        courses = readCoreData().courses
+                        courseImportMessage = "课程已拆分，覆盖设置仍待恢复；请重启重试，暂不重排提醒。"
+                        return@editCourse
+                    }
+                    else -> {
+                        courses = readCoreData().courses
+                        courseImportMessage = "拆分未完成：请核对分界日期和课程状态后重试。"
+                        return@editCourse
+                    }
+                }
+            } else if (!persistCourses(courses.map { if (it == original) edited.copy(needsConfirmation = false) else it })) return@editCourse
             ensureCoursePlaceInLibrary(edited)
             courseEditor = null
         } }
