@@ -111,4 +111,15 @@ class CourseMergeOperationTest {
         assertFalse(CourseReminders.markNotified(context, 10, 1_800_000_000_000L))
         assertTrue(CourseMergeOperation.recover(context, repository))
     }
+
+    @Test fun `malformed stored override cannot be silently dropped by merge`() {
+        val before = courses()
+        assertTrue(context.getSharedPreferences("course_location_overrides", Context.MODE_PRIVATE)
+            .edit().putInt("20_220", 7).commit())
+        val result = CourseMergeOperation.preview(context, before, 20)
+        assertEquals(CourseEditPlans.MergeRejectReason.CORRUPT_OVERRIDES,
+            (result as CourseEditPlans.CourseMergePlan.Rejected).rejectReason)
+        assertEquals(7, context.getSharedPreferences("course_location_overrides", Context.MODE_PRIVATE)
+            .getInt("20_220", -1))
+    }
 }

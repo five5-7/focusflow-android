@@ -654,7 +654,7 @@ internal fun timeOnSameDayAs(target: Long, minute: Int): Long =
         title = { Text(if (existing == null) "新增课程" else "编辑课程") },
         // AppDialog 已提供有界滚动；这里不再嵌套第二层滚动，避免窄屏上地点行测量出异常空白。
         text = { Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (existing != null) {
+            if (existing != null && !existing.needsConfirmation) {
                 Text("编辑范围", fontWeight = FontWeight.SemiBold)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilterChip(selected = !editFollowing, onClick = { editFollowing = false }, label = { Text("整条记录") })

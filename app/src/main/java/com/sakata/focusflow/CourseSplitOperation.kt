@@ -61,7 +61,7 @@ internal object CourseSplitOperation {
         val current = (repository.read() as? CoreDataReadResult.Ready)?.snapshot?.courses ?: return Outcome.WRITE_FAILED
         if (current != expectedCourses || current.singleOrNull { it.id == original.id } != original ||
             edited.id != original.id) return Outcome.STALE
-        if (boundary <= 0) return Outcome.REJECTED
+        if (boundary <= 0 || original.needsConfirmation) return Outcome.REJECTED
         val planned = CourseEditPlans.planCourseSplit(original, boundary, original.id)
             as? CourseEditPlans.CourseSplitPlan.Applied ?: return Outcome.REJECTED
         val successor = edited.copy(id = generateSequence(::newItemId).first { id ->
@@ -69,6 +69,9 @@ internal object CourseSplitOperation {
         }, effectiveFromEpochDay = boundary, effectiveUntilEpochDay = original.effectiveUntilEpochDay)
         if (successor.title.isBlank() || successor.weekday !in 1..7 ||
             successor.startPeriod !in 1..20 || successor.endPeriod !in successor.startPeriod..20)
+            return Outcome.REJECTED
+        if (!CourseLocationOverrides.canSafelyMove(context, listOf(original.id), boundary) ||
+            !CourseReminders.canSafelyMerge(context, listOf(original.id)))
             return Outcome.REJECTED
         val future = CourseLocationOverrides.snapshot(context, original.id).filterKeys { it >= boundary }
         if (future.values.any { it.length > 100 }) return Outcome.REJECTED

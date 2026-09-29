@@ -49,6 +49,20 @@ class CourseEditPlansTest {
     private fun appliedSplit(plan: CourseEditPlans.CourseSplitPlan) =
         plan as CourseEditPlans.CourseSplitPlan.Applied
 
+    @Test fun `conflicts between deleted records are disclosed even without survivor value`() {
+        val plan = appliedMerge(CourseEditPlans.planCourseMerge(
+            listOf(course(10), course(20), course(30)),
+            listOf(
+                CourseEditPlans.CourseOverrideSnapshot(20, mapOf(150L to "A")),
+                CourseEditPlans.CourseOverrideSnapshot(30, mapOf(150L to "B"))
+            ), preferredCourseId = 30
+        ))
+        assertEquals("B", plan.mergedTemporaryLocations[150L])
+        assertEquals(1, plan.migratedTemporaryLocationCount)
+        assertEquals(1, plan.conflictingDeletedLocationDayCount)
+        assertTrue(plan.confirmationText.contains("待删除记录地点冲突"))
+    }
+
     // ------------------------------------------------------------ 编辑范围
 
     @Test

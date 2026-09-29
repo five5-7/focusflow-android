@@ -32,6 +32,11 @@ internal object CourseMergeOperation {
     }
 
     fun preview(context: Context, selected: List<Course>, preferredId: Long): CourseEditPlans.CourseMergePlan {
+        val ids = selected.map { it.id }
+        if (!CourseReminders.canSafelyMerge(context, ids) || !CourseLocationOverrides.canSafelyMove(context, ids)) {
+            return CourseEditPlans.CourseMergePlan.Rejected(CourseEditPlans.MergeRejectReason.CORRUPT_OVERRIDES,
+                "已有课程覆盖值无法安全读取，请先核对数据，不能在合并时静默丢弃。")
+        }
         val settings = CourseReminders.load(context)
         val snapshots = selected.map { course ->
             CourseEditPlans.CourseOverrideSnapshot(

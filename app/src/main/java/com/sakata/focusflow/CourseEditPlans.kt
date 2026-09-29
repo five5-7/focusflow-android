@@ -200,6 +200,8 @@ internal object CourseEditPlans {
             val migratedTemporaryLocationCount: Int,
             /** 存活记录本来有值、且另有记录也有值的天数：必有值被丢弃。与上一项**互斥**。 */
             val supersededTemporaryLocationCount: Int,
+            /** No survivor value, but multiple deleted records had different values for the same day. */
+            val conflictingDeletedLocationDayCount: Int,
             /** 存活记录自己有值、但最终被别的记录覆盖掉的天数（必须让用户看见）。 */
             val overwrittenSurvivorDayCount: Int,
             val preferredCourseId: Long,
@@ -337,6 +339,7 @@ internal object CourseEditPlans {
         // 计数口径（逐天判定；写清楚，避免"看起来迁移了其实是覆盖"）：
         // - 胜负：优先记录有该天则优先记录胜；否则 id 最大者胜（写入顺序决定）。
         // - migrated ⊥ superseded：以"存活记录本来有没有这一天"划分，两者**互斥**。
+        // - conflictingDeleted 是迁移日里另外有被删除记录的值落败，必须在确认文案提示。
         // - overwrittenSurvivor 是**叠加的警示口径**，与 superseded 可以同一天同时成立
         //   （存活记录本来有该天、另有记录也有 ⇒ superseded；而胜者又不是存活记录 ⇒ overwritten）。
         // - 只有存活记录持有某天时，三个数都不动（没有值被丢弃）。
@@ -346,6 +349,7 @@ internal object CourseEditPlans {
         val survivingLocations = locationsByCourse[survivingId].orEmpty()
         var migrated = 0
         var superseded = 0
+        var conflictingDeleted = 0
         var overwrittenSurvivor = 0
         for (day in mergedLocations.keys) {
             val holders = locationsByCourse.filterValues { it.containsKey(day) }.keys
@@ -360,7 +364,10 @@ internal object CourseEditPlans {
             val winnerIsSurvivor = winnerId == survivingId
             when {
                 // 存活记录本来没有这一天 ⇒ 这一天是纯"带过来的"。
-                !survivingLocations.containsKey(day) && !winnerIsSurvivor -> migrated++
+                !survivingLocations.containsKey(day) && !winnerIsSurvivor -> {
+                    migrated++
+                    if (holders.size > 1) conflictingDeleted++
+                }
                 // 存活记录本来有、且另有记录也有 ⇒ 必有值被丢弃。
                 survivingLocations.containsKey(day) && holders.size > 1 -> superseded++
             }
@@ -376,6 +383,7 @@ internal object CourseEditPlans {
             add("生效期取并集：" + (mergedFrom ?: "不限") + " ~ " + (mergedUntil ?: "不限"))
             if (migrated > 0) add("从被删除记录迁移 $migrated 天本次地点")
             if (superseded > 0) add("另有 $superseded 天与其他记录冲突，只保留了胜出的一条")
+            if (conflictingDeleted > 0) add("另有 $conflictingDeleted 天的被删除记录相互冲突，只保留了胜出的一条")
             if (overwrittenSurvivor > 0) add("其中 $overwrittenSurvivor 天覆盖了保留记录原有的本次地点")
         }
 
@@ -385,6 +393,7 @@ internal object CourseEditPlans {
             if (overwrittenSurvivor > 0) {
                 append("注意：有 $overwrittenSurvivor 天覆盖了保留记录原有的本次地点。")
             }
+            if (conflictingDeleted > 0) append("注意：有 $conflictingDeleted 天的待删除记录地点冲突，只保留一条。")
             append("合并不支持撤销。")
         }
 
@@ -396,6 +405,7 @@ internal object CourseEditPlans {
             mergedReminderEnabled = mergedReminder,
             migratedTemporaryLocationCount = migrated,
             supersededTemporaryLocationCount = superseded,
+            conflictingDeletedLocationDayCount = conflictingDeleted,
             overwrittenSurvivorDayCount = overwrittenSurvivor,
             preferredCourseId = preferredId,
             confirmationText = confirmationText,

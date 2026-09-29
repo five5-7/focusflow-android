@@ -69,6 +69,14 @@ internal object CourseReminders {
         return edit.commit()
     }
 
+    fun canSafelyMerge(context: Context, ids: Collection<Long>): Boolean {
+        val all = context.getSharedPreferences(FILE, Context.MODE_PRIVATE).all
+        return ids.all { id ->
+            (all[PREFIX + id] == null || all[PREFIX + id] is Boolean) &&
+                (all[DELIVERED_PREFIX + id] == null || all[DELIVERED_PREFIX + id] is Long)
+        }
+    }
+
     /** One preference commit for the merged meeting's override and delivery watermark. */
     fun applyMerge(context: Context, survivorId: Long, deletedIds: List<Long>, enabled: Boolean?): Boolean {
         val prefs = context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
@@ -172,6 +180,14 @@ internal object CourseReminders {
 /** A one-off room change is keyed by the meeting and calendar date; future weeks keep the base location. */
 internal object CourseLocationOverrides {
     private const val FILE = "course_location_overrides"
+
+    fun canSafelyMove(context: Context, ids: Collection<Long>, fromDay: Long = 0L): Boolean {
+        val all = context.getSharedPreferences(FILE, Context.MODE_PRIVATE).all
+        return ids.all { id -> all.all { (key, value) ->
+            val day = key.takeIf { it.startsWith("${id}_") }?.removePrefix("${id}_")?.toLongOrNull()
+            day == null || day < fromDay || (value is String && value.isNotBlank() && value.length <= 100)
+        } }
+    }
 
     fun snapshot(context: Context, meetingId: Long): Map<Long, String> =
         context.getSharedPreferences(FILE, Context.MODE_PRIVATE).all.mapNotNull { (key, value) ->
