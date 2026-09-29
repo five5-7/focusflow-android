@@ -7,9 +7,8 @@ import org.junit.Test
 /**
  * 组③：**恢复覆盖即数据**的回归测试（纯 JVM，不碰通知、不碰闹钟）。
  *
- * 为什么需要它：统一恢复入口 `ReminderScheduler.restoreActivityReminders` 的名字只说"活动"，
- * 实际恢复的是 **9 类**（按分组 6 组）；游戏提醒由 `BootReceiver` 单独恢复。此前"某类提醒有没有恢复步骤"
- * 没有守卫，新增一类提醒时可能**静默漏掉恢复**（漏了不报错，只在"该响时没响"）。
+ * 为什么需要它：统一恢复入口 `ReminderScheduler.restoreUnifiedReminders`（原名 `restoreActivityReminders`，
+ * 2026-09-29 改名——原名只说"活动"，实际恢复的是 **9 类**）；游戏提醒由 `BootReceiver` 单独恢复。
  * 这里把类型清单钉成数据：新增枚举常量必须登记进两份清单之一，否则变红。
  *
  * **不要高估它**（复核席 B 逐条盘出的盲区，详见设计件 §4.1"这套数据不能保证什么"）：

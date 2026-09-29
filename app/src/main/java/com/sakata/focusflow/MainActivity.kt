@@ -1069,7 +1069,7 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
 
     LaunchedEffect(Unit) {
         // 恢复提醒会读取多组偏好、重建多类闹钟；它不应在首个 Compose 提交后立刻占住主线程。
-        withContext(Dispatchers.IO) { ReminderScheduler.restoreActivityReminders(context) }
+        withContext(Dispatchers.IO) { ReminderScheduler.restoreUnifiedReminders(context) }
         val afterReminderRestore = readCoreData()
         items = afterReminderRestore.items
         taskEvents = afterReminderRestore.taskEvents

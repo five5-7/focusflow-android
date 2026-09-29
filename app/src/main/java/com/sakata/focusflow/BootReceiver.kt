@@ -21,7 +21,7 @@ class BootReceiver : BroadcastReceiver() {
             CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
                 try {
                     val appContext = context.applicationContext
-                    ReminderScheduler.restoreActivityReminders(appContext)
+                    ReminderScheduler.restoreUnifiedReminders(appContext)
                     ReminderScheduler.restoreGameReminders(appContext)
                     if (PrototypeStore(appContext).loadQuickCaptureEnabled()) {
                         QuickCaptureService.start(appContext)

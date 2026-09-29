@@ -14,7 +14,7 @@ import java.util.Calendar
 /**
  * 提醒类型清单。**新增一类提醒必须在这里登记**，否则 ReminderRestoreCoverageTest 会红。
  *
- * 存在的理由：此前"某一类提醒有没有恢复步骤"只靠人记得——入口函数名（restoreActivityReminders）
+ * 存在的理由：此前"某一类提醒有没有恢复步骤"只靠人记得——入口函数名（restoreUnifiedReminders）
  * 只说"活动"，实际恢复的是 9 类（按分组 6 组：活动、每日三项、重复刷新／漏做摘要、任务、独立提醒、课程）；
  * 游戏提醒则由 BootReceiver 单独调用。名字撒谎 + 没有守卫 ⇒ 新入口很容易静默漏掉某类提醒
  * （漏了不报错，只在"该响时没响"）。
@@ -95,7 +95,7 @@ object ReminderScheduler {
      * 注意任务与课程各自也有同样的 Blocked 早退（见 restoreTaskReminders、CourseReminders.restore），
      * 故只收窄这一处并不能让它们恢复。属行为变更，需单独确认。
      */
-    fun restoreActivityReminders(context: Context) {
+    fun restoreUnifiedReminders(context: Context) {
         val store = PrototypeStore(context)
         REMINDER_RESTORE_ORDER.forEach { step ->
             when (step) {
