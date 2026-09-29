@@ -235,12 +235,15 @@ internal object ZjuTimetableClient {
         try {
             watchdog.schedule(object : java.util.TimerTask() {
                 override fun run() {
-                    // 顺序很重要：先抢结果 → 再投递 → 最后才取消传输。
+                    // 顺序很重要：先抢结果并清理密码 → 再投递 → 最后才取消传输。
                     // - 先抢：cancel 置位的 canceled 不会让被唤醒的工作线程抢到 CAS（否则文案会变成"导入已取消"）；
                     //   若工作线程已经赢了，这里直接 return，也不会把它刚建好的会话取消掉。
                     // - 先投递："到点必须给出结果"不能被可能阻塞的 disconnect() 拖住。
                     if (!settled.compareAndSet(false, true)) return
                     runCatching { watchdog.cancel() }
+                    // 网络线程可能永远不返回，不能把明文清理只留给它的 finally。
+                    // 与 rsaEncrypt 的数组读取同步，避免超时恰落在编码中途时读到半截清零值。
+                    synchronized(password) { password.fill('\u0000') }
                     // 回调本身抛错也不能吞掉下面的取消（否则被卡的 worker 会继续跑到 TTL）。
                     runCatching { dispatch(onComplete, ZjuSemesterOptionsResult.Failure(LOGIN_TIMEOUT_MESSAGE)) }
                     runCatching { transport.cancel() }
@@ -263,7 +266,7 @@ internal object ZjuTimetableClient {
                     if (transport.isCanceled()) ZjuSemesterOptionsResult.Failure(CANCELED_MESSAGE)
                     else ZjuSemesterOptionsResult.Failure(failureMessageOf(error))
                 } finally {
-                    password.fill('\u0000')
+                    synchronized(password) { password.fill('\u0000') }
                 }
                 settle(result)
             }.apply {
@@ -273,7 +276,7 @@ internal object ZjuTimetableClient {
             }
         } catch (error: Throwable) {
             // 线程创建失败等同步异常：仍保证一次回调，并把密码清零。
-            password.fill('\u0000')
+            synchronized(password) { password.fill('\u0000') }
             settle(ZjuSemesterOptionsResult.Failure(failureMessageOf(error)))
         }
     }
@@ -668,7 +671,7 @@ internal object ZjuTimetableClient {
         )
         // 认证请求已经带着密文提交，明文密码此后再无用途：立即清零，而不是等到整个
         // beginSessionBlocking 返回（那还要等读首页 option，最长 40 秒）。
-        password.fill('\u0000')
+        synchronized(password) { password.fill('\u0000') }
         val finalHost = login.url.host.orEmpty()
         if (!finalHost.equals("zdbk.zju.edu.cn", ignoreCase = true)) {
             val wrongCredentials = listOf(
@@ -888,9 +891,10 @@ internal object ZjuTimetableClient {
         selectAutoOption(parseSemesterOptions(html, id))
 
     private fun rsaEncrypt(password: CharArray, modulusHex: String, exponentHex: String): String {
-        val encoded = Charsets.UTF_8.encode(CharBuffer.wrap(password))
-        val bytes = ByteArray(encoded.remaining())
-        encoded.get(bytes)
+        val bytes = synchronized(password) {
+            val encoded = Charsets.UTF_8.encode(CharBuffer.wrap(password))
+            ByteArray(encoded.remaining()).also { encoded.get(it) }
+        }
         return try {
             BigInteger(1, bytes)
                 .modPow(BigInteger(exponentHex, 16), BigInteger(modulusHex, 16))

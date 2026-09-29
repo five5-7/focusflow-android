@@ -36,9 +36,7 @@ internal enum class ReminderRestoreStep {
 /**
  * 由统一恢复入口（那次遍历）负责的类型，**顺序即数据**。
  * 除游戏外的 9 项与原实现的顺序逐条一致（漏做摘要 → 活动 → 每日三项 → 重复刷新 → 任务 → 独立提醒 → 课程）；
- * 游戏**紧随漏做摘要之后、早于活动那一步**：活动步在核心数据运行时被 Blocked 时会早退（见下），
- * 游戏若排在它后面，那种情况下就会被跳过——而旧路径（BootReceiver 无条件单独调用）是会恢复它的。
- * 排在活动之前，Blocked 分支与旧路径的执行集合一致；Ready 分支两步互不依赖，先后无影响。
+ * 游戏紧随漏做摘要之后，保持原来并入时的恢复顺序。活动的数据源被阻断时只跳过活动本身。
  */
 internal val REMINDER_RESTORE_ORDER: List<ReminderRestoreStep> = listOf(
     ReminderRestoreStep.MISSED_DIGEST,
@@ -92,17 +90,10 @@ object ReminderScheduler {
      * 统一恢复入口：把每一类提醒在开机／时间变更／权限变更后重新排上。
      *
      * 旧名 restoreActivityReminders 里的 Activity 是历史遗留——它恢复的远不止活动（见 REMINDER_RESTORE_ORDER）；
-     * 改名已在 470c42f 落地；"把游戏提醒并进来"也已落地（GAME 现排在 ACTIVITY 之前，
-     * 因为活动步的早退会跳过它后面的所有步骤）。
+     * 改名已在 470c42f 落地；游戏提醒也已并入这个入口。
      *
-     * **已知缺陷（照登，本步未修）**：下面那句 ?: return 会在核心数据运行时落到 Blocked 时
-     * 跳过活动之后的全部步骤（每日三项、重复刷新、任务、独立提醒、课程）。**游戏已刻意排在活动之前**，
-     * 以便在 Blocked 时仍能恢复（与旧路径一致）。Blocked 在代码里
-     * 有生产路径（见 CoreDataRuntime.kt 的 catch / source==NONE / 仓库装配失败 / 迁移失败分支），
-     * 但触发条件是异常或损坏分支，**本构建未取证真机可达**；另外 resolve 结果按进程缓存，
-     * 一旦落到 Blocked，本进程后续所有恢复都会继续早退。修复＝把早退收窄到只管活动那一步；
-     * 注意任务与课程各自也有同样的 Blocked 早退（见 restoreTaskReminders、CourseReminders.restore），
-     * 故只收窄这一处并不能让它们恢复。属行为变更，需单独确认。
+     * 核心数据运行时被阻断时只跳过依赖仓库的活动恢复。每日提醒和独立提醒仍有自己的数据源；
+     * 任务与课程恢复各自校验核心运行时，不由本入口提前替它们返回。
      */
     fun restoreUnifiedReminders(context: Context) {
         val store = PrototypeStore(context)
@@ -112,26 +103,28 @@ object ReminderScheduler {
 
                 ReminderRestoreStep.ACTIVITY -> {
                     val runtime = CoreDataRuntimeAccess.resolve(context)
-                    val repository = (runtime as? CoreDataRuntimeResolution.Ready)?.repository ?: return
-                    CoreDataRepositoryOperations.latestActiveSession(repository)?.let { session ->
-                        if (session.endsAt <= System.currentTimeMillis()) {
-                            if (session.status != ActivitySession.STATUS_AWAITING_CONFIRMATION) {
-                                val marked = CoreDataRepositoryOperations.markActivitySessionAwaitingConfirmation(
-                                    repository,
-                                    session.id,
-                                    session.endsAt
-                                )
-                                if (marked.applied) {
-                                    context.sendBroadcast(Intent(context, ReminderReceiver::class.java).apply {
-                                        action = ReminderReceiver.ACTION_ACTIVITY_END
-                                        putExtra(ReminderReceiver.EXTRA_ACTIVITY_NAME, session.name)
-                                        putExtra(ReminderReceiver.EXTRA_SESSION_ID, session.id)
-                                        putExtra(ReminderReceiver.EXTRA_NEXT_STEP, session.nextStep)
-                                        putExtra(ReminderReceiver.EXTRA_ACTIVITY_ENDS_AT, session.endsAt)
-                                    })
+                    val repository = (runtime as? CoreDataRuntimeResolution.Ready)?.repository
+                    if (repository != null) {
+                        CoreDataRepositoryOperations.latestActiveSession(repository)?.let { session ->
+                            if (session.endsAt <= System.currentTimeMillis()) {
+                                if (session.status != ActivitySession.STATUS_AWAITING_CONFIRMATION) {
+                                    val marked = CoreDataRepositoryOperations.markActivitySessionAwaitingConfirmation(
+                                        repository,
+                                        session.id,
+                                        session.endsAt
+                                    )
+                                    if (marked.applied) {
+                                        context.sendBroadcast(Intent(context, ReminderReceiver::class.java).apply {
+                                            action = ReminderReceiver.ACTION_ACTIVITY_END
+                                            putExtra(ReminderReceiver.EXTRA_ACTIVITY_NAME, session.name)
+                                            putExtra(ReminderReceiver.EXTRA_SESSION_ID, session.id)
+                                            putExtra(ReminderReceiver.EXTRA_NEXT_STEP, session.nextStep)
+                                            putExtra(ReminderReceiver.EXTRA_ACTIVITY_ENDS_AT, session.endsAt)
+                                        })
+                                    }
                                 }
-                            }
-                        } else scheduleActivityReminders(context, session, store.loadActivityReminderSettings())
+                            } else scheduleActivityReminders(context, session, store.loadActivityReminderSettings())
+                        }
                     }
                 }
 

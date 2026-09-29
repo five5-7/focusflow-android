@@ -97,6 +97,15 @@ class ZjuResponseShapeTest {
     }
 
     @Test
+    fun `repeating an existing value after sixty four unique values is not truncation`() {
+        val rows = ((1..64).toList() + 1).joinToString(",") { """{"xkkh":"KEY-$it"}""" }
+        val summary = ZjuResponseShape.summarize("""{"kbList":[$rows]}""")
+
+        assertTrue(summary, summary.contains("xkkh=str/65/65/64#"))
+        assertFalse(summary, summary.contains("xkkh=str/65/65/64+#"))
+    }
+
+    @Test
     fun `identity fields get a stable fingerprint while text fields get none`() {
         val first = ZjuResponseShape.summarize(payload)
         val second = ZjuResponseShape.summarize(payload)

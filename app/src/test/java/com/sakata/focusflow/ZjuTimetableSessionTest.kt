@@ -419,6 +419,48 @@ class ZjuTimetableSessionTest {
     }
 
     @Test
+    fun `a login watchdog clears the caller password while the worker remains blocked`() {
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val password = "secret".toCharArray()
+        val stuck = object : ZjuHttpClient {
+            override fun cancel() = Unit // 模拟 disconnect 不能解除阻塞。
+            override fun get(url: String, totalTimeoutMs: Long?): ZjuHttpResponse {
+                entered.countDown()
+                release.await(5, TimeUnit.SECONDS)
+                throw IllegalStateException("worker released")
+            }
+            override fun post(
+                url: String,
+                body: String,
+                headers: Map<String, String>,
+                readTimeoutMs: Int,
+                skipResponseBodyAtHost: String?,
+                onRedirect: (URI) -> Unit,
+                totalTimeoutMs: Long?
+            ): ZjuHttpResponse = error("blocked login must not submit credentials")
+        }
+        var result: ZjuSemesterOptionsResult? = null
+        val done = CountDownLatch(1)
+        try {
+            ZjuTimetableClient.beginSession(
+                username = "student", password = password,
+                onProgress = {}, onComplete = { result = it; done.countDown() },
+                transportFactory = { stuck }, loginBudgetMs = 300
+            )
+            assertTrue("worker must be blocked", entered.await(3, TimeUnit.SECONDS))
+            awaitLatch(done)
+            assertEquals(
+                ZjuTimetableClient.LOGIN_TIMEOUT_MESSAGE,
+                (requireNotNull(result) as ZjuSemesterOptionsResult.Failure).message
+            )
+            assertTrue("password must be zero before the worker is released", password.all { it == '\u0000' })
+        } finally {
+            release.countDown()
+        }
+    }
+
+    @Test
     fun `a finished login stays usable after the watchdog budget elapses`() {
         // 回归护栏：看门狗不得在登录已经成功后再去取消传输——那会把刚建好的会话永久置为已取消，
         // 之后每次"导入所选学期"都会失败。注意：那个竞争窗口本身不可确定性构造

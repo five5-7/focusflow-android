@@ -185,6 +185,34 @@ class CourseIdentityPreviewTest {
     }
 
     @Test
+    fun `a weekday outside one to seven cannot support a multi meeting candidate`() {
+        val group = CourseIdentityPreview.group(listOf(row(0), row(1, weekday = 8, start = 3, end = 4))).single()
+
+        assertEquals(PreviewStatus.NEEDS_REVIEW, group.status)
+        assertEquals(listOf(PreviewReviewReason.INVALID_MEETING), group.reviewReasons)
+    }
+
+    @Test
+    fun `zero and reversed periods are reported as invalid`() {
+        for (invalid in listOf(row(1, start = 0, end = 2), row(1, start = 4, end = 3), row(1, start = 19, end = 21))) {
+            val group = CourseIdentityPreview.group(listOf(row(0), invalid)).single()
+            assertEquals(PreviewStatus.NEEDS_REVIEW, group.status)
+            assertEquals(listOf(PreviewReviewReason.INVALID_MEETING), group.reviewReasons)
+        }
+    }
+
+    @Test
+    fun `same day overlapping periods cannot be treated as two independent meetings`() {
+        val group = CourseIdentityPreview.group(listOf(
+            row(0, weekday = 1, start = 1, end = 3),
+            row(1, weekday = 1, start = 3, end = 4)
+        )).single()
+
+        assertEquals(PreviewStatus.NEEDS_REVIEW, group.status)
+        assertEquals(listOf(PreviewReviewReason.OVERLAPPING_MEETINGS), group.reviewReasons)
+    }
+
+    @Test
     fun `a single row is not a multi-meeting candidate`() {
         val group = CourseIdentityPreview.group(listOf(row(0))).single()
 

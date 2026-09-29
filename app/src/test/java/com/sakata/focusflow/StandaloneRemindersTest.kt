@@ -14,6 +14,21 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], application = Application::class)
 class StandaloneRemindersTest {
+    @Test fun `blocked core runtime still restores independent alarms through the unified entry`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        context.getSharedPreferences("standalone_reminders", Context.MODE_PRIVATE).edit().clear().commit()
+        // Plain Application has no CoreDataRuntimeOwner, so activity and task sources are blocked.
+        val now = System.currentTimeMillis()
+        assertTrue(StandaloneReminders.create(context, "独立提醒", now + 60 * 60_000L, now))
+        val reminder = StandaloneReminders.all(context).single()
+
+        ReminderScheduler.restoreUnifiedReminders(context)
+
+        val alarms = Shadows.shadowOf(context.getSystemService(AlarmManager::class.java)).scheduledAlarms
+        assertTrue("independent reminder must survive the blocked activity step",
+            alarms.any { it.triggerAtMs == reminder.scheduledAt })
+    }
+
     @Test fun `independent reminder survives reload and stale broadcast cannot replay or complete another instance`() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         context.getSharedPreferences("standalone_reminders", Context.MODE_PRIVATE).edit().clear().commit()

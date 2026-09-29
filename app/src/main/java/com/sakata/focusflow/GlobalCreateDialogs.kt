@@ -22,7 +22,9 @@ internal fun SimpleTitleDialog(title: String, label: String, onDismiss: () -> Un
 @Composable
 internal fun GlobalTimeCreateDialog(title: String, onDismiss: () -> Unit,
                                     existing: List<StandaloneReminder> = emptyList(),
+                                    focusedReminderId: Long? = null,
                                     onCompleteReminder: (StandaloneReminder) -> Unit = {},
+                                    onMoveReminderToInbox: (StandaloneReminder) -> Unit = {},
                                     onSave: (String, Long) -> Boolean) {
     val context = LocalContext.current
     var name by remember { mutableStateOf("") }
@@ -55,13 +57,19 @@ internal fun GlobalTimeCreateDialog(title: String, onDismiss: () -> Unit,
             if (existing.isNotEmpty()) {
                 HorizontalDivider()
                 Text("已有提醒", style = MaterialTheme.typography.titleSmall)
-                existing.filter { it.completedAt == null }.take(5).forEach { reminder ->
+                existing.filter { it.completedAt == null }
+                    .sortedBy { if (it.id == focusedReminderId) 0 else 1 }
+                    .take(5).forEach { reminder ->
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         Column(Modifier.weight(1f)) {
+                            if (reminder.id == focusedReminderId) {
+                                Text("这次提醒", style = MaterialTheme.typography.labelMedium)
+                            }
                             Text("${reminder.title} · ${formatDateTime(reminder.triggerAt)}", maxLines = 1)
                             reminder.snoozedUntil?.let { next ->
                                 Text("下次通知：${formatDateTime(next)}", style = MaterialTheme.typography.labelSmall)
                             }
+                            TextButton(onClick = { onMoveReminderToInbox(reminder) }) { Text("移入收集箱") }
                         }
                         TextButton(onClick = { onCompleteReminder(reminder) }) { Text("取消") }
                     }

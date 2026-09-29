@@ -228,14 +228,14 @@ class CourseEditPlansTest {
     }
 
     @Test
-    fun `an inverted record is still merged when the union range is valid`() {
-        // 守卫需要**每条**记录都倒置才会触发：只要有一条合法，并集端点就合法，不该误伤。
-        val plan = appliedMerge(
-            CourseEditPlans.planCourseMerge(listOf(course(id = 10, from = 100, until = 50), course(id = 20, from = 10, until = 5)))
+    fun `an inverted record is rejected even if another record would hide it`() {
+        val plan = CourseEditPlans.planCourseMerge(
+            listOf(course(id = 10, from = 100, until = 50), course(id = 20, from = 10, until = 150))
         )
-
-        assertEquals(10L, plan.survivingCourse.effectiveFromEpochDay)
-        assertEquals(50L, plan.survivingCourse.effectiveUntilEpochDay)
+        assertEquals(
+            CourseEditPlans.MergeRejectReason.INVALID_EFFECTIVE_RANGE,
+            (plan as CourseEditPlans.CourseMergePlan.Rejected).rejectReason
+        )
     }
 
     @Test
@@ -410,6 +410,63 @@ class CourseEditPlansTest {
 
         assertEquals(100L, plan.survivingCourse.effectiveFromEpochDay)
         assertEquals(200L, plan.survivingCourse.effectiveUntilEpochDay)
+    }
+
+    @Test
+    fun `different weekly meetings cannot be collapsed into one Course`() {
+        val monday = course(id = 10, weekday = 1, startPeriod = 1, endPeriod = 2)
+        val wednesday = course(id = 20, weekday = 3, startPeriod = 3, endPeriod = 4)
+
+        val plan = CourseEditPlans.planCourseMerge(listOf(monday, wednesday))
+
+        assertEquals(
+            CourseEditPlans.MergeRejectReason.DIFFERENT_MEETINGS,
+            (plan as CourseEditPlans.CourseMergePlan.Rejected).rejectReason
+        )
+    }
+
+    @Test
+    fun `separate active ranges cannot create lessons in the gap`() {
+        val plan = CourseEditPlans.planCourseMerge(
+            listOf(course(id = 10, from = 100, until = 120), course(id = 20, from = 140, until = 160))
+        )
+
+        assertEquals(
+            CourseEditPlans.MergeRejectReason.DISCONNECTED_EFFECTIVE_RANGES,
+            (plan as CourseEditPlans.CourseMergePlan.Rejected).rejectReason
+        )
+    }
+
+    @Test
+    fun `an open end does not hide a gap before an earlier bounded record`() {
+        val plan = CourseEditPlans.planCourseMerge(
+            listOf(course(id = 10, from = 140), course(id = 20, from = 100, until = 120))
+        )
+
+        assertEquals(
+            CourseEditPlans.MergeRejectReason.DISCONNECTED_EFFECTIVE_RANGES,
+            (plan as CourseEditPlans.CourseMergePlan.Rejected).rejectReason
+        )
+    }
+
+    @Test
+    fun `adjacent active ranges can still be merged`() {
+        val plan = appliedMerge(CourseEditPlans.planCourseMerge(
+            listOf(course(id = 10, from = 140, until = 160), course(id = 20, from = 100, until = 139))
+        ))
+
+        assertEquals(100L, plan.survivingCourse.effectiveFromEpochDay)
+        assertEquals(160L, plan.survivingCourse.effectiveUntilEpochDay)
+    }
+
+    @Test
+    fun `an open start and open end may merge when their ranges overlap`() {
+        val plan = appliedMerge(CourseEditPlans.planCourseMerge(
+            listOf(course(id = 10, until = 120), course(id = 20, from = 115))
+        ))
+
+        assertNull(plan.survivingCourse.effectiveFromEpochDay)
+        assertNull(plan.survivingCourse.effectiveUntilEpochDay)
     }
 
     @Test

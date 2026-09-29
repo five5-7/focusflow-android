@@ -72,6 +72,7 @@ private data class SuspendedCourseEditor(val original: Course?)
 class MainActivity : ComponentActivity() {
     private var statusCheckInRequested by mutableStateOf(false)
     private var quickCaptureRequested by mutableStateOf(false)
+    private var standaloneOpenRequested by mutableStateOf<Pair<Long, Long>?>(null)
     private var mealPromptRequested by mutableStateOf<MealType?>(null)
     private var mealFinishRequested by mutableStateOf<MealType?>(null)
     // 首次启动权限一站式进行中标记：置位时门控习惯基线引导，避免两个弹窗叠在一起。
@@ -91,6 +92,7 @@ class MainActivity : ComponentActivity() {
         statusCheckInRequested = intent.getBooleanExtra(ReminderReceiver.EXTRA_OPEN_STATUS_CHECK_IN, false) &&
             PrototypeStore(this).loadStatusCheckInSettings().enabled
         quickCaptureRequested = intent.getBooleanExtra(ReminderReceiver.EXTRA_OPEN_QUICK_CAPTURE, false)
+        standaloneOpenRequested = validStandaloneOpen(intent)
         mealPromptRequested = validMealPrompt(intent)
         mealFinishRequested = validMealFinish(intent)
         // 首次启动一站式权限申请：先标记完成防中断重复打扰，再按系统支持情况依次申请。
@@ -146,11 +148,12 @@ class MainActivity : ComponentActivity() {
             FrameTimingRecorder.recordStartupFrames()
             setContent {
                 LaunchedEffect(Unit) { startupBackFallback.isEnabled = false }
-                FocusFlowApp(startupStore, coreDataRepository, startupSnapshot, startupPageBackdropBitmap, statusCheckInRequested, mealPromptRequested, mealFinishRequested, quickCaptureRequested, permissionOnboardingPending) {
+                FocusFlowApp(startupStore, coreDataRepository, startupSnapshot, startupPageBackdropBitmap, statusCheckInRequested, mealPromptRequested, mealFinishRequested, quickCaptureRequested, standaloneOpenRequested, permissionOnboardingPending) {
                     statusCheckInRequested = false
                     mealPromptRequested = null
                     mealFinishRequested = null
                     quickCaptureRequested = false
+                    standaloneOpenRequested = null
                 }
             }
         }
@@ -186,6 +189,16 @@ class MainActivity : ComponentActivity() {
         if (intent.getBooleanExtra(ReminderReceiver.EXTRA_OPEN_MEAL_PROMPT, false)) mealPromptRequested = validMealPrompt(intent)
         if (intent.getBooleanExtra(ReminderReceiver.EXTRA_OPEN_MEAL_FINISH, false)) mealFinishRequested = validMealFinish(intent)
         if (intent.getBooleanExtra(ReminderReceiver.EXTRA_OPEN_QUICK_CAPTURE, false)) quickCaptureRequested = true
+        standaloneOpenRequested = validStandaloneOpen(intent)
+    }
+
+    private fun validStandaloneOpen(intent: Intent): Pair<Long, Long>? {
+        if (intent.action != ReminderReceiver.ACTION_STANDALONE_OPEN) return null
+        val id = intent.getLongExtra(ReminderReceiver.EXTRA_STANDALONE_ID, -1L)
+        val at = intent.getLongExtra(ReminderReceiver.EXTRA_STANDALONE_AT, -1L)
+        return (id to at).takeIf { id > 0 && at > 0 &&
+            StandaloneReminders.all(this).any { it.id == id && it.scheduledAt == at && it.completedAt == null }
+        }
     }
 
     private fun validMealPrompt(intent: Intent): MealType? {
@@ -229,7 +242,7 @@ private fun loadStartupPageBackdrop(context: Context, appearance: AppearanceSpec
 }
 
 @Composable
-private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepository, startup: FocusFlowStartupSnapshot, startupPageBackdropBitmap: ImageBitmap?, statusCheckInRequested: Boolean, mealPromptRequested: MealType?, mealFinishRequested: MealType?, quickCaptureRequested: Boolean, permissionOnboardingPending: Boolean, onRequestHandled: () -> Unit) {
+private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepository, startup: FocusFlowStartupSnapshot, startupPageBackdropBitmap: ImageBitmap?, statusCheckInRequested: Boolean, mealPromptRequested: MealType?, mealFinishRequested: MealType?, quickCaptureRequested: Boolean, standaloneOpenRequested: Pair<Long, Long>?, permissionOnboardingPending: Boolean, onRequestHandled: () -> Unit) {
     val context = LocalContext.current
     fun readCoreData() = (coreDataRepository.read() as CoreDataReadResult.Ready).snapshot
     var tab by remember { mutableIntStateOf(0) }
@@ -241,6 +254,7 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
     var addReminderOpen by remember { mutableStateOf(false) }
     var trashOpen by remember { mutableStateOf(false) }
     var reminderRevision by remember { mutableIntStateOf(0) }
+    var focusedReminderId by remember { mutableStateOf<Long?>(null) }
     var addMenuOpen by remember { mutableStateOf(false) }
     // 历史导航可能只把加号弹窗收起，Boolean 仍为 true；请求序号保证再次点击会重建并注册弹窗。
     var addMenuRequestId by remember { mutableIntStateOf(0) }
@@ -1054,6 +1068,16 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
     LaunchedEffect(quickCaptureRequested) {
         if (quickCaptureRequested) {
             jumpTo(PageSnapshot(0, true, planPage, settingsSubPage, settingsBackStack))
+            onRequestHandled()
+        }
+    }
+
+    LaunchedEffect(standaloneOpenRequested) {
+        standaloneOpenRequested?.let { (id, expectedAt) ->
+            if (StandaloneReminders.all(context).any { it.id == id && it.scheduledAt == expectedAt && it.completedAt == null }) {
+                focusedReminderId = id
+                addReminderOpen = true
+            }
             onRequestHandled()
         }
     }
@@ -2129,8 +2153,30 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                     TaskRecorder.event(TaskEventType.TASK_SCHEDULED, item.id, item.title, scheduledAt = at)
                 ))) { addScheduleOpen = false; true } else false
         }
-        if (addReminderOpen) GlobalTimeCreateDialog("新建提醒", onDismiss = { addReminderOpen = false },
+        if (addReminderOpen) GlobalTimeCreateDialog("新建提醒", onDismiss = { addReminderOpen = false; focusedReminderId = null },
             existing = remember(reminderRevision) { StandaloneReminders.all(context) },
+            focusedReminderId = focusedReminderId,
+            onMoveReminderToInbox = { reminder ->
+                when (StandaloneInboxTransfer.move(context, coreDataRepository, reminder.id, reminder.scheduledAt)) {
+                    StandaloneInboxTransfer.Result.MOVED, StandaloneInboxTransfer.Result.ALREADY_MOVED -> {
+                        val refreshed = readCoreData()
+                        items = refreshed.items
+                        taskEvents = refreshed.taskEvents
+                        reminderRevision++
+                        focusedReminderId = null
+                        addReminderOpen = false
+                        scope.launch { snackbarHostState.showSnackbar("已移入收集箱") }
+                    }
+                    StandaloneInboxTransfer.Result.STALE -> {
+                        reminderRevision++
+                        scope.launch { snackbarHostState.showSnackbar("提醒状态已变化，请重新打开。") }
+                    }
+                    StandaloneInboxTransfer.Result.ID_COLLISION ->
+                        scope.launch { snackbarHostState.showSnackbar("条目编号冲突，未改动提醒或收集箱。") }
+                    StandaloneInboxTransfer.Result.WRITE_FAILED ->
+                        scope.launch { snackbarHostState.showSnackbar("保存尚未完成，请重试；不会重复创建条目。") }
+                }
+            },
             onCompleteReminder = { reminder ->
                 if (StandaloneReminders.complete(context, reminder.id, reminder.scheduledAt)) {
                     StandaloneReminders.cancel(context, reminder)

@@ -7,6 +7,7 @@ package com.sakata.focusflow
  * - 只回答"会改成什么样"，不落库、不写任何存储、不排闹钟、不碰 Room schema；
  * - **不自动判断**两条记录是否同一门课——只把**用户选中的**记录拟成一份计划；
  * - `Course.id` 只允许"减少记录"，不允许重新编号。
+ * - 旧 `Course` 只能表达一个每周课次和一段连续生效期；不符合这两个前提的合并一律拒绝。
  *
  * 三条已定稿的取舍（2026-09-29 用户确认）：
  * 1. 合并后存活 `Course.id` = 输入中**最小**者（与操作顺序无关，确定性）；
@@ -15,7 +16,7 @@ package com.sakata.focusflow
  *
  * 实现方默认（非用户定稿，接线前需再确认，已在设计件登记）：
  * - 可编辑字段取**用户正在操作的那条**（标题为空时取 id 最小的非空标题）；
- * - 生效期取所有记录的**并集**，且**空值代表"无边界"而不是"没有值"**——
+ * - 仅在课次相同且生效期相连时取所有记录的**连续并集**，且**空值代表"无边界"而不是"没有值"**——
  *   任一记录该端为空 ⇒ 合并结果该端为空。这条是修掉一轮阻断级缺陷后定下的：
  *   原实现用 `mapNotNull{}.min()/max()` 丢弃 null，会把 `(null, null)` 这类默认课程
  *   往返成 `(150, 149)` 这种**倒置区间**，而 `CourseActivationPolicy.isActiveOn`
@@ -163,10 +164,16 @@ internal object CourseEditPlans {
         NEEDS_TWO_RECORDS,
         DUPLICATE_IDS,
 
+        /** 旧 Course 只能存一条每周课次；跨星期或节次合成一条会丢课。 */
+        DIFFERENT_MEETINGS,
+
+        /** 一条连续生效期不能表达两段之间的空档。 */
+        DISCONNECTED_EFFECTIVE_RANGES,
+
         /** 所有记录标题都为空：空标题不等于"标题一致"，交回人工。 */
         MISSING_TITLE,
 
-        /** **全部**记录的生效期都倒置时，并集端点才会倒置（只要有一条合法，守卫就不会触发）。 */
+        /** 任一输入记录的生效期倒置，都不能用其他记录的端点掩盖。 */
         INVALID_EFFECTIVE_RANGE,
 
         /** 同一门课给了多条覆盖快照：无从判断哪条为准，交回调用方。 */
@@ -228,6 +235,13 @@ internal object CourseEditPlans {
                 "输入里出现了重复的课程 id，无法确定唯一的存活记录。"
             )
         }
+        val firstMeeting = courses.first().let { Triple(it.weekday, it.startPeriod, it.endPeriod) }
+        if (courses.any { Triple(it.weekday, it.startPeriod, it.endPeriod) != firstMeeting }) {
+            return CourseMergePlan.Rejected(
+                MergeRejectReason.DIFFERENT_MEETINGS,
+                "这些记录的星期或节次不同；当前课程记录只能保存一个课次，合并会丢失其他课次。"
+            )
+        }
         val overrideIds = overrides.map { it.courseId }
         if (overrideIds.toSet().size != overrideIds.size) {
             // 同 id 两条快照时"取哪条"没有合理默认；稳定排序也只是把入参顺序换个样子，仍然依赖入参。
@@ -238,6 +252,34 @@ internal object CourseEditPlans {
         }
         // 标题：只要有任意一条非空即可合并；全空交回人工（与组①预览同一口径）。
         val byId = courses.sortedBy { it.id }
+        if (byId.any { course ->
+                val from = course.effectiveFromEpochDay
+                val until = course.effectiveUntilEpochDay
+                from != null && until != null && until < from
+            }) {
+            return CourseMergePlan.Rejected(
+                MergeRejectReason.INVALID_EFFECTIVE_RANGE,
+                "输入中有终点早于起点的生效期，请先修正该记录。"
+            )
+        }
+        // 旧 Course 只容纳一段连续区间。取最小起点／最大终点之前，先确认各段相连；
+        // 否则会在原本没有课的空档凭空增加课程和提醒。保守地拒绝所有日历空档。
+        val intervals = byId.sortedBy { it.effectiveFromEpochDay ?: Long.MIN_VALUE }
+        var coveredUntil = intervals.first().effectiveUntilEpochDay
+        for (next in intervals.drop(1)) {
+            val nextStart = next.effectiveFromEpochDay
+            val endSoFar = coveredUntil
+            if (endSoFar != null && nextStart != null &&
+                endSoFar < Long.MAX_VALUE && nextStart > endSoFar + 1
+            ) {
+                return CourseMergePlan.Rejected(
+                    MergeRejectReason.DISCONNECTED_EFFECTIVE_RANGES,
+                    "这些记录的生效期之间有空档；合成一条连续记录会在空档里新增课程。"
+                )
+            }
+            val nextEnd = next.effectiveUntilEpochDay
+            coveredUntil = if (endSoFar == null || nextEnd == null) null else maxOf(endSoFar, nextEnd)
+        }
         val titleSource = byId.firstOrNull { it.title.isNotBlank() }
         if (titleSource == null) {
             return CourseMergePlan.Rejected(
@@ -246,7 +288,6 @@ internal object CourseEditPlans {
             )
         }
 
-        // 生效期：空值 = **无边界**。任一端为空 ⇒ 结果该端为空；两端都非空才取 min/max。
         // 生效期：空值 = **无边界**。任一端为空 ⇒ 结果该端为空；两端都非空才取 min/max。
         val mergedFrom = if (byId.any { it.effectiveFromEpochDay == null }) {
             null
@@ -257,14 +298,6 @@ internal object CourseEditPlans {
             null
         } else {
             byId.maxOf { requireNotNull(it.effectiveUntilEpochDay) }
-        }
-        if (mergedFrom != null && mergedUntil != null && mergedUntil < mergedFrom) {
-            // 需要**每一条**记录都严格倒置才会走到这里（只要有一条 from<=until，min(from)<=max(until)）：
-            // 宁可不合并，也不产出"任何一天都不生效"的课程。
-            return CourseMergePlan.Rejected(
-                MergeRejectReason.INVALID_EFFECTIVE_RANGE,
-                "合并后的生效期会变成 $mergedFrom ~ $mergedUntil（终点早于起点），已停止合并。"
-            )
         }
 
         val survivingId = byId.first().id

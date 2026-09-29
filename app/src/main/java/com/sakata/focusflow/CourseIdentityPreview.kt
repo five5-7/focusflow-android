@@ -33,8 +33,14 @@ internal object CourseIdentityPreview {
         /** 组内存在缺星期/节次的行：无法判断是否为独立课次。 */
         INCOMPLETE_ROW,
 
+        /** 星期或节次越界／倒置：该行不能作为有效课次的证据。 */
+        INVALID_MEETING,
+
         /** 组内出现完全相同的星期＋节次：更像重复行，不足以支撑"多课次"结论。 */
-        DUPLICATE_MEETING
+        DUPLICATE_MEETING,
+
+        /** 同一天的两行节次重叠，不能在没有班级证据时当作两个独立课次。 */
+        OVERLAPPING_MEETINGS
     }
 
     /** 候选组的状态。只有 [MULTI_MEETING_CANDIDATE] 才是"看起来同班多课次"。 */
@@ -100,6 +106,7 @@ internal object CourseIdentityPreview {
             if (!row.hasRequestCodes) add(PreviewReviewReason.MISSING_REQUEST_CODES)
             if (row.externalSelectionKeyCandidate.isBlank()) add(PreviewReviewReason.MISSING_SELECTION_KEY)
             if (row.title.isBlank()) add(PreviewReviewReason.MISSING_TITLE)
+            if (row.hasInvalidMeeting()) add(PreviewReviewReason.INVALID_MEETING)
         }
         return PreviewGroup(
             schoolYearCode = row.schoolYearCode,
@@ -124,6 +131,9 @@ internal object CourseIdentityPreview {
         if (sorted.any { it.weekday == null || it.startPeriod == null || it.endPeriod == null }) {
             reasons += PreviewReviewReason.INCOMPLETE_ROW
         }
+        if (sorted.any { it.hasInvalidMeeting() }) {
+            reasons += PreviewReviewReason.INVALID_MEETING
+        }
         // 空标题必须待核对：把"没有标题"当成"标题一致"会凭空产出多课次结论（复验 D1）。
         if (sorted.any { it.title.isBlank() }) {
             reasons += PreviewReviewReason.MISSING_TITLE
@@ -134,6 +144,18 @@ internal object CourseIdentityPreview {
         if (meetings.size > 1 && meetings.distinct().size < meetings.size) {
             reasons += PreviewReviewReason.DUPLICATE_MEETING
         }
+        if (sorted.indices.any { left ->
+                ((left + 1) until sorted.size).any { right ->
+                    val a = sorted[left]
+                    val b = sorted[right]
+                    a.weekday != null && a.weekday == b.weekday &&
+                        a.startPeriod != null && a.endPeriod != null &&
+                        b.startPeriod != null && b.endPeriod != null &&
+                        a.startPeriod <= b.endPeriod && b.startPeriod <= a.endPeriod &&
+                        Triple(a.weekday, a.startPeriod, a.endPeriod) !=
+                            Triple(b.weekday, b.startPeriod, b.endPeriod)
+                }
+            }) reasons += PreviewReviewReason.OVERLAPPING_MEETINGS
 
         // 待核对优先于"单行"：证据不足的行即使只有一条也不能被当成干净的结论。
         val status = when {
@@ -150,5 +172,12 @@ internal object CourseIdentityPreview {
             status = status,
             reviewReasons = reasons.toList()
         )
+    }
+
+    private fun ZjuTimetableCandidateRow.hasInvalidMeeting(): Boolean {
+        val day = weekday ?: return false // 缺失由 INCOMPLETE_ROW 单独说明。
+        val start = startPeriod ?: return false
+        val end = endPeriod ?: return false
+        return day !in 1..7 || start !in 1..20 || end !in start..20
     }
 }

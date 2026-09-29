@@ -127,7 +127,12 @@ class ReminderReceiver : BroadcastReceiver() {
                         putExtra(EXTRA_STANDALONE_ID, id); putExtra(EXTRA_STANDALONE_AT, at)
                         putExtra(EXTRA_STANDALONE_DELIVERED_AT, reminder.deliveredAt ?: -1L)
                     }, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-                val open = PendingIntent.getActivity(context, 0, Intent(context, MainActivity::class.java),
+                val open = PendingIntent.getActivity(context, 0, Intent(context, MainActivity::class.java).apply {
+                    action = ACTION_STANDALONE_OPEN
+                    data = Uri.parse("focusflow://standalone/open/$id/$at")
+                    putExtra(EXTRA_STANDALONE_ID, id)
+                    putExtra(EXTRA_STANDALONE_AT, at)
+                },
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
                 manager.notify(StandaloneReminders.notificationTag(id), 0, NotificationCompat.Builder(context, CHANNEL_STANDALONE)
                     .setSmallIcon(android.R.drawable.ic_popup_reminder)
@@ -136,6 +141,7 @@ class ReminderReceiver : BroadcastReceiver() {
                     .setContentIntent(open)
                     .addAction(0, "完成本次提醒", complete)
                     .addAction(0, "10 分钟后提醒", snooze)
+                    .addAction(0, "打开处理", open)
                     .setAutoCancel(true).build())
                 return
             }
@@ -1025,6 +1031,7 @@ class ReminderReceiver : BroadcastReceiver() {
         const val ACTION_REPEAT_REFRESH = "com.sakata.focusflow.REPEAT_REFRESH"
         const val ACTION_STANDALONE_COMPLETE = "com.sakata.focusflow.STANDALONE_COMPLETE"
         const val ACTION_STANDALONE_SNOOZE = "com.sakata.focusflow.STANDALONE_SNOOZE"
+        const val ACTION_STANDALONE_OPEN = "com.sakata.focusflow.STANDALONE_OPEN"
         const val EXTRA_STANDALONE_ID = "standalone_id"
         const val EXTRA_STANDALONE_AT = "standalone_at"
         const val EXTRA_STANDALONE_DELIVERED_AT = "standalone_delivered_at"

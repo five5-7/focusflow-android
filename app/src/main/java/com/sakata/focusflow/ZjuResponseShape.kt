@@ -141,6 +141,7 @@ internal object ZjuResponseShape {
         }
 
         private fun add(text: String) {
+            if (text in values) return
             if (values.size < MAX_VALUES) values += text else valuesTruncated = true
         }
     }
