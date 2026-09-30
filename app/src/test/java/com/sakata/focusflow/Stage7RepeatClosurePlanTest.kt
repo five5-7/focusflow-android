@@ -9,6 +9,7 @@ import org.junit.Test
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.ZoneId
+import java.util.TimeZone
 
 /**
  * 阶段 7.4 重复规则恢复组：编解码（A/B）、真实捕获（C）、删除计划（D）、恢复组合（E）。
@@ -20,6 +21,8 @@ import java.time.ZoneId
 class Stage7RepeatClosurePlanTest {
 
     private val zone: ZoneId = ZoneId.of("Asia/Shanghai")
+    /** 测试开始时的系统默认时区；用于断言临时切换都被恢复。 */
+    private val initialZone: ZoneId = ZoneId.systemDefault()
     private val day: LocalDate = LocalDate.of(2026, 9, 30)
     private val now: Long = at(day, LocalTime.of(9, 0))
     private val templateId = 700L
@@ -104,6 +107,21 @@ class Stage7RepeatClosurePlanTest {
     }
 
     private fun validJson(record: RepeatClosureRecord): String = RepeatClosureCodec.encode(record)
+
+    /** 临时把系统默认时区设为 [zone]，结束时必定恢复。 */
+    private fun <T> withDefaultZone(zone: ZoneId, block: () -> T): T {
+        val original = TimeZone.getDefault()
+        TimeZone.setDefault(TimeZone.getTimeZone(zone))
+        return try {
+            block()
+        } finally {
+            TimeZone.setDefault(original)
+        }
+    }
+
+    /** 与真实 deleteRule 逐字段一致的删除输出，便于在测试里「夹带」修改。 */
+    private fun realDeletion(items: List<Item>, template: Item, at: Long): RepeatResult =
+        RepeatActions.deleteRule(items, template, at = at)
 
     // ================= A. 完整组往返 =================
 
@@ -699,5 +717,334 @@ class Stage7RepeatClosurePlanTest {
         // 期限自洽被破坏时也应明确失败，而不是悄悄放行。
         val plan = RepeatClosureRecoveryPlan.plan(expired, afterDelete, now, zone, emptyList())
         assertTrue(plan is RecoveryPlanResult.Rejected)
+    }
+
+    // ================= C2. 捕获完整性：外部删除输出必须能被真实重跑复现 =================
+
+    @Test fun `capture rejects output carrying an unrelated modification`() {
+        val tpl = template()
+        val items = listOf(tpl, pendingInstance(id = 901L))
+        val real = realDeletion(items, tpl, now - 60_000L)
+        val tampered = real.copy(
+            items = real.items.map { if (it.id == 901L) it.copy(userNote = "夹带的修改") else it },
+        )
+        val result = RepeatClosureCaptureRequest.capture(items, tpl, tampered, "g", "o")
+        assertTrue(result is RepeatClosureCapture.Rejected)
+    }
+
+    @Test fun `capture rejects output that drops an item`() {
+        val tpl = template()
+        val items = listOf(tpl, pendingInstance(id = 901L), Item(id = 950L, title = "无关任务", detail = "", kind = "任务"))
+        val real = realDeletion(items, tpl, now - 60_000L)
+        val dropped = real.copy(items = real.items.filterNot { it.id == 950L })
+        val result = RepeatClosureCaptureRequest.capture(items, tpl, dropped, "g", "o")
+        assertTrue(result is RepeatClosureCapture.Rejected)
+    }
+
+    @Test fun `capture rejects output with an extra item`() {
+        val tpl = template()
+        val items = listOf(tpl, pendingInstance(id = 901L))
+        val real = realDeletion(items, tpl, now - 60_000L)
+        val extra = real.copy(
+            items = real.items + Item(id = 960L, title = "凭空多出来的", detail = "", kind = "任务"),
+        )
+        val result = RepeatClosureCaptureRequest.capture(items, tpl, extra, "g", "o")
+        assertTrue(result is RepeatClosureCapture.Rejected)
+    }
+
+    @Test fun `capture rejects output whose order was rearranged`() {
+        val tpl = template()
+        val items = listOf(tpl, pendingInstance(id = 901L), Item(id = 950L, title = "无关任务", detail = "", kind = "任务"))
+        val real = realDeletion(items, tpl, now - 60_000L)
+        val reversed = real.copy(items = real.items.reversed())
+        val result = RepeatClosureCaptureRequest.capture(items, tpl, reversed, "g", "o")
+        assertTrue(result is RepeatClosureCapture.Rejected)
+    }
+
+    @Test fun `capture rejects output with duplicate ids`() {
+        val tpl = template()
+        val items = listOf(tpl, pendingInstance(id = 901L))
+        val real = realDeletion(items, tpl, now - 60_000L)
+        val doubled = real.copy(items = real.items + real.items.first { it.id == 901L })
+        val result = RepeatClosureCaptureRequest.capture(items, tpl, doubled, "g", "o")
+        assertTrue(result is RepeatClosureCapture.Rejected)
+    }
+
+    @Test fun `capture rejects a forged template tombstone`() {
+        val tpl = template()
+        val items = listOf(tpl, pendingInstance(id = 901L))
+        val real = realDeletion(items, tpl, now - 60_000L)
+        val realTombstone = real.items.first { it.id == tpl.id }
+        // 保持删除时刻不变，只把墓碑快照换成别的内容：真实重跑不会复现它。
+        val forgedTombstone = realTombstone.copy(trashSnapshot = ItemsCodec.encode(listOf(tpl.copy(title = "伪造的原始模板"))))
+        assertNotEquals(realTombstone.trashSnapshot, forgedTombstone.trashSnapshot)
+        val forgedItems = real.items.map { if (it.id == tpl.id) forgedTombstone else it }
+
+        val result = RepeatClosureCaptureRequest.capture(items, tpl, real.copy(items = forgedItems), "g", "o")
+        assertTrue("forged tombstone snapshot must be rejected, got $result", result is RepeatClosureCapture.Rejected)
+    }
+
+    @Test fun `capture rejects a self inconsistent tombstone timestamp`() {
+        val tpl = template()
+        val items = listOf(tpl, pendingInstance(id = 901L))
+        val real = realDeletion(items, tpl, now - 60_000L)
+        // 墓碑没有删除时刻：无法证明这是一次真实删除。
+        val noTime = real.items.map {
+            if (it.id == tpl.id) it.copy(trashedAt = null) else it
+        }
+        val result = RepeatClosureCaptureRequest.capture(items, tpl, real.copy(items = noTime), "g", "o")
+        assertTrue(result is RepeatClosureCapture.Rejected)
+    }
+
+    @Test fun `capture still accepts a real deletion output and ignores event ids`() {
+        val tpl = template()
+        val items = listOf(tpl, pendingInstance(id = 901L), Item(id = 950L, title = "无关任务", detail = "", kind = "任务"))
+        val real = realDeletion(items, tpl, now - 60_000L)
+        // 事件 ID 是随机生成的：即便完全换掉事件，也不影响捕获结论。
+        val withOtherEvents = real.copy(events = real.events.map { it.copy(id = it.id + 777L) })
+        val result = RepeatClosureCaptureRequest.capture(items, tpl, withOtherEvents, "g", "o")
+        assertTrue("expected capture to succeed, got $result", result is RepeatClosureCapture.Ok)
+        assertEquals(listOf(901L), (result as RepeatClosureCapture.Ok).record.instances.map { it.itemId })
+    }
+
+    // ================= C3. 删除计划的 postState 稳定性 =================
+
+    @Test fun `delete plan keeps the deletion postState and never rewrites it from refresh`() {
+        val tpl = template()
+        val items = listOf(tpl, pendingInstance(id = 901L))
+        val plan = RepeatClosureDeletePlan.plan(items, tpl, "group-1", "op-1", now = now - 60_000L)
+        assertTrue(plan is DeletePlanResult.Ok)
+        val ok = plan as DeletePlanResult.Ok
+        val real = realDeletion(items, tpl, now - 60_000L)
+        val member = ok.groupToWrite.instances.single()
+        // postState 必须仍是真实删除留下的状态。
+        assertEquals(real.items.single { it.id == 901L }, member.postState)
+        assertEquals("重复历史", member.postState.kind)
+        assertNull(member.postState.scheduledAt)
+    }
+
+    @Test fun `delete plan does not pollute the closure when an unrelated template refreshes`() {
+        val tpl = template(id = 700L)
+        val other = template(id = 710L, title = "夜读")
+        val items = listOf(tpl, other, pendingInstance(id = 901L, templateId = 700L))
+        val plan = RepeatClosureDeletePlan.plan(items, tpl, "group-1", "op-1", now = now - 60_000L)
+        assertTrue(plan is DeletePlanResult.Ok)
+        val ok = plan as DeletePlanResult.Ok
+        val otherIds = ok.itemsToWrite.filter { it.repeatTemplateId == other.id }.map { it.id }.toSet()
+        assertTrue("unrelated template should still generate", otherIds.isNotEmpty())
+        assertTrue(otherIds.none { id -> ok.groupToWrite.instances.any { it.itemId == id } })
+        assertEquals(setOf(901L), ok.groupToWrite.instances.map { it.itemId }.toSet())
+    }
+
+    // ================= C4. 完整模板字段往返（含非空关联字段） =================
+
+    @Test fun `template round trip preserves non null links and every field`() {
+        val linked = template().copy(
+            goalId = 4242L,
+            parentCaptureId = 5252L,
+            userNote = "模板备注",
+            sourceDetail = "模板来源",
+            nextAction = "下一步",
+            dueAt = now + 86_400_000L,
+            durationMinutes = 25,
+            priority = "high",
+            planBucket = "later",
+            planFocus = true,
+            repeatStartDay = midnight(day),
+            repeatMinute = 7 * 60 + 30,
+            checklist = listOf(ChecklistEntry(31L, "模板检查项", true)),
+        )
+        val items = listOf(linked, pendingInstance(id = 901L))
+        val record = captureOrFail(items, linked)
+        val decoded = roundTrip(record)
+
+        val pre = decoded.template.preState
+        assertEquals(linked, pre)
+        // 用**非空**关联字段证明关联被保留，而不是靠 null 蒙混。
+        assertEquals(4242L, pre.goalId)
+        assertEquals(5252L, pre.parentCaptureId)
+        assertEquals("模板备注", pre.userNote)
+        assertEquals("模板来源", pre.sourceDetail)
+        assertEquals("下一步", pre.nextAction)
+        assertEquals(now + 86_400_000L, pre.dueAt)
+        assertEquals(25, pre.durationMinutes)
+        assertEquals("high", pre.priority)
+        assertEquals("later", pre.planBucket)
+        assertTrue(pre.planFocus)
+        assertEquals(listOf(ChecklistEntry(31L, "模板检查项", true)), pre.checklist)
+        assertEquals(7 * 60 + 30, pre.repeatMinute)
+    }
+
+    @Test fun `template snapshot check ignores json key order but rejects changed content`() {
+        val tpl = template()
+        val items = listOf(tpl, pendingInstance(id = 901L))
+        val record = captureOrFail(items, tpl)
+        val afterDelete = itemStateAfterCapture(items, tpl, record)
+
+        // 在不改变任何值的前提下，把 tombstone 快照与 preState 的无损 JSON 都做键旋转：
+        // 自洽检查必须只看内容，不看键顺序。
+        val originalSnapshot = requireNotNull(record.template.postState.trashSnapshot)
+        val rotatedSnapshot = rotateTopLevelKey(originalSnapshot)
+        assertNotEquals(originalSnapshot, rotatedSnapshot)
+        val rotatedTombstone = record.template.postState.copy(trashSnapshot = rotatedSnapshot)
+        val reordered = record.copy(template = record.template.copy(postState = rotatedTombstone))
+        // 当前快照里的墓碑也换成同一份旋转过的 JSON，避免被当成「墓碑被改过」。
+        val currentWithRotated = afterDelete.map { if (it.id == tpl.id) rotatedTombstone else it }
+        val accepted = RepeatClosureRecoveryPlan.plan(reordered, currentWithRotated, now, zone, emptyList())
+        assertTrue("reordered keys must still be consistent, got $accepted", accepted is RecoveryPlanResult.Ok)
+
+        // 内容真的被改过时仍然拒绝。
+        val changed = record.copy(template = record.template.copy(preState = record.template.preState.copy(title = "改过")))
+        val rejected = RepeatClosureRecoveryPlan.plan(changed, afterDelete, now, zone, emptyList())
+        assertTrue(rejected is RecoveryPlanResult.Rejected)
+    }
+
+    /** 把顶层单个对象 `{...}` 的第一个键值对移到最后，值完全不变。 */
+    private fun rotateTopLevelKey(json: String): String {
+        val start = json.indexOf('{')
+        if (start < 0) return json
+        var depth = 0
+        var inString = false
+        var escaped = false
+        var end = -1
+        var firstComma = -1
+        json.forEachIndexed { index, ch ->
+            if (index < start) return@forEachIndexed
+            when {
+                escaped -> escaped = false
+                ch == '\\' -> escaped = true
+                ch == '"' -> inString = !inString
+                inString -> Unit
+                ch == '{' -> depth++
+                ch == '}' -> { depth--; if (depth == 0 && end < 0) end = index }
+                ch == ',' && depth == 1 && firstComma < 0 -> firstComma = index
+            }
+        }
+        if (end < 0 || firstComma < 0) return json
+        val head = json.substring(start + 1, firstComma)
+        val tail = json.substring(firstComma + 1, end)
+        return json.substring(0, start + 1) + tail + "," + head + json.substring(end)
+    }
+
+    // ================= C5. 记录校验与计划入口守卫 =================
+
+    @Test fun `recovery plan rejects a blank group or operation id`() {
+        val tpl = template()
+        val items = listOf(tpl, pendingInstance(id = 901L))
+        val record = captureOrFail(items, tpl)
+        val afterDelete = itemStateAfterCapture(items, tpl, record)
+
+        assertTrue(
+            RepeatClosureRecoveryPlan.plan(record.copy(groupId = " "), afterDelete, now, zone) is RecoveryPlanResult.Rejected,
+        )
+        assertTrue(
+            RepeatClosureRecoveryPlan.plan(record.copy(operationId = ""), afterDelete, now, zone) is RecoveryPlanResult.Rejected,
+        )
+    }
+
+    @Test fun `recovery plan rejects an active record that carries restoration results`() {
+        val tpl = template()
+        val items = listOf(tpl, pendingInstance(id = 901L))
+        val record = captureOrFail(items, tpl)
+        val afterDelete = itemStateAfterCapture(items, tpl, record)
+        val inconsistent = record.copy(
+            status = RecoveryGroupStatus.ACTIVE,
+            restoration = RepeatClosureRestoration(
+                now,
+                listOf(RepeatClosureRestoredInstance(901L, RepeatClosureInstanceStatus.RESTORED)),
+            ),
+        )
+        assertTrue(
+            RepeatClosureRecoveryPlan.plan(inconsistent, afterDelete, now, zone) is RecoveryPlanResult.Rejected,
+        )
+    }
+
+    @Test fun `recovery plan rejects a non positive now`() {
+        val tpl = template()
+        val items = listOf(tpl, pendingInstance(id = 901L))
+        val record = captureOrFail(items, tpl)
+        val afterDelete = itemStateAfterCapture(items, tpl, record)
+        assertTrue(RepeatClosureRecoveryPlan.plan(record, afterDelete, 0L, zone) is RecoveryPlanResult.Rejected)
+        assertTrue(RepeatClosureRecoveryPlan.plan(record, afterDelete, -1L, zone) is RecoveryPlanResult.Rejected)
+    }
+
+    @Test fun `successful plan group round trips exactly`() {
+        val tpl = template()
+        val items = listOf(tpl, pendingInstance(id = 901L))
+        val (plan, _, _) = deleteThenRecover(items, tpl)
+        assertTrue(plan is RecoveryPlanResult.Ok)
+        val ok = plan as RecoveryPlanResult.Ok
+        val decoded = roundTrip(ok.groupToWrite)
+        assertEquals(ok.groupToWrite, decoded)
+        assertEquals(RecoveryGroupStatus.RESTORED, decoded.status)
+        assertEquals(ok.restoration, decoded.restoration)
+    }
+
+    @Test fun `delete plan group round trips exactly`() {
+        val tpl = template()
+        val items = listOf(tpl, pendingInstance(id = 901L))
+        val plan = RepeatClosureDeletePlan.plan(items, tpl, "group-1", "op-1", now = now - 60_000L)
+        assertTrue(plan is DeletePlanResult.Ok)
+        val ok = plan as DeletePlanResult.Ok
+        assertEquals(ok.groupToWrite, roundTrip(ok.groupToWrite))
+    }
+
+    // ================= C6. 统一时区 =================
+
+    @Test fun `recovery plan rejects a zone that disagrees with the system zone`() {
+        val tpl = template()
+        val items = listOf(tpl, pendingInstance(id = 901L))
+        val record = captureOrFail(items, tpl)
+        val afterDelete = itemStateAfterCapture(items, tpl, record)
+        val mismatched = if (ZoneId.systemDefault() == ZoneId.of("Asia/Shanghai")) ZoneId.of("UTC") else ZoneId.of("Asia/Shanghai")
+        val plan = RepeatClosureRecoveryPlan.plan(record, afterDelete, now, mismatched, emptyList())
+        assertTrue(plan is RecoveryPlanResult.Rejected)
+    }
+
+    @Test fun `today dayOnly instance survives recovery under both Shanghai and UTC`() {
+        listOf(ZoneId.of("Asia/Shanghai"), ZoneId.of("UTC")).forEach { systemZone ->
+            withDefaultZone(systemZone) {
+                // 用**当前**系统时区构造「今天」的全天实例。
+                val today = LocalDate.now(systemZone)
+                val todayMidnight = today.atStartOfDay(systemZone).toInstant().toEpochMilli()
+                val todayNoon = today.atTime(LocalTime.NOON).atZone(systemZone).toInstant().toEpochMilli()
+                val tpl = template().copy(repeatStartDay = todayMidnight, repeatMinute = 9 * 60)
+                val items = listOf(
+                    tpl,
+                    pendingInstance(
+                        id = 901L,
+                        scheduledAt = todayMidnight,
+                        occurrenceDay = todayMidnight,
+                        dayOnly = true,
+                    ),
+                )
+                val record = captureOrFail(items, tpl, deletedAt = todayNoon - 60_000L)
+                val afterDelete = itemStateAfterCapture(items, tpl, record)
+                val plan = RepeatClosureRecoveryPlan.plan(record, afterDelete, todayNoon, systemZone, emptyList())
+
+                assertTrue("$systemZone: expected ok, got $plan", plan is RecoveryPlanResult.Ok)
+                val ok = plan as RecoveryPlanResult.Ok
+                val restored = ok.itemsToWrite.single { it.id == 901L }
+                // 不得立即变成过期历史。
+                assertEquals("$systemZone: restored instance must stay a live task", "任务", restored.kind)
+                assertEquals("$systemZone: scheduledAt must be unchanged", todayMidnight, restored.scheduledAt)
+                // 也不得为同一发生日重复生成实例。
+                assertEquals(
+                    "$systemZone: must not duplicate the same occurrence day",
+                    1,
+                    ok.itemsToWrite.count { it.repeatTemplateId == tpl.id && it.kind == "任务" },
+                )
+                assertEquals(
+                    RepeatClosureInstanceStatus.RESTORED,
+                    ok.restoration.instances.single { it.itemId == 901L }.status,
+                )
+            }
+        }
+    }
+
+    @Test fun `default zone is restored after the time zone tests`() {
+        // 说明：时区测试通过 withDefaultZone 的 finally 恢复；这里断言当前默认时区
+        // 与测试开始时记录的一致，若上面的用例忘记恢复，本用例会失败。
+        assertEquals(initialZone, ZoneId.systemDefault())
     }
 }

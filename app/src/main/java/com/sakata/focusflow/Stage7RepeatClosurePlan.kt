@@ -62,28 +62,47 @@ object RepeatClosureCaptureRequest {
         groupId: String,
         operationId: String,
     ): RepeatClosureCapture {
-        if (hasDuplicateItemIds(currentItems)) return RepeatClosureCapture.Rejected("current snapshot has duplicate item ids")
         if (groupId.isBlank()) return RepeatClosureCapture.Rejected("groupId must not be blank")
         if (operationId.isBlank()) return RepeatClosureCapture.Rejected("operationId must not be blank")
+        if (hasDuplicateItemIds(currentItems)) return RepeatClosureCapture.Rejected("current snapshot has duplicate item ids")
+        // 外部删除输出自身必须身份唯一，否则无法证明它对应一次真实删除。
+        if (hasDuplicateItemIds(deleted.items)) return RepeatClosureCapture.Rejected("deletion output has duplicate item ids")
 
         // 模板必须是当前快照里的那一个对象，不能挑同名对象代替。
         val liveTemplate = currentItems.firstOrNull { it.id == template.id }
             ?: return RepeatClosureCapture.Rejected("template ${template.id} is missing from the current snapshot")
         if (liveTemplate != template) return RepeatClosureCapture.Rejected("template request is stale")
 
-        val tombstone = deleted.items.firstOrNull { it.id == template.id }
+        val suppliedTombstone = deleted.items.firstOrNull { it.id == template.id }
             ?: return RepeatClosureCapture.Rejected("deletion did not produce a tombstone for ${template.id}")
-        val deletedAt = tombstone.trashedAt
-            ?: return RepeatClosureCapture.Rejected("tombstone has no deletion time")
-        if (tombstone.kind != "回收站") return RepeatClosureCapture.Rejected("deletion output is not a tombstone")
+        if (suppliedTombstone.kind != "回收站") return RepeatClosureCapture.Rejected("deletion output is not a tombstone")
+        if (suppliedTombstone.trashedAt == null) return RepeatClosureCapture.Rejected("tombstone has no deletion time")
 
-        // 精确等于 stop 命中的集合：同一谓词，且这些实例必须真的在删除输出里被改动。
+        // 不信任外部输出：用真实 deleteRule 在同样输入上重跑一遍，删除时刻只取自
+        // **真实墓碑**，然后核对完整 items 输出——成员、无关项、顺序、字段全部一致。
+        // 只忽略随机生成的事件 ID。
+        val authoritative = RepeatActions.deleteRule(currentItems, liveTemplate, at = suppliedTombstone.trashedAt)
+        if (authoritative.events.isEmpty()) return RepeatClosureCapture.Rejected("deletion did not actually happen")
+        if (authoritative.items.size != deleted.items.size) {
+            return RepeatClosureCapture.Rejected("deletion output does not match a real deleteRule result")
+        }
+        authoritative.items.forEachIndexed { index, item ->
+            if (item != deleted.items[index]) {
+                return RepeatClosureCapture.Rejected("deletion output item $index disagrees with a real deleteRule result")
+            }
+        }
+        // 核对通过后，删除时刻以真实重跑结果为准（伪造的墓碑走不到这里）。
+        val realTombstone = authoritative.items.first { it.id == template.id }
+        val deletedAt = realTombstone.trashedAt
+            ?: return RepeatClosureCapture.Rejected("real deletion produced no deletion time")
+
+        // 精确等于 stop 命中的集合：同一谓词，且这些实例必须真的在重跑输出里被改动。
         val affectedPre = currentItems.filter {
             it.repeatTemplateId == template.id && it.kind == "任务" && !it.done
         }
         val affectedIds = affectedPre.mapTo(mutableSetOf()) { it.id }
         val instances = affectedPre.map { pre ->
-            val post = deleted.items.firstOrNull { it.id == pre.id }
+            val post = authoritative.items.firstOrNull { it.id == pre.id }
                 ?: return RepeatClosureCapture.Rejected("instance ${pre.id} is missing from the deletion output")
             if (post == pre) return RepeatClosureCapture.Rejected("instance ${pre.id} was not changed by the deletion")
             RecoveryInstanceMember(
@@ -105,16 +124,16 @@ object RepeatClosureCaptureRequest {
         val record = RepeatClosureRecord(
             groupId = groupId,
             operationId = operationId,
-            template = RecoveryTemplateMember(template.id, tombstone, template),
+            template = RecoveryTemplateMember(template.id, realTombstone, template),
             instances = instances,
             deletedAt = deletedAt,
             expiresAt = expiresAt,
             status = RecoveryGroupStatus.ACTIVE,
             restoration = null,
         )
-        // 复用既有结构守卫；同时用它拦截「陈旧请求 / 非法删除状态」。
-        RepeatClosureRecovery.structureRejection(record.asClosure())?.let {
-            return RepeatClosureCapture.Rejected("captured group is structurally invalid: $it")
+        // 复用统一的记录校验：不在这里另写一套结构判定。
+        RepeatClosureCodec.recordRejection(record)?.let {
+            return RepeatClosureCapture.Rejected("captured group is invalid: $it")
         }
         return RepeatClosureCapture.Ok(record)
     }
@@ -163,17 +182,19 @@ object RepeatClosureDeletePlan {
 
         // 既有业务链：删除结果再过一次 refresh，与真实保存路径一致。
         val refreshed = RepeatActions.refresh(deleted.items, at = now, courses = courses)
-        // refresh 可能为**其它存活模板**生成实例；那属于正常变化，不得被算成删除成员。
-        val groupToWrite = captured.copy(
-            instances = captured.instances.map { member ->
-                val current = refreshed.items.firstOrNull { it.id == member.itemId }
-                if (current == null || current == member.postState) member
-                else member.copy(postState = current)
-            },
-        )
+        // refresh 可能为**其它存活模板**生成实例，那是正常变化；但它不得改写或移除闭包成员。
+        // 成员的 postState 一律保留真实删除留下的状态，绝不被 refresh 的结果替换。
+        captured.instances.forEach { member ->
+            val afterRefresh = refreshed.items.firstOrNull { it.id == member.itemId }
+                ?: return DeletePlanResult.Rejected("refresh removed closure member ${member.itemId}")
+            if (afterRefresh != member.postState) {
+                return DeletePlanResult.Rejected("refresh changed closure member ${member.itemId}")
+            }
+        }
+        RepeatClosureCodec.recordRejection(captured)?.let { return DeletePlanResult.Rejected(it) }
         return DeletePlanResult.Ok(
             itemsToWrite = refreshed.items,
-            groupToWrite = groupToWrite,
+            groupToWrite = captured,
             events = deleted.events + refreshed.events,
         )
     }
@@ -194,6 +215,13 @@ object RepeatClosureRecoveryPlan {
         courses: List<Course> = emptyList(),
         existingGroups: List<RepeatClosureRecord> = emptyList(),
     ): RecoveryPlanResult {
+        // 计算前先校验记录与 now；无效输入不进入任何资格判定。
+        if (now <= 0L) return RecoveryPlanResult.Rejected("now must be positive")
+        if (zoneId != ZoneId.systemDefault()) {
+            return RecoveryPlanResult.Rejected("zoneId must match the system zone used by refresh")
+        }
+        RepeatClosureCodec.recordRejection(record)?.let { return RecoveryPlanResult.Rejected(it) }
+
         // 组终态幂等：不再恢复、不再 refresh、不追加事件。
         if (record.status == RecoveryGroupStatus.RESTORED) {
             return RecoveryPlanResult.Rejected("group ${record.groupId} is already RESTORED")
@@ -239,9 +267,15 @@ object RepeatClosureRecoveryPlan {
                 )
             },
         )
+        val groupToWrite = record.copy(status = RecoveryGroupStatus.RESTORED, restoration = restoration)
+        // 每个成功返回的记录都必须能合法往返，且往返后字段一致；
+        // 这里做的是断言而不是「先编解码一次再交出去」，不会掩盖数据变化。
+        RepeatClosureCodec.assertRoundTrips(groupToWrite)?.let {
+            return RecoveryPlanResult.Rejected("restored group does not round trip: $it")
+        }
         return RecoveryPlanResult.Ok(
             itemsToWrite = refreshed.items,
-            groupToWrite = record.copy(status = RecoveryGroupStatus.RESTORED, restoration = restoration),
+            groupToWrite = groupToWrite,
             // 只为 refresh 真实生成的事件返回；skipped 实例不新增说明性事件。
             events = refreshed.events,
             restoration = restoration,
