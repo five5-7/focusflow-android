@@ -18,6 +18,10 @@ import com.sakata.focusflow.TaskRecorder
 interface CoreDataRepository : CoreDataReadRepository {
     val source: CoreDataRuntimeSource
 
+    /** Stage 7: data and recovery payload share one guarded commit. */
+    fun commitRecovery(expected: CoreDataSnapshot, updated: CoreDataSnapshot): CoreDataWriteResult =
+        CoreDataWriteResult(CoreDataWriteStatus.NOT_READY, "recovery storage is unavailable")
+
     fun replaceTasks(tasks: List<Item>, expectedTasks: List<Item>): CoreDataWriteResult
 
     fun replaceTasksAndAppendEvents(
@@ -64,6 +68,9 @@ interface CoreDataRepository : CoreDataReadRepository {
 }
 
 internal interface LegacyCoreDataPersistence {
+    fun commitRecovery(expected: CoreDataSnapshot, updated: CoreDataSnapshot): CoreDataWriteResult =
+        CoreDataWriteResult(CoreDataWriteStatus.NOT_READY, "recovery persistence is unavailable")
+
     fun read(): CoreDataSnapshot
     fun saveItemsIfUnchanged(items: List<Item>, expectedItems: List<Item>): Boolean
     fun saveItemsAndTaskEvents(items: List<Item>, events: List<TaskEvent>, expectedItems: List<Item>): Boolean
@@ -97,6 +104,8 @@ internal interface LegacyCoreDataPersistence {
 private class PrototypeStoreCoreDataPersistence(
     private val store: PrototypeStore
 ) : LegacyCoreDataPersistence, CourseRecoveryStorage {
+    override fun commitRecovery(expected: CoreDataSnapshot, updated: CoreDataSnapshot) = store.commitStage7Recovery(expected, updated)
+
     override fun read(): CoreDataSnapshot =
         (LegacyCoreDataReadRepository(store).read() as CoreDataReadResult.Ready).snapshot
 
@@ -192,6 +201,7 @@ class LegacyCoreDataRepository internal constructor(
     constructor(store: PrototypeStore) : this(PrototypeStoreCoreDataPersistence(store))
 
     override val source: CoreDataRuntimeSource = CoreDataRuntimeSource.LEGACY
+    override fun commitRecovery(expected: CoreDataSnapshot, updated: CoreDataSnapshot) = persistence.commitRecovery(expected, updated)
 
     /**
      * Stage 7.5: the recovery store shares this adapter's persistence primitives (same lock, same
@@ -386,9 +396,13 @@ class LegacyCoreDataRepository internal constructor(
 /** Room adapter is constructed only after the activation coordinator selects Room. */
 class RoomCoreDataRepository(
     private val reader: CoreDataReadRepository,
-    private val writer: RoomCoreDataWriteRepository
+    private val writer: RoomCoreDataWriteRepository,
+    internal val hasPendingCourseEdits: () -> Boolean = { false }
 ) : CoreDataRepository {
     override val source: CoreDataRuntimeSource = CoreDataRuntimeSource.ROOM
+    override fun commitRecovery(expected: CoreDataSnapshot, updated: CoreDataSnapshot) = writer.commitRecovery(expected, updated)
+    internal val recoveryStore: CourseRecoveryStore by lazy { LegacyCourseRecoveryStore(RoomCourseRecoveryStorage(this, writer)) }
+    internal fun <T> withCourseWriteLock(block: () -> T): T = writer.withRecoveryLock(block)
     override fun read(): CoreDataReadResult = reader.read()
 
     override fun replaceTasks(tasks: List<Item>, expectedTasks: List<Item>): CoreDataWriteResult =

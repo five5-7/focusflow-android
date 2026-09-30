@@ -4,6 +4,9 @@ import android.content.Context
 import com.sakata.focusflow.data.CoreDataReadResult
 import com.sakata.focusflow.data.CoreDataRepository
 import com.sakata.focusflow.data.withCourseWriteLock
+import com.sakata.focusflow.data.Stage7Inverse
+import com.sakata.focusflow.data.CoursePreferenceSnapshot
+import com.sakata.focusflow.data.Stage7CommitGuard
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -62,6 +65,7 @@ internal object CourseMergeOperation {
      * opposite orders by the merge and split operations while they call each other's `recover`.
      */
     fun recover(context: Context, repository: CoreDataRepository): Boolean = repository.withCourseWriteLock {
+        if (StorageProtection.readOnly || Stage7CommitGuard.uncertain) return@withCourseWriteLock false
         val prefs = context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
         val raw = runCatching { prefs.getString(KEY, null) }.getOrElse { return@withCourseWriteLock false }
             ?: return@withCourseWriteLock true
@@ -88,6 +92,7 @@ internal object CourseMergeOperation {
         context: Context, repository: CoreDataRepository, expectedCourses: List<Course>,
         selectedIds: Set<Long>, preferredId: Long, expectedPlan: CourseEditPlans.CourseMergePlan.Applied
     ): Outcome = repository.withCourseWriteLock {
+        if (StorageProtection.readOnly || Stage7CommitGuard.uncertain) return@withCourseWriteLock Outcome.WRITE_FAILED
         if (!CourseSplitOperation.recover(context, repository) || !recover(context, repository))
             return@withCourseWriteLock Outcome.RECOVERY_PENDING
         val current = (repository.read() as? CoreDataReadResult.Ready)?.snapshot?.courses
@@ -100,6 +105,11 @@ internal object CourseMergeOperation {
         val plan = preview(context, selected, preferredId) as? CourseEditPlans.CourseMergePlan.Applied
             ?: return@withCourseWriteLock Outcome.REJECTED
         if (plan != expectedPlan) return@withCourseWriteLock Outcome.STALE
+        val captured = runCatching { CoursePreferenceSnapshot.capture(context,selectedIds) }.getOrElse { return@withCourseWriteLock Outcome.REJECTED }
+        val high = captured.watermarks.values.filterNotNull().maxOrNull()
+        val afterPreferences = CoursePreferenceSnapshot(selectedIds.associateWith { if(it==plan.survivingId) plan.mergedReminderEnabled else null },
+            selectedIds.associateWith { if(it==plan.survivingId) high else null },
+            selectedIds.associateWith { if(it==plan.survivingId) plan.mergedTemporaryLocations else emptyMap() })
         val prefs = context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
         val journal = Journal(plan.survivingId, plan.deletedCourseIds,
             plan.mergedReminderEnabled, plan.mergedTemporaryLocations)
@@ -113,9 +123,8 @@ internal object CourseMergeOperation {
                 else -> course
             }
         }
-        if (!repository.replaceCourses(updated, current).applied) {
+        if (!Stage7Inverse.commitCourseEdit(context,repository,current,updated,"course_merge_inverse",captured,afterPreferences).applied) {
             // No preference migration has occurred; a failed journal clear is harmless on recovery.
-            prefs.edit().remove(KEY).commit()
             return@withCourseWriteLock Outcome.WRITE_FAILED
         }
         if (recover(context, repository)) Outcome.APPLIED else Outcome.RECOVERY_PENDING

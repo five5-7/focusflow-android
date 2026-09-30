@@ -1,5 +1,6 @@
 package com.sakata.focusflow
 
+
 import android.content.Context
 import com.sakata.focusflow.data.CourseRecoveryCodec
 import com.sakata.focusflow.data.CourseRecoveryCommit
@@ -348,6 +349,45 @@ class PrototypeStore(context: Context) {
         } catch (_: Exception) { return@synchronized false }
         preferences.edit().putString("items", ItemsCodec.encode(items))
             .putString("trash_groups_v1", com.sakata.focusflow.data.TrashJournalCodec.encode(groups)).commit()
+    }
+
+    fun loadStage7Records(): List<com.sakata.focusflow.data.OperationRecord> =
+        com.sakata.focusflow.data.Stage7RecordsCodec.decode(preferences.getString("stage7_records_v1", null))
+
+    fun commitStage7Recovery(
+        expected: com.sakata.focusflow.data.CoreDataSnapshot,
+        updated: com.sakata.focusflow.data.CoreDataSnapshot
+    ): com.sakata.focusflow.data.CoreDataWriteResult = synchronized(taskHistoryLock) {
+        if (StorageProtection.readOnly) return@synchronized com.sakata.focusflow.data.CoreDataWriteResult(com.sakata.focusflow.data.CoreDataWriteStatus.INVALID_STATE, "storage is protected")
+        var submitting = false
+        try {
+            val current = (com.sakata.focusflow.data.LegacyCoreDataReadRepository(this).read() as com.sakata.focusflow.data.CoreDataReadResult.Ready).snapshot
+            if (current != expected) return@synchronized com.sakata.focusflow.data.CoreDataWriteResult(com.sakata.focusflow.data.CoreDataWriteStatus.CONDITION_NOT_MET, "recovery snapshot changed")
+            require(updated.activitySessions == current.activitySessions)
+            com.sakata.focusflow.data.Stage7RecordsCodec.verify(updated.operationRecords)
+            val groups = com.sakata.focusflow.data.TrashJournal.update(current.items, updated.items, current.trashGroups)
+            require(updated.items.map { it.id }.distinct().size == updated.items.size && updated.items.all { it.id > 0 })
+            require(updated.goals.map { it.id }.distinct().size == updated.goals.size && updated.goals.all { it.id > 0 })
+            updated.courses.toCourseParentEntities()
+            submitting = true
+            val confirmed = preferences.edit()
+                .putString("items", ItemsCodec.encode(updated.items))
+                .putString("task_events", TaskEventCodec.encode(updated.taskEvents))
+                .putString("goals", StoredGoalsCodec.encodeGoals(updated.goals))
+                .putString("courses", encodeCourses(updated.courses))
+                .putString("trash_groups_v1", com.sakata.focusflow.data.TrashJournalCodec.encode(groups))
+                .putString("stage7_records_v1", com.sakata.focusflow.data.Stage7RecordsCodec.encode(updated.operationRecords))
+                .commit()
+            if (!confirmed) {
+                com.sakata.focusflow.data.Stage7CommitGuard.markUncertain()
+                return@synchronized com.sakata.focusflow.data.CoreDataWriteResult(com.sakata.focusflow.data.CoreDataWriteStatus.WRITE_FAILED, "disk write is unconfirmed; restart before recovery")
+            }
+            com.sakata.focusflow.data.Stage7CommitGuard.confirm()
+            com.sakata.focusflow.data.CoreDataWriteResult(com.sakata.focusflow.data.CoreDataWriteStatus.APPLIED)
+        } catch (error: Exception) {
+            if (submitting) com.sakata.focusflow.data.Stage7CommitGuard.markUncertain()
+            com.sakata.focusflow.data.CoreDataWriteResult(if(submitting) com.sakata.focusflow.data.CoreDataWriteStatus.WRITE_FAILED else com.sakata.focusflow.data.CoreDataWriteStatus.INVALID_INPUT, "recovery write failed: ${error.javaClass.simpleName}")
+        }
     }
 
     /** Stage 7 journal shares the task/history commit, including a failed-commit rollback. */

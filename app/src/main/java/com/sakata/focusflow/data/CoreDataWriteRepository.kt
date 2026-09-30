@@ -46,6 +46,7 @@ interface RoomCoreDataWriteStore : RoomCoreDataSource {
     fun replacePlans(plans: List<PlanEntity>)
     fun replaceActivitySessions(sessions: List<ActivitySessionEntity>)
     fun replaceCourses(courses: List<CourseEntity>, rules: List<CourseMeetingRuleEntity>)
+    fun replaceOperationRecords(records: List<OperationRecordEntity>) { error("operation storage is unavailable") }
     fun replaceTrashGroups(groups: List<TrashGroupEntity>)
     fun updateMigrationCounts(
         taskCount: Int,
@@ -101,6 +102,11 @@ class DatabaseRoomCoreDataWriteStore(private val database: FocusFlowDatabase) : 
         if (rules.isNotEmpty()) database.courseMeetingRuleDao().insertAll(rules)
     }
 
+    override fun replaceOperationRecords(records: List<OperationRecordEntity>) {
+        database.operationRecordDao().deleteAll()
+        if (records.isNotEmpty()) database.operationRecordDao().insertAll(records)
+    }
+
     override fun replaceTrashGroups(groups: List<TrashGroupEntity>) {
         database.trashGroupDao().deleteAll()
         if (groups.isNotEmpty()) database.trashGroupDao().insertAll(groups)
@@ -138,6 +144,23 @@ class RoomCoreDataWriteRepository(
     private val store: RoomCoreDataWriteStore,
     private val currentWeekKey: () -> Long = GoalPlanner::currentWeekKey
 ) {
+    internal fun <T> withRecoveryLock(block: () -> T): T = store.inTransaction(block)
+
+    fun commitRecovery(expected: CoreDataSnapshot, updated: CoreDataSnapshot): CoreDataWriteResult = transact { current ->
+        if (current != expected) return@transact CoreDataWriteResult(CoreDataWriteStatus.CONDITION_NOT_MET, "recovery snapshot changed")
+        require(updated.activitySessions == current.activitySessions) { "recovery cannot change activity sessions" }
+        Stage7RecordsCodec.verify(updated.operationRecords)
+        validate(updated.items, updated.taskEvents, updated.goals)?.let { return@transact invalidInput(it) }
+        val ordinary = TrashJournal.update(current.items, updated.items, current.trashGroups)
+        store.replaceTasks(updated.items.toTaskEntities())
+        store.replaceTaskEvents(updated.taskEvents.toTaskEventEntities())
+        store.replacePlans(updated.goals.toPlanEntities())
+        store.replaceCourses(updated.courses.toCourseParentEntities(), updated.courses.mapIndexed { i, c -> CourseMeetingRuleEntity.fromLegacy(c, i) })
+        store.replaceTrashGroups(ordinary.map(TrashGroupEntity::fromRecord))
+        store.replaceOperationRecords(updated.operationRecords.map { OperationRecordEntity(it.operationId, it.kind, it.recordedAt, it.state, it.payload) })
+        applied()
+    }
+
     fun replaceTasks(tasks: List<Item>, expectedTasks: List<Item>): CoreDataWriteResult =
         transact { current ->
             if (current.items != expectedTasks) return@transact staleTasks()

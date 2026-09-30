@@ -128,7 +128,8 @@ object AndroidCoreDataRuntimeFactory {
                 val store = DatabaseRoomCoreDataWriteStore(room)
                 RoomCoreDataRepository(
                     reader = RoomCoreDataReadRepository(store),
-                    writer = RoomCoreDataWriteRepository(store)
+                    writer = RoomCoreDataWriteRepository(store),
+                    hasPendingCourseEdits = { PrototypeStore(appContext).hasPendingCourseEditJournal() }
                 )
             }
         )

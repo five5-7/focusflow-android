@@ -56,7 +56,7 @@ class CourseSplitOperationTest {
         assertTrue(repository.replaceCourses(listOf(original), emptyList()).applied)
         assertTrue(CourseLocationOverrides.set(context, 10, 220, "原地点"))
         val failing = object : CoreDataRepository by repository {
-            override fun replaceCourses(courses: List<Course>, expectedCourses: List<Course>) =
+            override fun commitRecovery(expected: com.sakata.focusflow.data.CoreDataSnapshot, updated: com.sakata.focusflow.data.CoreDataSnapshot) =
                 CoreDataWriteResult(CoreDataWriteStatus.WRITE_FAILED)
         }
         assertEquals(CourseSplitOperation.Outcome.WRITE_FAILED,

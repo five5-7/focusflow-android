@@ -4,6 +4,9 @@ import android.content.Context
 import com.sakata.focusflow.data.CoreDataReadResult
 import com.sakata.focusflow.data.CoreDataRepository
 import com.sakata.focusflow.data.withCourseWriteLock
+import com.sakata.focusflow.data.Stage7Inverse
+import com.sakata.focusflow.data.CoursePreferenceSnapshot
+import com.sakata.focusflow.data.Stage7CommitGuard
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -41,6 +44,7 @@ internal object CourseSplitOperation {
      * each other's monitors in opposite orders.
      */
     fun recover(context: Context, repository: CoreDataRepository): Boolean = repository.withCourseWriteLock {
+        if (StorageProtection.readOnly || Stage7CommitGuard.uncertain) return@withCourseWriteLock false
         val prefs = context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
         val raw = runCatching { prefs.getString(KEY, null) }.getOrElse { return@withCourseWriteLock false }
             ?: return@withCourseWriteLock true
@@ -69,6 +73,7 @@ internal object CourseSplitOperation {
 
     fun apply(context: Context, repository: CoreDataRepository, expectedCourses: List<Course>,
         original: Course, edited: Course, boundary: Long): Outcome = repository.withCourseWriteLock {
+        if (StorageProtection.readOnly || Stage7CommitGuard.uncertain) return@withCourseWriteLock Outcome.WRITE_FAILED
         if (!CourseMergeOperation.recover(context, repository) || !recover(context, repository))
             return@withCourseWriteLock Outcome.RECOVERY_PENDING
         val current = (repository.read() as? CoreDataReadResult.Ready)?.snapshot?.courses
@@ -92,6 +97,11 @@ internal object CourseSplitOperation {
         val future = CourseLocationOverrides.snapshot(context, original.id).filterKeys { it >= boundary }
         if (future.values.any { it.length > 100 }) return@withCourseWriteLock Outcome.REJECTED
         val reminder = CourseReminders.load(context).overrides[original.id]
+        val selectedIds = setOf(original.id,successorWithParent.id)
+        val captured = runCatching { CoursePreferenceSnapshot.capture(context,selectedIds) }.getOrElse { return@withCourseWriteLock Outcome.REJECTED }
+        if(captured.overrides[successorWithParent.id]!=null || captured.watermarks[successorWithParent.id]!=null || captured.locations[successorWithParent.id].orEmpty().isNotEmpty()) return@withCourseWriteLock Outcome.REJECTED
+        val afterPreferences = captured.copy(overrides=captured.overrides + (successorWithParent.id to reminder),
+            locations=mapOf(original.id to captured.locations[original.id].orEmpty().filterKeys { it<boundary },successorWithParent.id to future))
         val journal = Journal(original.id, successorWithParent.id, boundary, reminder, future)
         val prefs = context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
         if (!prefs.edit().putString(KEY, journal.encode()).commit()) {
@@ -100,8 +110,7 @@ internal object CourseSplitOperation {
         val updated = current.flatMap { course ->
             if (course.id == original.id) listOf(planned.original, successorWithParent) else listOf(course)
         }
-        if (!repository.replaceCourses(updated, current).applied) {
-            prefs.edit().remove(KEY).commit()
+        if (!Stage7Inverse.commitCourseEdit(context,repository,current,updated,"course_split_inverse",captured,afterPreferences).applied) {
             return@withCourseWriteLock Outcome.WRITE_FAILED
         }
         if (recover(context, repository)) Outcome.APPLIED else Outcome.RECOVERY_PENDING

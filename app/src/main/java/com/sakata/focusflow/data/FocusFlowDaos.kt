@@ -174,6 +174,11 @@ interface TrashGroupDao {
 
 @Dao
 interface OperationRecordDao {
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    fun insertAll(records: List<OperationRecordEntity>)
+    @Query("DELETE FROM operation_records")
+    fun deleteAll()
+
     @Query("SELECT * FROM operation_records ORDER BY recorded_at, operation_id")
     fun all(): List<OperationRecordEntity>
 }

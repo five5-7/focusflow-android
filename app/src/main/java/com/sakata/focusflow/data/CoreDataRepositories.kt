@@ -17,7 +17,8 @@ data class CoreDataSnapshot(
     val goals: List<Goal>,
     val activitySessions: List<ActivitySession> = emptyList(),
     val courses: List<Course> = emptyList(),
-    val trashGroups: List<TrashGroupRecord> = emptyList()
+    val trashGroups: List<TrashGroupRecord> = emptyList(),
+    val operationRecords: List<OperationRecord> = emptyList()
 )
 
 sealed interface CoreDataReadResult {
@@ -46,7 +47,8 @@ class LegacyCoreDataReadRepository(
                 goals = store.loadGoals(),
                 activitySessions = store.loadSessions(),
                 courses = store.loadCourses(),
-                trashGroups = groups
+                trashGroups = groups,
+                operationRecords = store.loadStage7Records()
             )
         )
     }
@@ -102,6 +104,7 @@ class RoomCoreDataReadRepository(private val source: RoomCoreDataSource) : CoreD
             val courseMeetingRules = source.courseMeetingRules()
             val trashGroups = source.trashGroups().map(TrashGroupEntity::toRecord)
             val operationRecords = source.operationRecords()
+            Stage7RecordsCodec.verify(operationRecords.map { OperationRecord(it.operationId, it.kind, it.recordedAt, it.state, it.payload) })
             if (operationRecords.any { it.operationId.isBlank() || it.payload.isBlank() })
                 return CoreDataReadResult.Invalid("operation_records contains an invalid row")
             val countProblem = countProblem(
@@ -140,7 +143,8 @@ class RoomCoreDataReadRepository(private val source: RoomCoreDataSource) : CoreD
                     goals = plans.map(PlanEntity::toLegacy),
                     activitySessions = sessions.map(ActivitySessionEntity::toLegacy),
                     courses = mappedCourses,
-                    trashGroups = trashGroups
+                    trashGroups = trashGroups,
+                    operationRecords = operationRecords.map { OperationRecord(it.operationId, it.kind, it.recordedAt, it.state, it.payload) }
                 )
             )
         } catch (error: Exception) {

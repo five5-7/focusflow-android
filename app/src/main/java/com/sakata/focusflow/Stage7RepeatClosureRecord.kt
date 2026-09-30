@@ -79,6 +79,13 @@ sealed interface RepeatClosureDecode {
 }
 
 object RepeatClosureCodec {
+    internal fun encodeItem(item: Item): String = StrictJson.write(itemJson(item))
+    internal fun decodeItem(raw: String): Item {
+        val value = (StrictJson.parse(raw) as? StrictJson.ParseResult.Ok)?.value
+            ?: throw IllegalArgumentException("invalid item snapshot")
+        return readItem(value, "item")
+    }
+
 
     fun encode(record: RepeatClosureRecord): String = StrictJson.write(toJson(record))
 

@@ -2,6 +2,7 @@ package com.sakata.focusflow.data
 
 import android.content.Context
 import com.sakata.focusflow.CourseLocationOverrides
+import com.sakata.focusflow.StorageProtection
 import com.sakata.focusflow.CourseReminders
 import com.sakata.focusflow.PrototypeStore
 
@@ -56,11 +57,11 @@ internal object BoundaryCourseRecoveryPreferenceWriter : CourseRecoveryPreferenc
      * or newer stored value already satisfies the snapshot and is not a failure.
      */
     override fun writeWatermark(context: Context, meetingId: Long, at: Long): Boolean {
-        if (CourseReminders.markNotified(context, meetingId, at)) return true
-        return when (val stored = CourseRecoveryPreferences.watermark(context, meetingId)) {
-            is CourseRecoveryWatermarkRead.Value -> stored.at >= at
-            CourseRecoveryWatermarkRead.Absent, CourseRecoveryWatermarkRead.Corrupt -> false
-        }
+        if (StorageProtection.readOnly || meetingId <= 0 || at <= 0) return false
+        val stored = CourseRecoveryPreferences.watermark(context,meetingId)
+        if(stored is CourseRecoveryWatermarkRead.Corrupt) return false
+        return context.getSharedPreferences("course_reminder_settings",Context.MODE_PRIVATE).edit()
+            .putLong("delivered_$meetingId",maxOf(at,(stored as? CourseRecoveryWatermarkRead.Value)?.at ?: 0L)).commit()
     }
 
     override fun writeLocation(context: Context, meetingId: Long, epochDay: Long, place: String): Boolean =

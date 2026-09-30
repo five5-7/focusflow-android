@@ -59,7 +59,8 @@ data class LegacySnapshot(
     val courses: List<CourseEntity> = emptyList(),
     val courseMeetingRules: List<CourseMeetingRuleEntity> = emptyList(),
     val trashGroups: List<TrashGroupEntity> = emptyList(),
-    val diagnostics: List<MigrationDiagnostic>
+    val diagnostics: List<MigrationDiagnostic>,
+    val operationRecords: List<OperationRecordEntity> = emptyList()
 )
 
 sealed interface LegacyReadResult {
@@ -87,6 +88,8 @@ class LegacyPreferencesReader(
         val sessionsRaw = source.getString(KEY_SESSIONS)
         val coursesRaw = source.getString(KEY_COURSES)
         val trashGroupsRaw = source.getString(KEY_TRASH_GROUPS)
+        val stage7Raw = source.getString(Stage7RecordsCodec.KEY)
+        val courseRecoveryRaw = source.getString("course_recovery_groups_v1")
         val diagnostics = mutableListOf<MigrationDiagnostic>()
 
         return try {
@@ -99,13 +102,22 @@ class LegacyPreferencesReader(
                 catch (error: Exception) { fail(KEY_TRASH_GROUPS, "Trash groups are invalid", error) }
             try { TrashJournal.verifyActive(tasks.map(TaskEntity::toLegacy), trashGroups) }
             catch (error: Exception) { fail(KEY_TRASH_GROUPS, "Trash group and items disagree", error) }
+            val records = try { Stage7RecordsCodec.decode(stage7Raw) }
+                catch(error: Exception) { fail(Stage7RecordsCodec.KEY, "recovery records are invalid", error) }
+            val courseGroups = when(val decoded=CourseRecoveryCodec.decode(courseRecoveryRaw)) {
+                is CourseRecoveryLoad.Ready -> decoded.groups
+                is CourseRecoveryLoad.Invalid -> fail("course_recovery_groups_v1", decoded.reason)
+            }
+            val allRecords = records + courseGroups.map { OperationRecord(it.groupId,"course_recovery",it.deletedAt,it.state.name.lowercase(),CourseRecoveryCodec.encode(listOf(it))) }
+            try { Stage7RecordsCodec.verify(allRecords) } catch(error:Exception) { fail(Stage7RecordsCodec.KEY,"recovery identities disagree",error) }
             appendRelationshipDiagnostics(itemsRaw, tasks, plans, diagnostics)
             LegacyReadResult.Success(
                 LegacySnapshot(
                     sourceDataVersion = source.getInt(KEY_DATA_VERSION, 1),
-                    sourceFingerprint = if (trashGroupsRaw == null) fingerprint(itemsRaw, eventsRaw, goalsRaw, sessionsRaw, coursesRaw)
+                    sourceFingerprint = if (stage7Raw != null || courseRecoveryRaw != null) fingerprint(itemsRaw, eventsRaw, goalsRaw, sessionsRaw, coursesRaw, trashGroupsRaw, stage7Raw, courseRecoveryRaw)
+                        else if (trashGroupsRaw == null) fingerprint(itemsRaw, eventsRaw, goalsRaw, sessionsRaw, coursesRaw)
                         else fingerprint(itemsRaw, eventsRaw, goalsRaw, sessionsRaw, coursesRaw, trashGroupsRaw),
-                    hadLegacyPayload = itemsRaw != null || eventsRaw != null || goalsRaw != null || sessionsRaw != null || coursesRaw != null || trashGroupsRaw != null,
+                    hadLegacyPayload = itemsRaw != null || eventsRaw != null || goalsRaw != null || sessionsRaw != null || coursesRaw != null || trashGroupsRaw != null || stage7Raw != null || courseRecoveryRaw != null,
                     tasks = tasks,
                     taskEvents = events,
                     plans = plans,
@@ -116,7 +128,8 @@ class LegacyPreferencesReader(
                         catch (error: IllegalArgumentException) { fail(KEY_COURSES, "Course groups are invalid", error) },
                     courseMeetingRules = courses.mapIndexed { index, course -> CourseMeetingRuleEntity.fromLegacy(course, index) },
                     trashGroups = trashGroups.map(TrashGroupEntity::fromRecord),
-                    diagnostics = diagnostics
+                    diagnostics = diagnostics,
+                    operationRecords = allRecords.map { OperationRecordEntity(it.operationId,it.kind,it.recordedAt,it.state,it.payload) }
                 )
             )
         } catch (error: LegacyDecodeException) {
@@ -127,6 +140,8 @@ class LegacyPreferencesReader(
                 KEY_SESSIONS -> sessionsRaw
                 KEY_COURSES -> coursesRaw
                 KEY_TRASH_GROUPS -> trashGroupsRaw
+                Stage7RecordsCodec.KEY -> stage7Raw
+                "course_recovery_groups_v1" -> courseRecoveryRaw
                 else -> null
             }
             val backedUp = raw == null || !CorruptionBackup.shouldBackup(raw) || backup.backup(error.domain, raw)
@@ -378,7 +393,8 @@ data class DatabaseMigrationSummary(
     val activitySessionIds: List<Long> = emptyList(),
     val courseIds: List<Long> = emptyList(),
     val courseMeetingRuleIds: List<Long> = emptyList(),
-    val trashGroupIds: List<String> = emptyList()
+    val trashGroupIds: List<String> = emptyList(),
+    val operationRecordIds: List<String> = emptyList()
 ) {
     val taskCount: Int get() = taskIds.size
     val taskEventCount: Int get() = taskEventIds.size
@@ -390,7 +406,7 @@ data class DatabaseMigrationSummary(
     val courseMeetingRuleCount: Int get() = courseMeetingRuleIds.size
     val isEmpty: Boolean get() = taskCount == 0 && taskEventCount == 0 && planCount == 0 &&
         recurrenceRuleCount == 0 && taskOccurrenceCount == 0 && activitySessionCount == 0 &&
-        courseCount == 0 && courseMeetingRuleCount == 0 && trashGroupIds.isEmpty()
+        courseCount == 0 && courseMeetingRuleCount == 0 && trashGroupIds.isEmpty() && operationRecordIds.isEmpty()
 }
 
 enum class AtomicImportOutcome { INSERTED, ALREADY_PRESENT, DATABASE_NOT_EMPTY }
@@ -413,7 +429,8 @@ class RoomLegacyMigrationStore(private val database: FocusFlowDatabase) : Legacy
         activitySessionIds = database.activitySessionDao().allIds(),
         courseIds = database.courseDao().allIds(),
         courseMeetingRuleIds = database.courseMeetingRuleDao().allIds(),
-        trashGroupIds = database.trashGroupDao().all().map(TrashGroupEntity::groupId)
+        trashGroupIds = database.trashGroupDao().all().map(TrashGroupEntity::groupId),
+        operationRecordIds = database.operationRecordDao().all().map(OperationRecordEntity::operationId)
     )
 
     override fun importAtomically(
@@ -440,6 +457,7 @@ class RoomLegacyMigrationStore(private val database: FocusFlowDatabase) : Legacy
             database.courseDao().insertAll(snapshot.courses)
             database.courseMeetingRuleDao().insertAll(snapshot.courseMeetingRules)
             database.trashGroupDao().insertAll(snapshot.trashGroups)
+            database.operationRecordDao().insertAll(snapshot.operationRecords)
             database.migrationStateDao().insert(state)
         }
         return outcome
@@ -585,7 +603,8 @@ class LegacyDataImporter(
         activitySessionIds = snapshot.activitySessions.map { it.id }.sorted(),
         courseIds = snapshot.courses.map { it.id }.sorted(),
         courseMeetingRuleIds = snapshot.courseMeetingRules.map { it.id }.sorted(),
-        trashGroupIds = snapshot.trashGroups.map { it.groupId }.sorted()
+        trashGroupIds = snapshot.trashGroups.map { it.groupId }.sorted(),
+        operationRecordIds = snapshot.operationRecords.map { it.operationId }.sorted()
     )
 
     private fun matches(expected: DatabaseMigrationSummary, actual: DatabaseMigrationSummary): Boolean =
@@ -598,7 +617,8 @@ class LegacyDataImporter(
             activitySessionIds = actual.activitySessionIds.sorted(),
             courseIds = actual.courseIds.sorted(),
             courseMeetingRuleIds = actual.courseMeetingRuleIds.sorted(),
-            trashGroupIds = actual.trashGroupIds.sorted()
+            trashGroupIds = actual.trashGroupIds.sorted(),
+            operationRecordIds = actual.operationRecordIds.sorted()
         )
 
     private fun stateMatches(snapshot: LegacySnapshot, state: MigrationStateEntity): Boolean =

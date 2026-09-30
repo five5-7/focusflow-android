@@ -555,6 +555,7 @@ internal class LegacyCourseRecoveryStore(
 internal val CoreDataRepository.courseRecoveryStore: CourseRecoveryStore
     get() = when (this) {
         is LegacyCoreDataRepository -> recoveryStore
+        is RoomCoreDataRepository -> recoveryStore
         else -> UnsupportedCourseRecoveryStore
     }
 
@@ -564,7 +565,11 @@ internal val CoreDataRepository.courseRecoveryStore: CourseRecoveryStore
  * Room runtime has no such lock yet and runs the block unchanged rather than pretending otherwise.
  */
 internal fun <T> CoreDataRepository.withCourseWriteLock(block: () -> T): T =
-    (this as? LegacyCoreDataRepository)?.withCourseWriteLock(block) ?: block()
+    when(this) {
+        is LegacyCoreDataRepository -> withCourseWriteLock(block)
+        is RoomCoreDataRepository -> withCourseWriteLock(block)
+        else -> block()
+    }
 
 /** Strict read of one delivery watermark: absent and corrupt are reported separately. */
 internal sealed interface CourseRecoveryWatermarkRead {

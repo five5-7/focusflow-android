@@ -204,7 +204,7 @@ class CourseRecoveryFollowUpTest {
         assertEquals(listOf(first.group.groupId),
             CourseRecoveryOperations.pendingRestoringGroups(freshRepository()))
         assertEquals(2, CourseRecoveryOperations.restorableGroups(freshRepository(), now + 2L).size)
-        val expired = first.group.expiresAt + 1L
+        val expired = maxOf(first.group.expiresAt, (second as CourseDeletionOutcome.Applied).group.expiresAt) + 1L
         assertEquals(first.group.groupId,
             CourseRecoveryOperations.latestRestorableGroup(freshRepository(), expired)?.groupId)
     }

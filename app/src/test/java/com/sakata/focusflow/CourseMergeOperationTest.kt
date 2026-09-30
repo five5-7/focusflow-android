@@ -55,7 +55,7 @@ class CourseMergeOperationTest {
         assertTrue(repository.replaceCourses(before, emptyList()).applied)
         assertTrue(CourseLocationOverrides.set(context, 20, 220, "仍在"))
         val failing = object : CoreDataRepository by repository {
-            override fun replaceCourses(courses: List<Course>, expectedCourses: List<Course>) =
+            override fun commitRecovery(expected: com.sakata.focusflow.data.CoreDataSnapshot, updated: com.sakata.focusflow.data.CoreDataSnapshot) =
                 CoreDataWriteResult(CoreDataWriteStatus.WRITE_FAILED)
         }
         val plan = CourseMergeOperation.preview(context, before, 20)
