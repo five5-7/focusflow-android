@@ -64,8 +64,8 @@ class ReminderTimingTest {
 
     @Test fun nextDayAtMinute_returnsTomorrowAtMinute() {
         val (day, fields) = fieldsAt(ReminderScheduler.nextDayAtMinute(5))
-        val today = Calendar.getInstance().get(Calendar.DAY_OF_MONTH)
-        val expected = if (today == 31) 1 else today + 1
+        val expected = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, 1) }
+            .get(Calendar.DAY_OF_MONTH)
         assertEquals(expected, day)
         assertEquals(listOf(0, 5, 0), fields)
     }
