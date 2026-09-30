@@ -21,6 +21,7 @@ object RoadmapData {
     /** 已实现版本演进（1.0 → 当前版本），每版本浓缩 1–3 条，与 CHANGELOG.md 对应。 */
     val evolution: List<RoadmapVersion> = listOf(
         RoadmapVersion("8.3.0", listOf(
+            RoadmapEntry("8.3.0-rc.25", "阶段7：持久恢复与整批撤回", "30天回收站、重复规则与计划所选任务成组恢复、课程设置恢复、批量待办和课程合并／拆分持久撤回。真机按用户指示跳过，Room激活关闭，未发布。", RoadmapStatus.CANDIDATE),
             RoadmapEntry("8.3.0-rc.24", "阶段5：活动与今日页六个检查点", "待办关联计时及历史、单活动保护、重复规则停止与恢复性删除、今日页分组和明天预览。阶段5后续功能仍在实施，Room激活关闭。", RoadmapStatus.CANDIDATE),
             RoadmapEntry("8.3.0-rc.23", "阶段4：收集箱、待办与计划闭环", "收集箱批量整理、待办与计划、每日／每周重复基础、独立提醒和可恢复删除。Room产品激活关闭，待稳定签名CI与OPPO合并验收。", RoadmapStatus.CANDIDATE),
             RoadmapEntry("8.3.0-rc.22", "收集箱记录分组与紧凑整理", "完整列表按创建事件区分最近、之前和时间未标记的旧记录；待整理项默认单行，点击只展开一项，编辑删除放入更多。延续rc.21快速输入，已由rc.23替代，未单独验收。", RoadmapStatus.DONE),

@@ -35,7 +35,7 @@
 - 应用内更新说明必须在发版时展示该版本核心变化：为每个新版本在 `QuickStartDialog.updateHighlightsFor` 写 2–3 条用户可感知的变化，禁止落入兜底文案；与 `CHANGELOG.md`、`RoadmapData.kt` 同步。
 - Follow `VERSIONING.md`; a CI `run-N` is not a product version and a successful build is not a release.
 - The current official release is `8.2.1` / versionCode 534 (the fifth formal release). It extends the optional appearance system with acrylic and frosted-glass profiles plus non-destructive image crop controls; rich appearance remains disabled by default.
-- The current development candidate is `8.3.0-rc.24` / versionCode 558: stage 5 first six checkpoints. Stage 4 OPPO acceptance remains pending; stage 5 still has unfinished lifecycle, conditional recurrence, Today batch and reminder work. Room product activation remains off. Do not merge or release before device acceptance.
+- The current development candidate is `8.3.0-rc.25` / versionCode 559: stage 7 persistent grouped recovery and batch/course inverse operations. See `docs/9.0-stage7-integration-status-20260930.md` and `docs/9.0-stage7-runtime-contract.md` for the current contracts and exact CI evidence. Device validation is explicitly skipped by the user, not passed. Room product activation remains off. Do not merge or release without separate explicit approval.
 - The previous official release is `8.2.0` / versionCode 525.
 - Do not allocate a new version merely to record an idea; keep uncommitted ideas in the future-candidate section until a coherent scope is frozen.
 - Do not merge a pull request without explicit user confirmation.

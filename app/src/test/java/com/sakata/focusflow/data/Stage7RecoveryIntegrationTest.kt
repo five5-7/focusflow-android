@@ -289,4 +289,46 @@ class Stage7RecoveryIntegrationTest {
         assertFalse(CourseReminders.confirmWatermark(context,42,20000));assertEquals("10000",prefs.getString("delivered_42",null))
     }
 
+    @Test fun `course deletion cancels visible notifications and stale broadcast cannot bring them back`() {
+        seed(courses=listOf(course()))
+        val manager=context.getSystemService(android.app.NotificationManager::class.java)
+        manager.createNotificationChannel(android.app.NotificationChannel("stage7-test","test",android.app.NotificationManager.IMPORTANCE_DEFAULT))
+        manager.notify("course:41",0,android.app.Notification.Builder(context,"stage7-test").setSmallIcon(android.R.drawable.ic_popup_reminder).setContentTitle("旧通知").build())
+        assertNotNull(org.robolectric.Shadows.shadowOf(manager).getNotification("course:41",0))
+        assertTrue(CourseRecoveryOperations.deleteCourses(context,legacy(),CourseRecoveryScope.MEETING,setOf(41),"cancel",now) is CourseDeletionOutcome.Applied)
+        assertNull(org.robolectric.Shadows.shadowOf(manager).getNotification("course:41",0))
+        val intent=android.content.Intent(ReminderReceiver.ACTION_COURSE_DUE).putExtra(ReminderReceiver.EXTRA_COURSE_ID,41L).putExtra(ReminderReceiver.EXTRA_COURSE_TRIGGER_AT,System.currentTimeMillis()-1000L)
+        ReminderReceiver::class.java.getDeclaredMethod("handleReceive",Context::class.java,android.content.Intent::class.java).also {it.isAccessible=true}.invoke(ReminderReceiver(),context,intent)
+        assertNull(org.robolectric.Shadows.shadowOf(manager).getNotification("course:41",0))
+        assertTrue(snapshot(legacy()).courses.isEmpty())
+    }
+    @Test fun `alarm restoration finishes persisted course restore checkpoint without UI opening`() {
+        seed(courses=listOf(course()))
+        assertTrue(CourseReminders.setOverride(context,41,true))
+        val d=CourseRecoveryOperations.deleteCourses(context,legacy(),CourseRecoveryScope.MEETING,setOf(41),"alarm-resume",now) as CourseDeletionOutcome.Applied
+        assertTrue(CourseRecoveryOperations.restoreGroup(legacy(),d.group.groupId,now+1) is CourseRestoreOutcome.CoreCommitted)
+        assertTrue(CourseReminders.setOverride(context,41,false))
+        CourseReminders.restore(context)
+        assertEquals(CourseRecoveryState.RESTORED,(CourseRecoveryOperations.readGroups(legacy()) as CourseRecoveryGroupsRead.Ready).groups.single().state)
+        assertEquals(true,CourseReminders.load(context).overrides[41L])
+    }
+
+    @Test fun `Room course inverse confirms core checkpoint before preferences and retains it on terminal write failure`() {
+        seed(courses=listOf(course(),course(42,201,300)))
+        assertTrue(CourseLocationOverrides.set(context,42,250,"后段地点"))
+        val r=room();val original=snapshot(r).courses
+        val plan=CourseMergeOperation.preview(context,original,42) as CourseEditPlans.CourseMergePlan.Applied
+        assertEquals(CourseMergeOperation.Outcome.APPLIED,CourseMergeOperation.apply(context,r,original,setOf(41,42),42,plan))
+        val record=snapshot(r).operationRecords.single();val db=databases.last()
+        db.openHelper.writableDatabase.execSQL("CREATE TRIGGER reject_terminal BEFORE INSERT ON operation_records WHEN NEW.state = 'restored' BEGIN SELECT RAISE(ABORT, 'injected terminal failure'); END")
+        assertFalse(Stage7Inverse.undo(context,r,record.operationId,record.recordedAt+1).applied)
+        assertEquals(original,snapshot(r).courses)
+        assertEquals("restoring",snapshot(r).operationRecords.single().state)
+        assertEquals("后段地点",CourseLocationOverrides.get(context,42,250))
+        assertNull(CourseLocationOverrides.get(context,41,250))
+        db.openHelper.writableDatabase.execSQL("DROP TRIGGER reject_terminal")
+        assertTrue(Stage7Inverse.resume(context,r,record.operationId,record.recordedAt+2).applied)
+        assertEquals("restored",snapshot(r).operationRecords.single().state)
+    }
+
 }

@@ -53,6 +53,7 @@ import com.sakata.focusflow.data.Stage7Inverse
 import com.sakata.focusflow.data.Stage7CourseMaintenance
 import com.sakata.focusflow.data.CourseRecoveryGroupsRead
 import com.sakata.focusflow.data.CourseRecoveryState
+import com.sakata.focusflow.data.withCourseWriteLock
 import com.sakata.focusflow.data.courseRecoveryStore
 import com.sakata.focusflow.data.CoreDataWriteResult
 import com.sakata.focusflow.data.CoreDataWriteStatus
@@ -491,12 +492,17 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
         }
     }
     /** Production delete entry: the group and the course removal commit together; state follows after. */
-    fun deleteCoursesWithRecovery(targets: Set<Course>): Boolean {
-        if (targets.isEmpty()) return true
+    fun deleteCoursesWithRecovery(targets: Set<Course>): Boolean = coreDataRepository.withCourseWriteLock {
+        if (targets.isEmpty()) return@withCourseWriteLock true
+        val current=(coreDataRepository.read() as? CoreDataReadResult.Ready)?.snapshot?.courses
+        if(current==null || targets.any { target -> current.singleOrNull { it.id==target.id }!=target }) {
+            reportCourseRecovery("课次已变化，请重新核对后删除。")
+            return@withCourseWriteLock false
+        }
         val ids = targets.mapTo(mutableSetOf()) { it.id }
         val recoveryScope = if (ids.size == 1) CourseRecoveryScope.MEETING else CourseRecoveryScope.BATCH
         val before = courses
-        return when (val outcome = CourseRecoveryOperations.deleteCourses(
+        when (val outcome = CourseRecoveryOperations.deleteCourses(
             context, coreDataRepository, recoveryScope, ids, "course-delete-${System.currentTimeMillis()}"
         )) {
             is CourseDeletionOutcome.Applied, is CourseDeletionOutcome.AlreadyApplied -> {

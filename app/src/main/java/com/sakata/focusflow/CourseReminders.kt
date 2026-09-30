@@ -125,6 +125,14 @@ internal object CourseReminders {
         val runtime = CoreDataRuntimeAccess.resolve(context) as? CoreDataRuntimeResolution.Ready ?: return
         if (!CourseMergeOperation.recover(context, runtime.repository)) return
         if (!CourseSplitOperation.recover(context, runtime.repository)) return
+        if(StorageProtection.readOnly || com.sakata.focusflow.data.Stage7CommitGuard.uncertain || com.sakata.focusflow.data.CourseRecoveryWriteGuard.uncertainReason()!=null) return
+        val before=(runtime.repository.read() as? CoreDataReadResult.Ready)?.snapshot ?: return
+        before.operationRecords.filter { it.state=="restoring" && it.kind.endsWith("inverse") }.forEach {
+            if(!com.sakata.focusflow.data.Stage7Inverse.resume(context,runtime.repository,it.operationId).applied) return
+        }
+        com.sakata.focusflow.data.CourseRecoveryOperations.pendingRestoringGroups(runtime.repository).forEach { id ->
+            if(com.sakata.focusflow.data.CourseRecoveryOperations.restoreAndComplete(context,runtime.repository,id) !is com.sakata.focusflow.data.CourseRestoreCompletionOutcome.Completed) return
+        }
         val snapshot = (runtime.repository.read() as? CoreDataReadResult.Ready)?.snapshot ?: return
         val store = PrototypeStore(context)
         sync(context, snapshot.courses, snapshot.courses, store.loadCoursePeriodTable(), load(context))

@@ -144,7 +144,9 @@ class RoomCoreDataWriteRepository(
     private val store: RoomCoreDataWriteStore,
     private val currentWeekKey: () -> Long = GoalPlanner::currentWeekKey
 ) {
-    internal fun <T> withRecoveryLock(block: () -> T): T = store.inTransaction(block)
+    // The lock spans multi-file coordination; each core checkpoint still ends its own DB transaction.
+    private val recoveryLock=Any()
+    internal fun <T> withRecoveryLock(block: () -> T): T = synchronized(recoveryLock) { block() }
 
     fun commitRecovery(expected: CoreDataSnapshot, updated: CoreDataSnapshot): CoreDataWriteResult = transact { current ->
         if (current != expected) return@transact CoreDataWriteResult(CoreDataWriteStatus.CONDITION_NOT_MET, "recovery snapshot changed")
@@ -328,7 +330,7 @@ class RoomCoreDataWriteRepository(
         applied(CoreDataTaskMutation(before, after))
     }
 
-    private fun transact(operation: (CoreDataSnapshot) -> CoreDataWriteResult): CoreDataWriteResult = try {
+    private fun transact(operation: (CoreDataSnapshot) -> CoreDataWriteResult): CoreDataWriteResult = withRecoveryLock { try {
         store.inTransaction {
             when (val read = RoomCoreDataReadRepository(store).read()) {
                 is CoreDataReadResult.NotReady -> CoreDataWriteResult(
@@ -360,7 +362,7 @@ class RoomCoreDataWriteRepository(
             CoreDataWriteStatus.WRITE_FAILED,
             "transaction failed: ${error.javaClass.simpleName}"
         )
-    }
+    } }
 
     private fun validate(
         tasks: List<Item>,
