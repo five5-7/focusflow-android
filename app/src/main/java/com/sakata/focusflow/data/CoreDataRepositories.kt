@@ -116,13 +116,8 @@ class RoomCoreDataReadRepository(private val source: RoomCoreDataSource) : CoreD
             if (countProblem != null) return CoreDataReadResult.Invalid(countProblem)
             val orderProblem = orderProblem(tasks, events, plans, sessions, courses, courseMeetingRules)
             if (orderProblem != null) return CoreDataReadResult.Invalid(orderProblem)
-            if (courses.map { it.id } != courseMeetingRules.map { it.courseId } ||
-                courses.zip(courseMeetingRules).any { (parent, rule) ->
-                    parent.id != rule.id || parent.sourceOrder != rule.sourceOrder ||
-                        rule.weekday !in 1..7 || rule.startPeriod !in 1..20 ||
-                        rule.endPeriod !in rule.startPeriod..20
-                }
-            ) return CoreDataReadResult.Invalid("courses and meeting rules disagree")
+            val mappedCourses = mapCourseRules(courses, courseMeetingRules)
+                ?: return CoreDataReadResult.Invalid("courses and meeting rules disagree")
 
             val mappedTasks = tasks.map(TaskEntity::toLegacy)
             TrashJournal.verifyActive(mappedTasks, trashGroups)
@@ -144,7 +139,7 @@ class RoomCoreDataReadRepository(private val source: RoomCoreDataSource) : CoreD
                     taskEvents = mappedEvents,
                     goals = plans.map(PlanEntity::toLegacy),
                     activitySessions = sessions.map(ActivitySessionEntity::toLegacy),
-                    courses = courses.zip(courseMeetingRules).map { (parent, rule) -> rule.toLegacy(parent) },
+                    courses = mappedCourses,
                     trashGroups = trashGroups
                 )
             )

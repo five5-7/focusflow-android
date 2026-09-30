@@ -320,7 +320,7 @@ data class CourseEntity(
 ) {
     companion object {
         fun fromLegacy(course: Course, sourceOrder: Int) = CourseEntity(
-            course.id, sourceOrder, course.title, course.needsConfirmation
+            course.courseId, sourceOrder, course.title, course.needsConfirmation
         )
     }
 }
@@ -337,22 +337,28 @@ data class CourseMeetingRuleEntity(
     val zone: String,
     val enabled: Boolean,
     @ColumnInfo(name = "effective_from_epoch_day") val effectiveFromEpochDay: Long?,
-    @ColumnInfo(name = "effective_until_epoch_day") val effectiveUntilEpochDay: Long?
+    @ColumnInfo(name = "effective_until_epoch_day") val effectiveUntilEpochDay: Long?,
+    @ColumnInfo(name = "external_school_year_code") val externalSchoolYearCode: String = "",
+    @ColumnInfo(name = "external_term_code") val externalTermCode: String = "",
+    @ColumnInfo(name = "external_selection_key_candidate") val externalSelectionKeyCandidate: String = ""
 ) {
     companion object {
         fun fromLegacy(course: Course, sourceOrder: Int) = CourseMeetingRuleEntity(
-            course.id, course.id, sourceOrder, course.weekday, course.startPeriod,
+            course.id, course.courseId, sourceOrder, course.weekday, course.startPeriod,
             course.endPeriod, course.building, course.zone.name, course.enabled,
-            course.effectiveFromEpochDay, course.effectiveUntilEpochDay
+            course.effectiveFromEpochDay, course.effectiveUntilEpochDay,
+            course.externalSchoolYearCode, course.externalTermCode, course.externalSelectionKeyCandidate
         )
     }
 
     fun toLegacy(parent: CourseEntity): Course = Course(
-        id = parent.id, title = parent.title, needsConfirmation = parent.needsConfirmation,
+        id = id, courseId = courseId, title = parent.title, needsConfirmation = parent.needsConfirmation,
         weekday = weekday, startPeriod = startPeriod, endPeriod = endPeriod,
         building = building, zone = CampusZone.valueOf(zone), enabled = enabled,
         effectiveFromEpochDay = effectiveFromEpochDay,
-        effectiveUntilEpochDay = effectiveUntilEpochDay
+        effectiveUntilEpochDay = effectiveUntilEpochDay,
+        externalSchoolYearCode = externalSchoolYearCode, externalTermCode = externalTermCode,
+        externalSelectionKeyCandidate = externalSelectionKeyCandidate
     )
 }
 

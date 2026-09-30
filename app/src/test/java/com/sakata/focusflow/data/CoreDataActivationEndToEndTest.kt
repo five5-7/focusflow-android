@@ -80,6 +80,26 @@ class CoreDataActivationEndToEndTest {
         assertEquals(before, corePayload())
     }
 
+    @Test fun `explicitly grouped legacy meetings import as one parent without changing reminder ids`() {
+        installFixture("8.3-rc.12")
+        val zone = com.sakata.focusflow.CampusZone.entries.first().name
+        val raw = """[{"id":93,"courseId":93,"title":"高数","weekday":1,"startPeriod":1,"endPeriod":2,"building":"东一","zone":"$zone","needsConfirmation":false,"externalSchoolYearCode":"2026","externalTermCode":"1","externalSelectionKeyCandidate":"hint"},{"id":17,"courseId":93,"title":"高数","weekday":4,"startPeriod":3,"endPeriod":4,"building":"东二","zone":"$zone","needsConfirmation":false,"externalSchoolYearCode":"2026","externalTermCode":"1","externalSelectionKeyCandidate":"hint"}]"""
+        check(preferences.edit().putString(LegacyPreferencesReader.KEY_COURSES, raw).commit())
+        val before = corePayload()
+        val database = newDatabase()
+        val ready = runtime(database, SharedPreferencesCoreDataActivationStore(context),
+            SharedPreferencesMigrationMarker(context), true, sequenceOf(100L, 200L))
+            .resolve() as CoreDataRuntimeResolution.Ready
+        val rows = (ready.repository.read() as CoreDataReadResult.Ready).snapshot.courses
+        assertEquals(listOf(93L, 17L), rows.map { it.id })
+        assertEquals(listOf(93L, 93L), rows.map { it.courseId })
+        assertEquals(listOf(93L), database.courseDao().allIds())
+        assertEquals(listOf(17L, 93L), database.courseMeetingRuleDao().allIds())
+        assertEquals(1, database.migrationStateDao().find(LegacyDataImporter.MIGRATION_KEY)?.courseCount)
+        assertEquals(2, database.migrationStateDao().find(LegacyDataImporter.MIGRATION_KEY)?.courseMeetingRuleCount)
+        assertEquals(before, corePayload())
+    }
+
     @Test
     fun `selected Room course writer updates rules atomically without touching Legacy`() {
         installFixture("8.3-rc.12")
@@ -519,7 +539,7 @@ class CoreDataActivationEndToEndTest {
             },
             goals = snapshot.plans.map(PlanEntity::toLegacy),
             activitySessions = snapshot.activitySessions.map(ActivitySessionEntity::toLegacy),
-            courses = snapshot.courses.zip(snapshot.courseMeetingRules).map { (parent, rule) -> rule.toLegacy(parent) }
+            courses = requireNotNull(mapCourseRules(snapshot.courses, snapshot.courseMeetingRules))
         )
     }
 

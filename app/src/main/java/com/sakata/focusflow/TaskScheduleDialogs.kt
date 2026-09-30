@@ -721,6 +721,7 @@ internal fun timeOnSameDayAs(target: Long, minute: Int): Long =
         confirmButton = { Button(enabled = title.isNotBlank() && parsedStart != null && parsedCount != null && parsedEnd != null && parsedStart in 1..maxPeriod && parsedCount in 1..maxPeriod && parsedEnd in parsedStart..maxPeriod && buildingName.isNotBlank() && (editFollowing && followingFrom != null && followingFrom!! > 0 && existing != null && CourseEditPlans.planCourseSplit(existing, followingFrom!!, existing.id) is CourseEditPlans.CourseSplitPlan.Applied || !editFollowing && (effectiveFrom == null || effectiveUntil == null || effectiveFrom!! <= effectiveUntil!!)), onClick = {
             vault.clear(draftKey)
             val zone = if (customSelected) CourseScreenshotParser.zoneByPrefix(buildingName) else (place?.zone ?: CampusZone.WEST_TEACHING)
+            val meetingId = existing?.id ?: newItemId()
             onSave(
                 Course(
                     title = title,
@@ -733,7 +734,11 @@ internal fun timeOnSameDayAs(target: Long, minute: Int): Long =
                     enabled = enabled,
                     effectiveFromEpochDay = effectiveFrom,
                     effectiveUntilEpochDay = effectiveUntil,
-                    id = existing?.id ?: newItemId()
+                    id = meetingId,
+                    courseId = existing?.courseId ?: meetingId,
+                    externalSchoolYearCode = existing?.externalSchoolYearCode.orEmpty(),
+                    externalTermCode = existing?.externalTermCode.orEmpty(),
+                    externalSelectionKeyCandidate = existing?.externalSelectionKeyCandidate.orEmpty()
                 ), if (editFollowing) followingFrom else null
             )
         }) { Text("保存") } },

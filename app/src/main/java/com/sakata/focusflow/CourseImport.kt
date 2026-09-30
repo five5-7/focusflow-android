@@ -34,10 +34,12 @@ object CourseImportPolicy {
                     startPeriod = course.startPeriod,
                     endPeriod = course.endPeriod.coerceIn(course.startPeriod, 20),
                     building = building,
+                    courseId = course.id,
                     needsConfirmation = true
                 )
             }
-        }.distinctBy { listOf(it.weekday, it.startPeriod, it.endPeriod, it.title) }
+        }.distinctBy { listOf(it.weekday, it.startPeriod, it.endPeriod, it.title,
+            it.externalSchoolYearCode, it.externalTermCode, it.externalSelectionKeyCandidate) }
 
         return batch.copy(
             courses = courses,
@@ -53,7 +55,11 @@ internal object CourseConfirmationSafety {
         .filter { it.enabled }
         .groupBy { Triple(it.weekday, it.startPeriod, it.endPeriod) }
         .values
-        .filter { group -> group.map { it.title.trim() }.distinct().size >= 2 }
+        .filter { group -> group.map { it.title.trim() }.distinct().size >= 2 ||
+            group.filter { it.externalSelectionKeyCandidate.isNotBlank() }.map {
+                listOf(it.externalSchoolYearCode, it.externalTermCode,
+                    it.externalSelectionKeyCandidate)
+            }.distinct().size >= 2 }
         .flatten()
         .filter { it.needsConfirmation }
         .mapTo(mutableSetOf()) { it.id }
@@ -94,19 +100,27 @@ internal fun syncSchoolCourses(existing: List<Course>, imported: List<Course>): 
 
     imported.forEach { incoming ->
         val title = incoming.title.trim()
+        val scoped = incoming.externalSchoolYearCode.isNotBlank() &&
+            incoming.externalTermCode.isNotBlank() && incoming.externalSelectionKeyCandidate.isNotBlank()
+        fun sameProvenance(previous: Course): Boolean = if (scoped) {
+            previous.externalSchoolYearCode == incoming.externalSchoolYearCode &&
+                previous.externalTermCode == incoming.externalTermCode &&
+                previous.externalSelectionKeyCandidate == incoming.externalSelectionKeyCandidate
+        } else previous.externalSchoolYearCode.isBlank() && previous.externalTermCode.isBlank() &&
+            previous.externalSelectionKeyCandidate.isBlank()
         val exact = output.indices.filter { index ->
-            index !in usedIndexes && output[index].title.trim() == title &&
+            index !in usedIndexes && sameProvenance(output[index]) && output[index].title.trim() == title &&
                 output[index].weekday == incoming.weekday &&
                 output[index].startPeriod == incoming.startPeriod &&
                 output[index].endPeriod == incoming.endPeriod
         }
         val sameDay = output.indices.filter { index ->
-            index !in usedIndexes && output[index].title.trim() == title &&
+            index !in usedIndexes && sameProvenance(output[index]) && output[index].title.trim() == title &&
                 output[index].weekday == incoming.weekday
         }
         val match = when {
             exact.size == 1 -> exact.single()
-            exact.isEmpty() && sameDay.size == 1 && incomingGroups[title to incoming.weekday] == 1 -> sameDay.single()
+            !scoped && exact.isEmpty() && sameDay.size == 1 && incomingGroups[title to incoming.weekday] == 1 -> sameDay.single()
             else -> null
         }
         if (match == null) {

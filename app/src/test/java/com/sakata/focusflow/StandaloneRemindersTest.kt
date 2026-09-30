@@ -4,6 +4,8 @@ import android.app.AlarmManager
 import android.app.Application
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
+import com.sakata.focusflow.data.CoreDataReadResult
+import com.sakata.focusflow.data.LegacyCoreDataRepository
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -14,6 +16,30 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], application = Application::class)
 class StandaloneRemindersTest {
+    @Test fun `move to inbox creates one item and stale or repeated actions cannot create another`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        context.getSharedPreferences("standalone_reminders", Context.MODE_PRIVATE).edit().clear().commit()
+        val prefs = context.getSharedPreferences("focusflow", Context.MODE_PRIVATE)
+        prefs.edit().clear().commit()
+        val repository = LegacyCoreDataRepository(PrototypeStore(context))
+        val now = 1_800_000_000_000L
+        assertTrue(StandaloneReminders.create(context, "带去收集箱", now + 60_000, now))
+        val reminder = StandaloneReminders.all(context).single()
+        assertNotNull(StandaloneReminders.markDelivered(context, reminder.id, reminder.triggerAt, now + 60_001))
+        assertEquals(StandaloneInboxTransfer.Result.STALE,
+            StandaloneInboxTransfer.move(context, repository, reminder.id, reminder.triggerAt + 1))
+        assertEquals(StandaloneInboxTransfer.Result.MOVED,
+            StandaloneInboxTransfer.move(context, repository, reminder.id, reminder.triggerAt))
+        assertEquals(StandaloneInboxTransfer.Result.STALE,
+            StandaloneInboxTransfer.move(context, repository, reminder.id, reminder.triggerAt))
+        val snapshot = (repository.read() as CoreDataReadResult.Ready).snapshot
+        assertEquals(listOf(reminder.id), snapshot.items.map(Item::id))
+        assertEquals("inbox", snapshot.items.single().captureRoute)
+        assertEquals(1, snapshot.taskEvents.count { it.itemId == reminder.id &&
+            it.type == TaskEventType.TASK_CREATED })
+        assertNotNull(StandaloneReminders.all(context).single().completedAt)
+    }
+
     @Test fun `blocked core runtime still restores independent alarms through the unified entry`() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         context.getSharedPreferences("standalone_reminders", Context.MODE_PRIVATE).edit().clear().commit()

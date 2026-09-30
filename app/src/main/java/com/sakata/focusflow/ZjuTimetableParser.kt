@@ -219,7 +219,10 @@ internal object ZjuTimetableParser {
                 endPeriod = end.coerceAtMost(20),
                 building = location,
                 zone = CourseScreenshotParser.zoneByPrefix(location),
-                needsConfirmation = true
+                needsConfirmation = true,
+                externalSchoolYearCode = requestYearCode,
+                externalTermCode = requestTermCode,
+                externalSelectionKeyCandidate = row.firstText("xkkh")
             )
             placeFor(rawLocation)?.let(places::add)
         }

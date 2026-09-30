@@ -36,6 +36,10 @@ internal fun PlanCoursesSection(
     onToggleCourse: (Course) -> Unit,
     onDeleteCourses: (Set<Course>) -> Unit,
     onMergeCourses: (Set<Long>, Long, CourseEditPlans.CourseMergePlan.Applied) -> Boolean,
+    onConfirmImportedGroup: (Set<Long>) -> Boolean,
+    onLinkCourses: (Set<Long>) -> Boolean,
+    onSeparateCourse: (Long) -> Boolean,
+    onRenameCourse: (Long, String) -> Boolean,
     reminderSettings: CourseReminderSettings,
     reminderPeriodTable: CoursePeriodTable,
     onReminderGlobalChange: (Boolean) -> Unit,
@@ -93,10 +97,12 @@ FocusCard(
         onConfirmSafeCourses,
         onConfirmCourse,
         onEditCourse,
-        onIgnoreCourse
+        onIgnoreCourse,
+        onConfirmImportedGroup
     )
     HorizontalDivider()
     ConfirmedCourses(confirmedCourses, onEditCourse, onToggleCourse, onDeleteCourses, onMergeCourses,
+        onLinkCourses, onSeparateCourse, onRenameCourse,
         reminderSettings, reminderPeriodTable, periodConfigured, onReminderOverrideChange)
 }
 
@@ -108,7 +114,8 @@ private fun PendingCourses(
     onConfirmSafe: () -> Unit,
     onConfirm: (Course) -> Unit,
     onEdit: (Course) -> Unit,
-    onIgnore: (Course) -> Unit
+    onIgnore: (Course) -> Unit,
+    onConfirmGroup: (Set<Long>) -> Boolean
 ) {
     if (awaiting.isEmpty()) {
         Text("没有待确认课程。", style = MaterialTheme.typography.bodySmall)
@@ -136,6 +143,29 @@ private fun PendingCourses(
             style = MaterialTheme.typography.bodySmall,
             fontWeight = FontWeight.SemiBold
         )
+    }
+    val candidates = awaiting.filter { it.externalSchoolYearCode.isNotBlank() &&
+        it.externalTermCode.isNotBlank() && it.externalSelectionKeyCandidate.isNotBlank() }
+        .groupBy { Triple(it.externalSchoolYearCode, it.externalTermCode,
+            it.externalSelectionKeyCandidate) }
+        .values.filter { it.size >= 2 && it.map(Course::title).distinct().size == 1 }
+    var pendingGroup by remember { mutableStateOf<List<Course>?>(null) }
+    candidates.forEach { group ->
+        TextButton(onClick = { pendingGroup = group }) {
+            Text("核对并归为《${group.first().title}》的 ${group.size} 个课次")
+        }
+    }
+    pendingGroup?.let { group ->
+        AppDialog(onDismissRequest = { pendingGroup = null },
+            title = { Text("确认同属一门课程？") },
+            text = { Text(group.sortedWith(courseMeetingOrder).joinToString("\n") {
+                "${weekdayName(it.weekday)} 第 ${it.startPeriod}–${it.endPeriod} 节 · ${it.building}"
+            } + "\n请逐项核对；教务选课号仅用于提示，确认后各课次仍保留独立提醒和地点。") },
+            confirmButton = { Button(onClick = {
+                onConfirmGroup(group.mapTo(mutableSetOf(), Course::id))
+                pendingGroup = null
+            }) { Text("确认并归组") } },
+            dismissButton = { TextButton(onClick = { pendingGroup = null }) { Text("取消") } })
     }
     groupCourseMeetings(awaiting).forEach { group ->
         FocusCard(
@@ -181,6 +211,9 @@ private fun PendingCourses(
 private fun ConfirmedCourses(confirmed: List<Course>, onEdit: (Course) -> Unit, onToggle: (Course) -> Unit,
     onDelete: (Set<Course>) -> Unit,
     onMerge: (Set<Long>, Long, CourseEditPlans.CourseMergePlan.Applied) -> Boolean,
+    onLink: (Set<Long>) -> Boolean,
+    onSeparate: (Long) -> Boolean,
+    onRename: (Long, String) -> Boolean,
     reminderSettings: CourseReminderSettings,
     reminderPeriodTable: CoursePeriodTable, periodConfigured: Boolean,
     onReminderOverrideChange: (Course, Boolean?) -> Unit) {
@@ -190,6 +223,9 @@ private fun ConfirmedCourses(confirmed: List<Course>, onEdit: (Course) -> Unit, 
     var pendingDelete by remember { mutableStateOf<Set<Course>?>(null) }
     var preferredId by remember { mutableStateOf<Long?>(null) }
     var pendingMerge by remember { mutableStateOf<PendingCourseMerge?>(null) }
+    var pendingLink by remember { mutableStateOf<Set<Long>?>(null) }
+    var editingGroupId by remember { mutableStateOf<Long?>(null) }
+    var groupTitle by remember { mutableStateOf("") }
     var mergeError by remember { mutableStateOf<String?>(null) }
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
         Text("已确认课程", fontWeight = FontWeight.Bold)
@@ -227,6 +263,10 @@ private fun ConfirmedCourses(confirmed: List<Course>, onEdit: (Course) -> Unit, 
                         is CourseEditPlans.CourseMergePlan.Rejected -> mergeError = plan.reason
                     }
                 }) { Text("合并所选") }
+                TextButton(enabled = selected.map(Course::courseId).distinct().size >= 2,
+                    onClick = { pendingLink = selected.mapTo(mutableSetOf(), Course::id) }) {
+                    Text("归为同一门课")
+                }
                 TextButton(enabled = selected.isNotEmpty(), onClick = { pendingDelete = selected }) {
                     Text("删除所选", color = MaterialTheme.colorScheme.error)
                 }
@@ -278,7 +318,7 @@ private fun ConfirmedCourses(confirmed: List<Course>, onEdit: (Course) -> Unit, 
             }
         }
     }
-    groupCourseMeetings(confirmed.filterNot { it in conflicting }).forEach { group ->
+    groupCourseMeetings(confirmed.filterNot { it in conflicting }, byIdentity = true).forEach { group ->
         FocusCard(
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
             elevation = 1.dp
@@ -287,7 +327,12 @@ private fun ConfirmedCourses(confirmed: List<Course>, onEdit: (Course) -> Unit, 
                 Modifier.fillMaxWidth().padding(12.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                Text(group.title + if (group.meetings.size > 1) " · 同名 ${group.meetings.size} 条记录" else "", fontWeight = FontWeight.SemiBold)
+                Text(group.title + if (group.meetings.size > 1) " · ${group.meetings.size} 个独立课次" else "", fontWeight = FontWeight.SemiBold)
+                if (!selecting && group.meetings.size > 1)
+                    TextButton(onClick = {
+                        editingGroupId = group.meetings.first().courseId
+                        groupTitle = group.title
+                    }) { Text("编辑整门课程名称") }
                 connectedCourseSpans(group.meetings).forEachIndexed { index, span ->
                     val course = span.display
                     if (index > 0) HorizontalDivider()
@@ -302,11 +347,15 @@ private fun ConfirmedCourses(confirmed: List<Course>, onEdit: (Course) -> Unit, 
                     if (!selecting) {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                             if (span.records.size == 1) TextButton(onClick = { onEdit(span.records.single()) }) { Text("编辑") }
+                            if (span.records.size == 1 && confirmed.count { it.courseId == course.courseId } > 1)
+                                TextButton(onClick = { onSeparate(course.id) }) { Text("分离课次") }
                             TextButton(onClick = { span.records.forEach(onToggle) }) { Text(if (course.enabled) "停用" else "启用") }
                             TextButton(onClick = { pendingDelete = span.records.toSet() }) { Text("删除", color = MaterialTheme.colorScheme.error) }
                         }
                         if (span.records.size > 1) span.records.forEach { original ->
                             TextButton(onClick = { onEdit(original) }) { Text("编辑第 ${original.startPeriod}–${original.endPeriod} 节") }
+                            if (confirmed.count { it.courseId == original.courseId } > 1)
+                                TextButton(onClick = { onSeparate(original.id) }) { Text("分离该课次") }
                         }
                     }
                 }
@@ -361,6 +410,26 @@ private fun ConfirmedCourses(confirmed: List<Course>, onEdit: (Course) -> Unit, 
                 pendingMerge = null
             }) { Text("确认合并") } },
             dismissButton = { TextButton(onClick = { pendingMerge = null }) { Text("取消") } })
+    }
+    pendingLink?.let { ids ->
+        AppDialog(onDismissRequest = { pendingLink = null },
+            title = { Text("归为同一门课程？") },
+            text = { Text("将所选及其已有同组课次关联到同一课程。课次 ID、提醒和临时地点保持独立；不同课程名、冲突时段或不同学期会被拒绝。") },
+            confirmButton = { Button(onClick = {
+                if (onLink(ids)) { selected = emptySet(); selecting = false }
+                pendingLink = null
+            }) { Text("确认归组") } },
+            dismissButton = { TextButton(onClick = { pendingLink = null }) { Text("取消") } })
+    }
+    editingGroupId?.let { id ->
+        AppDialog(onDismissRequest = { editingGroupId = null },
+            title = { Text("编辑整门课程名称") },
+            text = { OutlinedTextField(value = groupTitle, onValueChange = { groupTitle = it },
+                label = { Text("课程名称") }, singleLine = true) },
+            confirmButton = { Button(enabled = groupTitle.isNotBlank(), onClick = {
+                if (onRename(id, groupTitle.trim())) editingGroupId = null
+            }) { Text("保存全部课次名称") } },
+            dismissButton = { TextButton(onClick = { editingGroupId = null }) { Text("取消") } })
     }
 }
 

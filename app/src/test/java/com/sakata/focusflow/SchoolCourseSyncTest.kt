@@ -66,6 +66,25 @@ class SchoolCourseSyncTest {
         assertEquals(1, result.updatedCount)
     }
 
+    @Test fun `scoped candidate only refreshes the same row and never repurposes a different meeting`() {
+        val first = course("大学英语", 4, 1, 2, "西1", confirmed = true).copy(
+            externalSchoolYearCode = "2026", externalTermCode = "1",
+            externalSelectionKeyCandidate = "KEY")
+        val second = course("大学英语", 4, 3, 4, "西2", confirmed = true).copy(
+            externalSchoolYearCode = "2026", externalTermCode = "1",
+            externalSelectionKeyCandidate = "KEY", courseId = first.id)
+        val changed = second.copy(id = 99L, startPeriod = 5, endPeriod = 6)
+        val result = syncSchoolCourses(listOf(first, second), listOf(changed))
+        assertEquals(listOf(first.id, second.id, 99L), result.courses.map(Course::id))
+        assertEquals(1, result.addedCount)
+        assertTrue(result.courses.last().needsConfirmation)
+        val exact = syncSchoolCourses(listOf(first, second), listOf(second.copy(id = 100L,
+            building = "西3", needsConfirmation = true)))
+        assertEquals(0, exact.addedCount)
+        assertEquals(second.id, exact.courses.last().id)
+        assertEquals(first.id, exact.courses.last().courseId)
+    }
+
     private fun course(
         title: String,
         weekday: Int,

@@ -67,8 +67,10 @@ internal object CourseSplitOperation {
         val successor = edited.copy(id = generateSequence(::newItemId).first { id ->
             id > 0 && current.none { it.id == id }
         }, effectiveFromEpochDay = boundary, effectiveUntilEpochDay = original.effectiveUntilEpochDay)
-        if (successor.title.isBlank() || successor.weekday !in 1..7 ||
-            successor.startPeriod !in 1..20 || successor.endPeriod !in successor.startPeriod..20)
+        val successorWithParent = if (successor.title.trim() == original.title.trim()) successor
+            else successor.copy(courseId = successor.id)
+        if (successorWithParent.title.isBlank() || successorWithParent.weekday !in 1..7 ||
+            successorWithParent.startPeriod !in 1..20 || successorWithParent.endPeriod !in successorWithParent.startPeriod..20)
             return Outcome.REJECTED
         if (!CourseLocationOverrides.canSafelyMove(context, listOf(original.id), boundary) ||
             !CourseReminders.canSafelyMerge(context, listOf(original.id)))
@@ -76,11 +78,11 @@ internal object CourseSplitOperation {
         val future = CourseLocationOverrides.snapshot(context, original.id).filterKeys { it >= boundary }
         if (future.values.any { it.length > 100 }) return Outcome.REJECTED
         val reminder = CourseReminders.load(context).overrides[original.id]
-        val journal = Journal(original.id, successor.id, boundary, reminder, future)
+        val journal = Journal(original.id, successorWithParent.id, boundary, reminder, future)
         val prefs = context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
         if (!prefs.edit().putString(KEY, journal.encode()).commit()) return Outcome.WRITE_FAILED
         val updated = current.flatMap { course ->
-            if (course.id == original.id) listOf(planned.original, successor) else listOf(course)
+            if (course.id == original.id) listOf(planned.original, successorWithParent) else listOf(course)
         }
         if (!repository.replaceCourses(updated, current).applied) {
             prefs.edit().remove(KEY).commit()

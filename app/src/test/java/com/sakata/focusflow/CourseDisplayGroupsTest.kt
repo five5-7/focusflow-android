@@ -19,12 +19,19 @@ class CourseDisplayGroupsTest {
 
     @Test fun `consecutive periods of identical course become one visible span without dropping ids`() {
         val first = course("材料力学", 5, 1, 2)
-        val second = course("材料力学", 5, 3, 4)
+        val second = course("材料力学", 5, 3, 4).copy(courseId = first.courseId)
         val third = course("材料力学", 5, 7, 8)
         val saturday = course("材料力学", 6, 1, 2)
         val spans = connectedCourseSpans(listOf(saturday, second, third, first))
         assertEquals(listOf(1 to 4, 7 to 8, 1 to 2), spans.map { it.display.startPeriod to it.display.endPeriod })
         assertEquals(listOf(first.id, second.id), spans.first().records.map { it.id })
+    }
+
+    @Test fun `independent same title meetings remain separately addressable`() {
+        val first = course("材料力学", 5, 1, 2)
+        val next = course("材料力学", 5, 3, 4)
+        assertEquals(2, connectedCourseSpans(listOf(first, next)).size)
+        assertEquals(2, groupCourseMeetings(listOf(first, next), byIdentity = true).size)
     }
 
     @Test fun `different place date or confirmation state never join`() {

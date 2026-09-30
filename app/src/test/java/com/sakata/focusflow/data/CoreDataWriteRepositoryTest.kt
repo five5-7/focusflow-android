@@ -53,6 +53,26 @@ class CoreDataWriteRepositoryTest {
         assertEquals(listOf(202L, 201L), readySnapshot(store).courses.map { it.id })
     }
 
+    @Test fun `room writes one parent and two distinct meetings then rejects inconsistent title`() {
+        val store = storeFor(sampleSnapshot())
+        val writer = RoomCoreDataWriteRepository(store)
+        val first = Course("线性代数", 1, 1, 2, "东1", CampusZone.OTHER,
+            needsConfirmation = false, id = 201L)
+        val second = first.copy(id = 202L, courseId = 201L, weekday = 4,
+            building = "西2", externalSelectionKeyCandidate = "candidate")
+        assertEquals(CoreDataWriteStatus.APPLIED,
+            writer.replaceCourses(listOf(first, second), emptyList()).status)
+        assertEquals(1, store.courseRows.size)
+        assertEquals(2, store.ruleRows.size)
+        assertEquals(listOf(201L, 202L), readySnapshot(store).courses.map(Course::id))
+        assertEquals(listOf(201L, 201L), readySnapshot(store).courses.map(Course::courseId))
+        assertEquals("candidate", readySnapshot(store).courses.last().externalSelectionKeyCandidate)
+        assertEquals(CoreDataWriteStatus.INVALID_INPUT,
+            writer.replaceCourses(listOf(first, second.copy(title = "另一门课")),
+                listOf(first, second)).status)
+        assertEquals(listOf(first, second), readySnapshot(store).courses)
+    }
+
     @Test
     fun `failed course count update rolls back both course tables`() {
         val store = storeFor(sampleSnapshot()).apply { failOnCounts = true }

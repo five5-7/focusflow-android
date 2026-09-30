@@ -248,7 +248,8 @@ class RoomCoreDataWriteRepository(
                     it.effectiveFromEpochDay > it.effectiveUntilEpochDay)
             }) return@transact invalidInput("courses contains an invalid meeting")
         store.replaceCourses(
-            courses.mapIndexed { index, course -> CourseEntity.fromLegacy(course, index) },
+            try { courses.toCourseParentEntities() }
+            catch (_: IllegalArgumentException) { return@transact invalidInput("course group is inconsistent") },
             courses.mapIndexed { index, course -> CourseMeetingRuleEntity.fromLegacy(course, index) }
         )
         applied()

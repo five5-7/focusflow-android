@@ -127,6 +127,12 @@ class ReminderReceiver : BroadcastReceiver() {
                         putExtra(EXTRA_STANDALONE_ID, id); putExtra(EXTRA_STANDALONE_AT, at)
                         putExtra(EXTRA_STANDALONE_DELIVERED_AT, reminder.deliveredAt ?: -1L)
                     }, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+                val move = PendingIntent.getBroadcast(context, 0,
+                    Intent(context, ReminderReceiver::class.java).apply {
+                        action = ACTION_STANDALONE_MOVE_TO_INBOX
+                        data = Uri.parse("focusflow://standalone/inbox/$id/$at")
+                        putExtra(EXTRA_STANDALONE_ID, id); putExtra(EXTRA_STANDALONE_AT, at)
+                    }, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
                 val open = PendingIntent.getActivity(context, 0, Intent(context, MainActivity::class.java).apply {
                     action = ACTION_STANDALONE_OPEN
                     data = Uri.parse("focusflow://standalone/open/$id/$at")
@@ -141,7 +147,7 @@ class ReminderReceiver : BroadcastReceiver() {
                     .setContentIntent(open)
                     .addAction(0, "完成本次提醒", complete)
                     .addAction(0, "10 分钟后提醒", snooze)
-                    .addAction(0, "打开处理", open)
+                    .addAction(0, "移入收集箱", move)
                     .setAutoCancel(true).build())
                 return
             }
@@ -161,6 +167,16 @@ class ReminderReceiver : BroadcastReceiver() {
                 if (StandaloneReminders.complete(context, id, intent.getLongExtra(EXTRA_STANDALONE_AT, -1L)))
                     manager.cancel(StandaloneReminders.notificationTag(id), 0)
                     manager.cancel((id % Int.MAX_VALUE).toInt())
+                return
+            }
+            ACTION_STANDALONE_MOVE_TO_INBOX -> {
+                val id = intent.getLongExtra(EXTRA_STANDALONE_ID, -1L)
+                if (StandaloneInboxTransfer.move(context, requireNotNull(coreDataRepository), id,
+                        intent.getLongExtra(EXTRA_STANDALONE_AT, -1L)) in setOf(
+                        StandaloneInboxTransfer.Result.MOVED, StandaloneInboxTransfer.Result.ALREADY_MOVED)) {
+                    manager.cancel(StandaloneReminders.notificationTag(id), 0)
+                    manager.cancel((id % Int.MAX_VALUE).toInt())
+                }
                 return
             }
             ACTION_STATUS_CHECK_IN -> {
@@ -1018,7 +1034,8 @@ class ReminderReceiver : BroadcastReceiver() {
             ACTION_TASK_COMPLETE,
             ACTION_TASK_SNOOZE,
             ACTION_TASK_SKIP,
-            ACTION_TASK_MINIMUM
+            ACTION_TASK_MINIMUM,
+            ACTION_STANDALONE_MOVE_TO_INBOX
         )
         const val EXTRA_ACTIVITY_NAME = "activity_name"
         const val EXTRA_NEXT_STEP = "next_step"
@@ -1032,6 +1049,7 @@ class ReminderReceiver : BroadcastReceiver() {
         const val ACTION_STANDALONE_COMPLETE = "com.sakata.focusflow.STANDALONE_COMPLETE"
         const val ACTION_STANDALONE_SNOOZE = "com.sakata.focusflow.STANDALONE_SNOOZE"
         const val ACTION_STANDALONE_OPEN = "com.sakata.focusflow.STANDALONE_OPEN"
+        const val ACTION_STANDALONE_MOVE_TO_INBOX = "com.sakata.focusflow.STANDALONE_MOVE_TO_INBOX"
         const val EXTRA_STANDALONE_ID = "standalone_id"
         const val EXTRA_STANDALONE_AT = "standalone_at"
         const val EXTRA_STANDALONE_DELIVERED_AT = "standalone_delivered_at"

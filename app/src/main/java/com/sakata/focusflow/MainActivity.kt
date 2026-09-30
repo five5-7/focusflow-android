@@ -1747,6 +1747,36 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                             }
                         }
                     },
+                    onConfirmImportedGroup = { ids ->
+                        val grouped = CourseGrouping.confirmImported(courses, ids)
+                        if (grouped == null) {
+                            courseImportMessage = "课次已变化、时间冲突或候选来源不一致，请逐条核对。"
+                            false
+                        } else persistCourses(grouped)
+                    },
+                    onLinkCourses = { ids ->
+                        val grouped = CourseGrouping.linkConfirmed(courses, ids)
+                        if (grouped == null) {
+                            courseImportMessage = "无法归组：课程名、学期或时间冲突，请核对后重试。"
+                            false
+                        } else persistCourses(grouped)
+                    },
+                    onSeparateCourse = { id ->
+                        val separated = CourseGrouping.separate(courses, id)
+                        if (separated == null) {
+                            courseImportMessage = "课次已变化，请刷新后重试。"
+                            false
+                        } else persistCourses(separated)
+                    },
+                    onRenameCourse = { id, name ->
+                        val title = name.trim()
+                        if (title.isBlank() || courses.none { it.courseId == id && !it.needsConfirmation }) {
+                            courseImportMessage = "课程已变化，请刷新后重试。"
+                            false
+                        } else persistCourses(courses.map {
+                            if (it.courseId == id) it.copy(title = title) else it
+                        })
+                    },
                     courseReminderSettings = courseReminderSettings,
                     courseReminderPeriodTable = coursePeriodTable,
                     onCourseReminderGlobalChange = { enabled ->
@@ -2737,7 +2767,16 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                         return@editCourse
                     }
                 }
-            } else if (!persistCourses(courses.map { if (it == original) edited.copy(needsConfirmation = false) else it })) return@editCourse
+            } else {
+                val separated = if (edited.title.trim() != original.title.trim() &&
+                    courses.count { it.courseId == original.courseId } > 1
+                ) CourseGrouping.separate(courses, original.id) ?: return@editCourse else courses
+                val current = separated.single { it.id == original.id }
+                if (!persistCourses(separated.map {
+                    if (it.id == original.id) edited.copy(courseId = current.courseId,
+                        needsConfirmation = false) else it
+                })) return@editCourse
+            }
             ensureCoursePlaceInLibrary(edited)
             courseEditor = null
         } }

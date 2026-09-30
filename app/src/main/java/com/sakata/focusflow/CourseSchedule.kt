@@ -11,7 +11,14 @@ data class Course(
     val enabled: Boolean = true,
     val effectiveFromEpochDay: Long? = null,
     val effectiveUntilEpochDay: Long? = null,
-    val id: Long = newItemId()
+    /** Stable meeting ID; reminders and one-off locations continue to use this key. */
+    val id: Long = newItemId(),
+    /** Local parent identity. Old rows default to one parent per meeting. */
+    val courseId: Long = id,
+    /** Import provenance, never proof of a stable teaching-class identity. */
+    val externalSchoolYearCode: String = "",
+    val externalTermCode: String = "",
+    val externalSelectionKeyCandidate: String = ""
 )
 
 object CourseActivationPolicy {

@@ -1,6 +1,6 @@
 package com.sakata.focusflow
 
-/** Presentation only: records retain separate IDs until the multi-meeting course model exists. */
+/** Display grouping does not change independent meeting identities. */
 internal data class CourseDisplayGroup(val title: String, val meetings: List<Course>)
 
 /** A single visible block; original records remain addressable for edit, deletion and migration. */
@@ -13,10 +13,10 @@ internal val courseMeetingOrder: Comparator<Course> = compareBy<Course> { it.wee
     .thenBy { it.endPeriod }
     .thenBy { it.id }
 
-internal fun groupCourseMeetings(courses: List<Course>): List<CourseDisplayGroup> =
+internal fun groupCourseMeetings(courses: List<Course>, byIdentity: Boolean = false): List<CourseDisplayGroup> =
     courses.sortedWith(courseMeetingOrder)
-        .groupBy { it.title.trim() }
-        .map { (title, meetings) -> CourseDisplayGroup(title, meetings) }
+        .groupBy { if (byIdentity) it.courseId.toString() else it.title.trim() }
+        .map { (_, meetings) -> CourseDisplayGroup(meetings.first().title.trim(), meetings) }
 
 /** Only consecutive periods with identical meeting attributes form one block. */
 internal fun connectedCourseSpans(courses: List<Course>): List<ConnectedCourseSpan> {
@@ -27,6 +27,7 @@ internal fun connectedCourseSpans(courses: List<Course>): List<ConnectedCourseSp
         if (previous != null && last != null && last.weekday == course.weekday &&
             last.endPeriod + 1 == course.startPeriod &&
             last.title.trim() == course.title.trim() &&
+            last.courseId == course.courseId &&
             last.building.trim() == course.building.trim() && last.zone == course.zone &&
             last.needsConfirmation == course.needsConfirmation && last.enabled == course.enabled &&
             last.effectiveFromEpochDay == course.effectiveFromEpochDay &&

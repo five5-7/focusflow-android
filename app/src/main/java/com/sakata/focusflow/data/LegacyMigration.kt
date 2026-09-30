@@ -112,7 +112,8 @@ class LegacyPreferencesReader(
                     recurrenceRules = emptyList(),
                     taskOccurrences = emptyList(),
                     activitySessions = sessions,
-                    courses = courses.mapIndexed { index, course -> CourseEntity.fromLegacy(course, index) },
+                    courses = try { courses.toCourseParentEntities() }
+                        catch (error: IllegalArgumentException) { fail(KEY_COURSES, "Course groups are invalid", error) },
                     courseMeetingRules = courses.mapIndexed { index, course -> CourseMeetingRuleEntity.fromLegacy(course, index) },
                     trashGroups = trashGroups.map(TrashGroupEntity::fromRecord),
                     diagnostics = diagnostics
@@ -256,12 +257,16 @@ class LegacyPreferencesReader(
                 }
                 Course(
                     id = value.getLong("id"), title = value.getString("title"),
+                    courseId = value.optLong("courseId", value.getLong("id")),
                     weekday = weekday, startPeriod = startPeriod, endPeriod = endPeriod,
                     building = value.getString("building"),
                     zone = CampusZone.valueOf(value.getString("zone")),
                     needsConfirmation = value.optBoolean("needsConfirmation", false),
                     enabled = value.optBoolean("enabled", true),
-                    effectiveFromEpochDay = from, effectiveUntilEpochDay = until
+                    effectiveFromEpochDay = from, effectiveUntilEpochDay = until,
+                    externalSchoolYearCode = value.optString("externalSchoolYearCode"),
+                    externalTermCode = value.optString("externalTermCode"),
+                    externalSelectionKeyCandidate = value.optString("externalSelectionKeyCandidate")
                 )
             } catch (error: LegacyDecodeException) {
                 throw error

@@ -438,9 +438,8 @@ class CoreDataActivationCoordinator(
                     taskEvents = events,
                     goals = snapshot.plans.map(PlanEntity::toLegacy),
                     activitySessions = snapshot.activitySessions.map(ActivitySessionEntity::toLegacy),
-                    courses = snapshot.courses.zip(snapshot.courseMeetingRules).map { (parent, rule) ->
-                        rule.toLegacy(parent)
-                    },
+                    courses = mapCourseRules(snapshot.courses, snapshot.courseMeetingRules)
+                        ?: return LegacyActivationRead.Failed("legacy course groups are invalid"),
                     trashGroups = snapshot.trashGroups.map(TrashGroupEntity::toRecord)
                 )
             )

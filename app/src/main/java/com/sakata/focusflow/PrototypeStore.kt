@@ -1,6 +1,7 @@
 package com.sakata.focusflow
 
 import android.content.Context
+import com.sakata.focusflow.data.toCourseParentEntities
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -776,23 +777,30 @@ class PrototypeStore(context: Context) {
             val values = JSONArray(json)
             List(values.length()) { index ->
                 val course = values.getJSONObject(index)
+                val id = course.optLong("id", 0L).takeIf { it > 0L } ?: newItemId()
                 Course(
                     title = course.getString("title"), weekday = course.getInt("weekday"), startPeriod = course.getInt("startPeriod"), endPeriod = course.getInt("endPeriod"),
                     building = course.getString("building"), zone = CampusZone.valueOf(course.getString("zone")), needsConfirmation = course.optBoolean("needsConfirmation", false),
                     enabled = course.optBoolean("enabled", true),
                     effectiveFromEpochDay = course.optLong("effectiveFromEpochDay", Long.MIN_VALUE).takeUnless { it == Long.MIN_VALUE },
                     effectiveUntilEpochDay = course.optLong("effectiveUntilEpochDay", Long.MIN_VALUE).takeUnless { it == Long.MIN_VALUE },
-                    id = course.optLong("id", 0L).takeIf { it > 0L } ?: newItemId()
+                    id = id,
+                    courseId = course.optLong("courseId", id).takeIf { it > 0L } ?: id,
+                    externalSchoolYearCode = course.optString("externalSchoolYearCode"),
+                    externalTermCode = course.optString("externalTermCode"),
+                    externalSelectionKeyCandidate = course.optString("externalSelectionKeyCandidate")
                 )
             }
         }, { it.isEmpty() })
 
     fun saveCourses(courses: List<Course>) {
+        require(runCatching { courses.toCourseParentEntities() }.isSuccess) { "Invalid course group" }
         preferences.edit().putBoolean("course_setup_done", true).putString("courses", encodeCourses(courses)).apply()
     }
 
     fun saveCoursesIfUnchanged(courses: List<Course>, expectedCourses: List<Course>): Boolean = synchronized(taskHistoryLock) {
-        if (StorageProtection.readOnly || loadCourses() != expectedCourses) return@synchronized false
+        if (StorageProtection.readOnly || loadCourses() != expectedCourses ||
+            runCatching { courses.toCourseParentEntities() }.isFailure) return@synchronized false
         preferences.edit().putBoolean("course_setup_done", true).putString("courses", encodeCourses(courses)).commit()
     }
 
@@ -805,6 +813,10 @@ class PrototypeStore(context: Context) {
             course.effectiveFromEpochDay?.let { put("effectiveFromEpochDay", it) }
             course.effectiveUntilEpochDay?.let { put("effectiveUntilEpochDay", it) }
             put("id", course.id)
+            if (course.courseId != course.id) put("courseId", course.courseId)
+            if (course.externalSchoolYearCode.isNotBlank()) put("externalSchoolYearCode", course.externalSchoolYearCode)
+            if (course.externalTermCode.isNotBlank()) put("externalTermCode", course.externalTermCode)
+            if (course.externalSelectionKeyCandidate.isNotBlank()) put("externalSelectionKeyCandidate", course.externalSelectionKeyCandidate)
         }) }
         return values.toString()
     }

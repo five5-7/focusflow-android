@@ -16,6 +16,42 @@ import java.io.File
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], application = Application::class)
 class Stage4RoomUpgradeTest {
+    @Test fun `v6 course rules keep meeting ids and gain empty candidate provenance`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val name = "stage6-v6-course-upgrade-test.db"
+        context.deleteDatabase(name)
+        val schemaFile = listOf(File("schemas/com.sakata.focusflow.data.FocusFlowDatabase/6.json"),
+            File("app/schemas/com.sakata.focusflow.data.FocusFlowDatabase/6.json")).first { it.isFile }
+        val definition = JSONObject(schemaFile.readText()).getJSONObject("database")
+        SQLiteDatabase.openOrCreateDatabase(context.getDatabasePath(name), null).use { sqlite ->
+            val entities = definition.getJSONArray("entities")
+            for (i in 0 until entities.length()) {
+                val entity = entities.getJSONObject(i)
+                val table = entity.getString("tableName")
+                sqlite.execSQL(entity.getString("createSql").replace("${'$'}{TABLE_NAME}", table))
+                val indices = entity.optJSONArray("indices") ?: continue
+                for (j in 0 until indices.length()) sqlite.execSQL(indices.getJSONObject(j)
+                    .getString("createSql").replace("${'$'}{TABLE_NAME}", table))
+            }
+            val setup = definition.getJSONArray("setupQueries")
+            for (i in 0 until setup.length()) sqlite.execSQL(setup.getString(i))
+            sqlite.execSQL("INSERT INTO courses (id,source_order,title,needs_confirmation) VALUES (81,0,'旧课程',0)")
+            sqlite.execSQL("INSERT INTO course_meeting_rules (id,course_id,source_order,weekday,start_period,end_period,building,zone,enabled) VALUES (81,81,0,3,2,4,'老校区','OTHER',1)")
+            sqlite.version = 6
+        }
+        val database = Room.databaseBuilder(context, FocusFlowDatabase::class.java, name)
+            .addMigrations(FocusFlowDatabase.MIGRATION_6_7).allowMainThreadQueries().build()
+        try {
+            val row = database.courseMeetingRuleDao().all().single()
+            assertEquals(81L, row.id)
+            assertEquals(81L, row.courseId)
+            assertEquals("", row.externalSelectionKeyCandidate)
+            assertEquals("", row.externalSchoolYearCode)
+            assertEquals("", row.externalTermCode)
+            assertEquals("旧课程", row.toLegacy(database.courseDao().all().single()).title)
+        } finally { database.close(); context.deleteDatabase(name) }
+    }
+
     @Test fun `existing v5 database gains empty stage7 tables without reviving deleted history`() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val name = "stage7-v5-upgrade-test.db"
@@ -39,7 +75,7 @@ class Stage4RoomUpgradeTest {
             sqlite.version = 5
         }
         val database = Room.databaseBuilder(context, FocusFlowDatabase::class.java, name)
-            .addMigrations(FocusFlowDatabase.MIGRATION_5_6).allowMainThreadQueries().build()
+            .addMigrations(FocusFlowDatabase.MIGRATION_5_6, FocusFlowDatabase.MIGRATION_6_7).allowMainThreadQueries().build()
         try {
             assertEquals(listOf(502L), database.taskEventDao().allIds())
             assertTrue(database.taskDao().allIds().isEmpty())
@@ -77,7 +113,7 @@ class Stage4RoomUpgradeTest {
         val database = Room.databaseBuilder(context, FocusFlowDatabase::class.java, name)
             .addMigrations(FocusFlowDatabase.MIGRATION_1_2, FocusFlowDatabase.MIGRATION_2_3,
                 FocusFlowDatabase.MIGRATION_3_4, FocusFlowDatabase.MIGRATION_4_5,
-                FocusFlowDatabase.MIGRATION_5_6).allowMainThreadQueries().build()
+                FocusFlowDatabase.MIGRATION_5_6, FocusFlowDatabase.MIGRATION_6_7).allowMainThreadQueries().build()
         try {
             val item = database.taskDao().all().single().toLegacy()
             assertEquals(77L, item.id)
@@ -127,7 +163,8 @@ class Stage4RoomUpgradeTest {
         }
         val database = Room.databaseBuilder(context, FocusFlowDatabase::class.java, name)
             .addMigrations(FocusFlowDatabase.MIGRATION_2_3, FocusFlowDatabase.MIGRATION_3_4,
-                FocusFlowDatabase.MIGRATION_4_5, FocusFlowDatabase.MIGRATION_5_6).allowMainThreadQueries().build()
+                FocusFlowDatabase.MIGRATION_4_5, FocusFlowDatabase.MIGRATION_5_6,
+                FocusFlowDatabase.MIGRATION_6_7).allowMainThreadQueries().build()
         try {
             val plan = database.planDao().all().single().toLegacy()
             assertEquals(8L, plan.id)
@@ -167,7 +204,7 @@ class Stage4RoomUpgradeTest {
         }
         val database = Room.databaseBuilder(context, FocusFlowDatabase::class.java, name)
             .addMigrations(FocusFlowDatabase.MIGRATION_3_4, FocusFlowDatabase.MIGRATION_4_5,
-                FocusFlowDatabase.MIGRATION_5_6).allowMainThreadQueries().build()
+                FocusFlowDatabase.MIGRATION_5_6, FocusFlowDatabase.MIGRATION_6_7).allowMainThreadQueries().build()
         try {
             val item = database.taskDao().all().single().toLegacy()
             assertEquals(77L, item.id)
@@ -200,7 +237,8 @@ class Stage4RoomUpgradeTest {
             sqlite.version = 4
         }
         val database = Room.databaseBuilder(context, FocusFlowDatabase::class.java, name)
-            .addMigrations(FocusFlowDatabase.MIGRATION_4_5, FocusFlowDatabase.MIGRATION_5_6).allowMainThreadQueries().build()
+            .addMigrations(FocusFlowDatabase.MIGRATION_4_5, FocusFlowDatabase.MIGRATION_5_6,
+                FocusFlowDatabase.MIGRATION_6_7).allowMainThreadQueries().build()
         try {
             val old = database.activitySessionDao().all().single().toLegacy()
             assertEquals(701L, old.id)

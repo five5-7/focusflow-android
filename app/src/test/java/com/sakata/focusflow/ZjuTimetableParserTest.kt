@@ -80,6 +80,9 @@ class ZjuTimetableParserTest {
         val withCodes = ZjuTimetableParser.parse(payload, " 2026 ", " 3 ") as ZjuTimetableParseResult.Success
         assertEquals(listOf("2026", "2026"), withCodes.candidates.map { it.schoolYearCode })
         assertEquals(listOf("3", "3"), withCodes.candidates.map { it.termCode })
+        assertEquals(listOf("2026", "2026"), withCodes.batch.courses.map { it.externalSchoolYearCode })
+        assertEquals(listOf("3", "3"), withCodes.batch.courses.map { it.externalTermCode })
+        assertEquals(listOf("KEY-1", "KEY-2"), withCodes.batch.courses.map { it.externalSelectionKeyCandidate })
         assertTrue(withCodes.candidates.all { it.hasRequestCodes })
 
         val withoutCodes = ZjuTimetableParser.parse(payload) as ZjuTimetableParseResult.Success
