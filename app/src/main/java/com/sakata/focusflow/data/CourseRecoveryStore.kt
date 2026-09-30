@@ -164,6 +164,21 @@ internal sealed interface CoursePurgeOutcome {
     data class NotReady(val reason: String) : CoursePurgeOutcome
 }
 
+internal sealed interface CourseRecoveryCompletion {
+    /** The terminal RESTORED state was committed. */
+    data class Completed(val group: CourseRecoveryGroup) : CourseRecoveryCompletion
+
+    /** The group already reached RESTORED; nothing was written. */
+    data class AlreadyCompleted(val group: CourseRecoveryGroup) : CourseRecoveryCompletion
+
+    data class Rejected(val reason: String, val status: CoreDataWriteStatus = CoreDataWriteStatus.INVALID_STATE) :
+        CourseRecoveryCompletion
+
+    data class WriteUncertain(val reason: String) : CourseRecoveryCompletion
+
+    data class NotReady(val reason: String) : CourseRecoveryCompletion
+}
+
 internal interface CourseRecoveryStore {
     fun read(): CourseRecoveryGroupsRead
 
@@ -177,6 +192,17 @@ internal interface CourseRecoveryStore {
         expectedGroups: List<CourseRecoveryGroup>,
         now: Long
     ): CourseRestoreOutcome
+
+    /**
+     * Marks a RESTORING group as RESTORED. Only a caller that already confirmed every follow-up
+     * step (preferences and reminder coordination) may reach this; the store itself never treats a
+     * partial follow-up as complete.
+     */
+    fun completeRestoreCourseRecoveryGroup(
+        groupId: String,
+        expectedGroups: List<CourseRecoveryGroup>,
+        now: Long
+    ): CourseRecoveryCompletion
 
     fun purgeCourseRecoveryGroups(
         expectedGroups: List<CourseRecoveryGroup>,
@@ -200,6 +226,12 @@ internal object UnsupportedCourseRecoveryStore : CourseRecoveryStore {
         expectedGroups: List<CourseRecoveryGroup>,
         now: Long
     ): CourseRestoreOutcome = CourseRestoreOutcome.NotReady(REASON)
+
+    override fun completeRestoreCourseRecoveryGroup(
+        groupId: String,
+        expectedGroups: List<CourseRecoveryGroup>,
+        now: Long
+    ): CourseRecoveryCompletion = CourseRecoveryCompletion.NotReady(REASON)
 
     override fun purgeCourseRecoveryGroups(
         expectedGroups: List<CourseRecoveryGroup>,
@@ -370,6 +402,66 @@ internal class LegacyCourseRecoveryStore(
         }
     }
 
+    override fun completeRestoreCourseRecoveryGroup(
+        groupId: String,
+        expectedGroups: List<CourseRecoveryGroup>,
+        now: Long
+    ): CourseRecoveryCompletion = storage.withCourseWriteLock {
+        if (storage.isStorageReadOnly()) {
+            return@withCourseWriteLock CourseRecoveryCompletion.Rejected(
+                "storage is read-only", CoreDataWriteStatus.NOT_READY
+            )
+        }
+        val groups = when (val read = storage.loadCourseRecoveryGroups()) {
+            is CourseRecoveryGroupsRead.Ready -> read.groups
+            is CourseRecoveryGroupsRead.Invalid -> return@withCourseWriteLock CourseRecoveryCompletion.Rejected(
+                "course recovery payload is unreadable: ${read.reason}"
+            )
+            is CourseRecoveryGroupsRead.NotReady -> return@withCourseWriteLock CourseRecoveryCompletion.NotReady(
+                read.reason
+            )
+        }
+        if (groups != expectedGroups) {
+            return@withCourseWriteLock CourseRecoveryCompletion.Rejected(
+                "recovery group snapshot changed", CoreDataWriteStatus.INVALID_STATE
+            )
+        }
+        val group = groups.firstOrNull { it.groupId == groupId }
+            ?: return@withCourseWriteLock CourseRecoveryCompletion.Rejected(
+                "unknown recovery group", CoreDataWriteStatus.INVALID_INPUT
+            )
+        when (group.state) {
+            CourseRecoveryState.RESTORED -> return@withCourseWriteLock CourseRecoveryCompletion.AlreadyCompleted(
+                group
+            )
+            CourseRecoveryState.ACTIVE -> return@withCourseWriteLock CourseRecoveryCompletion.Rejected(
+                "the core restore has not been committed yet", CoreDataWriteStatus.CONDITION_NOT_MET
+            )
+            CourseRecoveryState.PURGING -> return@withCourseWriteLock CourseRecoveryCompletion.Rejected(
+                "a purge for this group is already in progress", CoreDataWriteStatus.CONDITION_NOT_MET
+            )
+            CourseRecoveryState.RESTORING -> Unit
+        }
+        // A no-write answer must not be taken while a previous commit outcome is still unverified.
+        uncertaintyOrNull()?.let { reason ->
+            return@withCourseWriteLock CourseRecoveryCompletion.WriteUncertain(reason)
+        }
+        val restored = CourseRecoveryJournal.transition(group, CourseRecoveryState.RESTORED, now)
+            ?: return@withCourseWriteLock CourseRecoveryCompletion.Rejected(
+                "recovery group cannot enter RESTORED"
+            )
+        val updatedGroups = groups.map { if (it.groupId == groupId) restored else it }
+        when (val commit = commitGroups(updatedGroups, groups)) {
+            is CourseRecoveryCommit.Committed -> CourseRecoveryCompletion.Completed(restored)
+            is CourseRecoveryCommit.Rejected -> CourseRecoveryCompletion.Rejected(
+                commit.reason, CoreDataWriteStatus.INVALID_STATE
+            )
+            is CourseRecoveryCommit.Failed -> CourseRecoveryCompletion.WriteUncertain(
+                markUncertain(commit.reason)
+            )
+        }
+    }
+
     override fun purgeCourseRecoveryGroups(
         expectedGroups: List<CourseRecoveryGroup>,
         now: Long
@@ -474,6 +566,15 @@ internal val CoreDataRepository.courseRecoveryStore: CourseRecoveryStore
 internal fun <T> CoreDataRepository.withCourseWriteLock(block: () -> T): T =
     (this as? LegacyCoreDataRepository)?.withCourseWriteLock(block) ?: block()
 
+/** Strict read of one delivery watermark: absent and corrupt are reported separately. */
+internal sealed interface CourseRecoveryWatermarkRead {
+    data class Value(val at: Long) : CourseRecoveryWatermarkRead
+
+    data object Absent : CourseRecoveryWatermarkRead
+
+    data object Corrupt : CourseRecoveryWatermarkRead
+}
+
 /**
  * Strict, read-only preference capture for the meetings a recovery group is about to snapshot.
  *
@@ -498,6 +599,20 @@ internal object CourseRecoveryPreferences {
     private const val MEETING_PREFIX = "meeting_"
     private const val DELIVERED_PREFIX = "delivered_"
     private const val MAX_PLACE_LENGTH = 100
+
+    /** Strict single-key read used by the follow-up to distinguish "already satisfied" from failure. */
+    fun watermark(context: Context, meetingId: Long): CourseRecoveryWatermarkRead {
+        val settings = try {
+            context.getSharedPreferences(SETTINGS_FILE, Context.MODE_PRIVATE).all
+        } catch (error: Exception) {
+            return CourseRecoveryWatermarkRead.Corrupt
+        }
+        return when (val value = settings[DELIVERED_PREFIX + meetingId]) {
+            null -> CourseRecoveryWatermarkRead.Absent
+            is Long -> if (value > 0L) CourseRecoveryWatermarkRead.Value(value) else CourseRecoveryWatermarkRead.Corrupt
+            else -> CourseRecoveryWatermarkRead.Corrupt
+        }
+    }
 
     fun capture(context: Context, meetingIds: Set<Long>): CourseRecoveryPreferenceCapture {
         if (meetingIds.isEmpty()) {
@@ -592,6 +707,13 @@ internal object CourseRecoveryPreferences {
  * through [CourseRecoveryPreferences] and hand the request to the store. Nothing here writes a
  * preference, touches the UI, reschedules reminders or marks a group RESTORED.
  */
+/** A group the UI may offer to restore: its id, how many meetings it would bring back, its state. */
+internal data class CourseRecoveryRestoreCandidate(
+    val groupId: String,
+    val meetingCount: Int,
+    val state: CourseRecoveryState
+)
+
 internal object CourseRecoveryOperations {
     fun readGroups(repository: CoreDataRepository): CourseRecoveryGroupsRead =
         repository.courseRecoveryStore.read()
@@ -650,6 +772,79 @@ internal object CourseRecoveryOperations {
             is CourseRecoveryGroupsRead.NotReady -> return CourseRestoreOutcome.NotReady(read.reason)
         }
         return repository.courseRecoveryStore.restoreCourseRecoveryGroup(groupId, groups, now)
+    }
+
+    /**
+     * Production entry for "undo the last course deletion": restores the core courses and then runs
+     * the follow-up (captured preferences, reminder coordination, RESTORED) under the same lock. A
+     * group that is already RESTORING resumes its follow-up instead of re-appending courses, and a
+     * partial follow-up is reported as [CourseRestoreCompletionOutcome.CoreCommittedFollowUpPending]
+     * - never as full success.
+     */
+    fun restoreAndComplete(
+        context: Context,
+        repository: CoreDataRepository,
+        groupId: String,
+        now: Long = System.currentTimeMillis()
+    ): CourseRestoreCompletionOutcome = repository.withCourseWriteLock {
+        val groups = when (val read = repository.courseRecoveryStore.read()) {
+            is CourseRecoveryGroupsRead.Ready -> read.groups
+            is CourseRecoveryGroupsRead.Invalid -> return@withCourseWriteLock CourseRestoreCompletionOutcome.Rejected(
+                "course recovery payload is unreadable: ${read.reason}"
+            )
+            is CourseRecoveryGroupsRead.NotReady -> return@withCourseWriteLock CourseRestoreCompletionOutcome.NotReady(
+                read.reason
+            )
+        }
+        val group = groups.firstOrNull { it.groupId == groupId }
+            ?: return@withCourseWriteLock CourseRestoreCompletionOutcome.Rejected(
+                "unknown recovery group", CoreDataWriteStatus.INVALID_INPUT
+            )
+        when (group.state) {
+            CourseRecoveryState.RESTORED -> CourseRestoreCompletionOutcome.Completed(group)
+            CourseRecoveryState.RESTORING -> CourseRecoveryFollowUp.run(context, repository, groupId, now)
+            CourseRecoveryState.PURGING -> CourseRestoreCompletionOutcome.Rejected(
+                "a purge for this group is already in progress", CoreDataWriteStatus.CONDITION_NOT_MET
+            )
+            CourseRecoveryState.ACTIVE -> when (
+                val core = repository.courseRecoveryStore.restoreCourseRecoveryGroup(groupId, groups, now)
+            ) {
+                is CourseRestoreOutcome.CoreCommitted -> CourseRecoveryFollowUp.run(context, repository, groupId, now)
+                is CourseRestoreOutcome.NeedsFollowUp -> CourseRecoveryFollowUp.run(context, repository, groupId, now)
+                is CourseRestoreOutcome.AlreadyRestored -> CourseRestoreCompletionOutcome.Completed(group)
+                is CourseRestoreOutcome.Rejected -> CourseRestoreCompletionOutcome.Rejected(
+                    core.reason, core.status
+                )
+                is CourseRestoreOutcome.WriteUncertain -> CourseRestoreCompletionOutcome.WriteUncertain(core.reason)
+                is CourseRestoreOutcome.NotReady -> CourseRestoreCompletionOutcome.NotReady(core.reason)
+                is CourseRestoreOutcome.NeedsPurgeFollowUp -> CourseRestoreCompletionOutcome.Rejected(
+                    "a purge for this group is already in progress", CoreDataWriteStatus.CONDITION_NOT_MET
+                )
+            }
+        }
+    }
+
+    /**
+     * The most recent group a user can still restore (ACTIVE or RESTORING, not expired, not being
+     * purged). The UI only offers this one entry; older groups stay in storage until they expire.
+     */
+    fun latestRestorableGroup(
+        repository: CoreDataRepository,
+        now: Long = System.currentTimeMillis()
+    ): CourseRecoveryRestoreCandidate? {
+        val groups = when (val read = repository.courseRecoveryStore.read()) {
+            is CourseRecoveryGroupsRead.Ready -> read.groups
+            else -> return null
+        }
+        return groups
+            .filter {
+                // ACTIVE = deleted, waiting for the user; RESTORING = core committed, follow-up open.
+                // RESTORED is terminal and PURGING is already being removed, so neither is offered.
+                (it.state == CourseRecoveryState.ACTIVE || it.state == CourseRecoveryState.RESTORING) &&
+                    it.members.isNotEmpty() && it.expiresAt > now
+            }
+            .maxByOrNull { it.deletedAt }
+            ?.let { CourseRecoveryRestoreCandidate(it.groupId, it.members.size, it.state) }
     }
 
     fun purgeExpired(
