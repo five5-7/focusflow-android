@@ -79,6 +79,13 @@ internal object CourseRecoveryFollowUp {
         now: Long = System.currentTimeMillis(),
         writer: CourseRecoveryPreferenceWriter = BoundaryCourseRecoveryPreferenceWriter
     ): CourseRestoreCompletionOutcome = repository.withCourseWriteLock {
+        // A failed commit may have changed only SharedPreferences' in-memory map. Replaying side
+        // effects from that map could attach saved preferences to courses that never reached disk.
+        CourseRecoveryWriteGuard.uncertainReason()?.let { reason ->
+            return@withCourseWriteLock CourseRestoreCompletionOutcome.WriteUncertain(
+                "a previous course recovery commit is unverified ($reason)"
+            )
+        }
         val groups = when (val read = repository.courseRecoveryStore.read()) {
             is CourseRecoveryGroupsRead.Ready -> read.groups
             is CourseRecoveryGroupsRead.Invalid -> return@withCourseWriteLock CourseRestoreCompletionOutcome.Rejected(
@@ -103,13 +110,34 @@ internal object CourseRecoveryFollowUp {
             CourseRecoveryState.RESTORING -> Unit
         }
 
+        val ids = group.members.mapTo(mutableSetOf()) { it.id }
+        val courses = (repository.read() as? CoreDataReadResult.Ready)?.snapshot?.courses
+            ?: return@withCourseWriteLock CourseRestoreCompletionOutcome.CoreCommittedFollowUpPending(
+                group, "restored courses cannot be read"
+            )
+        if (courses.count { it.id in ids } != ids.size || group.members.any { member ->
+                val original = CourseSnapshotCodec.decode(member.courseJson)
+                original == null || courses.none { it.id == member.id && it.courseId == original.courseId }
+            }) {
+            return@withCourseWriteLock CourseRestoreCompletionOutcome.CoreCommittedFollowUpPending(
+                group, "a restored meeting is missing or its course identity changed"
+            )
+        }
+
         val unconfirmed = applyCapturedPreferences(context, group, writer)
         if (unconfirmed != null) {
             return@withCourseWriteLock CourseRestoreCompletionOutcome.CoreCommittedFollowUpPending(
                 group, unconfirmed
             )
         }
-        syncRestoredReminders(context, repository, group)
+        val reminderError = runCatching {
+            syncRestoredReminders(context, courses.filter { it.id in ids })
+        }.exceptionOrNull()
+        if (reminderError != null) {
+            return@withCourseWriteLock CourseRestoreCompletionOutcome.CoreCommittedFollowUpPending(
+                group, "restored reminders could not be coordinated: ${reminderError.javaClass.simpleName}"
+            )
+        }
 
         when (
             val completion = repository.courseRecoveryStore
@@ -160,14 +188,8 @@ internal object CourseRecoveryFollowUp {
      */
     private fun syncRestoredReminders(
         context: Context,
-        repository: CoreDataRepository,
-        group: CourseRecoveryGroup
+        restored: List<com.sakata.focusflow.Course>
     ) {
-        val ids = group.members.mapTo(mutableSetOf()) { it.id }
-        val restored = (repository.read() as? CoreDataReadResult.Ready)?.snapshot?.courses
-            ?.filter { it.id in ids }
-            ?: return
-        if (restored.isEmpty()) return
         val table = PrototypeStore(context).loadCoursePeriodTable()
         CourseReminders.sync(context, emptyList(), restored, table, CourseReminders.load(context))
     }

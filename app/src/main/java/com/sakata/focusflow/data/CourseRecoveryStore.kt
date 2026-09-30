@@ -702,18 +702,17 @@ internal object CourseRecoveryPreferences {
     }
 }
 
-/**
- * Callable business-layer entry points. They capture the reminder/location preferences read-only
- * through [CourseRecoveryPreferences] and hand the request to the store. Nothing here writes a
- * preference, touches the UI, reschedules reminders or marks a group RESTORED.
- */
-/** A group the UI may offer to restore: its id, how many meetings it would bring back, its state. */
+/** One course deletion or interrupted restore shown independently in the course page. */
 internal data class CourseRecoveryRestoreCandidate(
     val groupId: String,
     val meetingCount: Int,
-    val state: CourseRecoveryState
+    val state: CourseRecoveryState,
+    val deletedAt: Long,
+    val expiresAt: Long,
+    val title: String
 )
 
+/** Business entry points; the follow-up also replays preferences and coordinates reminders. */
 internal object CourseRecoveryOperations {
     fun readGroups(repository: CoreDataRepository): CourseRecoveryGroupsRead =
         repository.courseRecoveryStore.read()
@@ -787,6 +786,11 @@ internal object CourseRecoveryOperations {
         groupId: String,
         now: Long = System.currentTimeMillis()
     ): CourseRestoreCompletionOutcome = repository.withCourseWriteLock {
+        CourseRecoveryWriteGuard.uncertainReason()?.let { reason ->
+            return@withCourseWriteLock CourseRestoreCompletionOutcome.WriteUncertain(
+                "a previous course recovery commit is unverified ($reason)"
+            )
+        }
         val groups = when (val read = repository.courseRecoveryStore.read()) {
             is CourseRecoveryGroupsRead.Ready -> read.groups
             is CourseRecoveryGroupsRead.Invalid -> return@withCourseWriteLock CourseRestoreCompletionOutcome.Rejected(
@@ -824,28 +828,48 @@ internal object CourseRecoveryOperations {
         }
     }
 
-    /**
-     * The most recent group a user can still restore (ACTIVE or RESTORING, not expired, not being
-     * purged). The UI only offers this one entry; older groups stay in storage until they expire.
-     */
-    fun latestRestorableGroup(
+    /** Each real group gets its own UI entry; an interrupted restore survives the undo deadline. */
+    fun restorableGroups(
         repository: CoreDataRepository,
         now: Long = System.currentTimeMillis()
-    ): CourseRecoveryRestoreCandidate? {
+    ): List<CourseRecoveryRestoreCandidate> {
         val groups = when (val read = repository.courseRecoveryStore.read()) {
             is CourseRecoveryGroupsRead.Ready -> read.groups
-            else -> return null
+            else -> return emptyList()
         }
         return groups
             .filter {
                 // ACTIVE = deleted, waiting for the user; RESTORING = core committed, follow-up open.
                 // RESTORED is terminal and PURGING is already being removed, so neither is offered.
-                (it.state == CourseRecoveryState.ACTIVE || it.state == CourseRecoveryState.RESTORING) &&
-                    it.members.isNotEmpty() && it.expiresAt > now
+                (it.state == CourseRecoveryState.RESTORING ||
+                    (it.state == CourseRecoveryState.ACTIVE && it.expiresAt > now)) &&
+                    it.members.isNotEmpty()
             }
-            .maxByOrNull { it.deletedAt }
-            ?.let { CourseRecoveryRestoreCandidate(it.groupId, it.members.size, it.state) }
+            .sortedWith(compareByDescending<CourseRecoveryGroup> { it.deletedAt }.thenBy { it.groupId })
+            .map { group ->
+                val title = group.members.firstOrNull()?.let { CourseSnapshotCodec.decode(it.courseJson)?.title }
+                    ?: "课程"
+                CourseRecoveryRestoreCandidate(
+                    group.groupId, group.members.size, group.state,
+                    group.deletedAt, group.expiresAt, title
+                )
+            }
     }
+
+    fun latestRestorableGroup(
+        repository: CoreDataRepository,
+        now: Long = System.currentTimeMillis()
+    ): CourseRecoveryRestoreCandidate? = restorableGroups(repository, now).firstOrNull()
+
+    /** Every interrupted core restore needs a replay; the most recent group alone is insufficient. */
+    fun pendingRestoringGroups(repository: CoreDataRepository): List<String> =
+        when (val read = repository.courseRecoveryStore.read()) {
+            is CourseRecoveryGroupsRead.Ready -> read.groups
+                .filter { it.state == CourseRecoveryState.RESTORING }
+                .sortedBy { it.deletedAt }
+                .map { it.groupId }
+            else -> emptyList()
+        }
 
     fun purgeExpired(
         repository: CoreDataRepository,

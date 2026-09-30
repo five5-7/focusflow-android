@@ -155,6 +155,84 @@ class CourseRecoveryFollowUpTest {
     }
 
     @Test
+    fun `an uncertain core commit cannot replay preferences or claim a terminal restore`() {
+        val applied = deleteWithCapturedPreferences()
+        val core = CourseRecoveryOperations.restoreGroup(freshRepository(), applied.group.groupId, now + 1L)
+        assertTrue(core is CourseRestoreOutcome.CoreCommitted)
+        assertTrue(CourseReminders.setOverride(context, 11L, false))
+        CourseRecoveryWriteGuard.markUncertain("unverified disk write")
+
+        val resumed = CourseRecoveryOperations.restoreAndComplete(
+            context, freshRepository(), applied.group.groupId, now + 2L
+        )
+        assertTrue("must not resume from an unverified in-memory group: $resumed",
+            resumed is CourseRestoreCompletionOutcome.WriteUncertain)
+        assertEquals(false, CourseReminders.load(context).overrides[11L])
+        assertEquals(CourseRecoveryState.RESTORING, groups().single().state)
+    }
+
+    @Test
+    fun `missing restored meeting holds follow-up before preferences are replayed`() {
+        val applied = deleteWithCapturedPreferences()
+        assertTrue(CourseRecoveryOperations.restoreGroup(
+            freshRepository(), applied.group.groupId, now + 1L
+        ) is CourseRestoreOutcome.CoreCommitted)
+        assertTrue(CourseReminders.setOverride(context, 11L, false))
+        val before = freshStore().loadCourses()
+        assertEquals(CoreDataWriteStatus.APPLIED,
+            freshRepository().replaceCourses(before.filterNot { it.id == 11L }, before).status)
+
+        val resumed = CourseRecoveryOperations.restoreAndComplete(
+            context, freshRepository(), applied.group.groupId, now + 2L
+        )
+        assertTrue("missing meeting must not complete the group: $resumed",
+            resumed is CourseRestoreCompletionOutcome.CoreCommittedFollowUpPending)
+        assertEquals(false, CourseReminders.load(context).overrides[11L])
+        assertEquals(CourseRecoveryState.RESTORING, groups().single().state)
+    }
+
+    @Test
+    fun `all restoring groups remain eligible for restart follow-up after expiry`() {
+        val first = deleteWithCapturedPreferences("op-first")
+        assertTrue(CourseRecoveryOperations.restoreGroup(
+            freshRepository(), first.group.groupId, now + 1L
+        ) is CourseRestoreOutcome.CoreCommitted)
+        val second = CourseRecoveryOperations.deleteCourses(
+            context, freshRepository(), CourseRecoveryScope.MEETING, setOf(22L), "op-second", now + 2L
+        )
+        assertTrue(second is CourseDeletionOutcome.Applied)
+        assertEquals(listOf(first.group.groupId),
+            CourseRecoveryOperations.pendingRestoringGroups(freshRepository()))
+        assertEquals(2, CourseRecoveryOperations.restorableGroups(freshRepository(), now + 2L).size)
+        val expired = first.group.expiresAt + 1L
+        assertEquals(first.group.groupId,
+            CourseRecoveryOperations.latestRestorableGroup(freshRepository(), expired)?.groupId)
+    }
+
+    @Test
+    fun `each active deletion is listed separately and restoring one leaves the other available`() {
+        val first = deleteWithCapturedPreferences("op-first")
+        val second = CourseRecoveryOperations.deleteCourses(
+            context, freshRepository(), CourseRecoveryScope.MEETING, setOf(22L), "op-second", now + 2L
+        )
+        assertTrue("expected Applied but got $second", second is CourseDeletionOutcome.Applied)
+        val secondId = (second as CourseDeletionOutcome.Applied).group.groupId
+
+        val offered = CourseRecoveryOperations.restorableGroups(freshRepository(), now + 3L)
+        assertEquals(listOf(secondId, first.group.groupId), offered.map { it.groupId })
+        assertEquals(listOf("课程22", "课程11"), offered.map { it.title })
+        assertEquals(listOf(CourseRecoveryState.ACTIVE, CourseRecoveryState.ACTIVE), offered.map { it.state })
+
+        val restored = CourseRecoveryOperations.restoreAndComplete(
+            context, freshRepository(), first.group.groupId, now + 4L
+        )
+        assertTrue("expected Completed but got $restored", restored is CourseRestoreCompletionOutcome.Completed)
+        assertEquals(listOf(secondId),
+            CourseRecoveryOperations.restorableGroups(freshRepository(), now + 5L).map { it.groupId })
+        assertEquals(setOf(11L), freshStore().loadCourses().mapTo(mutableSetOf(), Course::id))
+    }
+
+    @Test
     fun `a later call resumes the unconfirmed follow-up and only then reaches RESTORED`() {
         val applied = deleteWithCapturedPreferences()
         CourseRecoveryOperations.restoreGroup(freshRepository(), applied.group.groupId, now + 1L)

@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -14,8 +15,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.sakata.focusflow.data.CourseRecoveryRestoreCandidate
+import com.sakata.focusflow.data.CourseRecoveryState
 import java.time.Instant
 import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 @Composable
 internal fun PlanCoursesSection(
@@ -32,7 +36,7 @@ internal fun PlanCoursesSection(
     onConfirmSafeCourses: () -> Unit,
     onConfirmCourse: (Course) -> Unit,
     onEditCourse: (Course) -> Unit,
-    onIgnoreCourse: (Course) -> Unit,
+    onIgnoreCourse: (Set<Course>) -> Unit,
     onToggleCourse: (Course) -> Unit,
     onDeleteCourses: (Set<Course>) -> Unit,
     onMergeCourses: (Set<Long>, Long, CourseEditPlans.CourseMergePlan.Applied) -> Boolean,
@@ -44,9 +48,11 @@ internal fun PlanCoursesSection(
     reminderPeriodTable: CoursePeriodTable,
     onReminderGlobalChange: (Boolean) -> Unit,
     onReminderOverrideChange: (Course, Boolean?) -> Unit,
-    restorableCourseCount: Int,
-    onRestoreCourses: () -> Unit
+    restorableCourses: List<CourseRecoveryRestoreCandidate>,
+    onRestoreCourses: (String) -> Unit,
+    onPurgeExpiredCourseGroups: () -> Unit
 ) {
+    LaunchedEffect(Unit) { onPurgeExpiredCourseGroups() }
     val periodConfigured = PrototypeStore(LocalContext.current).hasCoursePeriodTable()
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
@@ -103,10 +109,27 @@ FocusCard(
         onConfirmImportedGroup
     )
     HorizontalDivider()
+    if (restorableCourses.isNotEmpty()) {
+        Text("最近删除的课程", fontWeight = FontWeight.Bold)
+        Text("删除记录保留 30 天，到期后进入课程页时清除。", style = MaterialTheme.typography.bodySmall)
+        restorableCourses.forEach { candidate ->
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    val date = Instant.ofEpochMilli(candidate.deletedAt).atZone(ZoneId.systemDefault())
+                        .format(DateTimeFormatter.ofPattern("M月d日 HH:mm"))
+                    Text("${candidate.title} · ${candidate.meetingCount} 个课次", style = MaterialTheme.typography.bodyMedium)
+                    Text("删除于 $date", style = MaterialTheme.typography.bodySmall)
+                }
+                TextButton(onClick = { onRestoreCourses(candidate.groupId) }) {
+                    Text(if (candidate.state == CourseRecoveryState.RESTORING) "继续恢复" else "恢复")
+                }
+            }
+        }
+        HorizontalDivider()
+    }
     ConfirmedCourses(confirmedCourses, onEditCourse, onToggleCourse, onDeleteCourses, onMergeCourses,
         onLinkCourses, onSeparateCourse, onRenameCourse,
-        reminderSettings, reminderPeriodTable, periodConfigured, onReminderOverrideChange,
-        restorableCourseCount, onRestoreCourses)
+        reminderSettings, reminderPeriodTable, periodConfigured, onReminderOverrideChange)
 }
 
 @Composable
@@ -117,7 +140,7 @@ private fun PendingCourses(
     onConfirmSafe: () -> Unit,
     onConfirm: (Course) -> Unit,
     onEdit: (Course) -> Unit,
-    onIgnore: (Course) -> Unit,
+    onIgnore: (Set<Course>) -> Unit,
     onConfirmGroup: (Set<Long>) -> Boolean
 ) {
     if (awaiting.isEmpty()) {
@@ -198,7 +221,7 @@ private fun PendingCourses(
                             Text(if (directConfirmationBlocked || groupConfirmationBlocked) "需逐段核对" else "确认")
                         }
                         if (span.records.size == 1) TextButton(onClick = { onEdit(span.records.single()) }) { Text("编辑并确认") }
-                        TextButton(onClick = { span.records.forEach(onIgnore) }) { Text("忽略") }
+                        TextButton(onClick = { onIgnore(span.records.toSet()) }) { Text("忽略") }
                     }
                     if (span.records.size > 1) span.records.forEach { original ->
                         TextButton(onClick = { onEdit(original) }) { Text("编辑第 ${original.startPeriod}–${original.endPeriod} 节") }
@@ -219,8 +242,7 @@ private fun ConfirmedCourses(confirmed: List<Course>, onEdit: (Course) -> Unit, 
     onRename: (Long, String) -> Boolean,
     reminderSettings: CourseReminderSettings,
     reminderPeriodTable: CoursePeriodTable, periodConfigured: Boolean,
-    onReminderOverrideChange: (Course, Boolean?) -> Unit,
-    restorableCourseCount: Int, onRestoreCourses: () -> Unit) {
+    onReminderOverrideChange: (Course, Boolean?) -> Unit) {
     val context = LocalContext.current
     var selecting by remember { mutableStateOf(false) }
     var selected by remember { mutableStateOf(emptySet<Course>()) }
@@ -234,9 +256,6 @@ private fun ConfirmedCourses(confirmed: List<Course>, onEdit: (Course) -> Unit, 
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
         Text("已确认课程", fontWeight = FontWeight.Bold)
         Row(verticalAlignment = Alignment.CenterVertically) {
-            if (restorableCourseCount > 0) {
-                TextButton(onClick = onRestoreCourses) { Text("恢复删除（$restorableCourseCount）") }
-            }
             if (confirmed.isNotEmpty()) TextButton(onClick = {
                 selecting = !selecting
                 if (!selecting) selected = emptySet()
@@ -392,7 +411,7 @@ private fun ConfirmedCourses(confirmed: List<Course>, onEdit: (Course) -> Unit, 
         AppDialog(
             onDismissRequest = { pendingDelete = null },
             title = { Text(if (targets.size == 1) "删除这门课程？" else "删除所选 ${targets.size} 门课程？") },
-            text = { Text("课程将从课表、日程和空挡计算中移除；节次表、地点、任务和历史记录不会删除。") },
+            text = { Text("课程将从课表、日程和空挡计算中移除，可在课程页恢复；恢复记录保留 30 天，到期后进入课程页时清除。节次表、地点、任务和历史记录不会删除。") },
             confirmButton = {
                 Button(
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),

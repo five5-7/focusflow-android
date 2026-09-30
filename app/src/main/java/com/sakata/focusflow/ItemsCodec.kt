@@ -33,7 +33,8 @@ object ItemsCodec {
                 checklist = ChecklistCodec.decode(item.optJSONArray("checklist")),
                 planBucket = if (item.optString("planBucket") == "later") "later" else "near",
                 planFocus = item.optBoolean("planFocus"),
-                repeatFrequency = item.optString("repeatFrequency").takeIf { it in setOf("daily", "weekly") }.orEmpty(),
+                repeatFrequency = item.optString("repeatFrequency")
+                    .takeIf { it in setOf("daily", "weekly", "class_day") }.orEmpty(),
                 repeatStartDay = item.optLong("repeatStartDay").takeIf { it > 0 },
                 repeatMinute = item.optInt("repeatMinute", -1).takeIf { it in 0..1439 } ?: -1,
                 repeatTemplateId = item.optLong("repeatTemplateId").takeIf { it > 0 },
