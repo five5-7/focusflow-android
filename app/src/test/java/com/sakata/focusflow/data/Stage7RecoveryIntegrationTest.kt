@@ -289,7 +289,8 @@ class Stage7RecoveryIntegrationTest {
         assertFalse(CourseReminders.confirmWatermark(context,42,20000));assertEquals("10000",prefs.getString("delivered_42",null))
     }
 
-    @Test fun `course deletion cancels visible notifications and stale broadcast cannot bring them back`() {
+    @Test @Config(application=FocusFlowApplication::class)
+    fun `course deletion cancels visible notifications and stale broadcast cannot bring them back`() {
         seed(courses=listOf(course()))
         val manager=context.getSystemService(android.app.NotificationManager::class.java)
         manager.createNotificationChannel(android.app.NotificationChannel("stage7-test","test",android.app.NotificationManager.IMPORTANCE_DEFAULT))
@@ -297,17 +298,20 @@ class Stage7RecoveryIntegrationTest {
         assertNotNull(org.robolectric.Shadows.shadowOf(manager).getNotification("course:41",0))
         assertTrue(CourseRecoveryOperations.deleteCourses(context,legacy(),CourseRecoveryScope.MEETING,setOf(41),"cancel",now) is CourseDeletionOutcome.Applied)
         assertNull(org.robolectric.Shadows.shadowOf(manager).getNotification("course:41",0))
+        assertTrue(CoreDataRuntimeAccess.resolve(context) is CoreDataRuntimeResolution.Ready)
         val intent=android.content.Intent(ReminderReceiver.ACTION_COURSE_DUE).putExtra(ReminderReceiver.EXTRA_COURSE_ID,41L).putExtra(ReminderReceiver.EXTRA_COURSE_TRIGGER_AT,System.currentTimeMillis()-1000L)
         ReminderReceiver::class.java.getDeclaredMethod("handleReceive",Context::class.java,android.content.Intent::class.java).also {it.isAccessible=true}.invoke(ReminderReceiver(),context,intent)
         assertNull(org.robolectric.Shadows.shadowOf(manager).getNotification("course:41",0))
         assertTrue(snapshot(legacy()).courses.isEmpty())
     }
-    @Test fun `alarm restoration finishes persisted course restore checkpoint without UI opening`() {
+    @Test @Config(application=FocusFlowApplication::class)
+    fun `alarm restoration finishes persisted course restore checkpoint without UI opening`() {
         seed(courses=listOf(course()))
         assertTrue(CourseReminders.setOverride(context,41,true))
         val d=CourseRecoveryOperations.deleteCourses(context,legacy(),CourseRecoveryScope.MEETING,setOf(41),"alarm-resume",now) as CourseDeletionOutcome.Applied
         assertTrue(CourseRecoveryOperations.restoreGroup(legacy(),d.group.groupId,now+1) is CourseRestoreOutcome.CoreCommitted)
         assertTrue(CourseReminders.setOverride(context,41,false))
+        assertTrue(CoreDataRuntimeAccess.resolve(context) is CoreDataRuntimeResolution.Ready)
         CourseReminders.restore(context)
         assertEquals(CourseRecoveryState.RESTORED,(CourseRecoveryOperations.readGroups(legacy()) as CourseRecoveryGroupsRead.Ready).groups.single().state)
         assertEquals(true,CourseReminders.load(context).overrides[41L])
