@@ -1,10 +1,14 @@
 package com.sakata.focusflow
 
+import org.junit.After
+import org.junit.AfterClass
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Before
+import org.junit.BeforeClass
 import org.junit.Test
 import java.time.LocalDate
 import java.time.LocalTime
@@ -17,15 +21,67 @@ import java.util.TimeZone
  * 测试断言的是**最终行为**，不是常量或实现细节：
  * 组往返后逐字段相同；严格解码拒绝各类坏负载且保留原始输入；
  * 捕获集合精确等于真实 `stop` 命中集合；恢复组合产出可一次写入的结果。
+ *
+ * **时区契约**：夹具固定用 `Asia/Shanghai` 构造时刻，而恢复计划要求
+ * `zoneId == ZoneId.systemDefault()`，因此本类在**每个用例前**把系统默认时区设为上海，
+ * 并在**每个用例后**（含失败路径）恢复到进入本类时记录的起始时区。
+ * 这样无论测试 JVM 以 UTC 还是上海启动，固定夹具用例都不会被时区守卫误拒。
  */
 class Stage7RepeatClosurePlanTest {
 
+    companion object {
+        /** 进入本类时的系统默认时区；由 [restoreStartingZone] 断言每例都已复位。 */
+        @JvmStatic
+        @BeforeClass
+        fun captureStartingZone() {
+            startingZone = TimeZone.getDefault()
+            // 若能读到本次运行期望的起始时区（由测试 JVM 的系统属性传入），
+            // 就地校验参数确实到达了**测试工作进程**，而不是只改了 Gradle 主进程。
+            requestedStartingZone?.let { requested ->
+                val actual = ZoneId.systemDefault().id
+                if (!actual.equals(requested, ignoreCase = true)) {
+                    // 名称可能不同（如 Asia/Shanghai 与 GMT+08:00），用偏移兜底比较。
+                    val requestedOffset = ZoneId.of(requested).rules.getOffset(java.time.Instant.now())
+                    val actualOffset = TimeZone.getDefault().getOffset(System.currentTimeMillis())
+                    assertEquals(
+                        "test JVM started in zone $actual but $requested was requested " +
+                            "(offset expected ${requestedOffset.totalSeconds}s)",
+                        requestedOffset.totalSeconds * 1000,
+                        actualOffset,
+                    )
+                }
+            }
+        }
+
+        @JvmStatic
+        @AfterClass
+        fun restoreStartingZone() {
+            // 走到这里说明每个用例的 @After 都执行过；再断言一次整体已复位。
+            assertEquals(startingZone, TimeZone.getDefault())
+        }
+
+        private lateinit var startingZone: TimeZone
+
+        /** 由 `-Dfocusflow.test.startZone=UTC` 传入；未传时为 null。 */
+        private val requestedStartingZone: String? = System.getProperty("focusflow.test.startZone")
+    }
+
     private val zone: ZoneId = ZoneId.of("Asia/Shanghai")
-    /** 测试开始时的系统默认时区；用于断言临时切换都被恢复。 */
-    private val initialZone: ZoneId = ZoneId.systemDefault()
     private val day: LocalDate = LocalDate.of(2026, 9, 30)
     private val now: Long = at(day, LocalTime.of(9, 0))
     private val templateId = 700L
+
+    /** 固定夹具用例一律在上海时区下运行；失败路径同样会走 [restoreDefaultZone]。 */
+    @Before
+    fun useShanghaiAsSystemZone() {
+        TimeZone.setDefault(TimeZone.getTimeZone(zone))
+    }
+
+    @After
+    fun restoreDefaultZone() {
+        TimeZone.setDefault(startingZone)
+        assertEquals("each case must restore the starting system zone", startingZone, TimeZone.getDefault())
+    }
 
     private fun at(date: LocalDate, time: LocalTime): Long =
         date.atTime(time).atZone(zone).toInstant().toEpochMilli()
@@ -122,6 +178,44 @@ class Stage7RepeatClosurePlanTest {
     /** 与真实 deleteRule 逐字段一致的删除输出，便于在测试里「夹带」修改。 */
     private fun realDeletion(items: List<Item>, template: Item, at: Long): RepeatResult =
         RepeatActions.deleteRule(items, template, at = at)
+
+    /**
+     * 断言恢复计划被拒绝，且**拒绝原因**符合预期。
+     *
+     * 只断言 `Rejected` 会让时区守卫、期限守卫等「错误原因」掩盖真正的失败点，
+     * 因此这里同时核对 `reason` 关键字。
+     */
+    private fun assertRecoveryRejected(expectedReasonPart: String, result: RecoveryPlanResult): RecoveryPlanResult.Rejected {
+        assertTrue("expected Rejected($expectedReasonPart), got $result", result is RecoveryPlanResult.Rejected)
+        val rejected = result as RecoveryPlanResult.Rejected
+        assertTrue(
+            "rejected for the wrong reason: expected to contain \"$expectedReasonPart\", got \"${rejected.reason}\"",
+            rejected.reason.contains(expectedReasonPart),
+        )
+        return rejected
+    }
+
+    /** 断言删除计划被拒绝，且拒绝原因符合预期。 */
+    private fun assertDeleteRejected(expectedReasonPart: String, result: DeletePlanResult): DeletePlanResult.Rejected {
+        assertTrue("expected Rejected($expectedReasonPart), got $result", result is DeletePlanResult.Rejected)
+        val rejected = result as DeletePlanResult.Rejected
+        assertTrue(
+            "rejected for the wrong reason: expected to contain \"$expectedReasonPart\", got \"${rejected.reason}\"",
+            rejected.reason.contains(expectedReasonPart),
+        )
+        return rejected
+    }
+
+    /** 断言捕获被拒绝，且拒绝原因符合预期。 */
+    private fun assertCaptureRejected(expectedReasonPart: String, result: RepeatClosureCapture): RepeatClosureCapture.Rejected {
+        assertTrue("expected Rejected($expectedReasonPart), got $result", result is RepeatClosureCapture.Rejected)
+        val rejected = result as RepeatClosureCapture.Rejected
+        assertTrue(
+            "rejected for the wrong reason: expected to contain \"$expectedReasonPart\", got \"${rejected.reason}\"",
+            rejected.reason.contains(expectedReasonPart),
+        )
+        return rejected
+    }
 
     // ================= A. 完整组往返 =================
 
@@ -420,7 +514,7 @@ class Stage7RepeatClosurePlanTest {
         val stale = live.copy(detail = "被改过的说明")
         val staleResult = RepeatActions.deleteRule(items, stale, at = now)
         val rejected = RepeatClosureCaptureRequest.capture(items, stale, staleResult, "g", "o")
-        assertTrue(rejected is RepeatClosureCapture.Rejected)
+        assertCaptureRejected("stale", rejected)
 
         // 真正删除的是 live，不会因为 other 同名就被当成一组。
         val record = captureOrFail(items, live)
@@ -433,7 +527,7 @@ class Stage7RepeatClosurePlanTest {
         val items = listOf(tpl, instance, instance)
         val deleted = RepeatActions.deleteRule(items, tpl, at = now - 60_000L)
         val result = RepeatClosureCaptureRequest.capture(items, tpl, deleted, "g", "o")
-        assertTrue(result is RepeatClosureCapture.Rejected)
+        assertCaptureRejected("duplicate item ids", result)
     }
 
     @Test fun `capture rejects when the deletion produced no tombstone`() {
@@ -442,7 +536,7 @@ class Stage7RepeatClosurePlanTest {
         val result = RepeatClosureCaptureRequest.capture(
             listOf(tpl, pendingInstance(id = 901L)), tpl, notDeleted, "g", "o",
         )
-        assertTrue(result is RepeatClosureCapture.Rejected)
+        assertCaptureRejected("tombstone", result)
     }
 
     @Test fun `capture takes the deletion time from the real tombstone`() {
@@ -491,19 +585,19 @@ class Stage7RepeatClosurePlanTest {
         val second = RepeatClosureDeletePlan.plan(
             items, tpl, "group-2", "op-1", now = now - 60_000L, existingGroups = listOf(group),
         )
-        assertTrue(second is DeletePlanResult.Rejected)
+        assertDeleteRejected("already captured", second)
 
         // 换了 groupId 也不算新操作：operationId 已存在。
         val third = RepeatClosureDeletePlan.plan(
             items, tpl, "group-3", "op-1", now = now - 60_000L, existingGroups = listOf(group),
         )
-        assertTrue(third is DeletePlanResult.Rejected)
+        assertDeleteRejected("already captured", third)
 
         // 新 operationId 但 groupId 冲突，同样拒绝。
         val fourth = RepeatClosureDeletePlan.plan(
             items, tpl, "group-1", "op-2", now = now - 60_000L, existingGroups = listOf(group),
         )
-        assertTrue(fourth is DeletePlanResult.Rejected)
+        assertDeleteRejected("groupId", fourth)
     }
 
     @Test fun `delete plan does not treat other templates refresh as a delete member`() {
@@ -525,7 +619,7 @@ class Stage7RepeatClosurePlanTest {
         val items = listOf(tpl, pendingInstance(id = 901L))
         val stale = tpl.copy(title = "改过标题")
         val plan = RepeatClosureDeletePlan.plan(items, stale, "group-1", "op-1", now = now)
-        assertTrue(plan is DeletePlanResult.Rejected)
+        assertDeleteRejected("stale", plan)
     }
 
     // ================= E. 恢复组合 =================
@@ -657,7 +751,8 @@ class Stage7RepeatClosurePlanTest {
         val tampered = afterDelete.map { if (it.id == 901L) it.copy(userNote = "我改过") else it }
         val originalInput = tampered.toList()
         val plan = RepeatClosureRecoveryPlan.plan(roundTrip(record), tampered, now, zone, emptyList())
-        assertTrue(plan is RecoveryPlanResult.Rejected)
+        // 必须因**成员冲突**被拒，而不是被时区/期限等错误守卫拦下。
+        assertRecoveryRejected("CONFLICT", plan)
         assertEquals(originalInput, tampered)
     }
 
@@ -673,13 +768,13 @@ class Stage7RepeatClosurePlanTest {
         val restoredItems = first.itemsToWrite
 
         val second = RepeatClosureRecoveryPlan.plan(restoredRecord, restoredItems, now, zone, emptyList())
-        assertTrue(second is RecoveryPlanResult.Rejected)
+        assertRecoveryRejected("already RESTORED", second)
         // 也通过既有组记录识别：已 RESTORED 的组不再恢复。
         val third = RepeatClosureRecoveryPlan.plan(
             record.copy(status = RecoveryGroupStatus.ACTIVE), restoredItems, now, zone,
             emptyList(), existingGroups = listOf(restoredRecord),
         )
-        assertTrue(third is RecoveryPlanResult.Rejected)
+        assertRecoveryRejected("already restored", third)
     }
 
     @Test fun `recovery plan with mixed restored and skipped instances is still terminal`() {
@@ -712,11 +807,32 @@ class Stage7RepeatClosurePlanTest {
         val tpl = template()
         val items = listOf(tpl, pendingInstance(id = 901L))
         val record = captureOrFail(items, tpl)
+        // 删除发生在很久以前：deletedAt/墓碑/expiresAt 三者自洽，且 expiresAt 已早于 now。
+        val pastDeletedAt = now - 60L * 24 * 60 * 60 * 1000
+        val pastExpiry = (RepeatClosureRecovery.expiresAtFor(pastDeletedAt) as RecoveryExpiry.Ok).expiresAt
+        assertTrue("fixture must really be expired", pastExpiry < now)
+        val expiredTombstone = record.template.postState.copy(trashedAt = pastDeletedAt)
+        val expired = record.copy(
+            deletedAt = pastDeletedAt,
+            expiresAt = pastExpiry,
+            template = record.template.copy(postState = expiredTombstone),
+        )
         val afterDelete = itemStateAfterCapture(items, tpl, record)
-        val expired = record.copy(expiresAt = now, deletedAt = now - RepeatClosureRecovery.RETENTION_MS)
-        // 期限自洽被破坏时也应明确失败，而不是悄悄放行。
+            .map { if (it.id == tpl.id) expiredTombstone else it }
+
         val plan = RepeatClosureRecoveryPlan.plan(expired, afterDelete, now, zone, emptyList())
-        assertTrue(plan is RecoveryPlanResult.Rejected)
+        // 必须因**到期**被拒（EXPIRED），而不是被结构或时区守卫拦下。
+        assertRecoveryRejected("EXPIRED", plan)
+    }
+
+    @Test fun `recovery plan refuses a record whose expiry disagrees with its deletion time`() {
+        val tpl = template()
+        val items = listOf(tpl, pendingInstance(id = 901L))
+        val record = captureOrFail(items, tpl)
+        val afterDelete = itemStateAfterCapture(items, tpl, record)
+        val inconsistent = record.copy(expiresAt = record.expiresAt + 1L)
+        val plan = RepeatClosureRecoveryPlan.plan(inconsistent, afterDelete, now, zone, emptyList())
+        assertRecoveryRejected("expiresAt disagrees", plan)
     }
 
     // ================= C2. 捕获完整性：外部删除输出必须能被真实重跑复现 =================
@@ -729,7 +845,7 @@ class Stage7RepeatClosurePlanTest {
             items = real.items.map { if (it.id == 901L) it.copy(userNote = "夹带的修改") else it },
         )
         val result = RepeatClosureCaptureRequest.capture(items, tpl, tampered, "g", "o")
-        assertTrue(result is RepeatClosureCapture.Rejected)
+        assertCaptureRejected("disagrees with a real deleteRule result", result)
     }
 
     @Test fun `capture rejects output that drops an item`() {
@@ -738,7 +854,7 @@ class Stage7RepeatClosurePlanTest {
         val real = realDeletion(items, tpl, now - 60_000L)
         val dropped = real.copy(items = real.items.filterNot { it.id == 950L })
         val result = RepeatClosureCaptureRequest.capture(items, tpl, dropped, "g", "o")
-        assertTrue(result is RepeatClosureCapture.Rejected)
+        assertCaptureRejected("does not match a real deleteRule result", result)
     }
 
     @Test fun `capture rejects output with an extra item`() {
@@ -749,7 +865,7 @@ class Stage7RepeatClosurePlanTest {
             items = real.items + Item(id = 960L, title = "凭空多出来的", detail = "", kind = "任务"),
         )
         val result = RepeatClosureCaptureRequest.capture(items, tpl, extra, "g", "o")
-        assertTrue(result is RepeatClosureCapture.Rejected)
+        assertCaptureRejected("does not match a real deleteRule result", result)
     }
 
     @Test fun `capture rejects output whose order was rearranged`() {
@@ -758,7 +874,7 @@ class Stage7RepeatClosurePlanTest {
         val real = realDeletion(items, tpl, now - 60_000L)
         val reversed = real.copy(items = real.items.reversed())
         val result = RepeatClosureCaptureRequest.capture(items, tpl, reversed, "g", "o")
-        assertTrue(result is RepeatClosureCapture.Rejected)
+        assertCaptureRejected("disagrees with a real deleteRule result", result)
     }
 
     @Test fun `capture rejects output with duplicate ids`() {
@@ -767,7 +883,7 @@ class Stage7RepeatClosurePlanTest {
         val real = realDeletion(items, tpl, now - 60_000L)
         val doubled = real.copy(items = real.items + real.items.first { it.id == 901L })
         val result = RepeatClosureCaptureRequest.capture(items, tpl, doubled, "g", "o")
-        assertTrue(result is RepeatClosureCapture.Rejected)
+        assertCaptureRejected("duplicate item ids", result)
     }
 
     @Test fun `capture rejects a forged template tombstone`() {
@@ -781,7 +897,7 @@ class Stage7RepeatClosurePlanTest {
         val forgedItems = real.items.map { if (it.id == tpl.id) forgedTombstone else it }
 
         val result = RepeatClosureCaptureRequest.capture(items, tpl, real.copy(items = forgedItems), "g", "o")
-        assertTrue("forged tombstone snapshot must be rejected, got $result", result is RepeatClosureCapture.Rejected)
+        assertCaptureRejected("disagrees with a real deleteRule result", result)
     }
 
     @Test fun `capture rejects a self inconsistent tombstone timestamp`() {
@@ -793,7 +909,7 @@ class Stage7RepeatClosurePlanTest {
             if (it.id == tpl.id) it.copy(trashedAt = null) else it
         }
         val result = RepeatClosureCaptureRequest.capture(items, tpl, real.copy(items = noTime), "g", "o")
-        assertTrue(result is RepeatClosureCapture.Rejected)
+        assertCaptureRejected("no deletion time", result)
     }
 
     @Test fun `capture still accepts a real deletion output and ignores event ids`() {
@@ -893,10 +1009,10 @@ class Stage7RepeatClosurePlanTest {
         val accepted = RepeatClosureRecoveryPlan.plan(reordered, currentWithRotated, now, zone, emptyList())
         assertTrue("reordered keys must still be consistent, got $accepted", accepted is RecoveryPlanResult.Ok)
 
-        // 内容真的被改过时仍然拒绝。
+        // 内容真的被改过时仍然拒绝，且必须因**快照不一致**而不是别的原因。
         val changed = record.copy(template = record.template.copy(preState = record.template.preState.copy(title = "改过")))
         val rejected = RepeatClosureRecoveryPlan.plan(changed, afterDelete, now, zone, emptyList())
-        assertTrue(rejected is RecoveryPlanResult.Rejected)
+        assertRecoveryRejected("SNAPSHOT_INCONSISTENT", rejected)
     }
 
     /** 把顶层单个对象 `{...}` 的第一个键值对移到最后，值完全不变。 */
@@ -934,12 +1050,8 @@ class Stage7RepeatClosurePlanTest {
         val record = captureOrFail(items, tpl)
         val afterDelete = itemStateAfterCapture(items, tpl, record)
 
-        assertTrue(
-            RepeatClosureRecoveryPlan.plan(record.copy(groupId = " "), afterDelete, now, zone) is RecoveryPlanResult.Rejected,
-        )
-        assertTrue(
-            RepeatClosureRecoveryPlan.plan(record.copy(operationId = ""), afterDelete, now, zone) is RecoveryPlanResult.Rejected,
-        )
+        assertRecoveryRejected("groupId must not be blank", RepeatClosureRecoveryPlan.plan(record.copy(groupId = " "), afterDelete, now, zone))
+        assertRecoveryRejected("operationId must not be blank", RepeatClosureRecoveryPlan.plan(record.copy(operationId = ""), afterDelete, now, zone))
     }
 
     @Test fun `recovery plan rejects an active record that carries restoration results`() {
@@ -954,8 +1066,9 @@ class Stage7RepeatClosurePlanTest {
                 listOf(RepeatClosureRestoredInstance(901L, RepeatClosureInstanceStatus.RESTORED)),
             ),
         )
-        assertTrue(
-            RepeatClosureRecoveryPlan.plan(inconsistent, afterDelete, now, zone) is RecoveryPlanResult.Rejected,
+        assertRecoveryRejected(
+            "ACTIVE group must not carry restoration results",
+            RepeatClosureRecoveryPlan.plan(inconsistent, afterDelete, now, zone),
         )
     }
 
@@ -964,8 +1077,8 @@ class Stage7RepeatClosurePlanTest {
         val items = listOf(tpl, pendingInstance(id = 901L))
         val record = captureOrFail(items, tpl)
         val afterDelete = itemStateAfterCapture(items, tpl, record)
-        assertTrue(RepeatClosureRecoveryPlan.plan(record, afterDelete, 0L, zone) is RecoveryPlanResult.Rejected)
-        assertTrue(RepeatClosureRecoveryPlan.plan(record, afterDelete, -1L, zone) is RecoveryPlanResult.Rejected)
+        assertRecoveryRejected("now must be positive", RepeatClosureRecoveryPlan.plan(record, afterDelete, 0L, zone))
+        assertRecoveryRejected("now must be positive", RepeatClosureRecoveryPlan.plan(record, afterDelete, -1L, zone))
     }
 
     @Test fun `successful plan group round trips exactly`() {
@@ -998,7 +1111,8 @@ class Stage7RepeatClosurePlanTest {
         val afterDelete = itemStateAfterCapture(items, tpl, record)
         val mismatched = if (ZoneId.systemDefault() == ZoneId.of("Asia/Shanghai")) ZoneId.of("UTC") else ZoneId.of("Asia/Shanghai")
         val plan = RepeatClosureRecoveryPlan.plan(record, afterDelete, now, mismatched, emptyList())
-        assertTrue(plan is RecoveryPlanResult.Rejected)
+        // 必须是**时区**守卫拒绝。
+        assertRecoveryRejected("zoneId must match the system zone", plan)
     }
 
     @Test fun `today dayOnly instance survives recovery under both Shanghai and UTC`() {
@@ -1040,11 +1154,7 @@ class Stage7RepeatClosurePlanTest {
                 )
             }
         }
-    }
-
-    @Test fun `default zone is restored after the time zone tests`() {
-        // 说明：时区测试通过 withDefaultZone 的 finally 恢复；这里断言当前默认时区
-        // 与测试开始时记录的一致，若上面的用例忘记恢复，本用例会失败。
-        assertEquals(initialZone, ZoneId.systemDefault())
+        // 两轮都结束后，系统时区应回到本用例进入时的上海基线（@Before 已设置）。
+        assertEquals(zone, ZoneId.systemDefault())
     }
 }
