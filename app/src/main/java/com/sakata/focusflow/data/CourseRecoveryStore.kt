@@ -603,14 +603,21 @@ internal object CourseRecoveryOperations {
         requestedIds: Set<Long>,
         operationId: String,
         now: Long = System.currentTimeMillis()
-    ): CourseDeletionOutcome {
+    ): CourseDeletionOutcome = repository.withCourseWriteLock {
+        // The whole sequence runs inside the shared course lock: course snapshot, strict capture of
+        // the target preferences, request construction and the store commit. Re-reading the courses
+        // alone would not be enough, because a merge/split recovery can migrate the preferences of a
+        // surviving meeting without changing the course list; capturing them outside the lock could
+        // store pre-migration overrides, watermarks or locations.
         val snapshot = (repository.read() as? CoreDataReadResult.Ready)?.snapshot
-            ?: return CourseDeletionOutcome.Rejected("core data is not readable", CoreDataWriteStatus.NOT_READY)
-        // Strict capture first: a corrupted target preference must reject the whole delete before any
-        // write, leaving courses, groups and every preference value untouched.
+            ?: return@withCourseWriteLock CourseDeletionOutcome.Rejected(
+                "core data is not readable", CoreDataWriteStatus.NOT_READY
+            )
+        // A corrupted target preference must reject the whole delete before any write, leaving
+        // courses, groups and every preference value untouched.
         val captured = CourseRecoveryPreferences.capture(context, requestedIds)
         if (captured is CourseRecoveryPreferenceCapture.Invalid) {
-            return CourseDeletionOutcome.Rejected(
+            return@withCourseWriteLock CourseDeletionOutcome.Rejected(
                 "course preferences are unreadable for the requested meetings: ${captured.reason}",
                 CoreDataWriteStatus.INVALID_INPUT
             )
@@ -625,7 +632,9 @@ internal object CourseRecoveryOperations {
             deliveredWatermarks = ready.delivered,
             temporaryLocations = ready.locations
         )
-        return repository.courseRecoveryStore.deleteCoursesWithRecoveryGroup(snapshot.courses, request)
+        // The store re-enters its own (reentrant) lock and keeps its snapshot guard as the storage
+        // boundary protection.
+        repository.courseRecoveryStore.deleteCoursesWithRecoveryGroup(snapshot.courses, request)
     }
 
     fun restoreGroup(
