@@ -66,7 +66,11 @@ class CourseRestoreDecisionTest {
 
     @Test
     fun `active group restores one millisecond before expiry and is refused at expiry`() {
-        val original = listOf(course(id = 11), course(id = 22, courseId = 11))
+        // One parent keeps one title and one confirmation state for all of its meetings.
+        val original = listOf(
+            course(id = 11, courseId = 11, title = "大学物理"),
+            course(id = 22, courseId = 11, title = "大学物理")
+        )
         val group = capture(original, setOf(11L, 22L), CourseRecoveryScope.PARENT)
 
         val early = decision(group, now = expiresAt - 1L)
@@ -119,7 +123,19 @@ class CourseRestoreDecisionTest {
         )
 
         val conflicting = decision(group, currentCourses = listOf(course(id = 12, courseId = 10, title = "别的课")))
-        assertEquals(CourseRestoreDecision.ParentTitleConflict(10L, "别的课"), conflicting)
+        assertEquals(
+            CourseRestoreDecision.ParentConflict(10L, CourseParentField.TITLE, "别的课"),
+            conflicting
+        )
+
+        val confirmationConflict = decision(
+            group,
+            currentCourses = listOf(course(id = 12, courseId = 10, title = "大学物理", needsConfirmation = true))
+        )
+        assertEquals(
+            CourseRestoreDecision.ParentConflict(10L, CourseParentField.NEEDS_CONFIRMATION, "true"),
+            confirmationConflict
+        )
 
         val otherParent = decision(group, currentCourses = listOf(course(id = 12, courseId = 77, title = "别的课")))
         assertTrue(otherParent is CourseRestoreDecision.Eligible)

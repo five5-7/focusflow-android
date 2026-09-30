@@ -300,6 +300,40 @@ class CourseRecoveryJournalTest {
         val unknownScope = encoded.replace("\"scope\":\"meeting\"", "\"scope\":\"semester\"")
         assertTrue(CourseRecoveryCodec.decode(unknownScope) is CourseRecoveryLoad.Invalid)
 
+        // Truncated and trailing-content documents must not be read as a prefix of a valid payload.
+        assertTrue(CourseRecoveryCodec.decode(encoded + " trailing") is CourseRecoveryLoad.Invalid)
+        assertTrue(CourseRecoveryCodec.decode(encoded.dropLast(2)) is CourseRecoveryLoad.Invalid)
+        assertTrue(CourseRecoveryCodec.decode("$encoded{}") is CourseRecoveryLoad.Invalid)
+
+        // org.json would coerce numeric strings and stringified booleans; the codec must not.
+        listOf(
+            encoded.replace("\"schemaVersion\":1", "\"schemaVersion\":\"1\""),
+            encoded.replace("\"deletedAt\":1000", "\"deletedAt\":\"1000\""),
+            encoded.replace("\"sourceOrder\":0", "\"sourceOrder\":\"0\""),
+            encoded.replace("\"id\":11", "\"id\":\"11\""),
+            encoded.replace("\"restoredAt\":null", "\"restoredAt\":\"0\"")
+        ).forEach { raw ->
+            assertTrue("expected Invalid for a type-coerced payload", CourseRecoveryCodec.decode(raw) is CourseRecoveryLoad.Invalid)
+        }
+        val numericSnapshot = JSONObject(encoded).getJSONArray("groups").getJSONObject(0)
+        numericSnapshot.getJSONArray("members").getJSONObject(0).put("courseJson", 12345)
+        assertTrue(
+            CourseRecoveryCodec.decode(
+                JSONObject().put("version", 1).put("groups", JSONArray().put(numericSnapshot)).toString()
+            ) is CourseRecoveryLoad.Invalid
+        )
+
+        // A nullable member field must be present as null, not omitted.
+        listOf("reminderOverride", "deliveredAt", "restoredAt").forEach { field ->
+            val rawGroup = JSONObject(encoded).getJSONArray("groups").getJSONObject(0)
+            if (field == "restoredAt") rawGroup.remove(field) else rawGroup.getJSONArray("members").getJSONObject(0).remove(field)
+            val payload = JSONObject().put("version", 1).put("groups", JSONArray().put(rawGroup))
+            assertTrue(
+                "expected Invalid when $field is missing",
+                CourseRecoveryCodec.decode(payload.toString()) is CourseRecoveryLoad.Invalid
+            )
+        }
+
         // A payload field cannot be dropped through encode (encode refuses unreadable groups), so the
         // raw payload is edited directly to prove the decoder rejects a missing snapshot field.
         val missingField = JSONObject(CourseSnapshotCodec.encode(course(id = 11))).apply { remove("enabled") }
@@ -380,13 +414,97 @@ class CourseRecoveryJournalTest {
         assertEquals(listOf(10L, 20L), batch.parentIds)
 
         val parent = captured(
-            listOf(course(id = 11, courseId = 10), course(id = 12, courseId = 10), third),
+            listOf(course(id = 11, courseId = 10, title = "高等数学"), course(id = 12, courseId = 10, title = "高等数学"), third),
             setOf(11L, 12L),
             CourseRecoveryScope.PARENT
         )
         assertEquals(listOf(11L, 12L), parent.members.map { it.id })
         assertEquals(listOf(10L), parent.parentIds)
         assertEquals(2, parent.members.size)
+    }
+
+    @Test
+    fun `a parent whose meetings disagree on title or confirmation state is rejected`() {
+        val mixedTitles = capture(
+            listOf(course(id = 11, courseId = 10, title = "高等数学"), course(id = 12, courseId = 10, title = "大学物理")),
+            setOf(11L, 12L),
+            CourseRecoveryScope.PARENT
+        )
+        assertTrue(mixedTitles is CourseRecoveryCapture.Rejected)
+        assertTrue((mixedTitles as CourseRecoveryCapture.Rejected).reason.contains("different titles"))
+
+        val mixedConfirmation = capture(
+            listOf(
+                course(id = 11, courseId = 10, title = "高等数学"),
+                course(id = 12, courseId = 10, title = "高等数学", needsConfirmation = true)
+            ),
+            setOf(11L, 12L),
+            CourseRecoveryScope.PARENT
+        )
+        assertTrue(mixedConfirmation is CourseRecoveryCapture.Rejected)
+        assertTrue(
+            (mixedConfirmation as CourseRecoveryCapture.Rejected).reason.contains("different confirmation states")
+        )
+    }
+
+    @Test
+    fun `structural validation rejects a parent with mixed snapshot fields`() {
+        val base = captured(
+            listOf(
+                course(id = 11, courseId = 10, title = "高等数学"),
+                course(id = 12, courseId = 10, title = "高等数学")
+            ),
+            setOf(11L, 12L),
+            CourseRecoveryScope.PARENT
+        )
+        val renamed = JSONObject(CourseSnapshotCodec.encode(course(id = 12, courseId = 10, title = "别的课")))
+        val mixed = base.copy(
+            members = listOf(base.members[0], base.members[1].copy(courseJson = renamed.toString()))
+        )
+        assertTrue(
+            CourseRecoveryJournal.structuralError(revalidated(mixed))!!.contains("different titles")
+        )
+
+        val pending = JSONObject(
+            CourseSnapshotCodec.encode(course(id = 12, courseId = 10, title = "高等数学", needsConfirmation = true))
+        )
+        val mixedState = base.copy(
+            members = listOf(base.members[0], base.members[1].copy(courseJson = pending.toString()))
+        )
+        assertTrue(
+            CourseRecoveryJournal.structuralError(revalidated(mixedState))!!
+                .contains("different confirmation states")
+        )
+    }
+
+    @Test
+    fun `location digest cannot be confused by separator characters inside a place`() {
+        val single = captured(
+            listOf(course(id = 11)),
+            setOf(11L),
+            locations = mapOf(11L to mapOf(20_000L to "a;20001=b"))
+        ).copy(groupId = "g", operationId = "op")
+        val split = captured(
+            listOf(course(id = 11)),
+            setOf(11L),
+            locations = mapOf(11L to mapOf(20_000L to "a", 20_001L to "b"))
+        ).copy(groupId = "g", operationId = "op")
+
+        assertNotEquals(
+            CourseRecoveryJournal.payloadFingerprint(single),
+            CourseRecoveryJournal.payloadFingerprint(split)
+        )
+        // Both payloads stay structurally valid, so the difference is the digest, not a rejection.
+        assertNull(
+            CourseRecoveryJournal.structuralError(
+                single.copy(sourceFingerprint = CourseRecoveryJournal.payloadFingerprint(single))
+            )
+        )
+        assertNull(
+            CourseRecoveryJournal.structuralError(
+                split.copy(sourceFingerprint = CourseRecoveryJournal.payloadFingerprint(split))
+            )
+        )
     }
 
     @Test
@@ -419,6 +537,15 @@ class CourseRecoveryJournalTest {
             )
         )
         assertNull(CourseSnapshotCodec.decode(mutated { remove("needsConfirmation") }))
+        // Type coercion is rejected as well: a stringified number or boolean is not the same field.
+        assertNull(CourseSnapshotCodec.decode(mutated { put("weekday", "3") }))
+        assertNull(CourseSnapshotCodec.decode(mutated { put("id", "11") }))
+        assertNull(CourseSnapshotCodec.decode(mutated { put("enabled", "true") }))
+        assertNull(CourseSnapshotCodec.decode(mutated { put("effectiveFromEpochDay", "20000") }))
+        assertNull(CourseSnapshotCodec.decode(mutated { put("title", 123) }))
+        // A truncated snapshot or one with trailing bytes must not be read as a valid prefix.
+        assertNull(CourseSnapshotCodec.decode(base.toString().dropLast(1)))
+        assertNull(CourseSnapshotCodec.decode("${base} trailing"))
         assertNotNull(CourseSnapshotCodec.decode(base.toString()))
     }
 }

@@ -4,8 +4,70 @@ import com.sakata.focusflow.CampusZone
 import com.sakata.focusflow.Course
 import org.json.JSONArray
 import org.json.JSONObject
+import org.json.JSONTokener
 import java.security.MessageDigest
 import java.util.UUID
+
+/**
+ * Strict JSON helpers. org.json is deliberately lenient - `getInt`/`getLong` accept numeric
+ * strings, `getBoolean` accepts "true"/"false", `getString` stringifies numbers, `isNull` also
+ * returns true for a missing key, and `JSONObject(String)` accepts trailing content after the
+ * object. None of that is acceptable for a persisted recovery payload, so every field is read
+ * through these helpers: the key must exist, the JSON type must match exactly, and the document
+ * must not carry trailing bytes.
+ */
+private fun strictJsonObject(raw: String): JSONObject {
+    require(raw.isNotBlank()) { "blank payload" }
+    val tokener = JSONTokener(raw)
+    val value = tokener.nextValue()
+    require(value is JSONObject) { "payload is not a JSON object" }
+    require(tokener.nextClean() == '\u0000') { "payload has trailing content" }
+    return value
+}
+
+private fun JSONObject.requireArray(key: String): JSONArray {
+    require(has(key)) { "missing field $key" }
+    val value = opt(key)
+    require(value is JSONArray) { "field $key is not an array" }
+    return value
+}
+
+private fun JSONObject.strictString(key: String): String {
+    require(has(key)) { "missing field $key" }
+    val value = opt(key)
+    require(value is String) { "field $key is not a string" }
+    return value
+}
+
+private fun JSONObject.strictBoolean(key: String): Boolean {
+    require(has(key)) { "missing field $key" }
+    val value = opt(key)
+    require(value is Boolean) { "field $key is not a boolean" }
+    return value
+}
+
+private fun JSONObject.strictNumber(key: String): Number {
+    require(has(key)) { "missing field $key" }
+    val value = opt(key)
+    require(value is Number) { "field $key is not a number" }
+    return value
+}
+
+private fun JSONObject.strictLong(key: String): Long = strictNumber(key).toLong()
+
+private fun JSONObject.strictInt(key: String): Int = strictNumber(key).toInt()
+
+    /** A nullable number still has to be present; JSON null is the only accepted null spelling. */
+private fun JSONObject.nullableStrictLong(key: String): Long? {
+    require(has(key)) { "missing field $key" }
+    return if (isNull(key)) null else strictNumber(key).toLong()
+}
+
+/** A nullable boolean still has to be present; JSON null is the only accepted null spelling. */
+private fun JSONObject.nullableStrictBoolean(key: String): Boolean? {
+    require(has(key)) { "missing field $key" }
+    return if (isNull(key)) null else strictBoolean(key)
+}
 
 /**
  * Stage 7.5, batch 1: the pure course recovery model.
@@ -109,13 +171,23 @@ internal sealed interface CourseRecoveryCapture {
     data class Rejected(val reason: String) : CourseRecoveryCapture
 }
 
+/** Parent-level fields that must agree between the group snapshot and the live meetings. */
+internal enum class CourseParentField(val wire: String) {
+    TITLE("title"),
+    NEEDS_CONFIRMATION("needsConfirmation")
+}
+
 internal sealed interface CourseRestoreDecision {
     data class Eligible(val coursesToAdd: List<Course>) : CourseRestoreDecision
     data object AlreadyRestored : CourseRestoreDecision
     data object ResumeRestoration : CourseRestoreDecision
     data object ResumePurge : CourseRestoreDecision
     data class Occupied(val meetingId: Long) : CourseRestoreDecision
-    data class ParentTitleConflict(val parentId: Long, val title: String) : CourseRestoreDecision
+    data class ParentConflict(
+        val parentId: Long,
+        val field: CourseParentField,
+        val actual: String
+    ) : CourseRestoreDecision
     data object Expired : CourseRestoreDecision
     data object PendingCourseEditJournal : CourseRestoreDecision
     data class Invalid(val reason: String) : CourseRestoreDecision
@@ -154,7 +226,7 @@ internal object CourseSnapshotCodec {
         put("externalSelectionKeyCandidate", course.externalSelectionKeyCandidate)
     }.toString()
 
-    fun decode(raw: String): Course? = runCatching { decodeStrict(JSONObject(raw)) }.getOrNull()
+    fun decode(raw: String): Course? = runCatching { decodeStrict(strictJsonObject(raw)) }.getOrNull()
 
     private fun decodeStrict(value: JSONObject): Course {
         listOf(
@@ -164,22 +236,22 @@ internal object CourseSnapshotCodec {
             "externalSelectionKeyCandidate"
         ).forEach { require(value.has(it)) { "missing snapshot field $it" } }
 
-        val id = value.getLong("id")
+        val id = value.strictLong("id")
         require(id > 0L) { "non-positive meeting id" }
-        val courseId = value.getLong("courseId")
+        val courseId = value.strictLong("courseId")
         require(courseId > 0L) { "non-positive parent id" }
-        val title = value.getString("title")
+        val title = value.strictString("title")
         require(title.isNotBlank()) { "blank title" }
-        val weekday = value.getInt("weekday")
+        val weekday = value.strictInt("weekday")
         require(weekday in 1..7) { "invalid weekday" }
-        val startPeriod = value.getInt("startPeriod")
-        val endPeriod = value.getInt("endPeriod")
+        val startPeriod = value.strictInt("startPeriod")
+        val endPeriod = value.strictInt("endPeriod")
         require(startPeriod in 1..20 && endPeriod in startPeriod..20) { "invalid period range" }
-        val building = value.getString("building")
+        val building = value.strictString("building")
         require(building.isNotBlank()) { "blank building" }
-        val zone = CampusZone.valueOf(value.getString("zone"))
-        val from = if (value.isNull("effectiveFromEpochDay")) null else value.getLong("effectiveFromEpochDay")
-        val until = if (value.isNull("effectiveUntilEpochDay")) null else value.getLong("effectiveUntilEpochDay")
+        val zone = CampusZone.valueOf(value.strictString("zone"))
+        val from = value.nullableStrictLong("effectiveFromEpochDay")
+        val until = value.nullableStrictLong("effectiveUntilEpochDay")
         require(from == null || until == null || from <= until) { "inverted effective range" }
 
         return Course(
@@ -189,15 +261,15 @@ internal object CourseSnapshotCodec {
             endPeriod = endPeriod,
             building = building,
             zone = zone,
-            needsConfirmation = value.getBoolean("needsConfirmation"),
-            enabled = value.getBoolean("enabled"),
+            needsConfirmation = value.strictBoolean("needsConfirmation"),
+            enabled = value.strictBoolean("enabled"),
             effectiveFromEpochDay = from,
             effectiveUntilEpochDay = until,
             id = id,
             courseId = courseId,
-            externalSchoolYearCode = value.getString("externalSchoolYearCode"),
-            externalTermCode = value.getString("externalTermCode"),
-            externalSelectionKeyCandidate = value.getString("externalSelectionKeyCandidate")
+            externalSchoolYearCode = value.strictString("externalSchoolYearCode"),
+            externalTermCode = value.strictString("externalTermCode"),
+            externalSelectionKeyCandidate = value.strictString("externalSelectionKeyCandidate")
         )
     }
 }
@@ -245,7 +317,7 @@ internal object CourseRecoveryJournal {
             return "parent list does not match members"
         }
 
-        group.members.forEach { member ->
+        val decoded = group.members.map { member ->
             val course = CourseSnapshotCodec.decode(member.courseJson) ?: return "member snapshot is unreadable"
             if (course.id != member.id) return "member snapshot disagrees with the member id"
             if (course.courseId != member.courseId) return "member snapshot disagrees with the parent id"
@@ -253,6 +325,19 @@ internal object CourseRecoveryJournal {
             if (member.temporaryLocations.keys.any { it < 0L }) return "negative temporary location day"
             if (member.temporaryLocations.values.any { it.isBlank() || it.length > MAX_PLACE_LENGTH }) {
                 return "invalid temporary location"
+            }
+            course
+        }
+
+        // One parent is one row in the live projection: `CourseEntity` keeps the title and the
+        // confirmation state for the whole parent, and `CourseRoomProjection` rejects a parent whose
+        // meetings disagree. A snapshot that could not be projected back must be rejected up front.
+        decoded.groupBy(Course::courseId).forEach { (parentId, meetings) ->
+            if (meetings.map(Course::title).distinct().size > 1) {
+                return "parent $parentId has meetings with different titles"
+            }
+            if (meetings.map(Course::needsConfirmation).distinct().size > 1) {
+                return "parent $parentId has meetings with different confirmation states"
             }
         }
 
@@ -270,33 +355,47 @@ internal object CourseRecoveryJournal {
     /**
      * Deterministic digest of the payload with a fixed field order. The digest field itself is never
      * part of the hashed text (rule 8), so encode -> decode -> recompute always agrees.
+     *
+     * Every variable-length component is length-prefixed and every list/map is size-prefixed, so a
+     * value that happens to contain a separator can never be confused with a separator between two
+     * values (for example a place named `a;2=b` versus two dated places `a` and `b`).
      */
     fun payloadFingerprint(group: CourseRecoveryGroup): String {
         val canonical = buildString {
-            append(group.schemaVersion).append('\u0001')
-            append(group.groupId).append('\u0001')
-            append(group.kind).append('\u0001')
-            append(group.scope.wire).append('\u0001')
-            append(group.state.wire).append('\u0001')
-            append(group.operationId).append('\u0001')
-            append(group.deletedAt).append('\u0001')
-            append(group.expiresAt).append('\u0001')
-            append(group.parentIds.joinToString(",")).append('\u0001')
-            append(group.restoredAt ?: -1L).append('\u0001')
+            append(group.schemaVersion).append('|')
+            appendString(group.groupId); append('|')
+            appendString(group.kind); append('|')
+            appendString(group.scope.wire); append('|')
+            appendString(group.state.wire); append('|')
+            appendString(group.operationId); append('|')
+            append(group.deletedAt).append('|')
+            append(group.expiresAt).append('|')
+            append(group.parentIds.size).append('|')
+            group.parentIds.forEach { append(it).append(',') }
+            append('|')
+            append(group.restoredAt ?: -1L).append('|')
+            append(group.members.size).append('|')
             group.members.forEach { member ->
-                append(member.sourceOrder).append(':')
-                append(member.id).append(':')
-                append(member.courseId).append(':')
-                append(member.courseJson).append(':')
-                append(member.reminderOverride?.toString() ?: "-").append(':')
-                append(member.deliveredAt?.toString() ?: "-").append(':')
-                append(member.temporaryLocations.toSortedMap().entries.joinToString(";") { (day, place) ->
-                    "$day=$place"
-                })
-                append('\u0001')
+                append(member.sourceOrder).append('|')
+                append(member.id).append('|')
+                append(member.courseId).append('|')
+                appendString(member.courseJson); append('|')
+                append(member.reminderOverride?.toString() ?: "-").append('|')
+                append(member.deliveredAt?.toString() ?: "-").append('|')
+                append(member.temporaryLocations.size).append('|')
+                member.temporaryLocations.toSortedMap().forEach { (day, place) ->
+                    append(day).append('|')
+                    appendString(place)
+                    append('|')
+                }
             }
         }
         return sha256(canonical)
+    }
+
+    /** Length-prefixed so a separator inside the value cannot be read as a field boundary. */
+    private fun StringBuilder.appendString(value: String) {
+        append(value.length).append(':').append(value)
     }
 
     /**
@@ -436,11 +535,24 @@ internal object CourseRecoveryJournal {
         val memberIds = group.members.mapTo(mutableSetOf(), CourseRecoveryMember::id)
         val liveUnderParents = currentCourses.filter { it.courseId in group.parentIds && it.id !in memberIds }
         group.parentIds.forEach { parentId ->
-            val expectedTitles = group.members.filter { it.courseId == parentId }
-                .mapNotNull { CourseSnapshotCodec.decode(it.courseJson)?.title }
-                .toSet()
-            liveUnderParents.firstOrNull { it.courseId == parentId && it.title !in expectedTitles }?.let {
-                return CourseRestoreDecision.ParentTitleConflict(parentId, it.title)
+            // Structural validation already guarantees one title and one confirmation state per
+            // parent inside the snapshot, so the live meetings must agree on both.
+            val snapshot = group.members.filter { it.courseId == parentId }
+                .mapNotNull { CourseSnapshotCodec.decode(it.courseJson) }
+            val expectedTitle = snapshot.firstOrNull()?.title
+                ?: return CourseRestoreDecision.Invalid("member snapshot is unreadable")
+            val expectedConfirmation = snapshot.first().needsConfirmation
+            liveUnderParents.firstOrNull { it.courseId == parentId && it.title != expectedTitle }?.let {
+                return CourseRestoreDecision.ParentConflict(parentId, CourseParentField.TITLE, it.title)
+            }
+            liveUnderParents.firstOrNull {
+                it.courseId == parentId && it.needsConfirmation != expectedConfirmation
+            }?.let {
+                return CourseRestoreDecision.ParentConflict(
+                    parentId,
+                    CourseParentField.NEEDS_CONFIRMATION,
+                    it.needsConfirmation.toString()
+                )
             }
         }
 
@@ -514,17 +626,16 @@ internal object CourseRecoveryCodec {
     fun decode(raw: String?): CourseRecoveryLoad {
         if (raw == null) return CourseRecoveryLoad.Ready(emptyList())
         if (raw.isBlank()) return CourseRecoveryLoad.Invalid("blank course recovery payload")
-        val root = runCatching { JSONObject(raw) }
-            .getOrElse { return CourseRecoveryLoad.Invalid("course recovery payload is not valid JSON") }
-        if (!root.has("version")) return CourseRecoveryLoad.Invalid("missing payload version")
-        // org.json would coerce the string "1" into 1, so the type is checked before the value.
-        val versionValue = root.opt("version")
-        if (versionValue !is Number) return CourseRecoveryLoad.Invalid("invalid payload version")
-        val version = versionValue.toInt()
+        // Strict parse: a truncated document or one with trailing bytes is rejected, not partially read.
+        val root = runCatching { strictJsonObject(raw) }
+            .getOrElse { return CourseRecoveryLoad.Invalid("course recovery payload is not a valid JSON object") }
+        val version = runCatching { root.strictNumber("version").toInt() }
+            .getOrElse { return CourseRecoveryLoad.Invalid("missing or invalid payload version") }
         if (version != CourseRecoveryJournal.SCHEMA_VERSION) {
             return CourseRecoveryLoad.Invalid("unsupported payload version $version")
         }
-        val array = root.optJSONArray("groups") ?: return CourseRecoveryLoad.Invalid("missing groups array")
+        val array = runCatching { root.requireArray("groups") }
+            .getOrElse { return CourseRecoveryLoad.Invalid("missing groups array") }
         val groups = mutableListOf<CourseRecoveryGroup>()
         for (index in 0 until array.length()) {
             val value = array.optJSONObject(index) ?: return CourseRecoveryLoad.Invalid("group $index is not an object")
@@ -573,59 +684,48 @@ internal object CourseRecoveryCodec {
     }
 
     private fun decodeGroup(value: JSONObject): CourseRecoveryGroup {
-        val scope = CourseRecoveryScope.fromWire(value.getString("scope")) ?: error("unknown scope")
-        val state = CourseRecoveryState.fromWire(value.getString("state")) ?: error("unknown state")
-        val membersArray = value.getJSONArray("members")
+        val scope = CourseRecoveryScope.fromWire(value.strictString("scope")) ?: error("unknown scope")
+        val state = CourseRecoveryState.fromWire(value.strictString("state")) ?: error("unknown state")
+        val membersArray = value.requireArray("members")
         val members = (0 until membersArray.length()).map { index ->
-            val member = membersArray.getJSONObject(index)
-            require(member.has("temporaryLocations")) { "missing temporary locations" }
-            val locations = member.getJSONObject("temporaryLocations")
-            val places = locations.keys().asSequence().associate { key ->
+            val member = membersArray.opt(index)
+            require(member is JSONObject) { "member $index is not an object" }
+            require(member.has("temporaryLocations")) { "missing field temporaryLocations" }
+            val locationObject = member.opt("temporaryLocations")
+            require(locationObject is JSONObject) { "temporary locations are not an object" }
+            val places = locationObject.keys().asSequence().associate { key ->
                 val day = key.toLongOrNull() ?: error("invalid location day")
-                day to locations.getString(key)
+                day to locationObject.strictString(key)
             }
             CourseRecoveryMember(
                 sourceOrder = member.strictInt("sourceOrder"),
                 id = member.strictLong("id"),
                 courseId = member.strictLong("courseId"),
-                courseJson = member.getString("courseJson"),
-                reminderOverride = if (member.isNull("reminderOverride")) null else member.getBoolean("reminderOverride"),
-                deliveredAt = if (member.isNull("deliveredAt")) null else member.strictLong("deliveredAt"),
+                courseJson = member.strictString("courseJson"),
+                reminderOverride = member.nullableStrictBoolean("reminderOverride"),
+                deliveredAt = member.nullableStrictLong("deliveredAt"),
                 temporaryLocations = places
             )
         }
-        val parentsArray = value.getJSONArray("parentIds")
+        val parentsArray = value.requireArray("parentIds")
         val parents = (0 until parentsArray.length()).map { index ->
             val parent = parentsArray.opt(index)
             require(parent is Number) { "parent id is not a number" }
             parent.toLong()
         }
         return CourseRecoveryGroup(
-            groupId = value.getString("groupId"),
+            groupId = value.strictString("groupId"),
             scope = scope,
             state = state,
-            operationId = value.getString("operationId"),
+            operationId = value.strictString("operationId"),
             deletedAt = value.strictLong("deletedAt"),
             expiresAt = value.strictLong("expiresAt"),
             parentIds = parents,
-            sourceFingerprint = value.getString("sourceFingerprint"),
+            sourceFingerprint = value.strictString("sourceFingerprint"),
             members = members,
-            restoredAt = if (value.isNull("restoredAt")) null else value.strictLong("restoredAt"),
+            restoredAt = value.nullableStrictLong("restoredAt"),
             schemaVersion = value.strictInt("schemaVersion"),
-            kind = value.getString("kind")
+            kind = value.strictString("kind")
         )
-    }
-
-    /** org.json coerces numeric strings, so every persisted number must actually be a JSON number. */
-    private fun JSONObject.strictLong(key: String): Long {
-        val value = opt(key)
-        require(value is Number) { "field $key is not a number" }
-        return value.toLong()
-    }
-
-    private fun JSONObject.strictInt(key: String): Int {
-        val value = opt(key)
-        require(value is Number) { "field $key is not a number" }
-        return value.toInt()
     }
 }
