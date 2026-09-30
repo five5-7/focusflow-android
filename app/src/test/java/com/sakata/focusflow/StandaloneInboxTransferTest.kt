@@ -67,4 +67,23 @@ class StandaloneInboxTransferTest {
         assertEquals(existing, (repository.read() as CoreDataReadResult.Ready).snapshot.items.single())
         assertNull(StandaloneReminders.all(context).single().completedAt)
     }
+    @Test fun `creation history prevents a second capture after interrupted completion and deletion`() {
+        val reminder = newReminder()
+        val repository = LegacyCoreDataRepository(PrototypeStore(context))
+        val label = "来自自定义提醒 #${reminder.id}"
+        val item = Item(id = reminder.id, title = reminder.title, detail = "", kind = "收集箱",
+            sourceDetail = label)
+        assertTrue(repository.replaceTasksAndAppendEvents(listOf(item),
+            listOf(TaskRecorder.event(TaskEventType.TASK_CREATED, item.id, item.title,
+                extra = label)), emptyList()).applied)
+        assertTrue(repository.replaceTasks(emptyList(), listOf(item)).applied)
+
+        assertEquals(StandaloneInboxTransfer.Result.ALREADY_MOVED,
+            StandaloneInboxTransfer.move(context, repository, reminder.id, reminder.scheduledAt))
+        val snapshot = (repository.read() as CoreDataReadResult.Ready).snapshot
+        assertTrue(snapshot.items.isEmpty())
+        assertEquals(1, snapshot.taskEvents.count { it.itemId == reminder.id &&
+            it.type == TaskEventType.TASK_CREATED })
+        assertNotNull(StandaloneReminders.all(context).single().completedAt)
+    }
 }

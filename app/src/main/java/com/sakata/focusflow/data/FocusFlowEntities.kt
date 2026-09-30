@@ -338,9 +338,9 @@ data class CourseMeetingRuleEntity(
     val enabled: Boolean,
     @ColumnInfo(name = "effective_from_epoch_day") val effectiveFromEpochDay: Long?,
     @ColumnInfo(name = "effective_until_epoch_day") val effectiveUntilEpochDay: Long?,
-    @ColumnInfo(name = "external_school_year_code") val externalSchoolYearCode: String = "",
-    @ColumnInfo(name = "external_term_code") val externalTermCode: String = "",
-    @ColumnInfo(name = "external_selection_key_candidate") val externalSelectionKeyCandidate: String = ""
+    @ColumnInfo(name = "external_school_year_code", defaultValue = "''") val externalSchoolYearCode: String = "",
+    @ColumnInfo(name = "external_term_code", defaultValue = "''") val externalTermCode: String = "",
+    @ColumnInfo(name = "external_selection_key_candidate", defaultValue = "''") val externalSelectionKeyCandidate: String = ""
 ) {
     companion object {
         fun fromLegacy(course: Course, sourceOrder: Int) = CourseMeetingRuleEntity(

@@ -785,7 +785,7 @@ class PrototypeStore(context: Context) {
                     effectiveFromEpochDay = course.optLong("effectiveFromEpochDay", Long.MIN_VALUE).takeUnless { it == Long.MIN_VALUE },
                     effectiveUntilEpochDay = course.optLong("effectiveUntilEpochDay", Long.MIN_VALUE).takeUnless { it == Long.MIN_VALUE },
                     id = id,
-                    courseId = course.optLong("courseId", id).takeIf { it > 0L } ?: id,
+                    courseId = course.optLong("courseId", id),
                     externalSchoolYearCode = course.optString("externalSchoolYearCode"),
                     externalTermCode = course.optString("externalTermCode"),
                     externalSelectionKeyCandidate = course.optString("externalSelectionKeyCandidate")

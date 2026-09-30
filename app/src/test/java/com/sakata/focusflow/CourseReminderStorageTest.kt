@@ -22,6 +22,23 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], application = Application::class)
 class CourseReminderStorageTest {
+    @Test fun `legacy course JSON preserves parent and meeting identity across reload`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        context.getSharedPreferences("focusflow", Context.MODE_PRIVATE).edit().remove("courses").commit()
+        val store = PrototypeStore(context)
+        val first = Course("实验", 1, 1, 2, "东一", CampusZone.OTHER,
+            needsConfirmation = false, id = 771L)
+        val second = first.copy(id = 772L, courseId = first.id, weekday = 4,
+            externalSchoolYearCode = "2026", externalTermCode = "1",
+            externalSelectionKeyCandidate = "candidate")
+        store.saveCourses(listOf(first, second))
+        assertEquals(listOf(first, second), PrototypeStore(context).loadCourses())
+        assertTrue(CourseReminders.setOverride(context, first.id, true))
+        assertTrue(CourseReminders.setOverride(context, second.id, false))
+        assertTrue(CourseReminders.load(context).enabledFor(first))
+        assertFalse(CourseReminders.load(context).enabledFor(second))
+    }
+
     @Test fun `global switch override and one-off location survive reload`() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         context.getSharedPreferences("course_reminder_settings", Context.MODE_PRIVATE).edit().clear().commit()

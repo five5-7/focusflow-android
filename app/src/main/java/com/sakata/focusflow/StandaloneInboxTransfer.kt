@@ -24,15 +24,18 @@ internal object StandaloneInboxTransfer {
             val snapshot = (repository.read() as? CoreDataReadResult.Ready)?.snapshot
                 ?: return@synchronized Result.WRITE_FAILED
             val current = snapshot.items.firstOrNull { it.id == id }
+            val recorded = snapshot.taskEvents.any { it.itemId == id &&
+                it.type == TaskEventType.TASK_CREATED && it.extra == sourceLabel(id) }
             if (current != null && current.sourceDetail != sourceLabel(id)) {
                 return@synchronized Result.ID_COLLISION
             }
-            if (current == null) {
+            if (current == null && !recorded) {
                 val draft = Item(id = id, title = reminder.title, detail = "", kind = "收集箱",
                     sourceDetail = sourceLabel(id), captureRoute = CaptureRoute.INBOX.storageKey)
                 val saved = repository.replaceTasksAndAppendEvents(
                     listOf(draft) + snapshot.items,
-                    listOf(TaskRecorder.event(TaskEventType.TASK_CREATED, id, draft.title)),
+                    listOf(TaskRecorder.event(TaskEventType.TASK_CREATED, id, draft.title,
+                        extra = sourceLabel(id))),
                     snapshot.items
                 )
                 if (!saved.applied) return@synchronized Result.WRITE_FAILED
@@ -41,6 +44,6 @@ internal object StandaloneInboxTransfer {
             StandaloneReminders.cancel(context, reminder)
             context.getSystemService(android.app.NotificationManager::class.java)
                 .cancel(StandaloneReminders.notificationTag(id), 0)
-            if (current == null) Result.MOVED else Result.ALREADY_MOVED
+            if (current == null && !recorded) Result.MOVED else Result.ALREADY_MOVED
         }
 }
