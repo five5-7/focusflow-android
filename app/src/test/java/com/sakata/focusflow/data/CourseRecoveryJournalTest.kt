@@ -10,6 +10,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.math.BigInteger
 
 /**
  * Batch-1 regression tests for the pure course recovery model: full-field snapshots, strict
@@ -183,6 +184,175 @@ class CourseRecoveryJournalTest {
     }
 
     // ------------------------------------------------------------------ structural validation
+
+    @Test
+    fun `integer fields reject fractions out of range values and numeric strings`() {
+        val group = captured(listOf(course(id = 11)), setOf(11L))
+        val encoded = CourseRecoveryCodec.encode(listOf(group))
+        fun root(): JSONObject = JSONObject(encoded)
+        fun groupAt(root: JSONObject): JSONObject = root.getJSONArray("groups").getJSONObject(0)
+        fun memberAt(root: JSONObject): JSONObject =
+            groupAt(root).getJSONArray("members").getJSONObject(0)
+        fun invalidJson(raw: String, expected: String) {
+            val load = CourseRecoveryCodec.decode(raw)
+            assertTrue("expected Invalid for <$raw> but got $load", load is CourseRecoveryLoad.Invalid)
+            assertTrue(
+                "expected <$expected> in <${(load as CourseRecoveryLoad.Invalid).reason}>",
+                load.reason.contains(expected)
+            )
+        }
+        fun invalid(root: JSONObject, expected: String) = invalidJson(root.toString(), expected)
+
+        assertTrue(CourseRecoveryCodec.decode(encoded) is CourseRecoveryLoad.Ready)
+        invalid(root().put("version", 1.9), "version")
+        invalid(root().put("version", 4_294_967_297L), "version")
+        invalid(root().put("version", "1"), "version")
+        // An integral double must be rejected too, and raw text is the only way to keep "1.0"
+        // intact: JSONObject.put(1.0) would serialise it back as 1.
+        invalidJson(encoded.replace("\"version\":1}", "\"version\":1.0}"), "version")
+        invalid(root().also { groupAt(it).put("schemaVersion", 1.9) }, "exact integer")
+        invalid(root().also { groupAt(it).put("schemaVersion", 4_294_967_297L) }, "Int range")
+        invalidJson(encoded.replace("\"schemaVersion\":1", "\"schemaVersion\":1.0"), "exact integer")
+        invalid(root().also { groupAt(it).put("deletedAt", 1.9) }, "exact integer")
+        invalidJson(encoded.replace("\"deletedAt\":1000", "\"deletedAt\":1000.0"), "exact integer")
+        invalid(root().also { groupAt(it).getJSONArray("parentIds").put(0, 10.5) }, "exact integer")
+        invalid(root().also { groupAt(it).getJSONArray("parentIds").put(0, "10") }, "exact integer")
+        invalidJson(encoded.replace("\"parentIds\":[11]", "\"parentIds\":[11.0]"), "exact integer")
+        invalid(root().also { memberAt(it).put("sourceOrder", 0.5) }, "exact integer")
+        invalid(root().also { memberAt(it).put("id", "11") }, "exact integer")
+        invalid(root().also { memberAt(it).put("deliveredAt", 1.9) }, "exact integer")
+        invalid(root().also { memberAt(it).put("deliveredAt", "100") }, "exact integer")
+        invalid(root().also { groupAt(it).put("restoredAt", 1.5) }, "exact integer")
+    }
+
+    @Test
+    fun `integer boundaries are accepted exactly and never truncated`() {
+        val base = captured(listOf(course(id = 11)), setOf(11L))
+        fun payloadOf(group: CourseRecoveryGroup): String {
+            val draft = group.copy(sourceFingerprint = "")
+            return CourseRecoveryCodec.encode(listOf(draft.copy(
+                sourceFingerprint = CourseRecoveryJournal.payloadFingerprint(draft)
+            )))
+        }
+        fun reasonOf(raw: String): String {
+            val load = CourseRecoveryCodec.decode(raw)
+            assertTrue("expected Invalid for <$raw> but got $load", load is CourseRecoveryLoad.Invalid)
+            return (load as CourseRecoveryLoad.Invalid).reason
+        }
+
+        // Int.MAX_VALUE still fits an Int field.
+        val maxOrder = payloadOf(base.copy(members = listOf(base.members[0].copy(sourceOrder = Int.MAX_VALUE))))
+        assertTrue(CourseRecoveryCodec.decode(maxOrder) is CourseRecoveryLoad.Ready)
+
+        // Long.MAX_VALUE is a valid watermark.
+        val maxWatermark = payloadOf(
+            base.copy(members = listOf(base.members[0].copy(deliveredAt = Long.MAX_VALUE)))
+        )
+        assertTrue(CourseRecoveryCodec.decode(maxWatermark) is CourseRecoveryLoad.Ready)
+
+        // One past Int.MAX_VALUE / one past Long.MAX_VALUE fail on range and on exactness, and the
+        // reported reason proves the integer rule fired rather than the payload fingerprint.
+        val overflowOrder = JSONObject(CourseRecoveryCodec.encode(listOf(base))).let { root ->
+            root.getJSONArray("groups").getJSONObject(0).getJSONArray("members").getJSONObject(0)
+                .put("sourceOrder", Int.MAX_VALUE.toLong() + 1L)
+            root.toString()
+        }
+        assertTrue(reasonOf(overflowOrder).contains("Int range"))
+        val overflowWatermark = JSONObject(CourseRecoveryCodec.encode(listOf(base))).let { root ->
+            root.getJSONArray("groups").getJSONObject(0).getJSONArray("members").getJSONObject(0)
+                .put("deliveredAt", BigInteger("9223372036854775808"))
+            root.toString()
+        }
+        assertTrue(reasonOf(overflowWatermark).contains("exact integer"))
+
+        // The same rules apply to the snapshot numbers, which have no fingerprint to mask them.
+        val snapshotText = CourseSnapshotCodec.encode(course(id = 11))
+        fun mutated(block: JSONObject.() -> Unit): String =
+            JSONObject(snapshotText).apply(block).toString()
+
+        assertNull(CourseSnapshotCodec.decode(snapshotText.replace("\"weekday\":1", "\"weekday\":3.0")))
+        assertNull(CourseSnapshotCodec.decode(mutated { put("weekday", Int.MAX_VALUE.toLong() + 1L) }))
+        assertNull(CourseSnapshotCodec.decode(snapshotText.replace("\"id\":11", "\"id\":11.0")))
+        assertNull(CourseSnapshotCodec.decode(mutated { put("id", BigInteger("9223372036854775808")) }))
+        assertNull(CourseSnapshotCodec.decode(mutated { put("effectiveFromEpochDay", 1.9) }))
+        assertNotNull(CourseSnapshotCodec.decode(mutated { put("id", Long.MAX_VALUE) }))
+    }
+
+    @Test
+    fun `location day keys must be canonical and aliases never merge`() {
+        val group = captured(
+            listOf(course(id = 11)),
+            setOf(11L),
+            locations = mapOf(11L to mapOf(20_000L to "教室"))
+        )
+        val encoded = CourseRecoveryCodec.encode(listOf(group))
+        fun payload(vararg places: Pair<String, String>): JSONObject {
+            val root = JSONObject(encoded)
+            val member = root.getJSONArray("groups").getJSONObject(0)
+                .getJSONArray("members").getJSONObject(0)
+            member.put("temporaryLocations", JSONObject().also { locations ->
+                places.forEach { (key, place) -> locations.put(key, place) }
+            })
+            return root
+        }
+
+        assertTrue(CourseRecoveryCodec.decode(payload("20000" to "教室").toString()) is CourseRecoveryLoad.Ready)
+        listOf("020000", "+20000", "2e4", "-0", "20000 ").forEach { alias ->
+            assertTrue(
+                "expected Invalid for alias <$alias>",
+                CourseRecoveryCodec.decode(payload(alias to "教室").toString()) is CourseRecoveryLoad.Invalid
+            )
+        }
+        // Two spellings of the same day must not be merged into one entry (associate would keep the
+        // last value and silently drop the other); the payload is rejected as a whole instead.
+        assertTrue(
+            CourseRecoveryCodec.decode(payload("20000" to "A", "020000" to "B").toString()) is
+                CourseRecoveryLoad.Invalid
+        )
+        // Negative days stay canonical at this layer and are rejected by structural validation.
+        assertTrue(
+            CourseRecoveryCodec.decode(payload("-5" to "A").toString()) is CourseRecoveryLoad.Invalid
+        )
+        // The raw payload is never rewritten by a rejected read.
+        assertEquals("教室", JSONObject(payload("20000" to "教室").toString())
+            .getJSONArray("groups").getJSONObject(0)
+            .getJSONArray("members").getJSONObject(0)
+            .getJSONObject("temporaryLocations").getString("20000"))
+    }
+
+    @Test
+    fun `a parent id owned by another course is rejected structurally`() {
+        // Re-pointing one meeting at another meeting's id breaks `toCourseParentEntities`.
+        val rejected = capture(
+            listOf(course(id = 10, courseId = 30, title = "甲"), course(id = 20, courseId = 10, title = "乙")),
+            setOf(10L, 20L),
+            CourseRecoveryScope.BATCH
+        )
+        assertTrue(rejected is CourseRecoveryCapture.Rejected)
+        assertTrue((rejected as CourseRecoveryCapture.Rejected).reason.contains("belongs to another course"))
+
+        val base = captured(
+            listOf(
+                course(id = 10, courseId = 10, title = "同名课"),
+                course(id = 20, courseId = 10, title = "同名课")
+            ),
+            setOf(10L, 20L),
+            CourseRecoveryScope.PARENT
+        )
+        val moved = base.copy(
+            parentIds = listOf(10L, 20L),
+            members = listOf(
+                base.members[0].copy(
+                    courseId = 20L,
+                    courseJson = CourseSnapshotCodec.encode(course(id = 10, courseId = 20, title = "同名课"))
+                ),
+                base.members[1]
+            )
+        )
+        val error = CourseRecoveryJournal.structuralError(revalidated(moved))
+        assertNotNull(error)
+        assertTrue(error!!.contains("belongs to another course"))
+    }
 
     @Test
     fun `structural validation rejects empty duplicate and illegal member payloads`() {

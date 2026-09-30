@@ -249,6 +249,40 @@ class CourseRestoreDecisionTest {
     }
 
     @Test
+    fun `parent id ownership conflicts reject the whole group in both directions`() {
+        val group = capture(listOf(course(id = 11, courseId = 10)), setOf(11L))
+
+        // Direction 1: the parent id we are about to restore is already a meeting id of another course.
+        val parentTaken = decision(group, currentCourses = listOf(course(id = 10, courseId = 77)))
+        assertEquals(
+            CourseRestoreDecision.ParentOwnershipConflict(
+                10L, 10L, CourseParentOwnership.PARENT_ID_USED_AS_MEETING
+            ),
+            parentTaken
+        )
+
+        // Direction 2: the meeting id we are about to restore is already another course's parent id.
+        val meetingTaken = decision(group, currentCourses = listOf(course(id = 50, courseId = 11)))
+        assertEquals(
+            CourseRestoreDecision.ParentOwnershipConflict(
+                11L, 11L, CourseParentOwnership.MEETING_ID_USED_AS_PARENT
+            ),
+            meetingTaken
+        )
+    }
+
+    @Test
+    fun `sibling meetings may differ in periods location or enabled state`() {
+        val group = capture(listOf(course(id = 11, courseId = 10, title = "大学物理")), setOf(11L))
+        val sibling = course(
+            id = 12, courseId = 10, title = "大学物理", startPeriod = 5, endPeriod = 6,
+            building = "西九", zone = CampusZone.WEST_TEACHING, enabled = false
+        )
+        val result = decision(group, currentCourses = listOf(sibling))
+        assertTrue("expected Eligible but got $result", result is CourseRestoreDecision.Eligible)
+    }
+
+    @Test
     fun `restore keeps the original member order of a batch`() {
         val first = course(id = 11)
         val second = course(id = 22)

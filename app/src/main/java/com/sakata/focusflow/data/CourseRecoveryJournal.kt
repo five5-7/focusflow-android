@@ -5,6 +5,7 @@ import com.sakata.focusflow.Course
 import org.json.JSONArray
 import org.json.JSONObject
 import org.json.JSONTokener
+import java.math.BigInteger
 import java.security.MessageDigest
 import java.util.UUID
 
@@ -46,21 +47,35 @@ private fun JSONObject.strictBoolean(key: String): Boolean {
     return value
 }
 
-private fun JSONObject.strictNumber(key: String): Number {
-    require(has(key)) { "missing field $key" }
-    val value = opt(key)
-    require(value is Number) { "field $key is not a number" }
-    return value
+/**
+ * Exact integer decoding. `Number` alone is not enough: a Double/Float (1.9, 1.0), a numeric string
+ * ("1") or an out-of-range value must all be rejected *before* any conversion, because
+ * `Number.toInt()` would silently truncate 1.9 to 1 and 4294967297 to 1. Only JSON integers that
+ * org.json already materialised as Int/Long/BigInteger are accepted, and BigInteger is range-checked
+ * with its bit length so nothing is narrowed first.
+ */
+private fun exactLongOrNull(value: Any?): Long? = when (value) {
+    is Int -> value.toLong()
+    is Long -> value
+    is BigInteger -> if (value.bitLength() < 64) value.toLong() else null
+    else -> null // Double, Float, BigDecimal, String, Boolean, null and containers are not integers
 }
 
-private fun JSONObject.strictLong(key: String): Long = strictNumber(key).toLong()
+private fun JSONObject.strictLong(key: String): Long {
+    require(has(key)) { "missing field $key" }
+    return exactLongOrNull(opt(key)) ?: throw IllegalArgumentException("field $key is not an exact integer")
+}
 
-private fun JSONObject.strictInt(key: String): Int = strictNumber(key).toInt()
+private fun JSONObject.strictInt(key: String): Int {
+    val value = strictLong(key)
+    require(value in Int.MIN_VALUE.toLong()..Int.MAX_VALUE.toLong()) { "field $key is out of Int range" }
+    return value.toInt()
+}
 
-    /** A nullable number still has to be present; JSON null is the only accepted null spelling. */
+/** A nullable number still has to be present; JSON null is the only accepted null spelling. */
 private fun JSONObject.nullableStrictLong(key: String): Long? {
     require(has(key)) { "missing field $key" }
-    return if (isNull(key)) null else strictNumber(key).toLong()
+    return if (isNull(key)) null else strictLong(key)
 }
 
 /** A nullable boolean still has to be present; JSON null is the only accepted null spelling. */
@@ -177,6 +192,22 @@ internal enum class CourseParentField(val wire: String) {
     NEEDS_CONFIRMATION("needsConfirmation")
 }
 
+/**
+ * Which side of the projection rule a parent-id ownership conflict came from. The rule itself is
+ * `CourseRoomProjection.toCourseParentEntities`: if a parent id is also a meeting id, that meeting
+ * must belong to the same parent.
+ */
+internal enum class CourseParentOwnership(val wire: String) {
+    /** A parent id of the group is already used as a meeting id by a live course of another parent. */
+    PARENT_ID_USED_AS_MEETING("parentIdUsedAsMeeting"),
+
+    /** A meeting id the group is about to restore is already used as a parent id by a live course. */
+    MEETING_ID_USED_AS_PARENT("meetingIdUsedAsParent"),
+
+    /** The candidate list disagrees with the projection rule for reasons outside this group. */
+    LIVE_LIST_INCONSISTENT("liveListInconsistent")
+}
+
 internal sealed interface CourseRestoreDecision {
     data class Eligible(val coursesToAdd: List<Course>) : CourseRestoreDecision
     data object AlreadyRestored : CourseRestoreDecision
@@ -187,6 +218,11 @@ internal sealed interface CourseRestoreDecision {
         val parentId: Long,
         val field: CourseParentField,
         val actual: String
+    ) : CourseRestoreDecision
+    data class ParentOwnershipConflict(
+        val parentId: Long,
+        val conflictingMeetingId: Long,
+        val ownership: CourseParentOwnership
     ) : CourseRestoreDecision
     data object Expired : CourseRestoreDecision
     data object PendingCourseEditJournal : CourseRestoreDecision
@@ -339,6 +375,13 @@ internal object CourseRecoveryJournal {
             if (meetings.map(Course::needsConfirmation).distinct().size > 1) {
                 return "parent $parentId has meetings with different confirmation states"
             }
+        }
+
+        // `toCourseParentEntities` also requires that a parent id, when it is also a meeting id,
+        // belongs to that same parent ("parent id belongs to another course"). Meeting fields such as
+        // periods, building or enabled are deliberately not compared across a parent.
+        ownershipViolation(decoded)?.let { (parentId, anchorId) ->
+            return "parent id $parentId belongs to another course (meeting $anchorId)"
         }
 
         if (group.state == CourseRecoveryState.RESTORED) {
@@ -533,6 +576,23 @@ internal object CourseRecoveryJournal {
         }
 
         val memberIds = group.members.mapTo(mutableSetOf(), CourseRecoveryMember::id)
+        val coursesToAdd = group.members.sortedBy(CourseRecoveryMember::sourceOrder)
+            .map { CourseSnapshotCodec.decode(it.courseJson) }
+        if (coursesToAdd.any { it == null }) return CourseRestoreDecision.Invalid("member snapshot is unreadable")
+        val restored = coursesToAdd.filterNotNull()
+
+        // Parent-id ownership is checked against the candidate merge list (live + restored), because
+        // the conflict only exists once both sides are in the same list. Two directions:
+        // a live meeting that already owns a parent id we are about to restore, and a live parent
+        // that already owns a meeting id we are about to restore.
+        ownershipViolation(currentCourses + restored)?.let { (parentId, anchorId) ->
+            return CourseRestoreDecision.ParentOwnershipConflict(
+                parentId,
+                anchorId,
+                ownershipDirection(group, memberIds, parentId)
+            )
+        }
+
         val liveUnderParents = currentCourses.filter { it.courseId in group.parentIds && it.id !in memberIds }
         group.parentIds.forEach { parentId ->
             // Structural validation already guarantees one title and one confirmation state per
@@ -556,10 +616,31 @@ internal object CourseRecoveryJournal {
             }
         }
 
-        val coursesToAdd = group.members.sortedBy(CourseRecoveryMember::sourceOrder)
-            .map { CourseSnapshotCodec.decode(it.courseJson) }
-        if (coursesToAdd.any { it == null }) return CourseRestoreDecision.Invalid("member snapshot is unreadable")
-        return CourseRestoreDecision.Eligible(coursesToAdd.filterNotNull())
+        return CourseRestoreDecision.Eligible(restored)
+    }
+
+    /**
+     * The `toCourseParentEntities` ownership rule over a list of meetings: when a parent id is also a
+     * meeting id in the same list, that meeting has to belong to the same parent. Returns
+     * `parentId to anchorMeetingId`.
+     */
+    private fun ownershipViolation(courses: List<Course>): Pair<Long, Long>? {
+        val byId = courses.associateBy(Course::id)
+        courses.forEach { row ->
+            val anchor = byId[row.courseId]
+            if (anchor != null && anchor.courseId != row.courseId) return row.courseId to anchor.id
+        }
+        return null
+    }
+
+    private fun ownershipDirection(
+        group: CourseRecoveryGroup,
+        memberIds: Set<Long>,
+        parentId: Long
+    ): CourseParentOwnership = when {
+        parentId in memberIds && parentId !in group.parentIds -> CourseParentOwnership.MEETING_ID_USED_AS_PARENT
+        parentId in group.parentIds -> CourseParentOwnership.PARENT_ID_USED_AS_MEETING
+        else -> CourseParentOwnership.LIVE_LIST_INCONSISTENT
     }
 
     /**
@@ -629,7 +710,7 @@ internal object CourseRecoveryCodec {
         // Strict parse: a truncated document or one with trailing bytes is rejected, not partially read.
         val root = runCatching { strictJsonObject(raw) }
             .getOrElse { return CourseRecoveryLoad.Invalid("course recovery payload is not a valid JSON object") }
-        val version = runCatching { root.strictNumber("version").toInt() }
+        val version = runCatching { root.strictInt("version") }
             .getOrElse { return CourseRecoveryLoad.Invalid("missing or invalid payload version") }
         if (version != CourseRecoveryJournal.SCHEMA_VERSION) {
             return CourseRecoveryLoad.Invalid("unsupported payload version $version")
@@ -639,8 +720,15 @@ internal object CourseRecoveryCodec {
         val groups = mutableListOf<CourseRecoveryGroup>()
         for (index in 0 until array.length()) {
             val value = array.optJSONObject(index) ?: return CourseRecoveryLoad.Invalid("group $index is not an object")
-            val group = runCatching { decodeGroup(value) }
-                .getOrElse { return CourseRecoveryLoad.Invalid("group $index is unreadable") }
+            // The concrete reason is kept: without it a tampered payload would only ever report the
+            // generic fingerprint mismatch, and a strictness regression could hide behind it.
+            val group = try {
+                decodeGroup(value)
+            } catch (error: Exception) {
+                return CourseRecoveryLoad.Invalid(
+                    "group $index is unreadable: ${error.message ?: "invalid payload"}"
+                )
+            }
             CourseRecoveryJournal.structuralError(group)?.let {
                 return CourseRecoveryLoad.Invalid("group $index: $it")
             }
@@ -693,9 +781,16 @@ internal object CourseRecoveryCodec {
             require(member.has("temporaryLocations")) { "missing field temporaryLocations" }
             val locationObject = member.opt("temporaryLocations")
             require(locationObject is JSONObject) { "temporary locations are not an object" }
-            val places = locationObject.keys().asSequence().associate { key ->
-                val day = key.toLongOrNull() ?: error("invalid location day")
-                day to locationObject.strictString(key)
+            val places = LinkedHashMap<Long, String>()
+            locationObject.keys().forEach { key ->
+                // A day key must be the canonical decimal spelling of its value: "01", "+1", "-0"
+                // and friends are aliases, and two aliases for the same day must never be merged
+                // into one entry (which `associate` would do silently, keeping the last one).
+                val day = key.toLongOrNull() ?: error("location day is not a decimal integer")
+                require(day.toString() == key) { "location day $key is not canonical" }
+                require(places.put(day, locationObject.strictString(key)) == null) {
+                    "duplicate location day $day"
+                }
             }
             CourseRecoveryMember(
                 sourceOrder = member.strictInt("sourceOrder"),
@@ -709,9 +804,7 @@ internal object CourseRecoveryCodec {
         }
         val parentsArray = value.requireArray("parentIds")
         val parents = (0 until parentsArray.length()).map { index ->
-            val parent = parentsArray.opt(index)
-            require(parent is Number) { "parent id is not a number" }
-            parent.toLong()
+            exactLongOrNull(parentsArray.opt(index)) ?: error("parent id is not an exact integer")
         }
         return CourseRecoveryGroup(
             groupId = value.strictString("groupId"),
