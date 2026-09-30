@@ -3,6 +3,7 @@ package com.sakata.focusflow
 import android.content.Context
 import com.sakata.focusflow.data.CoreDataReadResult
 import com.sakata.focusflow.data.CoreDataRepository
+import com.sakata.focusflow.data.withCourseWriteLock
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -52,41 +53,59 @@ internal object CourseMergeOperation {
         return CourseEditPlans.planCourseMerge(selected, snapshots, preferredId)
     }
 
-    /** Must be called before showing a new snapshot or scheduling a merged course. */
-    @Synchronized fun recover(context: Context, repository: CoreDataRepository): Boolean {
+    /**
+     * Must be called before showing a new snapshot or scheduling a merged course.
+     *
+     * Runs under the shared Legacy course write lock: the journal read, the course read and the
+     * preference migration must not interleave with a recovery capture or with the other journal
+     * operation. The old per-object `@Synchronized` is gone on purpose - it could be acquired in
+     * opposite orders by the merge and split operations while they call each other's `recover`.
+     */
+    fun recover(context: Context, repository: CoreDataRepository): Boolean = repository.withCourseWriteLock {
         val prefs = context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
-        val raw = runCatching { prefs.getString(KEY, null) }.getOrElse { return false } ?: return true
-        val journal = decode(raw) ?: return false // Corrupt journal is preserved for manual repair.
-        val courses = (repository.read() as? CoreDataReadResult.Ready)?.snapshot?.courses ?: return false
+        val raw = runCatching { prefs.getString(KEY, null) }.getOrElse { return@withCourseWriteLock false }
+            ?: return@withCourseWriteLock true
+        val journal = decode(raw) ?: return@withCourseWriteLock false // Corrupt journal is preserved for manual repair.
+        val courses = (repository.read() as? CoreDataReadResult.Ready)?.snapshot?.courses
+            ?: return@withCourseWriteLock false
         if (journal.deletedIds.all { id -> courses.any { it.id == id } }) {
             // The course write did not commit. Preferences have not been touched.
-            return prefs.edit().remove(KEY).commit()
+            return@withCourseWriteLock prefs.edit().remove(KEY).commit()
         }
         if (courses.none { it.id == journal.survivorId } || journal.deletedIds.any { id -> courses.any { it.id == id } }) {
-            return false // Partial/unexpected course state: never guess which IDs to delete.
+            return@withCourseWriteLock false // Partial/unexpected course state: never guess which IDs to delete.
         }
-        if (!CourseLocationOverrides.applyMerge(context, journal.survivorId, journal.deletedIds, journal.locations)) return false
-        if (!CourseReminders.applyMerge(context, journal.survivorId, journal.deletedIds, journal.reminderEnabled)) return false
-        return prefs.edit().remove(KEY).commit()
+        if (!CourseLocationOverrides.applyMerge(context, journal.survivorId, journal.deletedIds, journal.locations)) {
+            return@withCourseWriteLock false
+        }
+        if (!CourseReminders.applyMerge(context, journal.survivorId, journal.deletedIds, journal.reminderEnabled)) {
+            return@withCourseWriteLock false
+        }
+        prefs.edit().remove(KEY).commit()
     }
 
-    @Synchronized fun apply(
+    fun apply(
         context: Context, repository: CoreDataRepository, expectedCourses: List<Course>,
         selectedIds: Set<Long>, preferredId: Long, expectedPlan: CourseEditPlans.CourseMergePlan.Applied
-    ): Outcome {
+    ): Outcome = repository.withCourseWriteLock {
         if (!CourseSplitOperation.recover(context, repository) || !recover(context, repository))
-            return Outcome.RECOVERY_PENDING
-        val current = (repository.read() as? CoreDataReadResult.Ready)?.snapshot?.courses ?: return Outcome.WRITE_FAILED
-        if (current != expectedCourses || selectedIds.size < 2 || preferredId !in selectedIds) return Outcome.STALE
+            return@withCourseWriteLock Outcome.RECOVERY_PENDING
+        val current = (repository.read() as? CoreDataReadResult.Ready)?.snapshot?.courses
+            ?: return@withCourseWriteLock Outcome.WRITE_FAILED
+        if (current != expectedCourses || selectedIds.size < 2 || preferredId !in selectedIds) {
+            return@withCourseWriteLock Outcome.STALE
+        }
         val selected = current.filter { it.id in selectedIds }
-        if (selected.size != selectedIds.size) return Outcome.STALE
+        if (selected.size != selectedIds.size) return@withCourseWriteLock Outcome.STALE
         val plan = preview(context, selected, preferredId) as? CourseEditPlans.CourseMergePlan.Applied
-            ?: return Outcome.REJECTED
-        if (plan != expectedPlan) return Outcome.STALE
+            ?: return@withCourseWriteLock Outcome.REJECTED
+        if (plan != expectedPlan) return@withCourseWriteLock Outcome.STALE
         val prefs = context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
         val journal = Journal(plan.survivingId, plan.deletedCourseIds,
             plan.mergedReminderEnabled, plan.mergedTemporaryLocations)
-        if (!prefs.edit().putString(KEY, journal.encode()).commit()) return Outcome.WRITE_FAILED
+        if (!prefs.edit().putString(KEY, journal.encode()).commit()) {
+            return@withCourseWriteLock Outcome.WRITE_FAILED
+        }
         val updated = current.mapNotNull { course ->
             when (course.id) {
                 plan.survivingId -> plan.survivingCourse
@@ -97,9 +116,9 @@ internal object CourseMergeOperation {
         if (!repository.replaceCourses(updated, current).applied) {
             // No preference migration has occurred; a failed journal clear is harmless on recovery.
             prefs.edit().remove(KEY).commit()
-            return Outcome.WRITE_FAILED
+            return@withCourseWriteLock Outcome.WRITE_FAILED
         }
-        return if (recover(context, repository)) Outcome.APPLIED else Outcome.RECOVERY_PENDING
+        if (recover(context, repository)) Outcome.APPLIED else Outcome.RECOVERY_PENDING
     }
 
     private fun decode(raw: String): Journal? = runCatching {

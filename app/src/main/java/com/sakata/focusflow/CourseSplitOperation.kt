@@ -3,6 +3,7 @@ package com.sakata.focusflow
 import android.content.Context
 import com.sakata.focusflow.data.CoreDataReadResult
 import com.sakata.focusflow.data.CoreDataRepository
+import com.sakata.focusflow.data.withCourseWriteLock
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -33,37 +34,50 @@ internal object CourseSplitOperation {
         }.toString()
     }
 
-    @Synchronized fun recover(context: Context, repository: CoreDataRepository): Boolean {
+    /**
+     * Runs under the shared Legacy course write lock (see [CourseMergeOperation.recover]): the
+     * journal read, course read and preference migration are serialized with every other course
+     * writer, and the per-object `@Synchronized` monitors are gone so merge and split cannot acquire
+     * each other's monitors in opposite orders.
+     */
+    fun recover(context: Context, repository: CoreDataRepository): Boolean = repository.withCourseWriteLock {
         val prefs = context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
-        val raw = runCatching { prefs.getString(KEY, null) }.getOrElse { return false } ?: return true
-        val journal = decode(raw) ?: return false
-        val courses = (repository.read() as? CoreDataReadResult.Ready)?.snapshot?.courses ?: return false
-        val original = courses.singleOrNull { it.id == journal.originalId } ?: return false
+        val raw = runCatching { prefs.getString(KEY, null) }.getOrElse { return@withCourseWriteLock false }
+            ?: return@withCourseWriteLock true
+        val journal = decode(raw) ?: return@withCourseWriteLock false
+        val courses = (repository.read() as? CoreDataReadResult.Ready)?.snapshot?.courses
+            ?: return@withCourseWriteLock false
+        val original = courses.singleOrNull { it.id == journal.originalId } ?: return@withCourseWriteLock false
         val successor = courses.singleOrNull { it.id == journal.successorId }
         if (successor == null) {
             // The course CAS did not commit; no preference migration was attempted.
-            return if (original.effectiveUntilEpochDay != journal.boundary - 1) {
+            return@withCourseWriteLock if (original.effectiveUntilEpochDay != journal.boundary - 1) {
                 prefs.edit().remove(KEY).commit()
-            } else false
+            } else {
+                false
+            }
         }
         if (original.effectiveUntilEpochDay != journal.boundary - 1 ||
-            successor.effectiveFromEpochDay != journal.boundary) return false
+            successor.effectiveFromEpochDay != journal.boundary) return@withCourseWriteLock false
         if (!CourseLocationOverrides.applySplit(context, journal.originalId, journal.successorId,
-                journal.futureLocations)) return false
-        if (!CourseReminders.applySplit(context, journal.successorId, journal.reminderEnabled)) return false
-        return prefs.edit().remove(KEY).commit()
+                journal.futureLocations)) return@withCourseWriteLock false
+        if (!CourseReminders.applySplit(context, journal.successorId, journal.reminderEnabled)) {
+            return@withCourseWriteLock false
+        }
+        prefs.edit().remove(KEY).commit()
     }
 
-    @Synchronized fun apply(context: Context, repository: CoreDataRepository, expectedCourses: List<Course>,
-        original: Course, edited: Course, boundary: Long): Outcome {
+    fun apply(context: Context, repository: CoreDataRepository, expectedCourses: List<Course>,
+        original: Course, edited: Course, boundary: Long): Outcome = repository.withCourseWriteLock {
         if (!CourseMergeOperation.recover(context, repository) || !recover(context, repository))
-            return Outcome.RECOVERY_PENDING
-        val current = (repository.read() as? CoreDataReadResult.Ready)?.snapshot?.courses ?: return Outcome.WRITE_FAILED
+            return@withCourseWriteLock Outcome.RECOVERY_PENDING
+        val current = (repository.read() as? CoreDataReadResult.Ready)?.snapshot?.courses
+            ?: return@withCourseWriteLock Outcome.WRITE_FAILED
         if (current != expectedCourses || current.singleOrNull { it.id == original.id } != original ||
-            edited.id != original.id) return Outcome.STALE
-        if (boundary <= 0 || original.needsConfirmation) return Outcome.REJECTED
+            edited.id != original.id) return@withCourseWriteLock Outcome.STALE
+        if (boundary <= 0 || original.needsConfirmation) return@withCourseWriteLock Outcome.REJECTED
         val planned = CourseEditPlans.planCourseSplit(original, boundary, original.id)
-            as? CourseEditPlans.CourseSplitPlan.Applied ?: return Outcome.REJECTED
+            as? CourseEditPlans.CourseSplitPlan.Applied ?: return@withCourseWriteLock Outcome.REJECTED
         val successor = edited.copy(id = generateSequence(::newItemId).first { id ->
             id > 0 && current.none { it.id == id }
         }, effectiveFromEpochDay = boundary, effectiveUntilEpochDay = original.effectiveUntilEpochDay)
@@ -71,24 +85,26 @@ internal object CourseSplitOperation {
             else successor.copy(courseId = successor.id)
         if (successorWithParent.title.isBlank() || successorWithParent.weekday !in 1..7 ||
             successorWithParent.startPeriod !in 1..20 || successorWithParent.endPeriod !in successorWithParent.startPeriod..20)
-            return Outcome.REJECTED
+            return@withCourseWriteLock Outcome.REJECTED
         if (!CourseLocationOverrides.canSafelyMove(context, listOf(original.id), boundary) ||
             !CourseReminders.canSafelyMerge(context, listOf(original.id)))
-            return Outcome.REJECTED
+            return@withCourseWriteLock Outcome.REJECTED
         val future = CourseLocationOverrides.snapshot(context, original.id).filterKeys { it >= boundary }
-        if (future.values.any { it.length > 100 }) return Outcome.REJECTED
+        if (future.values.any { it.length > 100 }) return@withCourseWriteLock Outcome.REJECTED
         val reminder = CourseReminders.load(context).overrides[original.id]
         val journal = Journal(original.id, successorWithParent.id, boundary, reminder, future)
         val prefs = context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
-        if (!prefs.edit().putString(KEY, journal.encode()).commit()) return Outcome.WRITE_FAILED
+        if (!prefs.edit().putString(KEY, journal.encode()).commit()) {
+            return@withCourseWriteLock Outcome.WRITE_FAILED
+        }
         val updated = current.flatMap { course ->
             if (course.id == original.id) listOf(planned.original, successorWithParent) else listOf(course)
         }
         if (!repository.replaceCourses(updated, current).applied) {
             prefs.edit().remove(KEY).commit()
-            return Outcome.WRITE_FAILED
+            return@withCourseWriteLock Outcome.WRITE_FAILED
         }
-        return if (recover(context, repository)) Outcome.APPLIED else Outcome.RECOVERY_PENDING
+        if (recover(context, repository)) Outcome.APPLIED else Outcome.RECOVERY_PENDING
     }
 
     private fun decode(raw: String): Journal? = runCatching {

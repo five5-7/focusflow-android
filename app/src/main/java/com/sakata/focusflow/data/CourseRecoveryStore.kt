@@ -2,8 +2,6 @@ package com.sakata.focusflow.data
 
 import android.content.Context
 import com.sakata.focusflow.Course
-import com.sakata.focusflow.CourseLocationOverrides
-import com.sakata.focusflow.CourseReminders
 
 /**
  * Stage 7.5, Legacy storage integration batch.
@@ -18,11 +16,62 @@ import com.sakata.focusflow.CourseReminders
 internal sealed interface CourseRecoveryGroupsRead {
     data class Ready(val groups: List<CourseRecoveryGroup>) : CourseRecoveryGroupsRead
 
-    /** Unreadable payload. [raw] is preserved for diagnosis; nothing may overwrite it silently. */
-    data class Invalid(val reason: String, val raw: String) : CourseRecoveryGroupsRead
+    /**
+     * Unreadable payload. [raw] preserves a textual payload for diagnosis (null when the stored value
+     * was not a string at all, in which case [reason] names the actual type). Nothing may overwrite it.
+     */
+    data class Invalid(val reason: String, val raw: String?) : CourseRecoveryGroupsRead
 
     /** The selected runtime cannot store course recovery groups yet. */
     data class NotReady(val reason: String) : CourseRecoveryGroupsRead
+}
+
+/**
+ * Result of a guarded commit. A plain Boolean cannot distinguish "a guard refused before writing"
+ * from "the platform reported a failed write", and that difference decides whether the caller may
+ * report success at all.
+ */
+internal sealed interface CourseRecoveryCommit {
+    /** The platform confirmed the write (`commit()` returned true). */
+    data object Committed : CourseRecoveryCommit
+
+    /** A pre-commit guard refused (read-only, snapshot mismatch, unreadable payload, encode failure). */
+    data class Rejected(val reason: String) : CourseRecoveryCommit
+
+    /**
+     * The write did not return success (false or an exception). SharedPreferences updates its
+     * in-memory map before it touches disk, so a later read proves nothing about durability; this
+     * outcome stays unproven until an independent confirmed commit happens.
+     */
+    data class Failed(val reason: String) : CourseRecoveryCommit
+}
+
+/**
+ * Process-wide uncertainty guard for course recovery writes. `SharedPreferences.commit() == false`
+ * may already have updated the in-memory map, so within the same process a later call must not read
+ * those unverified values and report success or resume side effects. The guard is only cleared by a
+ * later commit that the platform confirmed; a plain read, a rebuilt store object or a new
+ * SharedPreferences handle does not clear it (the framework hands out the same instance per process).
+ */
+internal object CourseRecoveryWriteGuard {
+    @Volatile
+    private var uncertainReason: String? = null
+
+    fun uncertainReason(): String? = uncertainReason
+
+    fun markUncertain(reason: String) {
+        uncertainReason = reason
+    }
+
+    /** Called only when a commit was confirmed by the platform. */
+    fun clearAfterConfirmedCommit() {
+        uncertainReason = null
+    }
+
+    /** Tests only: the guard is process-wide state. */
+    fun reset() {
+        uncertainReason = null
+    }
 }
 
 /** Storage primitives the recovery store needs. The real implementation is [PrototypeStore]. */
@@ -45,13 +94,13 @@ internal interface CourseRecoveryStorage {
         groups: List<CourseRecoveryGroup>,
         expectedCourses: List<Course>,
         expectedGroups: List<CourseRecoveryGroup>
-    ): Boolean
+    ): CourseRecoveryCommit
 
     /** Commits only the group payload (state transitions and purge). */
     fun commitCourseRecoveryGroups(
         groups: List<CourseRecoveryGroup>,
         expectedGroups: List<CourseRecoveryGroup>
-    ): Boolean
+    ): CourseRecoveryCommit
 }
 
 internal sealed interface CourseDeletionOutcome {
@@ -66,10 +115,11 @@ internal sealed interface CourseDeletionOutcome {
         val status: CoreDataWriteStatus = CoreDataWriteStatus.INVALID_STATE
     ) : CourseDeletionOutcome
 
-    /** Confirmed not written: the stored snapshot still matches the pre-write state. */
-    data class WriteFailed(val reason: String) : CourseDeletionOutcome
-
-    /** The commit reported failure and the stored state could not be classified. */
+    /**
+     * The commit did not report success and there is no independent persistence evidence: the
+     * in-memory map may already hold the new value while the disk does not. Never reported as
+     * success, and the uncertainty guard blocks later state-based short circuits.
+     */
     data class WriteUncertain(val reason: String) : CourseDeletionOutcome
 
     data class NotReady(val reason: String) : CourseDeletionOutcome
@@ -93,8 +143,6 @@ internal sealed interface CourseRestoreOutcome {
         val status: CoreDataWriteStatus = CoreDataWriteStatus.INVALID_STATE
     ) : CourseRestoreOutcome
 
-    data class WriteFailed(val reason: String) : CourseRestoreOutcome
-
     data class WriteUncertain(val reason: String) : CourseRestoreOutcome
 
     data class NotReady(val reason: String) : CourseRestoreOutcome
@@ -110,8 +158,6 @@ internal sealed interface CoursePurgeOutcome {
         val reason: String,
         val status: CoreDataWriteStatus = CoreDataWriteStatus.INVALID_STATE
     ) : CoursePurgeOutcome
-
-    data class WriteFailed(val reason: String) : CoursePurgeOutcome
 
     data class WriteUncertain(val reason: String) : CoursePurgeOutcome
 
@@ -194,8 +240,12 @@ internal class LegacyCourseRecoveryStore(
                 "unfinished course merge/split journal", CoreDataWriteStatus.CONDITION_NOT_MET
             )
         }
-        // Identity guard: the same operation must not create a second group or delete twice.
+        // Identity guard. When a previous commit outcome is still unverified this short circuit must
+        // not be taken: the in-memory group is exactly what the failed commit may have written.
         groups.firstOrNull { it.operationId == request.operationId }?.let {
+            uncertaintyOrNull()?.let { reason ->
+                return@withCourseWriteLock CourseDeletionOutcome.WriteUncertain(reason)
+            }
             return@withCourseWriteLock CourseDeletionOutcome.AlreadyApplied(it)
         }
         val current = try {
@@ -224,15 +274,14 @@ internal class LegacyCourseRecoveryStore(
             )
             is CourseRecoveryCapture.Captured -> captured.group
         }
-        val updatedGroups = groups + group
-        val committed = try {
-            storage.commitCoursesAndRecoveryGroups(after, updatedGroups, current, groups)
-        } catch (error: Exception) {
-            false
-        }
-        if (committed) return@withCourseWriteLock CourseDeletionOutcome.Applied(group)
-        confirmDeletionWrite(current, after, groups, updatedGroups) {
-            CourseDeletionOutcome.Applied(group)
+        when (val commit = commitCourses(after, groups + group, current, groups)) {
+            is CourseRecoveryCommit.Committed -> CourseDeletionOutcome.Applied(group)
+            is CourseRecoveryCommit.Rejected -> CourseDeletionOutcome.Rejected(
+                commit.reason, CoreDataWriteStatus.INVALID_STATE
+            )
+            is CourseRecoveryCommit.Failed -> CourseDeletionOutcome.WriteUncertain(
+                markUncertain(commit.reason)
+            )
         }
     }
 
@@ -271,9 +320,7 @@ internal class LegacyCourseRecoveryStore(
         }
         // The pending journal state is probed here, inside the lock; a caller flag is never trusted.
         val pendingJournal = storage.hasPendingCourseEditJournal()
-        return@withCourseWriteLock when (
-            val decision = CourseRecoveryJournal.restoreDecision(group, current, pendingJournal, now)
-        ) {
+        when (val decision = CourseRecoveryJournal.restoreDecision(group, current, pendingJournal, now)) {
             is CourseRestoreDecision.Eligible -> {
                 // Keep the live list exactly as it is and append the restored meetings in source order.
                 val updatedCourses = current + decision.coursesToAdd
@@ -282,22 +329,24 @@ internal class LegacyCourseRecoveryStore(
                         "recovery group cannot enter RESTORING"
                     )
                 val updatedGroups = groups.map { if (it.groupId == groupId) restoring else it }
-                val committed = try {
-                    storage.commitCoursesAndRecoveryGroups(updatedCourses, updatedGroups, current, groups)
-                } catch (error: Exception) {
-                    false
-                }
-                if (committed) {
-                    CourseRestoreOutcome.CoreCommitted(restoring)
-                } else {
-                    confirmRestoreWrite(current, updatedCourses, groups, updatedGroups) {
-                        CourseRestoreOutcome.CoreCommitted(restoring)
-                    }
+                when (val commit = commitCourses(updatedCourses, updatedGroups, current, groups)) {
+                    is CourseRecoveryCommit.Committed -> CourseRestoreOutcome.CoreCommitted(restoring)
+                    is CourseRecoveryCommit.Rejected -> CourseRestoreOutcome.Rejected(
+                        commit.reason, CoreDataWriteStatus.INVALID_STATE
+                    )
+                    is CourseRecoveryCommit.Failed -> CourseRestoreOutcome.WriteUncertain(
+                        markUncertain(commit.reason)
+                    )
                 }
             }
-            CourseRestoreDecision.AlreadyRestored -> CourseRestoreOutcome.AlreadyRestored(group)
-            CourseRestoreDecision.ResumeRestoration -> CourseRestoreOutcome.NeedsFollowUp(group)
-            CourseRestoreDecision.ResumePurge -> CourseRestoreOutcome.NeedsPurgeFollowUp(group)
+            // Every no-write answer would let the caller resume side effects from in-memory state, so
+            // an unverified commit outcome takes precedence over all of them.
+            CourseRestoreDecision.AlreadyRestored -> uncertaintyOrNull()?.let { CourseRestoreOutcome.WriteUncertain(it) }
+                ?: CourseRestoreOutcome.AlreadyRestored(group)
+            CourseRestoreDecision.ResumeRestoration -> uncertaintyOrNull()?.let { CourseRestoreOutcome.WriteUncertain(it) }
+                ?: CourseRestoreOutcome.NeedsFollowUp(group)
+            CourseRestoreDecision.ResumePurge -> uncertaintyOrNull()?.let { CourseRestoreOutcome.WriteUncertain(it) }
+                ?: CourseRestoreOutcome.NeedsPurgeFollowUp(group)
             CourseRestoreDecision.Expired -> CourseRestoreOutcome.Rejected(
                 "recovery group expired", CoreDataWriteStatus.CONDITION_NOT_MET
             )
@@ -343,94 +392,74 @@ internal class LegacyCourseRecoveryStore(
             )
         }
         val plan = CourseRecoveryJournal.purgePlan(groups, now)
-        if (plan.groupIds.isEmpty()) return@withCourseWriteLock CoursePurgeOutcome.NothingToDo
+        if (plan.groupIds.isEmpty()) {
+            uncertaintyOrNull()?.let { reason ->
+                return@withCourseWriteLock CoursePurgeOutcome.WriteUncertain(reason)
+            }
+            return@withCourseWriteLock CoursePurgeOutcome.NothingToDo
+        }
         val remaining = groups.filterNot { it.groupId in plan.groupIds }
-        val committed = try {
-            storage.commitCourseRecoveryGroups(remaining, groups)
-        } catch (error: Exception) {
-            false
-        }
-        if (committed) return@withCourseWriteLock CoursePurgeOutcome.Applied(plan.groupIds)
-        val stored = storage.loadCourseRecoveryGroups()
-        if (stored !is CourseRecoveryGroupsRead.Ready) {
-            return@withCourseWriteLock CoursePurgeOutcome.WriteUncertain(
-                "commit returned false and the recovery payload could not be read back"
+        when (val commit = commitGroups(remaining, groups)) {
+            is CourseRecoveryCommit.Committed -> CoursePurgeOutcome.Applied(plan.groupIds)
+            is CourseRecoveryCommit.Rejected -> CoursePurgeOutcome.Rejected(
+                commit.reason, CoreDataWriteStatus.INVALID_STATE
             )
+            is CourseRecoveryCommit.Failed -> CoursePurgeOutcome.WriteUncertain(markUncertain(commit.reason))
         }
-        when (stored.groups) {
-            remaining -> CoursePurgeOutcome.Applied(plan.groupIds)
-            groups -> CoursePurgeOutcome.WriteFailed("commit returned false; the recovery payload is unchanged")
-            else -> CoursePurgeOutcome.WriteUncertain("commit returned false and the stored payload has a third state")
+    }
+
+    private fun commitCourses(
+        courses: List<Course>,
+        groups: List<CourseRecoveryGroup>,
+        expectedCourses: List<Course>,
+        expectedGroups: List<CourseRecoveryGroup>
+    ): CourseRecoveryCommit {
+        val commit = try {
+            storage.commitCoursesAndRecoveryGroups(courses, groups, expectedCourses, expectedGroups)
+        } catch (error: Exception) {
+            CourseRecoveryCommit.Failed("commit threw ${error.javaClass.simpleName}")
         }
+        recordCommit(commit)
+        return commit
+    }
+
+    private fun commitGroups(
+        groups: List<CourseRecoveryGroup>,
+        expectedGroups: List<CourseRecoveryGroup>
+    ): CourseRecoveryCommit {
+        val commit = try {
+            storage.commitCourseRecoveryGroups(groups, expectedGroups)
+        } catch (error: Exception) {
+            CourseRecoveryCommit.Failed("commit threw ${error.javaClass.simpleName}")
+        }
+        recordCommit(commit)
+        return commit
     }
 
     /**
-     * A failed commit is classified by re-reading: either the write landed anyway, or the stored
-     * state still equals the pre-write snapshot (confirmed rejection), or it matches neither
-     * (uncertain). SharedPreferences `commit() == false` alone proves none of these.
+     * Only a platform-confirmed commit clears the uncertainty; a plain read, a rebuilt store object
+     * or a new SharedPreferences handle proves nothing about the disk.
      */
-    private fun confirmDeletionWrite(
-        expectedCoursesBefore: List<Course>,
-        expectedCoursesAfter: List<Course>,
-        expectedGroupsBefore: List<CourseRecoveryGroup>,
-        expectedGroupsAfter: List<CourseRecoveryGroup>,
-        onLanded: () -> CourseDeletionOutcome
-    ): CourseDeletionOutcome {
-        val courses = try {
-            storage.readCourses()
-        } catch (error: Exception) {
-            return CourseDeletionOutcome.WriteUncertain(
-                "commit returned false and the course snapshot could not be read back"
-            )
-        }
-        val stored = storage.loadCourseRecoveryGroups()
-        if (stored !is CourseRecoveryGroupsRead.Ready) {
-            return CourseDeletionOutcome.WriteUncertain(
-                "commit returned false and the recovery payload could not be read back"
-            )
-        }
-        return when {
-            courses == expectedCoursesAfter && stored.groups == expectedGroupsAfter -> onLanded()
-            courses == expectedCoursesBefore && stored.groups == expectedGroupsBefore ->
-                CourseDeletionOutcome.WriteFailed("commit returned false; the stored snapshot is unchanged")
-            else -> CourseDeletionOutcome.WriteUncertain(
-                "commit returned false and the stored snapshot has a third state"
-            )
+    private fun recordCommit(commit: CourseRecoveryCommit) {
+        when (commit) {
+            is CourseRecoveryCommit.Committed -> CourseRecoveryWriteGuard.clearAfterConfirmedCommit()
+            is CourseRecoveryCommit.Failed -> CourseRecoveryWriteGuard.markUncertain(commit.reason)
+            is CourseRecoveryCommit.Rejected -> Unit
         }
     }
 
-    private fun confirmRestoreWrite(
-        expectedCoursesBefore: List<Course>,
-        expectedCoursesAfter: List<Course>,
-        expectedGroupsBefore: List<CourseRecoveryGroup>,
-        expectedGroupsAfter: List<CourseRecoveryGroup>,
-        onLanded: () -> CourseRestoreOutcome
-    ): CourseRestoreOutcome {
-        val courses = try {
-            storage.readCourses()
-        } catch (error: Exception) {
-            return CourseRestoreOutcome.WriteUncertain(
-                "commit returned false and the course snapshot could not be read back"
-            )
-        }
-        val stored = storage.loadCourseRecoveryGroups()
-        if (stored !is CourseRecoveryGroupsRead.Ready) {
-            return CourseRestoreOutcome.WriteUncertain(
-                "commit returned false and the recovery payload could not be read back"
-            )
-        }
-        return when {
-            courses == expectedCoursesAfter && stored.groups == expectedGroupsAfter -> onLanded()
-            courses == expectedCoursesBefore && stored.groups == expectedGroupsBefore ->
-                CourseRestoreOutcome.WriteFailed("commit returned false; the stored snapshot is unchanged")
-            else -> CourseRestoreOutcome.WriteUncertain(
-                "commit returned false and the stored snapshot has a third state"
-            )
-        }
+    private fun markUncertain(reason: String): String {
+        CourseRecoveryWriteGuard.markUncertain(reason)
+        return "commit outcome is unverified: $reason"
     }
+
+    private fun uncertaintyOrNull(): String? =
+        CourseRecoveryWriteGuard.uncertainReason()?.let {
+            "a previous commit outcome is still unverified ($it); refusing to continue from in-memory state"
+        }
+
 }
 
-/** The selected runtime's recovery store; Room reports "not ready" until its own batch. */
 internal val CoreDataRepository.courseRecoveryStore: CourseRecoveryStore
     get() = when (this) {
         is LegacyCoreDataRepository -> recoveryStore
@@ -438,8 +467,129 @@ internal val CoreDataRepository.courseRecoveryStore: CourseRecoveryStore
     }
 
 /**
- * Callable business-layer entry points. They read the reminder/location preferences through the
- * existing boundaries (read-only) and hand the captured request to the store. Nothing here writes a
+ * Runs [block] under the same course write lock the recovery store uses. The Legacy runtime
+ * serializes ordinary course saves, merge/split journal operations and recovery writes here; the
+ * Room runtime has no such lock yet and runs the block unchanged rather than pretending otherwise.
+ */
+internal fun <T> CoreDataRepository.withCourseWriteLock(block: () -> T): T =
+    (this as? LegacyCoreDataRepository)?.withCourseWriteLock(block) ?: block()
+
+/**
+ * Strict, read-only preference capture for the meetings a recovery group is about to snapshot.
+ *
+ * The everyday reminder boundary stays lenient on purpose (a broken key must not break normal
+ * reminders), but a recovery snapshot may not silently drop or merge a corrupted value: a missing
+ * key is legal, an existing key of the wrong type or shape rejects the whole capture. Only the
+ * requested meeting ids are inspected, so corruption elsewhere never blocks this operation.
+ */
+internal sealed interface CourseRecoveryPreferenceCapture {
+    data class Ready(
+        val overrides: Map<Long, Boolean>,
+        val delivered: Map<Long, Long>,
+        val locations: Map<Long, Map<Long, String>>
+    ) : CourseRecoveryPreferenceCapture
+
+    data class Invalid(val reason: String) : CourseRecoveryPreferenceCapture
+}
+
+internal object CourseRecoveryPreferences {
+    private const val SETTINGS_FILE = "course_reminder_settings"
+    private const val LOCATIONS_FILE = "course_location_overrides"
+    private const val MEETING_PREFIX = "meeting_"
+    private const val DELIVERED_PREFIX = "delivered_"
+    private const val MAX_PLACE_LENGTH = 100
+
+    fun capture(context: Context, meetingIds: Set<Long>): CourseRecoveryPreferenceCapture {
+        if (meetingIds.isEmpty()) {
+            return CourseRecoveryPreferenceCapture.Ready(emptyMap(), emptyMap(), emptyMap())
+        }
+        val settings = try {
+            context.getSharedPreferences(SETTINGS_FILE, Context.MODE_PRIVATE).all
+        } catch (error: Exception) {
+            return CourseRecoveryPreferenceCapture.Invalid(
+                "course reminder preferences are unreadable: ${error.javaClass.simpleName}"
+            )
+        }
+        val locationEntries = try {
+            context.getSharedPreferences(LOCATIONS_FILE, Context.MODE_PRIVATE).all
+        } catch (error: Exception) {
+            return CourseRecoveryPreferenceCapture.Invalid(
+                "course location preferences are unreadable: ${error.javaClass.simpleName}"
+            )
+        }
+
+        val overrides = LinkedHashMap<Long, Boolean>()
+        val delivered = LinkedHashMap<Long, Long>()
+        meetingIds.sorted().forEach meeting@{ id ->
+            settings[MEETING_PREFIX + id]?.let { value ->
+                if (value !is Boolean) {
+                    return CourseRecoveryPreferenceCapture.Invalid(
+                        "override ${MEETING_PREFIX}$id is ${value.javaClass.simpleName}, not a boolean"
+                    )
+                }
+                overrides[id] = value
+            }
+            settings[DELIVERED_PREFIX + id]?.let { value ->
+                if (value !is Long) {
+                    return CourseRecoveryPreferenceCapture.Invalid(
+                        "watermark ${DELIVERED_PREFIX}$id is ${value.javaClass.simpleName}, not a long"
+                    )
+                }
+                if (value <= 0L) {
+                    return CourseRecoveryPreferenceCapture.Invalid(
+                        "watermark ${DELIVERED_PREFIX}$id is not positive"
+                    )
+                }
+                delivered[id] = value
+            }
+        }
+
+        val locations = LinkedHashMap<Long, Map<Long, String>>()
+        meetingIds.sorted().forEach meeting@{ id ->
+            val prefix = "${id}_"
+            val places = LinkedHashMap<Long, String>()
+            locationEntries.keys.sorted().forEach location@{ key ->
+                if (!key.startsWith(prefix)) return@location
+                val dayText = key.removePrefix(prefix)
+                val day = dayText.toLongOrNull()
+                    ?: return CourseRecoveryPreferenceCapture.Invalid("location key $key has no numeric day")
+                if (day.toString() != dayText) {
+                    return CourseRecoveryPreferenceCapture.Invalid("location key $key is not a canonical day")
+                }
+                if (day < 0L) {
+                    return CourseRecoveryPreferenceCapture.Invalid("location key $key has a negative day")
+                }
+                val value = locationEntries.getValue(key)
+                if (value !is String) {
+                    return CourseRecoveryPreferenceCapture.Invalid(
+                        "location $key is ${value?.javaClass?.simpleName ?: "null"}, not text"
+                    )
+                }
+                val place = value.trim()
+                if (place.isEmpty()) {
+                    return CourseRecoveryPreferenceCapture.Invalid("location $key is blank")
+                }
+                if (place.length > MAX_PLACE_LENGTH) {
+                    return CourseRecoveryPreferenceCapture.Invalid(
+                        "location $key is longer than $MAX_PLACE_LENGTH characters"
+                    )
+                }
+                if (places.put(day, place) != null) {
+                    return CourseRecoveryPreferenceCapture.Invalid(
+                        "location key $key duplicates another spelling of day $day"
+                    )
+                }
+            }
+            if (places.isNotEmpty()) locations[id] = places
+        }
+
+        return CourseRecoveryPreferenceCapture.Ready(overrides, delivered, locations)
+    }
+}
+
+/**
+ * Callable business-layer entry points. They capture the reminder/location preferences read-only
+ * through [CourseRecoveryPreferences] and hand the request to the store. Nothing here writes a
  * preference, touches the UI, reschedules reminders or marks a group RESTORED.
  */
 internal object CourseRecoveryOperations {
@@ -456,14 +606,24 @@ internal object CourseRecoveryOperations {
     ): CourseDeletionOutcome {
         val snapshot = (repository.read() as? CoreDataReadResult.Ready)?.snapshot
             ?: return CourseDeletionOutcome.Rejected("core data is not readable", CoreDataWriteStatus.NOT_READY)
+        // Strict capture first: a corrupted target preference must reject the whole delete before any
+        // write, leaving courses, groups and every preference value untouched.
+        val captured = CourseRecoveryPreferences.capture(context, requestedIds)
+        if (captured is CourseRecoveryPreferenceCapture.Invalid) {
+            return CourseDeletionOutcome.Rejected(
+                "course preferences are unreadable for the requested meetings: ${captured.reason}",
+                CoreDataWriteStatus.INVALID_INPUT
+            )
+        }
+        val ready = captured as CourseRecoveryPreferenceCapture.Ready
         val request = CourseRecoveryRequest(
             requestedIds = requestedIds,
             scope = scope,
             operationId = operationId,
             now = now,
-            reminderOverrides = reminderOverrides(context, requestedIds),
-            deliveredWatermarks = deliveredWatermarks(context, requestedIds),
-            temporaryLocations = temporaryLocations(context, requestedIds)
+            reminderOverrides = ready.overrides,
+            deliveredWatermarks = ready.delivered,
+            temporaryLocations = ready.locations
         )
         return repository.courseRecoveryStore.deleteCoursesWithRecoveryGroup(snapshot.courses, request)
     }
@@ -496,32 +656,4 @@ internal object CourseRecoveryOperations {
         }
         return repository.courseRecoveryStore.purgeCourseRecoveryGroups(groups, now)
     }
-
-    /** Explicit three-state overrides for the requested meetings only; absent keys stay absent. */
-    private fun reminderOverrides(context: Context, ids: Set<Long>): Map<Long, Boolean> {
-        val overrides = CourseReminders.load(context).overrides
-        return ids.mapNotNull { id -> overrides[id]?.let { id to it } }.toMap()
-    }
-
-    /**
-     * The delivery watermark has no read accessor on the reminder boundary yet, so the documented
-     * key format (`course_reminder_settings` / `delivered_<id>`, see the 7.5 proposal §2.4) is read
-     * directly. A regression test writes through [CourseReminders.markNotified] to prove the format
-     * still matches; a future batch may expose a read-only accessor instead.
-     */
-    private fun deliveredWatermarks(context: Context, ids: Set<Long>): Map<Long, Long> {
-        val preferences = context.getSharedPreferences(COURSE_REMINDER_SETTINGS_FILE, Context.MODE_PRIVATE)
-        return ids.mapNotNull { id ->
-            (preferences.all["$DELIVERED_PREFIX$id"] as? Long)?.let { id to it }
-        }.toMap()
-    }
-
-    private fun temporaryLocations(context: Context, ids: Set<Long>): Map<Long, Map<Long, String>> =
-        ids.mapNotNull { id ->
-            CourseLocationOverrides.snapshot(context, id).takeIf { it.isNotEmpty() }?.let { id to it }
-        }.toMap()
-
-    // Mirrors `CourseReminders.FILE` / `DELIVERED_PREFIX`; kept in sync by the regression test.
-    private const val COURSE_REMINDER_SETTINGS_FILE = "course_reminder_settings"
-    private const val DELIVERED_PREFIX = "delivered_"
 }

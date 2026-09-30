@@ -2,6 +2,7 @@ package com.sakata.focusflow
 
 import android.content.Context
 import com.sakata.focusflow.data.CourseRecoveryCodec
+import com.sakata.focusflow.data.CourseRecoveryCommit
 import com.sakata.focusflow.data.CourseRecoveryGroup
 import com.sakata.focusflow.data.CourseRecoveryGroupsRead
 import com.sakata.focusflow.data.CourseRecoveryLoad
@@ -833,7 +834,12 @@ class PrototypeStore(context: Context) {
             }
         }, { it.isEmpty() })
 
-    fun saveCourses(courses: List<Course>) {
+    /**
+     * Unconditional course write. It takes the same course lock as every other writer so no course
+     * commit can be interleaved with a recovery capture or a merge/split journal operation.
+     */
+    fun saveCourses(courses: List<Course>) = synchronized(taskHistoryLock) {
+        if (StorageProtection.readOnly) return@synchronized
         require(runCatching { courses.toCourseParentEntities() }.isSuccess) { "Invalid course group" }
         preferences.edit().putBoolean("course_setup_done", true).putString("courses", encodeCourses(courses)).apply()
     }
@@ -857,16 +863,28 @@ class PrototypeStore(context: Context) {
     internal fun <T> withCourseWriteLock(block: () -> T): T = synchronized(taskHistoryLock) { block() }
 
     /**
-     * Course recovery groups. A missing key is a legitimate empty collection; an unreadable payload
-     * is reported as [CourseRecoveryGroupsRead.Invalid] with its raw content and is never treated as
-     * empty, overwritten or cleared.
+     * Course recovery groups. A missing key is a legitimate empty collection; a value of another
+     * type is reported as [CourseRecoveryGroupsRead.Invalid] with a type diagnosis (null raw), and an
+     * unreadable JSON payload is reported with its raw text. Neither is ever treated as empty,
+     * overwritten or cleared, and neither throws at the caller.
      */
     internal fun loadCourseRecoveryGroups(): CourseRecoveryGroupsRead {
-        val raw = preferences.getString(COURSE_RECOVERY_GROUPS_KEY, null)
-            ?: return CourseRecoveryGroupsRead.Ready(emptyList())
-        return when (val load = CourseRecoveryCodec.decode(raw)) {
-            is CourseRecoveryLoad.Ready -> CourseRecoveryGroupsRead.Ready(load.groups)
-            is CourseRecoveryLoad.Invalid -> CourseRecoveryGroupsRead.Invalid(load.reason, raw)
+        val stored = try {
+            preferences.all[COURSE_RECOVERY_GROUPS_KEY]
+        } catch (error: Exception) {
+            return CourseRecoveryGroupsRead.Invalid(
+                "course recovery preferences are unreadable: ${error.javaClass.simpleName}", null
+            )
+        }
+        return when (stored) {
+            null -> CourseRecoveryGroupsRead.Ready(emptyList())
+            is String -> when (val load = CourseRecoveryCodec.decode(stored)) {
+                is CourseRecoveryLoad.Ready -> CourseRecoveryGroupsRead.Ready(load.groups)
+                is CourseRecoveryLoad.Invalid -> CourseRecoveryGroupsRead.Invalid(load.reason, stored)
+            }
+            else -> CourseRecoveryGroupsRead.Invalid(
+                "stored course recovery value is ${stored.javaClass.simpleName}, not a JSON string", null
+            )
         }
     }
 
@@ -883,33 +901,57 @@ class PrototypeStore(context: Context) {
      * Stage 7.5 delete: the course list and the new ACTIVE group go into ONE editor commit. Both
      * snapshots are re-checked here, so even a caller that skipped [withCourseWriteLock] cannot
      * overwrite a newer write; a corrupt recovery payload fails the whole write closed.
+     *
+     * The result separates a pre-commit refusal from a failed write. `commit() == false` updates the
+     * in-memory map first, so it must never be reported as success or failure-without-a-write.
      */
     internal fun commitCoursesAndRecoveryGroups(
         courses: List<Course>,
         groups: List<CourseRecoveryGroup>,
         expectedCourses: List<Course>,
         expectedGroups: List<CourseRecoveryGroup>
-    ): Boolean = synchronized(taskHistoryLock) {
-        if (StorageProtection.readOnly || loadCourses() != expectedCourses) return@synchronized false
-        if (currentCourseRecoveryGroups() != expectedGroups) return@synchronized false
-        if (runCatching { courses.toCourseParentEntities() }.isFailure) return@synchronized false
-        val encoded = runCatching { CourseRecoveryCodec.encode(groups) }.getOrNull() ?: return@synchronized false
-        preferences.edit()
-            .putBoolean("course_setup_done", true)
-            .putString("courses", encodeCourses(courses))
-            .putString(COURSE_RECOVERY_GROUPS_KEY, encoded)
-            .commit()
+    ): CourseRecoveryCommit = synchronized(taskHistoryLock) {
+        if (StorageProtection.readOnly) return@synchronized CourseRecoveryCommit.Rejected("storage is read-only")
+        if (loadCourses() != expectedCourses) return@synchronized CourseRecoveryCommit.Rejected("course snapshot changed")
+        if (currentCourseRecoveryGroups() != expectedGroups) {
+            return@synchronized CourseRecoveryCommit.Rejected("recovery payload changed")
+        }
+        if (runCatching { courses.toCourseParentEntities() }.isFailure) {
+            return@synchronized CourseRecoveryCommit.Rejected("course group is inconsistent")
+        }
+        val encoded = runCatching { CourseRecoveryCodec.encode(groups) }.getOrNull()
+            ?: return@synchronized CourseRecoveryCommit.Rejected("recovery payload is not encodable")
+        val confirmed = try {
+            preferences.edit()
+                .putBoolean("course_setup_done", true)
+                .putString("courses", encodeCourses(courses))
+                .putString(COURSE_RECOVERY_GROUPS_KEY, encoded)
+                .commit()
+        } catch (error: Exception) {
+            return@synchronized CourseRecoveryCommit.Failed("commit threw ${error.javaClass.simpleName}")
+        }
+        if (confirmed) CourseRecoveryCommit.Committed
+        else CourseRecoveryCommit.Failed("commit returned false")
     }
 
     /** Stage 7.5 restore/purge: only the group payload changes, still with a snapshot guard. */
     internal fun commitCourseRecoveryGroups(
         groups: List<CourseRecoveryGroup>,
         expectedGroups: List<CourseRecoveryGroup>
-    ): Boolean = synchronized(taskHistoryLock) {
-        if (StorageProtection.readOnly) return@synchronized false
-        if (currentCourseRecoveryGroups() != expectedGroups) return@synchronized false
-        val encoded = runCatching { CourseRecoveryCodec.encode(groups) }.getOrNull() ?: return@synchronized false
-        preferences.edit().putString(COURSE_RECOVERY_GROUPS_KEY, encoded).commit()
+    ): CourseRecoveryCommit = synchronized(taskHistoryLock) {
+        if (StorageProtection.readOnly) return@synchronized CourseRecoveryCommit.Rejected("storage is read-only")
+        if (currentCourseRecoveryGroups() != expectedGroups) {
+            return@synchronized CourseRecoveryCommit.Rejected("recovery payload changed")
+        }
+        val encoded = runCatching { CourseRecoveryCodec.encode(groups) }.getOrNull()
+            ?: return@synchronized CourseRecoveryCommit.Rejected("recovery payload is not encodable")
+        val confirmed = try {
+            preferences.edit().putString(COURSE_RECOVERY_GROUPS_KEY, encoded).commit()
+        } catch (error: Exception) {
+            return@synchronized CourseRecoveryCommit.Failed("commit threw ${error.javaClass.simpleName}")
+        }
+        if (confirmed) CourseRecoveryCommit.Committed
+        else CourseRecoveryCommit.Failed("commit returned false")
     }
 
     /** Null means "unreadable", which makes every snapshot guard fail closed. */

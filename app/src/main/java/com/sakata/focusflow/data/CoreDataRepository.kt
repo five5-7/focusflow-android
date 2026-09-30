@@ -177,12 +177,12 @@ private class PrototypeStoreCoreDataPersistence(
         groups: List<CourseRecoveryGroup>,
         expectedCourses: List<Course>,
         expectedGroups: List<CourseRecoveryGroup>
-    ): Boolean = store.commitCoursesAndRecoveryGroups(courses, groups, expectedCourses, expectedGroups)
+    ): CourseRecoveryCommit = store.commitCoursesAndRecoveryGroups(courses, groups, expectedCourses, expectedGroups)
 
     override fun commitCourseRecoveryGroups(
         groups: List<CourseRecoveryGroup>,
         expectedGroups: List<CourseRecoveryGroup>
-    ): Boolean = store.commitCourseRecoveryGroups(groups, expectedGroups)
+    ): CourseRecoveryCommit = store.commitCourseRecoveryGroups(groups, expectedGroups)
 }
 
 /** Legacy adapter that preserves the existing optimistic-concurrency and atomic commit rules. */
@@ -201,6 +201,15 @@ class LegacyCoreDataRepository internal constructor(
     internal val recoveryStore: CourseRecoveryStore =
         (persistence as? CourseRecoveryStorage)?.let(::LegacyCourseRecoveryStore)
             ?: UnsupportedCourseRecoveryStore
+
+    /**
+     * The course write lock for this runtime. Every Legacy course writer (ordinary saves, the
+     * recovery store, the merge/split journal operations) takes it, so a course read, a journal
+     * check or creation and the course commit cannot interleave. Runtimes without such a lock keep
+     * their previous behaviour instead of pretending to be serialized.
+     */
+    internal fun <T> withCourseWriteLock(block: () -> T): T =
+        (persistence as? CourseRecoveryStorage)?.withCourseWriteLock(block) ?: block()
 
     override fun read(): CoreDataReadResult = try {
         CoreDataReadResult.Ready(persistence.read())
