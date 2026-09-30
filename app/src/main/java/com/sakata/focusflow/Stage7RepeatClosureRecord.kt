@@ -226,7 +226,7 @@ object RepeatClosureCodec {
             status = status,
             restoration = restoration,
         )
-        structuralGuards(record)
+        recordRejection(record)?.let { reject(it) }
         return record
     }
 
@@ -313,40 +313,53 @@ object RepeatClosureCodec {
 
     // ---------- 结构守卫（不读当前任务/课程） ----------
 
-    private fun structuralGuards(record: RepeatClosureRecord) {
-        if (record.deletedAt <= 0L) reject("deletedAt must be positive")
+    /** 结构校验的统一入口：codec、捕获、操作计划都复用这一份，不各写一套。 */
+    fun recordRejection(record: RepeatClosureRecord): String? {
+        if (record.groupId.isBlank()) return "groupId must not be blank"
+        if (record.operationId.isBlank()) return "operationId must not be blank"
+        if (record.deletedAt <= 0L) return "deletedAt must be positive"
         when (val expiry = RepeatClosureRecovery.expiresAtFor(record.deletedAt)) {
             is RecoveryExpiry.Ok -> if (record.expiresAt != expiry.expiresAt) {
-                reject("expiresAt disagrees with deletedAt")
+                return "expiresAt disagrees with deletedAt"
             }
-            RecoveryExpiry.InvalidDeletedAt, RecoveryExpiry.Overflow -> reject("invalid deletedAt")
+            RecoveryExpiry.InvalidDeletedAt, RecoveryExpiry.Overflow -> return "invalid deletedAt"
         }
-        if (record.template.templateId <= 0L) reject("templateId must be positive")
+        if (record.template.templateId <= 0L) return "templateId must be positive"
         if (record.template.preState.id != record.template.templateId ||
             record.template.postState.id != record.template.templateId
         ) {
-            reject("template identity conflict")
+            return "template identity conflict"
         }
         if (record.template.postState.trashedAt != record.deletedAt) {
-            reject("template trashedAt disagrees with deletedAt")
+            return "template trashedAt disagrees with deletedAt"
         }
         RepeatClosureRecovery.structureRejection(record.asClosure())?.let {
-            reject("closure structure is invalid: $it")
+            return "closure structure is invalid: $it"
         }
         when (record.status) {
             RecoveryGroupStatus.ACTIVE -> if (record.restoration != null) {
-                reject("ACTIVE group must not carry restoration results")
+                return "ACTIVE group must not carry restoration results"
             }
             RecoveryGroupStatus.RESTORED -> {
-                val restoration = record.restoration ?: reject("RESTORED group must carry restoration results")
-                if (restoration.restoredAt <= 0L) reject("restoration.restoredAt must be positive")
+                val restoration = record.restoration ?: return "RESTORED group must carry restoration results"
+                if (restoration.restoredAt <= 0L) return "restoration.restoredAt must be positive"
                 val memberIds = record.instances.map { it.itemId }
                 val resultIds = restoration.instances.map { it.itemId }
-                if (resultIds.size != resultIds.distinct().size) reject("duplicate itemId in restoration results")
+                if (resultIds.size != resultIds.distinct().size) return "duplicate itemId in restoration results"
                 if (resultIds.toSet() != memberIds.toSet()) {
-                    reject("restoration results must cover every member exactly once")
+                    return "restoration results must cover every member exactly once"
                 }
             }
+        }
+        return null
+    }
+
+    /** 供调用方在计划计算前断言「这个记录能合法往返」，不靠先编解码一次来掩盖数据变化。 */
+    fun assertRoundTrips(record: RepeatClosureRecord): String? {
+        recordRejection(record)?.let { return it }
+        return when (val decoded = decode(encode(record))) {
+            is RepeatClosureDecode.Invalid -> decoded.reason
+            is RepeatClosureDecode.Ok -> if (decoded.record == record) null else "round trip changed the record"
         }
     }
 

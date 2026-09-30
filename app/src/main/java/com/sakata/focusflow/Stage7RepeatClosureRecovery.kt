@@ -263,10 +263,10 @@ internal object RepeatClosureRecovery {
             }
             RecoveryExpiry.InvalidDeletedAt, RecoveryExpiry.Overflow -> return RecoveryRejection.INVALID_EXPIRY
         }
-        when (snapshotConsistency(template)) {
-            null -> Unit
-            SnapshotCheck.Unreadable -> return RecoveryRejection.SNAPSHOT_UNREADABLE
-            SnapshotCheck.Inconsistent -> return RecoveryRejection.SNAPSHOT_INCONSISTENT
+        when (RepeatClosureSnapshots.checkTemplateSnapshot(template)) {
+            RepeatClosureSnapshots.Check.Consistent -> Unit
+            RepeatClosureSnapshots.Check.Unreadable -> return RecoveryRejection.SNAPSHOT_UNREADABLE
+            RepeatClosureSnapshots.Check.Inconsistent -> return RecoveryRejection.SNAPSHOT_INCONSISTENT
         }
         val seen = mutableSetOf<Long>()
         closure.instances.forEach { member ->
@@ -329,26 +329,6 @@ internal object RepeatClosureRecovery {
             windowStartAt = null,
             windowEndAt = null,
         )
-    }
-
-    private enum class SnapshotCheck { Unreadable, Inconsistent }
-
-    /**
-     * 墓碑快照必须解码成**唯一**一条、与模板 `preState` 一致的删除前记录。
-     *
-     * 注意真实 `RepeatActions.stop` 会对实例调用 `preservingNote()`，把 `userNote == null`
-     * 物化为 `editableNote()`；因此「删除前记录」允许与 `preState` 相差这一处笔记物化，
-     * 不得因此误拒合法删除结果。
-     */
-    private fun snapshotConsistency(template: RecoveryTemplateMember): SnapshotCheck? {
-        val raw = template.postState.trashSnapshot ?: return SnapshotCheck.Unreadable
-        val decoded = runCatching { ItemsCodec.decode(raw).items.singleOrNull() }.getOrNull()
-            ?: return SnapshotCheck.Unreadable
-        if (decoded.id != template.templateId || decoded.trashedAt != null || decoded.kind == "回收站") {
-            return SnapshotCheck.Inconsistent
-        }
-        return if (decoded == template.preState || decoded == template.preState.preservingNote()) null
-        else SnapshotCheck.Inconsistent
     }
 
     /**
