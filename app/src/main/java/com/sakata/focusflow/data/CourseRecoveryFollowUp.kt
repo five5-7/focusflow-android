@@ -53,15 +53,11 @@ internal object BoundaryCourseRecoveryPreferenceWriter : CourseRecoveryPreferenc
         CourseReminders.setOverride(context, meetingId, enabled)
 
     /**
-     * Forward-only and idempotent: `markNotified` refuses to move a watermark backwards, so an equal
-     * or newer stored value already satisfies the snapshot and is not a failure.
+     * Confirm every write explicitly, including equal/newer values, under the delivery monitor.
+     * Reading SharedPreferences memory after a failed commit cannot prove disk durability.
      */
     override fun writeWatermark(context: Context, meetingId: Long, at: Long): Boolean {
-        if (StorageProtection.readOnly || meetingId <= 0 || at <= 0) return false
-        val stored = CourseRecoveryPreferences.watermark(context,meetingId)
-        if(stored is CourseRecoveryWatermarkRead.Corrupt) return false
-        return context.getSharedPreferences("course_reminder_settings",Context.MODE_PRIVATE).edit()
-            .putLong("delivered_$meetingId",maxOf(at,(stored as? CourseRecoveryWatermarkRead.Value)?.at ?: 0L)).commit()
+        return CourseReminders.confirmWatermark(context,meetingId,at)
     }
 
     override fun writeLocation(context: Context, meetingId: Long, epochDay: Long, place: String): Boolean =
@@ -82,6 +78,7 @@ internal object CourseRecoveryFollowUp {
     ): CourseRestoreCompletionOutcome = repository.withCourseWriteLock {
         // A failed commit may have changed only SharedPreferences' in-memory map. Replaying side
         // effects from that map could attach saved preferences to courses that never reached disk.
+        if(StorageProtection.readOnly || Stage7CommitGuard.uncertain) return@withCourseWriteLock CourseRestoreCompletionOutcome.WriteUncertain("storage is protected or a disk write is unconfirmed")
         CourseRecoveryWriteGuard.uncertainReason()?.let { reason ->
             return@withCourseWriteLock CourseRestoreCompletionOutcome.WriteUncertain(
                 "a previous course recovery commit is unverified ($reason)"

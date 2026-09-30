@@ -151,7 +151,7 @@ class RoomCoreDataWriteRepository(
         require(updated.activitySessions == current.activitySessions) { "recovery cannot change activity sessions" }
         Stage7RecordsCodec.verify(updated.operationRecords)
         validate(updated.items, updated.taskEvents, updated.goals)?.let { return@transact invalidInput(it) }
-        val ordinary = TrashJournal.update(current.items, updated.items, current.trashGroups)
+        val ordinary = Stage7TrashTransitions.groups(current, updated)
         store.replaceTasks(updated.items.toTaskEntities())
         store.replaceTaskEvents(updated.taskEvents.toTaskEventEntities())
         store.replacePlans(updated.goals.toPlanEntities())

@@ -1128,7 +1128,8 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
     fun refreshRecoveryState(result:CoreDataWriteResult):Boolean {
         val previousItems=items
         val previousCourses=courses
-        val snapshot=readCoreData()
+        val snapshot=(coreDataRepository.read() as? CoreDataReadResult.Ready)?.snapshot
+        if(snapshot==null) { scope.launch { snackbarHostState.showSnackbar("数据无法完整读取，已停止恢复操作，请保留原数据。") };return false }
         items=snapshot.items; taskEvents=snapshot.taskEvents; goals=snapshot.goals
         courseReminderSettings=CourseReminders.load(context)
         if(snapshot.courses!=previousCourses) applyCourseState(previousCourses,snapshot.courses)
@@ -1894,7 +1895,7 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                     onIgnoreCourse = { targets -> pendingIgnoreCourses=targets },
                     onAddCourse = { addCourseOpen = true },
                     onClearAwaitingCourses = {
-                        deleteCoursesWithRecovery(courses.filterTo(mutableSetOf()) { it.needsConfirmation })
+                        pendingIgnoreCourses=courses.filterTo(mutableSetOf()) { it.needsConfirmation }
                     },
                     courseImportRunning = courseImportRunning,
                     courseImportMessage = courseImportMessage,

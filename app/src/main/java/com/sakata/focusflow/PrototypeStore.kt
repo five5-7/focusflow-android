@@ -365,7 +365,7 @@ class PrototypeStore(context: Context) {
             if (current != expected) return@synchronized com.sakata.focusflow.data.CoreDataWriteResult(com.sakata.focusflow.data.CoreDataWriteStatus.CONDITION_NOT_MET, "recovery snapshot changed")
             require(updated.activitySessions == current.activitySessions)
             com.sakata.focusflow.data.Stage7RecordsCodec.verify(updated.operationRecords)
-            val groups = com.sakata.focusflow.data.TrashJournal.update(current.items, updated.items, current.trashGroups)
+            val groups = com.sakata.focusflow.data.Stage7TrashTransitions.groups(current, updated)
             require(updated.items.map { it.id }.distinct().size == updated.items.size && updated.items.all { it.id > 0 })
             require(updated.goals.map { it.id }.distinct().size == updated.goals.size && updated.goals.all { it.id > 0 })
             updated.courses.toCourseParentEntities()

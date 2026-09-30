@@ -776,7 +776,12 @@ internal object CourseRecoveryOperations {
         )
         // The store re-enters its own (reentrant) lock and keeps its snapshot guard as the storage
         // boundary protection.
-        repository.courseRecoveryStore.deleteCoursesWithRecoveryGroup(snapshot.courses, request)
+        val outcome=repository.courseRecoveryStore.deleteCoursesWithRecoveryGroup(snapshot.courses, request)
+        if(outcome is CourseDeletionOutcome.Applied || outcome is CourseDeletionOutcome.AlreadyApplied) requestedIds.forEach { id ->
+            com.sakata.focusflow.CourseReminders.cancel(context,id)
+            context.getSystemService(android.app.NotificationManager::class.java)?.cancel("course:$id",0)
+        }
+        outcome
     }
 
     fun restoreGroup(

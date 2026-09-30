@@ -78,7 +78,7 @@ internal object CourseReminders {
     }
 
     /** One preference commit for the merged meeting's override and delivery watermark. */
-    fun applyMerge(context: Context, survivorId: Long, deletedIds: List<Long>, enabled: Boolean?): Boolean {
+    @Synchronized fun applyMerge(context: Context, survivorId: Long, deletedIds: List<Long>, enabled: Boolean?): Boolean {
         val prefs = context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
         val watermark = (listOf(survivorId) + deletedIds).maxOf { id ->
             runCatching { prefs.getLong(DELIVERED_PREFIX + id, -1L) }.getOrDefault(-1L)
@@ -102,6 +102,17 @@ internal object CourseReminders {
         return edit.commit()
     }
 
+    internal fun <T> withDeliveryLock(block:()->T):T = synchronized(this) { block() }
+
+    /** Explicit confirmation, including equal/newer values; never infer disk success from a read. */
+    @Synchronized fun confirmWatermark(context:Context,id:Long,at:Long):Boolean {
+        if(StorageProtection.readOnly || id<=0 || at<=0) return false
+        val prefs=context.getSharedPreferences(FILE,Context.MODE_PRIVATE)
+        val current=prefs.all[DELIVERED_PREFIX+id]
+        if(current!=null && (current !is Long || current<=0)) return false
+        return prefs.edit().putLong(DELIVERED_PREFIX+id,maxOf(at,current as? Long ?: 0L)).commit()
+    }
+
     @Synchronized fun markNotified(context: Context, id: Long, expectedAt: Long): Boolean {
         if (id <= 0 || expectedAt <= 0) return false
         val prefs = context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
@@ -123,6 +134,9 @@ internal object CourseReminders {
     fun sync(context: Context, old: List<Course>, current: List<Course>, table: CoursePeriodTable,
              settings: CourseReminderSettings = load(context)) {
         (old.map { it.id } + current.map { it.id }).distinct().forEach { cancel(context, it) }
+        old.filter { previous -> current.none { it.id==previous.id && it==previous } }.forEach {
+            context.getSystemService(android.app.NotificationManager::class.java)?.cancel("course:${it.id}",0)
+        }
         // The reference table is a planning placeholder, not a verified bell schedule.
         if (!PrototypeStore(context).hasCoursePeriodTable()) return
         val now = System.currentTimeMillis()
@@ -151,6 +165,12 @@ internal object CourseReminders {
     fun currentOccurrence(context: Context, id: Long, expectedAt: Long): Pair<Course, Long>? {
         val runtime = CoreDataRuntimeAccess.resolve(context) as? CoreDataRuntimeResolution.Ready ?: return null
         val snapshot = (runtime.repository.read() as? CoreDataReadResult.Ready)?.snapshot ?: return null
+        if(com.sakata.focusflow.data.Stage7CommitGuard.uncertain || com.sakata.focusflow.data.CourseRecoveryWriteGuard.uncertainReason()!=null) return null
+        if(snapshot.operationRecords.any { r -> r.state=="restoring" && when(r.kind) {
+            "course_recovery" -> ((com.sakata.focusflow.data.CourseRecoveryCodec.decode(r.payload) as com.sakata.focusflow.data.CourseRecoveryLoad.Ready).groups.single().members.any { it.id==id })
+            "course_merge_inverse","course_split_inverse" -> com.sakata.focusflow.data.InverseOperation.decode(r.payload).let { (it.beforeCourses+it.afterCourses).any { it.id==id } }
+            else -> false
+        } }) return null
         val course = snapshot.courses.singleOrNull { it.id == id } ?: return null
         if (!load(context).enabledFor(course)) return null
         val store = PrototypeStore(context)

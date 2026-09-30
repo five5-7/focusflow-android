@@ -108,6 +108,7 @@ internal object Stage7Inverse {
         before.copy(courses=updated,operationRecords=before.operationRecords+c.record())
     }
     fun undo(context: Context,repo:CoreDataRepository,id:String,now:Long=System.currentTimeMillis()): CoreDataWriteResult = repo.withCourseWriteLock {
+        if(now<=0) return@withCourseWriteLock CoreDataWriteResult(CoreDataWriteStatus.INVALID_INPUT,"invalid undo time")
         var courseUndo=false
         val result=Stage7Recovery.execute(repo) { before ->
             val r=before.operationRecords.single { it.operationId==id }; val c=InverseOperation.decode(r.payload)
@@ -134,7 +135,7 @@ internal object Stage7Inverse {
         if(result.applied && courseUndo) resume(context,repo,id,now) else result
     }
     fun resume(context:Context,repo:CoreDataRepository,id:String,now:Long=System.currentTimeMillis()):CoreDataWriteResult = repo.withCourseWriteLock {
-        if(StorageProtection.readOnly || Stage7CommitGuard.uncertain) return@withCourseWriteLock CoreDataWriteResult(CoreDataWriteStatus.WRITE_FAILED,"previous disk write unconfirmed")
+        if(StorageProtection.readOnly || Stage7CommitGuard.uncertain || CourseRecoveryWriteGuard.uncertainReason()!=null) return@withCourseWriteLock CoreDataWriteResult(CoreDataWriteStatus.WRITE_FAILED,"previous disk write unconfirmed")
         try {
             val before=(repo.read() as CoreDataReadResult.Ready).snapshot
             val c=InverseOperation.decode(before.operationRecords.single { it.operationId==id }.payload)
@@ -145,6 +146,7 @@ internal object Stage7Inverse {
             val actual=CoursePreferenceSnapshot.capture(context,union)
             require(actual.overrides==target.overrides || actual.overrides==c.afterPreferences!!.overrides) { "reminder preferences changed during undo" }
             require(actual.locations==target.locations || actual.locations==c.afterPreferences!!.locations) { "locations changed during undo" }
+            CourseReminders.withDeliveryLock {
             val rem=context.getSharedPreferences("course_reminder_settings",Context.MODE_PRIVATE)
             val edit=rem.edit()
             union.forEach { meeting ->
@@ -155,6 +157,7 @@ internal object Stage7Inverse {
                 if(at>0) edit.putLong("delivered_$meeting",at)
             }
             if(!edit.commit()) { Stage7CommitGuard.markUncertain(); error("reminder preference write unconfirmed") }
+            }
             val loc=context.getSharedPreferences("course_location_overrides",Context.MODE_PRIVATE)
             val placeEdit=loc.edit()
             // Use the existing boundary's exact key format, and touch only recorded meeting ids.

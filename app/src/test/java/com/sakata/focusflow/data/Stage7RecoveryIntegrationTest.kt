@@ -213,4 +213,80 @@ class Stage7RecoveryIntegrationTest {
         val valid=Stage7RecordsCodec.encode(listOf(c.record()));assertEquals(listOf(c.record()),Stage7RecordsCodec.decode(valid))
         listOf(valid+" true",valid.replace("\"version\":1","\"version\":1.5"),valid.replace("\"version\":1,",""),"[${valid.drop(1).dropLast(1)},${valid.drop(1).dropLast(1)}]").forEach {raw->assertTrue(runCatching { Stage7RecordsCodec.decode(raw) }.isFailure)}
     }
+    @Test fun `Room operation insertion failure rolls back data events groups and recovery payload together`() {
+        seed(listOf(task().copy(goalId=71)),listOf(goal()))
+        val r=room();val before=snapshot(r)
+        databases.last().openHelper.writableDatabase.execSQL("CREATE TRIGGER reject_recovery BEFORE INSERT ON operation_records BEGIN SELECT RAISE(ABORT, 'injected record failure'); END")
+        assertFalse(Stage7Recovery.deletePlan(r,before.goals.single(),setOf(11),now).applied)
+        assertEquals(before,snapshot(r))
+        assertTrue(databases.last().operationRecordDao().all().isEmpty())
+        assertTrue(databases.last().trashGroupDao().all().isEmpty())
+    }
+    @Test fun `file Room database reopen retains complete inverse and supports later undo`() {
+        seed(listOf(task(11),task(12)))
+        val name="stage7-recovery-reopen.db";context.deleteDatabase(name)
+        fun open()=Room.databaseBuilder(context,FocusFlowDatabase::class.java,name).allowMainThreadQueries().build().also {databases+=it}
+        fun repository(db:FocusFlowDatabase)=RoomCoreDataRepository(RoomCoreDataReadRepository(DatabaseRoomCoreDataSource(db)),RoomCoreDataWriteRepository(DatabaseRoomCoreDataWriteStore(db)))
+        try {
+            val db=open()
+            val report=LegacyDataImporter(LegacyPreferencesReader.fromContext(context),RoomLegacyMigrationStore(db),SharedPreferencesMigrationMarker(context)).importIfNeeded()
+            assertEquals(MigrationStatus.IMPORTED,report.status)
+            val r=repository(db);val before=snapshot(r)
+            val (written,id)=Stage7Inverse.applyTaskBatch(r,TodoBatchActions.apply(before.items,setOf(11,12),TodoBatchAction.COMPLETE,now),now)
+            assertTrue(written.applied);val after=snapshot(r);db.close()
+            val reopened=repository(open());assertEquals(after,snapshot(reopened))
+            assertTrue(Stage7Inverse.undo(context,reopened,id!!,now+1).applied);assertEquals(before.items,snapshot(reopened).items)
+        } finally {databases.filter {it.isOpen}.forEach {it.close()};context.deleteDatabase(name)}
+    }
+    @Test fun `pending inverse resumes after expiry and cannot be cleared or have unrelated preferences overwritten`() = both({seed(courses=listOf(course(),course(42,201,300)))}) {r->
+        val original=snapshot(r).courses
+        assertTrue(CourseLocationOverrides.set(context,42,250,"原地点"))
+        val plan=CourseMergeOperation.preview(context,original,42) as CourseEditPlans.CourseMergePlan.Applied
+        assertEquals(CourseMergeOperation.Outcome.APPLIED,CourseMergeOperation.apply(context,r,original,setOf(41,42),42,plan))
+        val merged=snapshot(r);val record=merged.operationRecords.single();val c=InverseOperation.decode(record.payload)
+        // Persist the same core checkpoint that an interrupted inverse has, without replaying prefs.
+        assertTrue(r.commitRecovery(merged,merged.copy(courses=original,operationRecords=listOf(c.copy(state="restoring").record()))).applied)
+        val checkpoint=snapshot(r)
+        assertFalse(Stage7Recovery.purge(r,setOf(record.operationId),c.expiresAt+1).applied)
+        assertEquals(checkpoint,snapshot(r))
+        assertTrue(CourseLocationOverrides.set(context,41,150,"用户在续办前新增"))
+        assertFalse(Stage7Inverse.resume(context,r,record.operationId,c.expiresAt+1).applied)
+        assertEquals(checkpoint,snapshot(r));assertEquals("用户在续办前新增",CourseLocationOverrides.get(context,41,150))
+        assertTrue(CourseLocationOverrides.set(context,41,150,null))
+        assertTrue(Stage7Inverse.resume(context,r,record.operationId,c.expiresAt+1).applied)
+        assertEquals("restored",snapshot(r).operationRecords.single().state)
+        assertEquals("原地点",CourseLocationOverrides.get(context,42,250))
+    }
+    @Test fun `manual purge refuses a course group whose preferences still need follow-up`() = both({seed(courses=listOf(course()))}) {r->
+        val d=CourseRecoveryOperations.deleteCourses(context,r,CourseRecoveryScope.MEETING,setOf(41),"pending",now) as CourseDeletionOutcome.Applied
+        assertTrue(CourseRecoveryOperations.restoreGroup(r,d.group.groupId,now+1) is CourseRestoreOutcome.CoreCommitted)
+        assertTrue(r.courseRecoveryStore.purgeSelectedGroups(setOf(d.group.groupId)) is CoursePurgeOutcome.Rejected)
+        assertEquals(CourseRecoveryState.RESTORING,(CourseRecoveryOperations.readGroups(r) as CourseRecoveryGroupsRead.Ready).groups.single().state)
+    }
+    @Test fun `shadow check detects changed recovery payload and imported course groups`() {
+        seed(courses=listOf(course()))
+        val d=CourseRecoveryOperations.deleteCourses(context,legacy(),CourseRecoveryScope.MEETING,setOf(41),"shadow",now) as CourseDeletionOutcome.Applied
+        val before=snapshot(legacy());val r=room()
+        assertEquals(CoreDataConsistencyStatus.CONSISTENT,CoreDataConsistencyChecker.compare(before,r.read()).status)
+        assertTrue(CourseRecoveryOperations.restoreGroup(r,d.group.groupId,now+1) is CourseRestoreOutcome.CoreCommitted)
+        val differences=CoreDataConsistencyChecker.compare(before,r.read()).differences
+        assertTrue(differences.any {it.domain=="operation_records"})
+    }
+
+    @Test fun `clearing active plan closure removes only its tombstones and reconciles ordinary trash groups`() = both({seed(listOf(task().copy(goalId=71),task(12)),listOf(goal()))}) {r->
+        val original=snapshot(r);assertTrue(Stage7Recovery.deletePlan(r,original.goals.single(),setOf(11),now).applied)
+        val deleted=snapshot(r);assertEquals(1,deleted.trashGroups.size)
+        assertTrue(Stage7Recovery.purge(r,setOf(deleted.operationRecords.single().operationId),now+1).applied)
+        val cleared=snapshot(r);assertTrue(cleared.operationRecords.isEmpty());assertTrue(cleared.trashGroups.isEmpty())
+        assertEquals(listOf(original.items.single {it.id==12L}),cleared.items);assertEquals(deleted.taskEvents,cleared.taskEvents)
+    }
+    @Test fun `watermark confirmation writes equal and newer values without moving backwards or coercing corruption`() {
+        assertTrue(CourseReminders.markNotified(context,41,10000))
+        assertTrue(CourseReminders.confirmWatermark(context,41,9000))
+        assertFalse(CourseReminders.markNotified(context,41,10000))
+        val prefs=context.getSharedPreferences("course_reminder_settings",Context.MODE_PRIVATE)
+        assertTrue(prefs.edit().putString("delivered_42","10000").commit())
+        assertFalse(CourseReminders.confirmWatermark(context,42,20000));assertEquals("10000",prefs.getString("delivered_42",null))
+    }
+
 }

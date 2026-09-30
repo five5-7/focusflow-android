@@ -15,6 +15,7 @@ import com.sakata.focusflow.data.CoreDataReadResult
 import com.sakata.focusflow.data.CoreDataRepositoryOperations
 import com.sakata.focusflow.data.CoreDataRuntimeAccess
 import com.sakata.focusflow.data.CoreDataRuntimeResolution
+import com.sakata.focusflow.data.withCourseWriteLock
 import java.util.Calendar
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -55,6 +56,8 @@ class ReminderReceiver : BroadcastReceiver() {
                     CourseReminders.restore(context)
                     return
                 }
+                val runtime=CoreDataRuntimeAccess.resolve(context) as? CoreDataRuntimeResolution.Ready ?: return
+                runtime.repository.withCourseWriteLock {
                 val occurrence = CourseReminders.currentOccurrence(context, id, expectedAt)
                 // A delivered weekly alarm is restored for its next occurrence even when notifications are muted.
                 CourseReminders.restore(context)
@@ -62,7 +65,7 @@ class ReminderReceiver : BroadcastReceiver() {
                     (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU &&
                         context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) ||
                     store.loadQuietHoursSettings().isMuted() ||
-                    !CourseReminders.markNotified(context, id, expectedAt)) return
+                    !CourseReminders.markNotified(context, id, expectedAt)) return@withCourseWriteLock
                 val (course, start) = occurrence
                 ensureChannel(manager, CHANNEL_COURSE, "课程提醒")
                 val open = PendingIntent.getActivity(context, 0, Intent(context, MainActivity::class.java),
@@ -77,6 +80,7 @@ class ReminderReceiver : BroadcastReceiver() {
                     .setContentTitle(course.title)
                     .setContentText("${time.toString().take(5)} 开始 · $place")
                     .setContentIntent(open).setAutoCancel(true).build())
+                }
                 return
             }
             ACTION_REPEAT_REFRESH -> {

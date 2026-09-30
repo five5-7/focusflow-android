@@ -53,6 +53,19 @@ internal object Stage7RecordsCodec {
     }
 }
 
+internal object Stage7TrashTransitions {
+    fun groups(before:CoreDataSnapshot,updated:CoreDataSnapshot):List<TrashGroupRecord> {
+        val missing=before.items.mapTo(mutableSetOf()) { it.id }-updated.items.mapTo(mutableSetOf()) { it.id }
+        val intermediate=before.items.filterNot { it.id in missing }
+        val purged=TrashJournal.purge(before.items,intermediate,before.trashGroups,missing)
+        val derived=TrashJournal.update(intermediate,updated.items,purged)
+        val requested=updated.trashGroups.mapTo(mutableSetOf()) { it.groupId }
+        val explicitlyRemoved=before.trashGroups.filter { it.groupId !in requested }
+        require(explicitlyRemoved.all { it.state=="restored" }) { "active trash group cannot be discarded" }
+        return derived.filterNot { group -> explicitlyRemoved.any { it.groupId==group.groupId } }
+    }
+}
+
 internal object Stage7CommitGuard {
     @Volatile var uncertain = false; private set
     fun markUncertain() { uncertain = true }
@@ -140,6 +153,7 @@ internal object Stage7Recovery {
         before.copy(items=deleted.items,taskEvents=deleted.events.fold(before.taskEvents,TaskHistory::append),goals=before.goals.filterNot { it.id == goal.id }, operationRecords=before.operationRecords+c.record())
     }
     fun restore(repo: CoreDataRepository, id: String, now: Long = System.currentTimeMillis()): CoreDataWriteResult = execute(repo) { before ->
+        require(now>0) { "invalid recovery time" }
         val r = before.operationRecords.single { it.operationId == id }
         require(r.state == "active") { "already restored or follow-up pending" }
         when(r.kind) {
@@ -166,6 +180,7 @@ internal object Stage7Recovery {
         }
     }
     fun purge(repo: CoreDataRepository, ids: Set<String>? = null, now: Long = System.currentTimeMillis()): CoreDataWriteResult = execute(repo) { before ->
+        require(now>0) { "invalid purge time" }
         val selected = before.operationRecords.filter { r ->
             if (ids != null) r.operationId in ids && r.kind != "course_recovery" && r.state !in setOf("restoring","purging") else when(r.kind) {
                 "repeat_rule_closure" -> (RepeatClosureCodec.decode(r.payload) as RepeatClosureDecode.Ok).record.expiresAt <= now
@@ -174,6 +189,7 @@ internal object Stage7Recovery {
                 else -> false
             }
         }
+        if(ids!=null) require(selected.size==ids.size) { "recovery record is missing or follow-up is pending" }
         val removed = selected.mapTo(mutableSetOf()) { it.operationId }
         val planTombstones = selected.filter { it.kind=="plan_binding_closure" && it.state=="active" }.flatMap { PlanBindingClosure.decode(it.payload).afterItems }.filter { post -> before.items.singleOrNull { it.id==post.id } == post }.mapTo(mutableSetOf()) { it.id }
         val tombstones = selected.filter { it.kind=="repeat_rule_closure" && it.state=="active" }.mapNotNull {
@@ -181,6 +197,7 @@ internal object Stage7Recovery {
             c.template.templateId.takeIf { id -> before.items.singleOrNull { it.id==id } == c.template.postState }
         }.toSet() + planTombstones
         // Active conflicts lose only the recovery payload; modified objects and history survive.
-        before.copy(items=before.items.filterNot { it.id in tombstones },operationRecords=before.operationRecords.filterNot { it.operationId in removed })
+        before.copy(items=before.items.filterNot { it.id in tombstones },operationRecords=before.operationRecords.filterNot { it.operationId in removed },
+            trashGroups=before.trashGroups.filterNot { it.state=="restored" && now>=it.expiresAt })
     }
 }
