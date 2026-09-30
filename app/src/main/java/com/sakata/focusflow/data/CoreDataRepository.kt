@@ -96,7 +96,7 @@ internal interface LegacyCoreDataPersistence {
 
 private class PrototypeStoreCoreDataPersistence(
     private val store: PrototypeStore
-) : LegacyCoreDataPersistence {
+) : LegacyCoreDataPersistence, CourseRecoveryStorage {
     override fun read(): CoreDataSnapshot =
         (LegacyCoreDataReadRepository(store).read() as CoreDataReadResult.Ready).snapshot
 
@@ -159,6 +159,30 @@ private class PrototypeStoreCoreDataPersistence(
     override fun purgeTrash(purgedIds: Set<Long>): Boolean = store.purgeTrash(purgedIds)
 
     override fun purgeExpiredTrash(now: Long): Boolean = store.purgeExpiredTrash(now)
+
+    // ------------------------------------------------------------ stage 7.5 course recovery
+
+    override fun isStorageReadOnly(): Boolean = store.isStorageReadOnly()
+
+    override fun <T> withCourseWriteLock(block: () -> T): T = store.withCourseWriteLock(block)
+
+    override fun readCourses(): List<Course> = store.readCourses()
+
+    override fun loadCourseRecoveryGroups(): CourseRecoveryGroupsRead = store.loadCourseRecoveryGroups()
+
+    override fun hasPendingCourseEditJournal(): Boolean = store.hasPendingCourseEditJournal()
+
+    override fun commitCoursesAndRecoveryGroups(
+        courses: List<Course>,
+        groups: List<CourseRecoveryGroup>,
+        expectedCourses: List<Course>,
+        expectedGroups: List<CourseRecoveryGroup>
+    ): Boolean = store.commitCoursesAndRecoveryGroups(courses, groups, expectedCourses, expectedGroups)
+
+    override fun commitCourseRecoveryGroups(
+        groups: List<CourseRecoveryGroup>,
+        expectedGroups: List<CourseRecoveryGroup>
+    ): Boolean = store.commitCourseRecoveryGroups(groups, expectedGroups)
 }
 
 /** Legacy adapter that preserves the existing optimistic-concurrency and atomic commit rules. */
@@ -168,6 +192,15 @@ class LegacyCoreDataRepository internal constructor(
     constructor(store: PrototypeStore) : this(PrototypeStoreCoreDataPersistence(store))
 
     override val source: CoreDataRuntimeSource = CoreDataRuntimeSource.LEGACY
+
+    /**
+     * Stage 7.5: the recovery store shares this adapter's persistence primitives (same lock, same
+     * commit). A persistence that does not implement [CourseRecoveryStorage] reports "not ready"
+     * instead of silently falling back to the in-memory path.
+     */
+    internal val recoveryStore: CourseRecoveryStore =
+        (persistence as? CourseRecoveryStorage)?.let(::LegacyCourseRecoveryStore)
+            ?: UnsupportedCourseRecoveryStore
 
     override fun read(): CoreDataReadResult = try {
         CoreDataReadResult.Ready(persistence.read())
