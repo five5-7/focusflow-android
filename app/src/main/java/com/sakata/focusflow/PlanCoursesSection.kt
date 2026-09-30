@@ -43,7 +43,9 @@ internal fun PlanCoursesSection(
     reminderSettings: CourseReminderSettings,
     reminderPeriodTable: CoursePeriodTable,
     onReminderGlobalChange: (Boolean) -> Unit,
-    onReminderOverrideChange: (Course, Boolean?) -> Unit
+    onReminderOverrideChange: (Course, Boolean?) -> Unit,
+    restorableCourseCount: Int,
+    onRestoreCourses: () -> Unit
 ) {
     val periodConfigured = PrototypeStore(LocalContext.current).hasCoursePeriodTable()
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -103,7 +105,8 @@ FocusCard(
     HorizontalDivider()
     ConfirmedCourses(confirmedCourses, onEditCourse, onToggleCourse, onDeleteCourses, onMergeCourses,
         onLinkCourses, onSeparateCourse, onRenameCourse,
-        reminderSettings, reminderPeriodTable, periodConfigured, onReminderOverrideChange)
+        reminderSettings, reminderPeriodTable, periodConfigured, onReminderOverrideChange,
+        restorableCourseCount, onRestoreCourses)
 }
 
 @Composable
@@ -216,7 +219,8 @@ private fun ConfirmedCourses(confirmed: List<Course>, onEdit: (Course) -> Unit, 
     onRename: (Long, String) -> Boolean,
     reminderSettings: CourseReminderSettings,
     reminderPeriodTable: CoursePeriodTable, periodConfigured: Boolean,
-    onReminderOverrideChange: (Course, Boolean?) -> Unit) {
+    onReminderOverrideChange: (Course, Boolean?) -> Unit,
+    restorableCourseCount: Int, onRestoreCourses: () -> Unit) {
     val context = LocalContext.current
     var selecting by remember { mutableStateOf(false) }
     var selected by remember { mutableStateOf(emptySet<Course>()) }
@@ -229,10 +233,15 @@ private fun ConfirmedCourses(confirmed: List<Course>, onEdit: (Course) -> Unit, 
     var mergeError by remember { mutableStateOf<String?>(null) }
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
         Text("已确认课程", fontWeight = FontWeight.Bold)
-        if (confirmed.isNotEmpty()) TextButton(onClick = {
-            selecting = !selecting
-            if (!selecting) selected = emptySet()
-        }) { Text(if (selecting) "完成" else "批量管理") }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (restorableCourseCount > 0) {
+                TextButton(onClick = onRestoreCourses) { Text("恢复删除（$restorableCourseCount）") }
+            }
+            if (confirmed.isNotEmpty()) TextButton(onClick = {
+                selecting = !selecting
+                if (!selecting) selected = emptySet()
+            }) { Text(if (selecting) "完成" else "批量管理") }
+        }
     }
     if (confirmed.isEmpty()) {
         Text("确认课程后，它们会用于周日程和空挡计算。", style = MaterialTheme.typography.bodySmall)

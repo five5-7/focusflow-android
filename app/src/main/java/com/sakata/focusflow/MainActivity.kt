@@ -47,6 +47,12 @@ import com.sakata.focusflow.data.CoreDataRepositoryOperations
 import com.sakata.focusflow.data.CoreDataRuntimeAccess
 import com.sakata.focusflow.data.CoreDataRuntimeResolution
 import com.sakata.focusflow.data.CoreDataRuntimeSource
+import com.sakata.focusflow.data.CourseDeletionOutcome
+import com.sakata.focusflow.data.CourseRecoveryOperations
+import com.sakata.focusflow.data.CourseRecoveryRestoreCandidate
+import com.sakata.focusflow.data.CourseRecoveryScope
+import com.sakata.focusflow.data.CourseRecoveryState
+import com.sakata.focusflow.data.CourseRestoreCompletionOutcome
 import com.sakata.focusflow.data.TrashJournal
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -440,20 +446,119 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
     var courseImportMessage by remember { mutableStateOf<String?>(
         if (mergeRecoveryReady) null else "课程编辑的覆盖设置尚未恢复；请保留数据并重启重试，课程提醒暂不重排。"
     ) }
+    fun applyCourseState(previous: List<Course>, updated: List<Course>): Boolean {
+        CourseReminders.sync(context, previous, updated, coursePeriodTable, courseReminderSettings)
+        courses = updated
+        if (items.any { it.kind == "重复模板" && it.repeatFrequency == "class_day" }) {
+            RepeatActions.refreshRepository(context)
+            items = readCoreData().items
+        }
+        return true
+    }
     fun persistCourses(updated: List<Course>): Boolean {
         val result = coreDataRepository.replaceCourses(updated, courses)
-        if (result.applied) {
-            CourseReminders.sync(context, courses, updated, coursePeriodTable, courseReminderSettings)
-            courses = updated
-            if (items.any { it.kind == "重复模板" && it.repeatFrequency == "class_day" }) {
-                RepeatActions.refreshRepository(context)
-                items = readCoreData().items
-            }
-            return true
-        }
+        if (result.applied) return applyCourseState(courses, updated)
         courseImportMessage = "课程保存失败（${result.status}），原数据已保留；请返回后重试。"
         scope.launch { snackbarHostState.showSnackbar(courseImportMessage.orEmpty()) }
         return false
+    }
+    var restorableCourses by remember { mutableStateOf<CourseRecoveryRestoreCandidate?>(null) }
+    fun refreshRestorableCourses() {
+        restorableCourses = CourseRecoveryOperations.latestRestorableGroup(coreDataRepository)
+    }
+    fun reportCourseRecovery(message: String) {
+        courseImportMessage = message
+        scope.launch { snackbarHostState.showSnackbar(message) }
+    }
+    /** Production delete entry: the group and the course removal commit together; state follows after. */
+    fun deleteCoursesWithRecovery(targets: Set<Course>): Boolean {
+        if (targets.isEmpty()) return true
+        val ids = targets.mapTo(mutableSetOf()) { it.id }
+        val recoveryScope = if (ids.size == 1) CourseRecoveryScope.MEETING else CourseRecoveryScope.BATCH
+        val before = courses
+        return when (val outcome = CourseRecoveryOperations.deleteCourses(
+            context, coreDataRepository, recoveryScope, ids, "course-delete-${System.currentTimeMillis()}"
+        )) {
+            is CourseDeletionOutcome.Applied, is CourseDeletionOutcome.AlreadyApplied -> {
+                applyCourseState(before, before.filterNot { it.id in ids })
+                refreshRestorableCourses()
+                if (outcome is CourseDeletionOutcome.Applied) {
+                    reportCourseRecovery("已删除 ${ids.size} 个课次；可在“已确认课程”里恢复。")
+                }
+                true
+            }
+            is CourseDeletionOutcome.Rejected -> {
+                reportCourseRecovery("课程删除未执行（${outcome.status}）：${outcome.reason}")
+                false
+            }
+            is CourseDeletionOutcome.WriteUncertain -> {
+                reportCourseRecovery("课程删除的落盘结果未确认：${outcome.reason}；请勿重复删除，重启应用后再确认。")
+                false
+            }
+            is CourseDeletionOutcome.NotReady -> {
+                reportCourseRecovery("课程删除不可用：${outcome.reason}")
+                false
+            }
+        }
+    }
+    /** Production restore entry: core courses first, then the follow-up, then the terminal state. */
+    fun restoreCoursesWithRecovery(): Boolean {
+        val candidate = restorableCourses ?: return false
+        val before = courses
+        return when (val outcome = CourseRecoveryOperations.restoreAndComplete(
+            context, coreDataRepository, candidate.groupId
+        )) {
+            is CourseRestoreCompletionOutcome.Completed -> {
+                courseReminderSettings = CourseReminders.load(context)
+                applyCourseState(before, readCoreData().courses)
+                refreshRestorableCourses()
+                reportCourseRecovery("已恢复 ${candidate.meetingCount} 个课次。")
+                true
+            }
+            is CourseRestoreCompletionOutcome.CoreCommittedFollowUpPending -> {
+                courseReminderSettings = CourseReminders.load(context)
+                applyCourseState(before, readCoreData().courses)
+                refreshRestorableCourses()
+                reportCourseRecovery("课程已恢复，但提醒/地点回填尚未确认：${outcome.reason}。下次进入会继续。")
+                true
+            }
+            is CourseRestoreCompletionOutcome.Rejected -> {
+                refreshRestorableCourses()
+                reportCourseRecovery("恢复未执行（${outcome.status}）：${outcome.reason}")
+                false
+            }
+            is CourseRestoreCompletionOutcome.WriteUncertain -> {
+                refreshRestorableCourses()
+                reportCourseRecovery("恢复的落盘结果未确认：${outcome.reason}")
+                false
+            }
+            is CourseRestoreCompletionOutcome.NotReady -> {
+                reportCourseRecovery("恢复不可用：${outcome.reason}")
+                false
+            }
+        }
+    }
+    LaunchedEffect(Unit) {
+        refreshRestorableCourses()
+        // A previous session may have stopped between the core restore and its follow-up; replaying
+        // the idempotent follow-up is the resume path. An ACTIVE group is never restored here.
+        val pending = restorableCourses?.takeIf { it.state == CourseRecoveryState.RESTORING }
+            ?: return@LaunchedEffect
+        val before = courses
+        when (val outcome = CourseRecoveryOperations.restoreAndComplete(context, coreDataRepository, pending.groupId)) {
+            is CourseRestoreCompletionOutcome.Completed -> {
+                courseReminderSettings = CourseReminders.load(context)
+                applyCourseState(before, readCoreData().courses)
+                refreshRestorableCourses()
+            }
+            is CourseRestoreCompletionOutcome.CoreCommittedFollowUpPending -> {
+                courseReminderSettings = CourseReminders.load(context)
+                applyCourseState(before, readCoreData().courses)
+                refreshRestorableCourses()
+                reportCourseRecovery("有课次的提醒/地点回填仍未确认：${outcome.reason}。下次进入会继续。")
+            }
+            else -> refreshRestorableCourses()
+        }
     }
     var autoPlanMessage by remember { mutableStateOf<String?>(null) }
     var goals by remember { mutableStateOf(startup.goals) }
@@ -1750,7 +1855,7 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                         persistCourses(courses.map { if (it.id == course.id) it.copy(enabled = !it.enabled) else it })
                     },
                     onDeleteCourses = { targets ->
-                        persistCourses(removeCoursesById(courses, targets))
+                        deleteCoursesWithRecovery(targets)
                     },
                     onMergeCourses = { ids, preferred, plan ->
                         val before = courses
@@ -1826,6 +1931,8 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                             CourseReminders.sync(context, courses, courses, coursePeriodTable, courseReminderSettings)
                         }
                     },
+                    restorableCourseCount = restorableCourses?.meetingCount ?: 0,
+                    onRestoreCourses = { restoreCoursesWithRecovery() },
                     goals = goals,
                     onAddGoal = { goalFinderSuggestion = ""; addGoalOpen = true },
                     onEditGoal = { goal -> goalFinderSuggestion = ""; editGoalTarget = goal },
