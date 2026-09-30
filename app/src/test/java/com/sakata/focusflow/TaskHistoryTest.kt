@@ -1,6 +1,7 @@
 package com.sakata.focusflow
 
 import java.util.Calendar
+import java.util.TimeZone
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -83,6 +84,19 @@ class TaskHistoryTest {
     }
 
     @Test
+    fun `undo removes active completion while retaining event history`() {
+        val day = dayStartOf(now)
+        val completed = TaskRecorder.event(TaskEventType.TASK_COMPLETED, 1, "a", at = now)
+        val undone = TaskRecorder.event(TaskEventType.TASK_UNCOMPLETED, 1, "a", at = now + 1000)
+        val other = TaskRecorder.event(TaskEventType.TASK_COMPLETED, 2, "b", at = now + 2000)
+        val events = listOf(completed, undone, other)
+        assertEquals(listOf(other.id), TaskHistory.completedOn(events, day).map { it.id })
+        assertEquals(1, TaskHistory.daySummary(events, day).completedCount)
+        val completedAgain = TaskRecorder.event(TaskEventType.TASK_COMPLETED, 1, "a", at = now + 3000)
+        assertEquals(2, TaskHistory.daySummary(events + completedAgain, day).completedCount)
+    }
+
+    @Test
     fun `completion percent absent when nothing planned`() {
         val events = listOf(TaskRecorder.event(TaskEventType.TASK_COMPLETED, itemId = 1, title = "a", at = dayAt(0)))
         val summary = TaskHistory.daySummary(events, dayStartOf(now))
@@ -153,6 +167,23 @@ class TaskHistoryTest {
         assertEquals(TaskHistory.dayStartOf(now), days.last().dayStart)
         assertEquals(1, days.last().completedCount)
         assertTrue(days.first().dayStart <= days[1].dayStart)
+    }
+
+    @Test fun `lastDays uses calendar dates across daylight saving transition`() {
+        val original = TimeZone.getDefault()
+        try {
+            TimeZone.setDefault(TimeZone.getTimeZone("America/New_York"))
+            val sunday = Calendar.getInstance().apply {
+                set(2026, Calendar.MARCH, 8, 12, 0, 0); set(Calendar.MILLISECOND, 0)
+            }.timeInMillis
+            val days = TaskHistory.lastDays(emptyList(), days = 3, now = sunday)
+            assertEquals(listOf(6, 7, 8), days.map { day ->
+                Calendar.getInstance().apply { timeInMillis = day.dayStart }.get(Calendar.DAY_OF_MONTH)
+            })
+            assertEquals(3, days.map { it.dayStart }.distinct().size)
+        } finally {
+            TimeZone.setDefault(original)
+        }
     }
 
     @Test

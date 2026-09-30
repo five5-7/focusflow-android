@@ -1,0 +1,578 @@
+# FocusFlow 9.0 阶段2：代码、数据与迁移审计
+
+> 审计基线：`agent/focusflow-9.0-audit`，起点提交 `415ebb3`（8.3.0-rc.12 / versionCode 546）
+>
+> 本文只冻结事实、风险、迁移边界与测试矩阵，不修改业务行为，不提前冻结最终 Room 表结构。
+
+## 1. 结论
+
+1. 当前应用没有 Room 或其他数据库依赖。核心数据由 `PrototypeStore` 写入单一 `focusflow` SharedPreferences 文件；列表数据以 JSON 字符串存储。
+2. `Item` 同时承担收集箱条目、待办、安排时间、完成状态、目标关联、优先级、改期与恢复兼容字段，是 9.0 数据重构的首要解耦点。
+3. `Goal` 同时承担长期目标、每周次数、最低版本与执行计数；应迁移为 `Plan` 与任务/实例关系，旧统计字段保留为迁移来源，不直接丢弃。
+4. `Course` 当前一条记录就是一个星期时段。9.0 必须拆为课程本体与多个 `CourseMeetingRule`，否则同一课程多时段、临时调课和地点提醒会继续重复数据。
+5. 提醒由 `ReminderScheduler` 直接注册 AlarmManager，`ReminderReceiver` 再直接读取/修改 `PrototypeStore`。当前没有第一等 `Reminder` 记录，也没有统一的重建清单。
+6. `BootReceiver` 明确恢复活动与游戏提醒，并启动可选快速记录服务；任务、状态签到、饭点与睡前提醒没有通过同一恢复注册表统一处理。ColorOS 又可能延迟 `BOOT_COMPLETED`，因此 9.0 必须同时保留“开机恢复”和“首次前台补恢复”。
+7. `ProtectedPreferences` 名称容易误解：它提供损坏备份后的只读保护，不提供加密。高德 Key、视觉模型 Key 等敏感字段不能继续与普通设置一起依赖明文偏好；9.0 自定义模型密钥必须进入 Android Keystore 支持的独立密钥存储。
+8. 当前单 Activity Compose 树在 `MainActivity` 内持有大量页面、弹窗与领域状态；迁移数据层时先引入 Repository/DAO 边界，不同时重写全部界面和导航。
+
+## 2. 当前持久化结构
+
+### 2.1 存储入口
+
+| 位置 | 当前职责 | 9.0 处理 |
+| --- | --- | --- |
+| `PrototypeStore.kt` | 单一数据入口；读写普通设置、JSON 列表、提醒状态和诊断状态 | 拆为数据库 Repository、设置 Store、密钥 Store；保留兼容读取器 |
+| `ProtectedPreferences.kt` | 当损坏原文无法备份时阻止后续写入 | 迁移前继续使用；迁移失败不得绕过只读保护 |
+| `CorruptionBackup.kt` | 将异常 JSON 原文保存到 `filesDir/corrupt-backup`，每个键最多五份 | 保留；迁移解析失败先备份再中止，不得用空数据覆盖 |
+| `FocusFlowStartupSnapshot.kt` | 启动时一次性加载大量 Store 数据，随后交给 Compose 状态 | 阶段3改为 Repository 快照；阶段2A之后再逐页改为流式观察 |
+| `ItemsCodec.kt`、`StoredGoalsCodec.kt` 等 | JSON 兼容格式与缺字段默认值 | 作为一次性迁移输入协议，迁移完成后仍保留至少一个稳定版 |
+
+### 2.2 数据版本现状
+
+- `PrototypeStore.dataVersion` 当前读取 `data_version`，缺失时按 1。
+- 现有唯一登记的一次性迁移是 `task_history_migrated_v65_0`。
+- 目前没有数据库 schema 版本、Room migration、schema 导出或数据库完整性检查。
+- 多字段原子操作依赖单次 SharedPreferences `commit()`，例如：
+  - `items + task_events`
+  - `items + task_events + goals`
+  - 收集箱转目标时的 `goals + items + task_events`
+- 这些原子边界必须在 Room 中用 `withTransaction` 保留，不能退化为多个独立 DAO 写入。
+
+### 2.3 主要旧数据域
+
+| 旧数据 | 现有类型/键 | 主要风险 | 迁移方向 |
+| --- | --- | --- | --- |
+| 收集箱、待办、已安排事项 | `Item` / `items` | 一个类型混合多种生命周期；`kind` 与 `captureRoute` 为字符串 | `Task` 加明确状态；是否独立 `CaptureItem` 在阶段3首个检查点冻结 |
+| 任务历史 | `TaskEvent` / `task_events` | 与任务快照分离，靠调用点维持一致 | 事件表保留原 ID、itemId、时间与 extra；与任务迁移同一事务 |
+| 目标/逐步推进 | `Goal` / `goals` | 长期计划与每周执行计数耦合 | `Plan`、计划任务关系；旧计数写入迁移历史或统计兼容字段 |
+| 活动记录 | `ActivitySession` / `sessions` | 当前仅保留最近 50 条 | `ActivitySession` 表；迁移现存全部记录，不再因保存新记录截断 |
+| 课程 | `Course` / `courses` | 每个星期时段重复课程本体；地点与时段绑定 | `Course` + `CourseMeetingRule` |
+| 节次表 | `CoursePeriodTable` / `course_period_table` | JSON 配置与课程分开但无引用版本 | 独立设置或节次模板表，迁移后建立显式版本 |
+| 提醒 | Items/Session/Profile 派生 + PendingIntent | 无统一记录、难以审计和重建 | 第一等 `Reminder`，记录拥有者、触发点、动作、状态与系统请求码 |
+| 状态签到 | `status_checkins` 及提示状态键 | 记录和调度状态混在偏好中 | 历史记录入库；开关与最近调度元数据保留在设置层 |
+| 饭点记录 | `meal_records` | 当前最多保留 500 条 | 历史表完整迁移；保留旧 ID |
+| 游戏会话 | `game_sessions` | 当前最多保留 200 条 | 非核心模块先只做无损迁移，功能去留在后续范围确认 |
+| 外观、权限、更新开关 | 多个标量键 | 不适合全部塞进 Room | 保持设置 Store；建立键名清单和默认值回归 |
+| API Key | `amap_web_key`、`siliconflow_api_key` 等 | `ProtectedPreferences` 不加密 | 独立 Keystore 支持的密钥存储，日志永不输出原值 |
+
+## 3. 主要调用链
+
+### 3.1 启动与前台恢复
+
+```text
+MainActivity.onCreate
+  -> PrototypeStore
+  -> FocusFlowStartupSnapshot.load（IO线程）
+  -> FocusFlowApp（Compose状态）
+  -> 页面回调修改内存状态
+  -> PrototypeStore 保存
+  -> 必要时 ReminderScheduler 同步 AlarmManager
+```
+
+应用从后台返回时，`MainActivity` 会重读 items、game sessions、active session、task events 与若干提醒诊断状态，以接收 `ReminderReceiver` 在后台做出的修改。9.0 引入数据库后必须用 Repository/Flow 取代“局部手动重读”，否则新增表很容易漏刷新。
+
+### 3.2 页面与导航
+
+- 主导航由 `MainActivity` 中的四个页签驱动：今日、日程、计划、设置。
+- 页面入口分别为 `TodayScreen`、`ScheduleScreen`、`PlansScreen`、`SettingsScreen`。
+- `PageSnapshot` 与 `NavigationHistory` 保存页签、副页和弹窗层的前进/后退状态。
+- 全局加号、活动、改期、收集箱整理、课程导入等弹窗状态仍集中在 `FocusFlowApp`。
+- 阶段3只抽离数据和副作用；阶段2A再统一 Surface/Dialog/BottomSheet 和导航状态，避免同一提交同时改变数据语义与界面行为。
+
+### 3.3 提醒
+
+```text
+页面/Receiver
+  -> ReminderScheduler
+  -> AlarmManager + PendingIntent
+  -> ReminderReceiver
+  -> PrototypeStore 读取最新对象并做 freshness 校验
+  -> 更新数据 / 展示通知 / 注册下一次提醒
+```
+
+必须保留的行为：
+
+- 任务通知动作执行前校验任务 ID 与原计划时间，旧通知不能修改已改期任务。
+- 活动结束通知校验 session ID 与 endsAt，过期通知必须失效。
+- 安静时段、状态签到、饭点与睡前提醒保持现有限流和抑制规则。
+- ColorOS 开机广播延迟时，进入前台要补做恢复，但不能重复注册或重复通知。
+
+## 4. 9.0 迁移原则
+
+1. 先增加 Room 与 Repository，不删除旧 `PrototypeStore`。
+2. 新安装直接创建空数据库；8.2.1 与 8.3 升级从旧偏好读取。
+3. 迁移必须是一次性事务：
+   - 先用现有 Codec 解析全部需要迁移的 JSON；
+   - 任一核心域解析异常时先触发旧损坏备份并整体中止；
+   - 校验 ID、数量、引用和时间字段；
+   - 在一个数据库事务中插入；
+   - 事务提交后重新读取并核对计数/关键 ID；
+   - 最后才写入完成标记与新的数据版本。
+4. 不采用长期双写。双写会在崩溃或后台 Receiver 并发时制造两个来源。迁移完成后以 Room 为唯一业务数据源，旧 JSON 保留只读回退期。
+5. 至少一个稳定版内不删除旧 JSON；发生验证失败时继续使用旧数据并明确报告，不静默清库。
+6. 设置类数据继续保留在偏好 Store，但必须列出键名、默认值和兼容策略；密钥单独迁入安全存储。
+7. 所有外键使用旧 ID；缺失或非法 ID 只对该记录生成迁移诊断，不得批量重新编号。
+8. 提醒不迁移 PendingIntent 本身。迁移拥有者和提醒规则后，只为未来触发点重建系统闹钟。
+
+## 5. 阶段3拟定实体边界（尚未冻结字段）
+
+| 实体 | 来源 | 必须保持的关系 |
+| --- | --- | --- |
+| `Task` | `Item` | 原 ID、标题、说明、完成状态、安排时间、持续时长、计划关联、父收集项 |
+| `TaskOccurrence` | 重复规则未来生成 | 与模板任务、日期、完成/跳过/改期状态关联 |
+| `RecurrenceRule` | 9.0 新增 | 不从旧数据臆造；旧一次性任务不生成规则 |
+| `Plan` | `Goal` 与逐步推进内容 | 原 ID、目标说明、最低版本、状态；执行任务另表关联 |
+| `ActivitySession` | `sessions` | 原 ID、计划/实际起止、状态、结束选择 |
+| `Course` | `courses` 去重后的课程本体 | 不因同名自动错误合并；来源不确定时保守保留 |
+| `CourseMeetingRule` | 每条旧 `Course` 时段 | 星期、节次、地点、生效日期、启用状态 |
+| `Reminder` | 现有任务/活动/课程/自定义提醒规则 | 拥有者、触发点、动作、状态、系统请求码 |
+| `TrashGroup` | 9.0 新增 | 保存成组删除与恢复边界 |
+| `OperationRecord` | 9.0 新增；旧 `TaskEvent` 仍作为历史 | 新操作才可保存逆操作；旧事件不含完整旧值，不能伪装成可撤回记录 |
+
+收集箱是否单独建 `CaptureItem`，或作为 `Task.status = CAPTURED`，留到阶段3首个 schema 评审决定；在审计阶段不提前拍板。
+
+## 6. 测试矩阵
+
+### 6.1 迁移输入
+
+- 全新安装：没有 `data_version`、没有 JSON 键。
+- 8.2.1：存在旧 items/goals/courses/sessions，但没有 8.3 新字段。
+- 8.3 rc.12：全部当前字段。
+- 缺少可选字段、未知字符串枚举、零 ID、重复 ID。
+- 空数组、合法空对象、单个域损坏、多个域损坏。
+- 大数据：大量任务、历史、课程、活动、饭点和游戏记录。
+- 迁移进行到事务中途时进程终止，再次启动应安全重试。
+
+### 6.2 迁移结果
+
+- 数量、旧 ID 与外键关系一致。
+- Item 的安排时间与未来截止时间字段分离后不互相覆盖。
+- Goal 转 Plan 后，旧任务的 goalId 仍可找到对应计划。
+- 同一课程多个时段生成一个课程本体与多个 meeting rule；不可靠的同名课程不自动合并。
+- 已完成、改期、最低版本和历史事件不丢失。
+- 损坏输入不会生成“看似成功的空数据库”。
+- 设置、背景、权限提醒和更新开关保持原值。
+- 只重建未来提醒；过期提醒与旧 PendingIntent 不复活。
+
+### 6.3 运行回归
+
+- 空安装、8.2.1 覆盖升级、8.3 rc.12 覆盖升级。
+- 前台页面修改与通知栏动作同时发生时，事务不丢更新。
+- 重启、应用更新、ColorOS 延迟开机广播和首次前台补恢复。
+- 数据库不可写、磁盘不足、损坏 JSON 和迁移校验失败。
+- Debug/Release 单测、迁移测试、签名与版本元数据。
+
+## 7. 阶段3首个实现检查点
+
+只实现“迁移底座”，不改页面：
+
+1. 引入 Room、KSP 与 schema 导出。
+2. 建立最小实体/DAO/Database 草案及 `MigrationReport`。
+3. 增加只读 `LegacyPreferencesReader`，复用现有 Codec。
+4. 实现事务式导入器、完成标记和校验摘要。
+5. 建立 8.2.1、8.3 rc.12 与损坏数据的合成 fixture。
+6. 先迁移 Task/TaskEvent/Plan 的最小闭环；课程、提醒、回收站在 schema 评审后进入下一提交。
+7. 通过测试后再让 UI 切换到 Repository；在此之前运行行为必须与 rc.12 等价。
+
+## 8. 本阶段明确未做
+
+- 未修改版本号、更新说明或正式发布状态。
+- 未合并或关闭 8.3 的 PR。
+- 未引入 Room、未迁移任何用户数据、未改变提醒行为。
+- 未开始阶段2A的界面/材质实现。
+- 未解决 8.3 课表截图识别问题；该项仍在 9.0 阶段8。
+
+## 9. 恢复复核与首个 schema 决策
+
+2026-09-21 恢复开发时已核对远端分支：`agent/focusflow-9.0-audit` 指向
+`b08dc8d`，父提交为 `415ebb3`。该文档提交未触发 Actions（普通功能分支 push
+不触发构建），不是测试失败。
+
+阶段3首个检查点冻结以下最小边界：
+
+1. 收集箱不单独建立 `CaptureItem` 表，统一迁入 `Task`，用显式状态区分
+   `captured / unscheduled / scheduled / paused / completed`。现有 `Item` 在这些状态间
+   转换时保留同一 ID，这样可以避免跨表搬运造成恢复、历史和通知引用断裂。
+2. `TaskEvent` 不对 `Task` 设置级联外键。删除任务后历史仍须保留；旧数据中引用已删除
+   任务的事件作为可诊断但合法的历史迁移。
+3. `Task.planId` 与 `parentCaptureId` 首版只建立索引，不做破坏性外键清理。悬空计划引用
+   保留原 ID 并产生迁移诊断；非法父收集项关系沿用旧 Codec 的安全清理并明确报告。
+4. 迁移完成状态写入 Room 的 `migration_states` 表并与任务、事件、计划同一事务提交；
+   事务后按数量和完整 ID 集复核，最后才更新 SharedPreferences 的完成标记与
+   `data_version`。若最后一步失败，下次启动只重试标记，不重复导入。
+5. 这一检查点仍不把 UI 或 Receiver 切换到 Room，也不启用长期双写。只有迁移 fixture、
+   Room schema、事务导入和回滚门禁通过后，下一检查点才接入 Repository。
+
+## 10. Repository 与只读影子检查点
+
+2026-09-22 继续阶段3时，Repository 接入审计发现首版 schema 只保留了旧 ID，未保留
+`items`、`task_events` 与 `goals` 的列表顺序。旧 ID 并非递增序号，若直接按 ID 查询，
+会改变收集箱、任务历史和计划的显示顺序。由于 schema v1 尚未发布或用于正式写入，本检查点
+在 v1 中为三类实体补充 `source_order`，迁移时按原 JSON 数组位置写入，DAO 按
+`source_order, id` 稳定读取；不通过破坏性重编号修复顺序。
+
+本检查点同时建立以下只读边界：
+
+1. `LegacyCoreDataReadRepository` 继续以 `PrototypeStore` 为唯一业务数据源；启动快照的
+   Task、TaskEvent、Goal 先经过该 Repository，现有恢复动作、页面数据和写入路径不变。
+2. `RoomCoreDataReadRepository` 只读取已有迁移状态与三类实体。缺少迁移状态时返回未就绪；
+   数量、顺序、任务状态、计划状态或事件类型异常时返回无效，不丢弃、不修正、不回退为
+   “看似成功”的空数据。
+3. 启动阶段仅在数据库文件本来就存在时打开一次 Room 做影子读取；文件不存在时不创建数据库，
+   也不自动执行迁移。影子比较结果只包含域名、数量、差异类型和最多20个ID，不包含标题、备注
+   等用户内容。
+4. SharedPreferences 写路径、Receiver、ReminderScheduler 与前台恢复读取仍保持rc.12行为；
+   本检查点不启用双写，也不把Room设为页面数据源。
+5. 单元测试覆盖完整往返、随机ID下的原顺序、内容／顺序／成员差异、缺迁移状态、未知事件类型、
+   计数不一致、重复顺序与任务状态不一致；Run 416的全部单元测试、Room schema导出、
+   Debug／Release构建、稳定签名、版本元数据与APK上传均已通过。
+
+## 11. 事务写 Repository 检查点
+
+2026-09-22 在不切换运行时数据源的前提下，增加 `RoomCoreDataWriteRepository`，把当前
+`PrototypeStore` 的核心原子写边界映射为 Room 单事务操作。写入仍采用完整列表替换，显式保留
+调用方顺序；Task、TaskEvent、Plan 与 `migration_states` 计数必须在同一事务中提交，任一表或
+计数更新失败时整体回滚。
+
+本检查点冻结以下写入语义：
+
+1. 带预期快照的任务或计划写入会在事务内重新读取最新 Room 快照；旧页面快照不能覆盖并发写入。
+2. 通知动作同时校验任务 ID 与原计划时间。任务已删除、改期或完成时返回条件不满足，不修改任务、
+   不追加历史，也不增加计划完成次数。
+3. 任务转换、完成或改期需要关联历史／计划时，三类数据一次提交；已存在以及已脱离已删任务的历史
+   均保持原顺序，不因替换当前任务列表而丢失。
+4. 非正 ID、重复 ID、非法事件任务 ID 或时间戳在写入前阻断；缺少迁移状态或现有 Room 数据无效时
+   不尝试修正或清空。
+5. `DatabaseRoomCoreDataWriteStore` 使用 Room 数据库事务；测试替身实现等价回滚，用于注入事件表和
+   迁移计数写入失败并验证事务原子性。
+6. Repository 暂未接入 UI、Receiver、ReminderScheduler 或前台恢复，也未启用双写。当前
+   SharedPreferences／`PrototypeStore` 仍是唯一运行时业务源。
+
+验证过程中，Run 418 暴露并修复了 Kotlin 泛型扩展函数的 JVM 类型擦除签名冲突；Run 419 在
+699 个 Debug 测试中暴露一处测试输入与期望不一致，修正断言后重新执行。最终 Run 420 的全部
+Debug／Release 单元测试、Room schema 导出、Debug／Release 构建、稳定签名、版本元数据和 APK
+上传均通过；CI 生成的 schema 与仓库 `1.json` 的 SHA-256 均为
+`7c7c6cd964cac2e6b8f7ba981212832d7f3c5cea955cf77b60dca0c808abdb2a`。
+
+## 12. 受控迁移激活协调器检查点
+
+2026-09-22 在导入器、只读影子和事务写 Repository 均已通过后，增加独立的
+`CoreDataActivationCoordinator`。迁移完成标记只证明 Room 已成功导入；新的激活标记才决定
+运行时业务源，避免“数据库已经有副本”被误认为“页面和 Receiver 已安全切换”。激活状态只允许：
+
+```text
+INACTIVE -> ACTIVATING -> ACTIVE
+```
+
+本检查点冻结以下切换规则：
+
+1. 激活开关关闭且状态为 `INACTIVE` 时，继续使用 Legacy，不读取、不创建或修改 Room。
+2. 开始迁移前先严格读取 Legacy 并计算指纹，再以单次持久化写入 `ACTIVATING`。只有该写入明确
+   未落盘时才允许安全留在 Legacy；状态不确定时不猜测业务源。
+3. `ACTIVATING` 一旦落盘，不再返回 Legacy。进程重启会继续核对相同指纹、重试导入、事务后复核
+   和激活完成写入；任一步失败均返回阻断状态，避免恢复成两个可写来源。
+4. 激活前必须同时满足：导入状态可激活、导入报告与冻结指纹一致、Room迁移状态指纹一致、Room
+   读取有效，以及Legacy／Room的Task、TaskEvent、Plan内容与顺序完全一致。
+5. `ACTIVE` 后 Room 是唯一权威源，即使功能开关关闭也不能退回 Legacy；Room损坏、缺迁移状态或
+   指纹冲突时必须失败关闭，不能用可能已过时的旧JSON覆盖。
+6. 激活标记使用独立的phase、指纹、开始时间和完成时间，并通过受保护的SharedPreferences一次
+   `commit()` 写入；没有提供从 `ACTIVE` 回退到 `INACTIVE` 的接口。
+7. Room迁移状态及核心表在同一个数据库事务中复核。所有决策报告只包含状态和错误类别，不记录
+   任务标题、备注等用户内容。
+
+测试覆盖开关关闭、首次成功激活、进程中断后续接、激活后忽略关闭开关、Legacy损坏、来源指纹变化、
+迁移标记失败、Room内容差异、Room状态／指纹无效、激活开始未落盘、完成未落盘，以及无效或不可读
+激活标记。Run 422完成编译并在712个Debug测试中暴露测试fixture只有一条任务、反转后并未产生差异；
+修正为真实内容差异后，最终Run 423的Debug／Release单元测试、Room schema、Debug／Release构建、
+稳定签名、版本元数据和APK上传全部通过。CI schema SHA-256仍为
+`7c7c6cd964cac2e6b8f7ba981212832d7f3c5cea955cf77b60dca0c808abdb2a`。
+
+这一检查点仍未把协调器接入 `MainActivity`、UI、Receiver、ReminderScheduler 或前台恢复；激活开关
+也未在产品运行时启用。因此当前版本继续由SharedPreferences／`PrototypeStore`作为唯一业务源，
+不存在运行时双写或用户数据迁移。
+
+
+## 13. 统一运行时 Repository 门面检查点
+
+2026-09-22 在继续保持 Legacy 为唯一产品运行时数据源的前提下，增加统一的
+`CoreDataRepository` 门面，并提供 Legacy 与 Room 两个适配器。产品装配入口目前只暴露
+`legacyLocked(store)`；该入口不能创建、打开或选择 Room，也不会执行迁移、双写或来源合并。
+
+本检查点完成以下调用边界收敛：
+
+1. 启动核心快照与错过目标任务恢复通过统一 Repository 读取和写入。
+2. `MainActivity` 的保存、前台恢复刷新、任务历史、目标转换和改期操作通过统一 Repository。
+3. `ReminderReceiver` 的通知新鲜度校验、任务查找和通知动作数据修改通过统一 Repository。
+4. `ReminderScheduler` 的任务提醒恢复与 `SettingsScreen` 的待处理提醒读取通过统一 Repository。
+5. 应用启动时的任务历史兼容迁移也经由统一 Repository，避免产品调用点绕过门面。
+6. 错过目标恢复、改期插入和任务查找抽为与来源无关的操作，Legacy 与 Room 适配器共享同一契约。
+7. 静态源码门禁阻止上述运行时调用点重新直接使用 `PrototypeStore` 的核心数据接口；契约测试同时
+   覆盖两种适配器、并发旧快照拒绝、原子写失败、通知新鲜度、错过目标恢复与改期历史。
+
+提交 `56f338c` 的 Actions Run 425 已全部通过。Debug 与 Release 各执行 721 个测试，
+合计 1442 个测试，失败、错误和跳过均为 0；Room schema、Debug／Release 构建、稳定签名、
+版本元数据和 APK 上传均通过。CI schema SHA-256 仍为
+`7c7c6cd964cac2e6b8f7ba981212832d7f3c5cea955cf77b60dca0c808abdb2a`。
+
+本检查点没有接通 `CoreDataActivationCoordinator` 与产品装配根，没有启用激活开关，也没有创建
+Room 业务写者。因此当前版本仍由 SharedPreferences／`PrototypeStore` 作为唯一运行时业务源，
+不存在双写、自动迁移或来源合并；版本保持 8.3.0-rc.12，草稿 PR #51 未合并、未发布。
+
+下一检查点应只在单一应用级装配根接入激活协调器，并为 `INACTIVE`、`ACTIVATING`、
+`ACTIVE` 与阻断状态建立明确的诊断边界；所有 Legacy／Room Repository 和写者创建必须位于
+来源选择之后。先覆盖启动、Receiver 与进程重启组合测试，再考虑启用迁移，不直接打开产品开关。
+
+## 14. 单一运行时装配根检查点
+
+2026-09-22 将 `CoreDataActivationCoordinator` 接入由 `FocusFlowApplication` 持有的唯一
+`CoreDataRuntimeCompositionRoot`。装配根先完成来源选择，再按结果延迟创建 Legacy 或 Room
+Repository；选择结果在同一进程内固定，启动、设置、任务提醒恢复和 Receiver 共用同一实例，
+不再由各调用点自行构造写者。
+
+本检查点冻结以下运行时规则：
+
+1. 产品激活常量 `CoreDataRuntimePolicy.ACTIVATION_ENABLED` 仍为 `false`。普通的
+   `INACTIVE` 状态只选择 Legacy；Room 数据库持有者保持惰性，不创建、不打开数据库，也不执行迁移。
+2. 已经可靠进入 `ACTIVATING` 或 `ACTIVE` 的状态不受关闭开关影响，仍按单向状态机继续验证；
+   来源为 `NONE` 或装配结果与选择不一致时不创建任何写者，并缓存阻断结果直到进程重启。
+3. `MainActivity` 在 IO 线程解析运行时来源。阻断时不进入正常 Compose 业务树，而是展示不包含
+   用户数据的诊断页，说明为避免双写已暂停任务、计划与提醒动作。
+4. `ReminderReceiver` 与 `BootReceiver` 使用 `goAsync` 在 IO 线程完成恢复和核心数据动作。
+   Receiver 只为活动转回收集箱及任务通知动作解析核心 Repository；阻断时这些动作失败关闭，
+   饭点、状态签到和游戏等非核心 SharedPreferences 提醒不会因此被强制读取 Room。
+5. `SettingsScreen` 直接接收启动时已经选择的 Repository；`ReminderScheduler` 从 Application
+   装配根取得同一实例。静态源码门禁确保应用级工厂只在 `FocusFlowApplication` 调用，并禁止其他
+   运行时文件直接构造 Legacy／Room 写者。
+6. 进程组合测试覆盖启动与 Receiver 复用同一 Legacy Repository、阻断状态不创建任何写者、
+   重启后从阻断恢复到 Room、`ACTIVE` 只创建 Room 写者、来源与 Repository 不一致时失败关闭，
+   同时断言产品激活常量保持关闭。
+
+提交 `6c7af00` 的 Actions Run 427 全部通过。Debug 与 Release 各执行 727 个测试，合计
+1454 个测试，失败、错误和跳过均为 0；Room schema、Debug／Release 构建、稳定签名、版本元数据
+和 APK 上传均通过。CI schema SHA-256 仍为
+`7c7c6cd964cac2e6b8f7ba981212832d7f3c5cea955cf77b60dca0c808abdb2a`。
+
+当前版本仍不会从 `INACTIVE` 发起迁移，不存在产品运行时双写或来源合并；版本保持
+8.3.0-rc.12，草稿 PR #51 未合并、未发布。下一检查点应使用临时真实 Room 数据库与旧偏好 fixture
+建立端到端激活集成测试，覆盖首次导入、`ACTIVATING` 进程重启、Receiver 写入后只修改 Room、
+Legacy 原文保持只读以及数据库故障失败关闭；产品激活常量在该门禁通过前继续保持 `false`。
+
+## 15. 真实 Room 端到端激活检查点
+
+2026-09-22 使用 Robolectric、AndroidX Test 与 Room 的内存数据库补齐装配根之上的端到端门禁。
+测试通过真实 DAO、事务、迁移状态和 SharedPreferences 激活标记运行，不使用内存 Repository 替身，
+但产品常量 `CoreDataRuntimePolicy.ACTIVATION_ENABLED` 继续保持 `false`。
+
+本检查点覆盖：
+
+1. 分别从 8.2.1 与 8.3-rc.12 旧偏好 fixture 首次导入，验证 Task、TaskEvent、Plan 的内容、
+   ID、顺序、数量和迁移指纹一致，并逐字确认三个旧 JSON 键未被改写。
+2. 在数据库事务已经提交、SharedPreferences 完成标记写入失败后保持 `ACTIVATING`；模拟进程重启
+   后即使产品开关关闭，也只续接既有导入、完成激活且不重复插入任何行。
+3. 以 ReminderReceiver 使用的 `mutateScheduledTask` 契约执行任务完成，确认激活后的写入只进入
+   Room，同时更新任务、历史与计划完成计数，旧偏好原文保持只读。
+4. 在已激活的临时数据库中制造真实核心表查询失败，确认协调器返回
+   `BLOCKED_ROOM_INVALID`，装配根不构造 Legacy 或 Room 写者，也不回退旧数据源。
+5. 继续断言产品激活常量为关闭；这些测试只证明切换机制可用，不会触发真实用户数据迁移。
+
+提交 `4664394` 的 Actions Run 429 首次完成五项测试；证据检查发现故障模拟采用关闭数据库会产生
+Robolectric 资源告警。提交 `e71de98` 改为删除临时数据库核心表来制造真实查询失败，Actions
+Run 430 全部通过。Debug 与 Release 各执行 732 个测试、121 个测试套件，失败、错误、跳过和
+非空 `system-err` 套件均为 0；Room schema、Debug／Release 构建、稳定签名、版本元数据与全部
+产物上传成功。CI schema SHA-256 仍为
+`7c7c6cd964cac2e6b8f7ba981212832d7f3c5cea955cf77b60dca0c808abdb2a`。
+
+当前远端 HEAD 为 `e71de9802636bc0eb3654b76e5de6a73b3efd605`。版本仍为 8.3.0-rc.12，
+草稿 PR #51 未合并、未发布，`INACTIVE` 仍只使用 Legacy。下一检查点不直接启用产品迁移；先审计
+并冻结阶段3剩余实体中与下一功能阶段最接近的 `RecurrenceRule`、`TaskOccurrence` 与
+`ActivitySession` 数据边界、旧数据来源和迁移语义，再决定 schema 扩展提交。
+
+## 16. 重复规则、任务实例与活动记录检查点
+
+2026-09-23 完成 `RecurrenceRule`、`TaskOccurrence` 与 `ActivitySession` 的旧数据来源审计和
+Room schema 扩展。审计确认现版不存在可可靠迁移的重复规则或每日实例：`Goal.weeklyTarget`
+只是每周目标次数，用户每次排入的 `Item` 是独立任务，二者都不能被推断为重复模板。因此旧版本
+迁移始终为规则表和实例表写入零行，不制造用户未创建的数据。
+
+本检查点冻结以下边界：
+
+1. `RecurrenceRule` 关联模板任务，按本地日期、墙上时间分钟和显式时区保存生成语义，并保留频率、
+   间隔、星期掩码、起止日期、启用状态和创建／更新时间。这样跨夏令时生成时不会把一个固定 UTC
+   毫秒值误当成每天相同的本地时间。
+2. `TaskOccurrence` 同时保留规则、模板任务和可选的实体任务关系；实例日期与计划时间分开，完成、
+   跳过和改期时间分开。数据库以“同一规则＋同一本地日期”唯一约束阻止重复生成。
+3. `ActivitySession` 逐字段保留现有 `sessions` 中的 ID、原顺序、名称、类别、计划／实际开始、
+   计划结束、下一步、状态、延长次数与原因、实际结束和结束选择。缺少旧可选字段时沿用现版读取
+   默认值；非正或重复 ID、非法时间、未知状态和负延长次数会备份原文并整体阻断迁移。
+4. `sessions` 原文加入来源指纹、迁移状态计数、事务插入、完整 ID 集复核、Room 快照读取和
+   Legacy／Room 激活比较。规则与实例虽然旧数据必为空，也加入数据库非空门禁和计数校验，避免
+   未知已有数据被核心导入覆盖。
+5. 8.2.1 fixture 覆盖缺少活动可选字段的安全默认值；8.3-rc.12 fixture 覆盖完整字段、已完成会话
+   与延长中的会话。真实 Room 测试同时验证规则／实例字段往返、同日唯一约束、活动记录无损往返，
+   以及首次激活、重启续接和 Legacy 原文只读。
+6. 当前产品仍由 `PrototypeStore` 写活动会话，并保留旧的最近50条限制；本检查点只保证把届时仍
+   存在的全部记录无损迁入 Room。取消截断必须与活动会话唯一写 Repository 同一检查点完成，不能
+   在两个来源之间提前双写或让页面和 Receiver 分别写不同存储。
+
+首次 Actions Run 432 的编译和新增 schema 测试通过，但端到端激活测试发现冻结 Legacy 快照时
+遗漏活动会话，导致一致性比较按设计阻断。提交 `b11f05f` 将活动会话纳入同一冻结快照后，Run 433
+的 Debug／Release 各 736 项测试、122 个套件全部通过，失败、错误、跳过和非空 `system-err`
+均为0；双 APK 构建、稳定签名、版本元数据与全部制品上传成功。CI 导出的 Room schema 已由提交
+`2df14fe` 回填，文件 SHA-256 为
+`f9d58ccc942aa557087db72d95357a34e061796d181fe536da1cdd7513ea3fc1`；Run 434 再次通过全部门禁。
+
+版本保持 8.3.0-rc.12，产品激活常量继续为 `false`，草稿 PR #51 未合并、未发布。下一检查点应
+先把 ActivitySession 的页面、启动恢复、ReminderReceiver 与 ReminderScheduler 调用收口到单一
+Repository，并覆盖通知并发、延长、完成／跳过和不再截断历史；在此之前不得启用产品迁移。
+
+## 17. 活动会话唯一 Repository 检查点（用户接受真机验收）
+
+2026-09-23 在 `agent/focusflow-9.0-audit` 分支实现活动会话读写收口。现有 `CoreDataRepository` 同时暴露 Legacy／Room 的
+ActivitySession 快照替换；页面、启动快照、前台刷新、Receiver、开机恢复和提醒调度都通过已选
+来源读取与写入，不再直接使用 `PrototypeStore` 会话便捷接口。提醒设置仍保留在原偏好域。
+
+Legacy 会话写入以进程级锁保护“读取旧快照→比较→完整 JSON 提交”，移除旧的 50 条落盘截断；
+已经被旧版本截掉的记录不能凭本次修改恢复。Room 会在同一事务中替换会话行、保持原顺序并更新
+`activity_session_count`；任一环节失败应回滚。通知动作带计划结束时间校验和快照并发校验，
+避免过期通知覆盖延长或已结束状态；完成、跳过和限次延长仅在写入成功后推进提醒动作。
+“结束当前活动并开始下一项”改为一次会话快照写入，避免两次写之间只完成前半段。
+
+新增或扩展测试覆盖 60 条历史的 Legacy 实际偏好落盘与 Room 往返、Room 计数及回滚、
+激活后只写 Room 不触碰 Legacy 原文、并发旧快照拒绝、通知新鲜度、延长上限、完成后拒绝跳过、
+开始下一项的原子性和运行时禁止直连 Store 的静态门禁。`git diff --check` 与直连检索通过。
+本地 Gradle 缺少可解析的 Android Gradle Plugin 8.11.1，因此最终以远端 CI 为自动验收证据。
+
+首次上传因源码范围授权不够明确被安全审查拦截；用户随后明确确认将本地三个检查点提交的完整
+源码上传到指定草稿分支，仅用于 PR #51 的 CI，不合并、不发布。远端提交
+`4ba6e19bd11ee3cf7967b13f3fdc5dacec179925` 的源码树 SHA
+`789bf50cfb39a00c966e79aa3a53ee166a30663c` 与本地 HEAD 逐字一致。
+Actions Run 436 全部通过：Debug 与 Release 各 744 项测试、122 个套件，失败、错误、跳过和
+非空 `system-err` 均为 0；Room schema artifact 与仓库文件 SHA-256 同为
+`f9d58ccc942aa557087db72d95357a34e061796d181fe536da1cdd7513ea3fc1`；双 APK 构建、
+稳定签名、版本元数据和 APK 产物上传均成功。签名证书 SHA-256 为 `650a17f2…48e8e`，
+包名 `com.sakata.focusflow`、versionCode 546、versionName `8.3.0-rc.12` 保持不变。
+
+当时尚无 OPPO 真机反馈，需复测活动延长／结束／跳过通知并发、重启恢复
+与超过 50 条历史后的继续记录。因此当时只将自动门禁标为通过；产品激活常量仍为 `false`，
+草稿 PR #51 未合并、未发布。阶段3余下实体迁移和最终产品源切换仍不能因本次 CI 通过而启用。
+
+2026-09-23 用户接受此检查点的真机验收。实际反馈：3 分钟活动结束通知送达；1 分钟活动没有收到通知，随后在应用内进入转场；5 分钟活动的后台结束通知送达，晚约 1 分钟。用户据此确认通过并要求进入下一检查点。重启恢复及超过 50 条历史的真机逐项观察未在这轮反馈中确认，继续列为综合回归项；不能把通知送达记录写成准时送达。
+
+## 18. 课程与上课时段迁移检查点（自动验证通过）
+
+旧 `courses` 的每条记录含课程名、星期、节次、地点、待确认／启用状态及生效区间，没有可用于可靠归并的课程代码。即使同名也可能是不同课，因此首次迁移保留每条旧记录 ID 和原始顺序，建立一条 `CourseEntity` 及一条同 ID 的 `CourseMeetingRuleEntity`；未来多时段归并须有可核对的来源或人工确认。当前 Room 读路径仅接受此一对一旧数据形态；功能页面改用多时段模型时再扩展映射。
+
+严格读取旧 JSON：缺失或重复 ID、非法星期／节次、生效区间倒置、未知校区或损坏 JSON 整体阻断并备份原文。课程原文进入来源指纹；课程本体与时段和迁移状态在同一事务插入，按数量、ID、顺序、关系及字段往返核验，激活比较包含课程快照。增加两条真实 Room 测试验证同名分离和损坏源阻断。产品开关继续关闭，旧课程页面仍由现有存储提供数据。
+
+本地缺少 Gradle 工具，自动验证使用草稿 PR #51 的 Run 438 完成。Debug 与 Release 各 746 项测试、124 个套件，失败、错误、跳过均为 0；两条新增课程迁移真实 Room 测试均通过。CI Room schema 已回填，SHA-256 为 `ec1e8b6e36497b0bf17e5f6cdc68b1fca04729537f5b690dc909fcbe134f0b69`。Debug／Release APK、稳定签名和版本元数据全部通过；证书 SHA-256 为 `650a17f2bbc6d3cf7ac436e3ce7d4cbc1381cfd29052d6a8e06e70361ef48e8e`，包名 `com.sakata.focusflow`、versionCode 546、versionName `8.3.0-rc.12` 未变。产品激活仍关闭，PR #51 仍是草稿、未合并、未发布。
+
+用户随后明确授权将本地检查点完整源码提交到 `five5-7/focusflow-android` 的 `agent/focusflow-9.0-audit`，仅用于 PR #51 CI、schema 导出和构建校验。远端源码首提交树 SHA `d33c0af4c1fc6aa322188e4dcfd05f93ca307d11` 与本地完全一致；Run 438 的全部自动门禁通过。CI schema 已提交回填，最终本地/远端树 SHA 均为 `b797c830b025ef6a948f786b9425ff0cc870b06c`，本地提交为 `47ad217`，最终远端提交为 `6f2eac8`。Run 439 再次通过测试、schema、双APK、稳定签名和版本校验。PR #51 维持草稿，未合并、未发布。
+
+## 19. 统一 Reminder 与旧提醒设置迁移边界
+
+2026-09-23 审计 `PrototypeStore`、`TaskReminderPolicy`、`ReminderScheduler`、
+`ReminderReceiver`、`MainActivity` 和 `SettingsScreen`。现版没有独立持久化的提醒列表或
+提醒 ID：任务的到点／提前提醒从 `Item` 的安排时间与全局提前量生成，活动预告／结束提醒从
+`ActivitySession` 和活动设置生成；签到、饭点、睡前提醒从各自设置及生活阶段数据生成。
+`AlarmManager` 中的注册与 `PendingTaskReminder` 是派生运行状态，重启时可以重新计算，
+不能从旧偏好还原为用户创建的 Reminder 记录。课表记录目前也没有独立的持久提醒规则。
+
+| 旧存储 | 当前消费者 | 本次迁移边界 |
+| --- | --- | --- |
+| `activity_notifications`、`activity_preview_minutes`、`activity_max_extensions`、`activity_stronger_end_reminder`、`schedule_reminders_enabled`、`schedule_reminders_advance_minutes` | 活动、任务调度与通知动作 | 保留原有设置键、默认值和读取时的范围约束；不按当前任务／活动生成 Reminder 行 |
+| `status_checkin_enabled`、`status_checkin_hour`、`status_checkin_second_enabled`、`status_checkin_second_hour`、`status_checkin_snooze_minutes`、`status_checkin_adaptive_sampling`、`status_checkin_hour_auto` | 每日精力询问 | 保留设置和签到历史的原有边界；每天派生的闹钟不导入为提醒行 |
+| `meal_reminder_enabled`、`meal_duration_tracking_enabled`、`wind_down_enabled`、`quiet_hours_*` | 饭点、用餐结束、睡前和免打扰策略 | 保留原键；生活阶段、饭点记录与静音时限不被伪装为 Reminder 记录 |
+| `permission_reminder_dismissed`、`reminder_test_expected_at`、`reminder_test_delivered_at` | 权限入口与通知送达测试 | 保留诊断／界面状态，不作为业务提醒迁移 |
+
+冻结的契约：首次迁移的 Reminder 行数为零，因为旧版本没有可保持身份的显式提醒记录。
+旧提醒设置仍由 `ProtectedPreferences` 的设置路径实时读写，不进入核心 JSON 来源指纹或
+Room 的一次性事务；用户在核心激活前后改设置，不应触发“来源变化”阻断，也不应出现
+Legacy 与 Room 双写同一设置。旧任务、活动和课程仍按各自已经冻结的实体规则迁移；
+现有通知的新鲜度校验、恢复与取消逻辑继续使用当前源的业务数据。
+
+未来实际落地统一 Reminder 表时，必须先明确“用户显式配置的规则”和“派生的一次送达”
+的身份、目标引用、触发时区、提前／到点阶段、动作与过期失效规则；再决定哪部分设置归入
+设置 Store，哪部分成为 Reminder 行，并建立设置切换的单一写者与旧版本兼容测试。
+当前检查点不以现有闹钟数量推断表结构，不添加一个无法从旧数据可靠填充的空表。
+真实 Room 端到端回归使用 8.2.1 的待完成任务，覆盖旧设置原值跨激活保留；设置变化不改变核心来源指纹；
+激活后修改设置继续影响提醒计算；进程重启仍选中 Room 核心来源。
+
+版本保持 8.3.0-rc.12，`CoreDataRuntimePolicy.ACTIVATION_ENABLED=false`。
+下一检查点应审计 TrashGroup／OperationRecord 与旧删除／恢复路径，再决定是否扩展 schema。
+
+## 20. TrashGroup／OperationRecord 与旧删除、恢复路径
+
+2026-09-23 核对 `TaskActions`、`MainActivity`、`PrototypeStore`、`TaskHistory`、
+`PlanHistorySection`、课程批量管理与真实 Room 激活 fixture。旧版本没有回收站列表、
+删除组 ID、过期时间或保存了操作前完整状态的撤回记录。现有 `task_events` 是审计历史，
+只存事件 ID、任务 ID、类型、时间、标题、安排时间和简短附注；即使类型为
+`TASK_DELETED`，也没有任务详情、目标关系、父子关系、原始顺序等恢复必需字段。
+
+| 现有动作 | 实际落盘 | 可从旧数据恢复的范围 |
+| --- | --- | --- |
+| 删除／放弃任务 | 从 `items` 移除，解除子项的 `parentCaptureId`；同时追加 `TASK_DELETED` | 只能保留历史事件；已删任务本体和旧父子链接无法重建 |
+| “恢复”暂停任务、收集箱“退回待整理” | 仍在 `items` 的任务改 `kind`／整理状态；历史可写 `TASK_RESTORED` 或 `CAPTURE_ROUTED` | 原记录一直存在，可保留同一 ID；这些事件不是从回收站恢复的证据 |
+| 删除目标、批量删除或忽略课程、删除资料 | 在 `goals`、`courses`、`resources` JSON 过滤掉记录 | 旧版没有成组快照；课程时段、目标详情与资料内容不得从残存标题推断 |
+| 逐项／批量删除或清空任务历史 | 从 `task_events` 移除所选事件，另设 `task_history_migrated_v65_0` 防止重启时补回 | 已删历史不能恢复；该批量操作目前没有逆操作载荷 |
+| 页面前后退、通勤学习的撤销 | 页面会话快照或 `CommuteProfile` 内的局部学习数据 | 与持久化业务撤回不同，不迁移成全局 `OperationRecord` |
+
+冻结迁移边界：仅迁移当前仍存在的 Task、Plan、Course 与全部仍存在的 TaskEvent，
+包括指向已删除任务的孤儿历史；不因 `TASK_DELETED` 生成“已删除任务”或回收站行，
+也不因 `TASK_RESTORED` 生成可撤销操作。旧记录没有准确删除时间，不能以事件标题或
+任务 ID 推断 30 天有效期。真实 Room 回归专门验证 8.3 fixture 中 ID 502 的删除事件
+继续保留、ID 999 的旧任务不被复活，并在激活后重启仍保持相同数据。原 JSON 保持只读。
+
+9.0 真正实施软删除时，单项与批量操作必须在同一事务中记录完整删除前快照、原顺序、
+关联的任务／计划／课程时段及组 ID；删除时间、30 天到期时间与永久清除要有明确状态。
+`OperationRecord` 只为实际具备逆操作载荷的新操作建立，并在事务中记录作用范围、
+执行顺序和撤回状态；引用旧 TaskEvent 作为只读历史时不能让它提供不存在的逆操作。
+恢复同组记录前要检查 ID 冲突与关联对象，恢复后仅重建未来提醒。涉及 `resources`、
+饭点或其他尚未进入核心迁移的偏好域时，需要先冻结其单一写者和快照边界。
+
+此检查点不改变删除行为，不启用回收站，不新增一个无法从旧数据可靠填充的表。
+产品版本仍为 8.3.0-rc.12，激活常量继续关闭，PR #51 保持草稿、未合并、未发布。
+下一检查点先复核阶段3剩余存储域与产品切换门禁，再进入统一组件与不透明度审计。
+
+## 21. 剩余偏好域与核心数据源切换门禁
+
+2026-09-23 复核 `PrototypeStore`、`FocusFlowStartupSnapshot`、`MainActivity`、
+`CoreDataRuntimeCompositionRoot` 和激活端到端回归。核心来源指纹与一次性导入涵盖
+`items`、`task_events`、`goals`、`sessions`、`courses`；Room 已有这五类快照。
+这些范围外的偏好仍是用户数据，不能在切换时清空、重置，或因为 Room 中没有对应表就
+把它们当作迁移成功。
+
+| 仍在旧偏好中的数据 | 当前边界与后续要求 |
+| --- | --- |
+| 外观主题、图片裁剪、动画、入口/引导状态；课程节次时间表和课表显示偏好 | 保留原键并实时读取；界面材质改造不得重置外观或课表节次设置。`course_setup_done` 与课程数据读取的关系须在课程收口时一起处理 |
+| 活动/任务/签到/饭点/睡前提醒设置，免打扰、通知权限与送达测试状态 | 仍由设置域管理；切换核心任务和会话后继续按最新设置计算通知，不生成虚构的 Reminder 行 |
+| 精力、签到历史、生活阶段、饭点记录、游戏会话及应用分类 | 保留历史和现有上限/默认值；后续若将这些记录纳入 Room，应单独冻结旧键、身份和单一写者 |
+| 地点、通勤档案、地图资料、待选地点及模型/地图服务配置 | 保留实际业务数据与设置；密钥保护按独立安全检查点处理，不随核心切换改写配置 |
+| `resources`、反馈与改进笔记、`plan_learning` | 保留与目标/任务相关的原记录和引用关系；未来删除组跨域恢复前，先明确快照与原子写入边界 |
+| 更新偏好、诊断记录及其他界面选择 | 继续使用原设置/诊断域；不纳入五类核心数据的来源指纹 |
+
+**已证实的激活阻塞：** `FocusFlowStartupSnapshot` 仍以 `hasCourseSetup()` 和
+`loadCourses()` 从旧 Store 取课程；`MainActivity` 新增、编辑、确认、忽略及删除等路径
+仍调用 `store.saveCourses`。激活后 Room 中已存在导入的 `Course`/`CourseMeetingRule`，
+旧课程写入不会同步到 Room。新增真实 Room 回归先导入课程，再模拟旧页面修改地点：
+旧 Store 返回新地点，Room 保留原地点，一致性报告为 `courses` 不一致。
+这证明目前不能打开产品激活开关，也不能仅凭五类数据初次导入一致就认为所有课程写路径完成。
+
+切换前必须将课程启动读取、识别导入、确认/忽略、编辑、批量操作和删除收口为
+选中来源的唯一 Repository，并在 Room 中以事务维护课程和时段关系、顺序及迁移计数；
+旧版仍走相同接口的 Legacy 实现。另需逐项验证提醒调度从选中来源拿任务/活动/课程，
+以及核心 Room 已激活后重启、旧偏好设置变化、旧数据升级、异常源阻断和 OPPO 真机路径。
+当核心数据使用 Room 时，以上独立偏好域仍可保持原存储，但每个业务字段必须只有一个写者。
+
+本检查点还修复一个运行时门禁：`ensureTaskHistoryMigrated()` 此前的返回值被忽略，
+即使旧历史迁移返回 `WRITE_FAILED` 也会暴露 Ready。现在非 `APPLIED` 或抛异常时
+返回并缓存 `BLOCKED_RUNTIME_ASSEMBLY`，不创建另一来源作回退；测试分别覆盖写失败
+和异常。`CoreDataRuntimePolicy.ACTIVATION_ENABLED` 继续为 `false`，版本仍为
+8.3.0-rc.12，PR #51 仍是草稿，不合并、不发布。
+
+下一检查点进入阶段2A：审计统一页面/弹窗材质入口、现有不透明度范围与最大可允许值，
+冻结共享上限和默认/渐变/亚克力/图片背景的验收矩阵。课程单一数据源是后续启用
+Room 产品切换的阻塞项，应在真正切换前另开实现检查点完成。
+
+## 22. 课程单一写入口（实现检查点）
+
+rc.20 将启动快照课程读取、教务／截图导入、逐项及批量确认、忽略、启停、删除、手动新增／编辑统一经过 `CoreDataRepository.replaceCourses(updated, expected)`。Legacy 路径先核对预期课程快照，再一次 `commit` 原有 JSON；保存失败不更新页面课程状态。Room 路径在同一事务中核对源快照、验证 ID 与节次／日期，先替换时段表再替换课程表，并更新迁移状态中的课程及规则数量；失败时整个事务回滚。新增纯仓库测试覆盖顺序、ID、旧确认状态、过期快照和失败回滚；真实 Room 激活 fixture 改为通过选中写者编辑并验证旧 JSON 原样不变。产品 `ACTIVATION_ENABLED` 仍为 `false`，不得从此检查点推断产品可切换 Room；提醒调度、后台路径和真机升级仍须单独核对。

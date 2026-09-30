@@ -122,6 +122,15 @@ object TaskActions {
             event = TaskRecorder.event(TaskEventType.TASK_COMPLETED, item.id, item.title, extra = "完成")
         )
 
+    fun undoCompletion(items: List<Item>, itemId: Long, completedAt: Long): Result {
+        val current = items.firstOrNull { it.id == itemId && it.done && it.completedAt == completedAt }
+            ?: return Result(items)
+        return Result(
+            items.map { if (it.id == itemId) it.copy(done = false, completionLevel = "", completedAt = null) else it },
+            TaskRecorder.event(TaskEventType.TASK_UNCOMPLETED, current.id, current.title, extra = "撤回完成")
+        )
+    }
+
     /** 目标卡片选择完成档位：置完成标记与档位事件（档位后的完成率学习/目标计数由调用点执行）。 */
     fun completeWithLevel(items: List<Item>, item: Item, level: String, now: Long = System.currentTimeMillis()): Result =
         Result(

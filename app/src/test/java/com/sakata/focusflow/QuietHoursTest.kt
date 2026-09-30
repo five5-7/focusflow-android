@@ -26,6 +26,14 @@ class QuietHoursTest {
         assertFalse(s.isMuted(at(13, 0)))
     }
 
+    @Test fun isMuted_equalBoundaryAllows() {
+        val until = at(12, 0)
+        val s = QuietHoursSettings(muteUntil = until)
+        assertTrue(s.isMuted(until - 1))
+        assertFalse(s.isMuted(until))
+        assertFalse(s.isMuted(until + 1))
+    }
+
     @Test fun suppresses_byType() {
         val s = QuietHoursSettings()
         assertTrue(QuietHoursSettings.suppresses(s, ReminderReceiver.ACTION_STATUS_CHECK_IN))
