@@ -48,6 +48,14 @@ import com.sakata.focusflow.data.CoreDataRuntimeAccess
 import com.sakata.focusflow.data.CoreDataRuntimeResolution
 import com.sakata.focusflow.data.CoreDataRuntimeSource
 import com.sakata.focusflow.data.CourseDeletionOutcome
+import com.sakata.focusflow.data.Stage7Recovery
+import com.sakata.focusflow.data.Stage7Inverse
+import com.sakata.focusflow.data.Stage7CourseMaintenance
+import com.sakata.focusflow.data.CourseRecoveryGroupsRead
+import com.sakata.focusflow.data.CourseRecoveryState
+import com.sakata.focusflow.data.courseRecoveryStore
+import com.sakata.focusflow.data.CoreDataWriteResult
+import com.sakata.focusflow.data.CoreDataWriteStatus
 import com.sakata.focusflow.data.CourseRecoveryOperations
 import com.sakata.focusflow.data.CourseRecoveryRestoreCandidate
 import com.sakata.focusflow.data.CourseRecoveryScope
@@ -264,6 +272,9 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
     var addScheduleOpen by remember { mutableStateOf(false) }
     var addReminderOpen by remember { mutableStateOf(false) }
     var trashOpen by remember { mutableStateOf(false) }
+    var pendingPlanDelete by remember { mutableStateOf<Goal?>(null) }
+    var selectedPlanTasks by remember { mutableStateOf(emptySet<Long>()) }
+    var pendingIgnoreCourses by remember { mutableStateOf<Set<Course>>(emptySet()) }
     var pendingTrashConfirm by remember { mutableStateOf<List<Item>>(emptyList()) }
     var reminderRevision by remember { mutableIntStateOf(0) }
     var focusedReminderId by remember { mutableStateOf<Long?>(null) }
@@ -1114,21 +1125,68 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
         return true
     }
 
+    fun refreshRecoveryState(result:CoreDataWriteResult):Boolean {
+        val previousItems=items
+        val previousCourses=courses
+        val snapshot=readCoreData()
+        items=snapshot.items; taskEvents=snapshot.taskEvents; goals=snapshot.goals
+        courseReminderSettings=CourseReminders.load(context)
+        if(snapshot.courses!=previousCourses) applyCourseState(previousCourses,snapshot.courses)
+        ReminderScheduler.syncTaskReminders(context,previousItems,items)
+        refreshRestorableCourses()
+        if(!result.applied) scope.launch { snackbarHostState.showSnackbar("操作未确认：${result.message.ifBlank { result.status.name }}；未覆盖后续修改。") }
+        return result.applied
+    }
+    fun restoreRecoveryEntry(e:RecoveryEntry) {
+        if(e.course) {
+            val candidate=CourseRecoveryOperations.restorableGroups(coreDataRepository).firstOrNull { it.groupId==e.id }
+            if(candidate!=null) restoreCoursesWithRecovery(candidate)
+        } else {
+            val record=readCoreData().operationRecords.firstOrNull { it.operationId==e.id }
+            val result=if(e.inverse && record?.state=="restoring") Stage7Inverse.resume(context,coreDataRepository,e.id)
+                else if(e.inverse) Stage7Inverse.undo(context,coreDataRepository,e.id)
+                else Stage7Recovery.restore(coreDataRepository,e.id)
+            if(refreshRecoveryState(result)) scope.launch { snackbarHostState.showSnackbar("已${if(e.inverse) "撤回" else "恢复"}，历史仍保留。") }
+        }
+    }
+    fun purgeRecoveryEntry(e:RecoveryEntry):Boolean {
+        val okay=if(e.course) when(val outcome=coreDataRepository.courseRecoveryStore.purgeSelectedGroups(setOf(e.id))) {
+            is CoursePurgeOutcome.Applied -> true
+            else -> { reportCourseRecovery("清除未确认：$outcome"); false }
+        } else refreshRecoveryState(Stage7Recovery.purge(coreDataRepository,setOf(e.id)))
+        if(okay) { Stage7CourseMaintenance.collect(context,coreDataRepository); refreshRestorableCourses(); reminderRevision++ }
+        return okay
+    }
+    LaunchedEffect(Unit) {
+        val pending=readCoreData().operationRecords.filter { it.state=="restoring" && it.kind.endsWith("inverse") }
+        pending.forEach { refreshRecoveryState(Stage7Inverse.resume(context,coreDataRepository,it.operationId)) }
+        val now=System.currentTimeMillis()
+        refreshRecoveryState(Stage7Recovery.purge(coreDataRepository,now=now))
+        Stage7CourseMaintenance.collect(context,coreDataRepository)
+    }
+
     fun applyTodoBatch(ids: Set<Long>, action: TodoBatchAction, targetDay: Long?, keepTime: Boolean): Boolean {
         val result = TodoBatchActions.apply(items, ids, action, targetDay = targetDay, keepTime = keepTime)
         if (result.events.isEmpty()) {
             scope.launch { snackbarHostState.showSnackbar("待办已变化，请重新选择。") }
             return false
         }
-        val changed = if (action == TodoBatchAction.DELETE) TrashActions.trash(items, ids)
-            else TrashResult(result.items, result.events)
-        if (changed.events.isEmpty() || !saveItemsWithEvents(changed.items, changed.events)) return false
-        if (action == TodoBatchAction.DELETE) result.affectedBefore.forEach { removeScheduledActivity(it.id) }
-        scope.launch {
-            if (snackbarHostState.showSnackbar("已${action.label} ${result.affectedBefore.size} 项", actionLabel = "撤回") == SnackbarResult.ActionPerformed) {
-                val undo = if (action == TodoBatchAction.DELETE) TrashActions.restore(items, ids)
-                    else TodoBatchActions.undo(items, result).let { TrashResult(it.first, it.second) }
-                if (undo.events.isNotEmpty()) saveItemsWithEvents(undo.items, undo.events)
+        if(action!=TodoBatchAction.DELETE) {
+            val (outcome,operationId)=Stage7Inverse.applyTaskBatch(coreDataRepository,result,System.currentTimeMillis())
+            if(!refreshRecoveryState(outcome)) return false
+            scope.launch {
+                if(snackbarHostState.showSnackbar("已${action.label} ${result.affectedBefore.size} 项",actionLabel="撤回")==SnackbarResult.ActionPerformed && operationId!=null)
+                    refreshRecoveryState(Stage7Inverse.undo(context,coreDataRepository,operationId))
+            }
+        } else {
+            val changed=TrashActions.trash(items,ids)
+            if(changed.events.isEmpty() || !saveItemsWithEvents(changed.items,changed.events)) return false
+            result.affectedBefore.forEach { removeScheduledActivity(it.id) }
+            scope.launch {
+                if(snackbarHostState.showSnackbar("已删除 ${ids.size} 项",actionLabel="撤回")==SnackbarResult.ActionPerformed) {
+                    val undo=TrashActions.restore(items,ids)
+                    if(undo.events.isNotEmpty()) saveItemsWithEvents(undo.items,undo.events)
+                }
             }
         }
         return true
@@ -1810,12 +1868,12 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                         }
                     },
                     onRepeatRuleAction = { template, action ->
-                        val result = when (action) {
-                            "stop" -> RepeatActions.stop(items, template)
-                            "delete" -> RepeatActions.deleteRule(items, template)
-                            else -> RepeatResult(items, emptyList())
+                        if(action=="delete") {
+                            if(refreshRecoveryState(Stage7Recovery.deleteRepeat(coreDataRepository,template))) scope.launch { snackbarHostState.showSnackbar("已删除重复规则；可在数据与恢复中成组恢复。") }
+                        } else if(action=="stop") {
+                            val result=RepeatActions.stop(items,template)
+                            if(result.events.isNotEmpty()) saveItemsWithEvents(result.items,result.events)
                         }
-                        if (result.events.isNotEmpty()) saveItemsWithEvents(result.items, result.events)
                     },
                     onConfirmCourse = { course ->
                         if (CourseConfirmationSafety.isDirectConfirmationBlocked(course, courses)) {
@@ -1833,9 +1891,7 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                         courseImportMessage = if (ids.isEmpty()) "没有可直接确认的课程，请逐条核对重叠时段。"
                         else "已一键确认 ${ids.size} 条无冲突时段；其余记录仍待核对。"
                     },
-                    onIgnoreCourse = { targets ->
-                        deleteCoursesWithRecovery(targets)
-                    },
+                    onIgnoreCourse = { targets -> pendingIgnoreCourses=targets },
                     onAddCourse = { addCourseOpen = true },
                     onClearAwaitingCourses = {
                         deleteCoursesWithRecovery(courses.filterTo(mutableSetOf()) { it.needsConfirmation })
@@ -1942,11 +1998,7 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                     goals = goals,
                     onAddGoal = { goalFinderSuggestion = ""; addGoalOpen = true },
                     onEditGoal = { goal -> goalFinderSuggestion = ""; editGoalTarget = goal },
-                    onDeleteGoal = { goal ->
-                        if (saveGoals(goals.filterNot { it.id == goal.id })) {
-                            scope.launch { snackbarHostState.showSnackbar("已删除目标《${goal.title}》") }
-                        }
-                    },
+                    onDeleteGoal = { goal -> pendingPlanDelete=goal; selectedPlanTasks=emptySet() },
                     onCreateWanted = { title ->
                         val plan = WantedPlanActions.create(goals, title)
                         plan != null && saveGoals(goals + plan)
@@ -2298,6 +2350,9 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                             runCatching { readCoreData().items }.getOrNull()?.let { items = it }
                             scope.launch { snackbarHostState.showSnackbar("到期记录暂时无法清理，已保留全部数据。") }
                         }
+                        refreshRecoveryState(Stage7Recovery.purge(coreDataRepository))
+                        purgeExpiredCourseGroups()
+                        Stage7CourseMaintenance.collect(context,coreDataRepository)
                         trashOpen = true
                     })
             }
@@ -2434,20 +2489,48 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
             )
         }
         if (trashOpen) {
-            val trashGroups = readCoreData().trashGroups
+            val snapshot=readCoreData()
+            val owned=RecoveryEntries.ownedItemIds(snapshot.operationRecords)
+            val ordinaryItems=items.filterNot { it.id in owned }
+            val courseGroups=(CourseRecoveryOperations.readGroups(coreDataRepository) as? CourseRecoveryGroupsRead.Ready)?.groups.orEmpty()
+            val entries=RecoveryEntries.build(snapshot,courseGroups,System.currentTimeMillis())
             TrashDialog(
-                items = items,
-                groups = trashGroups,
-                purgeable = TrashJournal.purgeableIds(items, trashGroups),
-                now = System.currentTimeMillis(),
-                onDismiss = { trashOpen = false },
-                onRestore = { ids ->
-                    val result = TrashActions.restore(items, ids)
-                    result.events.isNotEmpty() && saveItemsWithEvents(result.items, result.events)
-                },
-                onPurge = { ids -> purgeTrash(ids) }
+                items=ordinaryItems,groups=snapshot.trashGroups,
+                purgeable=TrashJournal.purgeableIds(ordinaryItems,snapshot.trashGroups),now=System.currentTimeMillis(),
+                onDismiss={trashOpen=false},
+                onRestore={ids -> val result=TrashActions.restore(items,ids); result.events.isNotEmpty() && saveItemsWithEvents(result.items,result.events)},
+                onPurge={ids -> purgeTrash(ids)},recoveryEntries=entries,
+                onRestoreEntry=::restoreRecoveryEntry,onPurgeEntry={purgeRecoveryEntry(it)},
+                onClear={
+                    var okay=true
+                    entries.filter { it.canPurge }.forEach { if(okay) okay=purgeRecoveryEntry(it) }
+                    if(okay) {
+                        val latest=readCoreData(); val ids=TrashJournal.purgeableIds(latest.items,latest.trashGroups)
+                        if(ids.isNotEmpty()) okay=purgeTrash(ids)
+                    }
+                    refreshRecoveryState(CoreDataWriteResult(if(okay) CoreDataWriteStatus.APPLIED else CoreDataWriteStatus.WRITE_FAILED,"清理未全部完成，已保留未确认部分。"))
+                    reminderRevision++
+                }
             )
         }
+        pendingPlanDelete?.let { plan ->
+            val selectable=items.filter { it.goalId==plan.id && it.kind=="任务" && it.repeatTemplateId==null && it.trashedAt==null && it.parentCaptureId==null && items.none { child->child.parentCaptureId==it.id } }
+            AlertDialog(onDismissRequest={pendingPlanDelete=null},title={Text("删除计划《${plan.title}》？")},
+                text={ScrollableDialogBox(maxHeight=340.dp,spacing=8.dp) {
+                    Text("计划和所选普通任务将保留 30 天，可成组恢复。未选择的任务保持原样；重复任务由各自的规则管理。")
+                    selectable.forEach { task -> Row(verticalAlignment=Alignment.CenterVertically) {
+                        Checkbox(checked=task.id in selectedPlanTasks,onCheckedChange={checked->selectedPlanTasks=if(checked) selectedPlanTasks+task.id else selectedPlanTasks-task.id})
+                        Text(task.title,modifier=Modifier.weight(1f))
+                    } }
+                }},confirmButton={TextButton(onClick={
+                    val ids=selectedPlanTasks; pendingPlanDelete=null; selectedPlanTasks=emptySet()
+                    if(refreshRecoveryState(Stage7Recovery.deletePlan(coreDataRepository,plan,ids))) scope.launch { snackbarHostState.showSnackbar("已删除计划，可在数据与恢复中找回。") }
+                }) {Text("删除")}},dismissButton={TextButton(onClick={pendingPlanDelete=null}) {Text("取消")}})
+        }
+        if(pendingIgnoreCourses.isNotEmpty()) AlertDialog(onDismissRequest={pendingIgnoreCourses=emptySet()},title={Text("忽略这些导入课次？")},
+            text={Text("${pendingIgnoreCourses.size} 个课次将移入恢复记录，保留 30 天。")},
+            confirmButton={TextButton(onClick={val targets=pendingIgnoreCourses;pendingIgnoreCourses=emptySet();deleteCoursesWithRecovery(targets)}) {Text("忽略")}},
+            dismissButton={TextButton(onClick={pendingIgnoreCourses=emptySet()}) {Text("取消")}})
         if (addTodoOpen) TodoCreateDialog(
             onDismiss = { addTodoOpen = false },
             onSave = { title, dateOnlyAt, asChecklist, frequency, repeatMinute ->

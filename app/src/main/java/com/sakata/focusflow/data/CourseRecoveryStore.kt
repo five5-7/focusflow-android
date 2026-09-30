@@ -204,6 +204,8 @@ internal interface CourseRecoveryStore {
         now: Long
     ): CourseRecoveryCompletion
 
+    fun purgeSelectedGroups(ids: Set<String>): CoursePurgeOutcome = CoursePurgeOutcome.NotReady("manual purge unavailable")
+
     fun purgeCourseRecoveryGroups(
         expectedGroups: List<CourseRecoveryGroup>,
         now: Long
@@ -459,6 +461,20 @@ internal class LegacyCourseRecoveryStore(
             is CourseRecoveryCommit.Failed -> CourseRecoveryCompletion.WriteUncertain(
                 markUncertain(commit.reason)
             )
+        }
+    }
+
+    override fun purgeSelectedGroups(ids: Set<String>): CoursePurgeOutcome = storage.withCourseWriteLock {
+        if(storage.isStorageReadOnly()) return@withCourseWriteLock CoursePurgeOutcome.Rejected("storage is read-only",CoreDataWriteStatus.NOT_READY)
+        uncertaintyOrNull()?.let { return@withCourseWriteLock CoursePurgeOutcome.WriteUncertain(it) }
+        val groups=(storage.loadCourseRecoveryGroups() as? CourseRecoveryGroupsRead.Ready)?.groups
+            ?: return@withCourseWriteLock CoursePurgeOutcome.Rejected("recovery data unavailable")
+        val selected=groups.filter { it.groupId in ids }
+        if(selected.size!=ids.size || selected.any { it.state==CourseRecoveryState.RESTORING }) return@withCourseWriteLock CoursePurgeOutcome.Rejected("group changed or restoration pending")
+        when(val c=commitGroups(groups.filterNot { it.groupId in ids },groups)) {
+            CourseRecoveryCommit.Committed -> CoursePurgeOutcome.Applied(ids)
+            is CourseRecoveryCommit.Rejected -> CoursePurgeOutcome.Rejected(c.reason)
+            is CourseRecoveryCommit.Failed -> CoursePurgeOutcome.WriteUncertain(markUncertain(c.reason))
         }
     }
 

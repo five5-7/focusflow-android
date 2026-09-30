@@ -22,14 +22,24 @@ internal fun TrashDialog(
     now: Long,
     onDismiss: () -> Unit,
     onRestore: (Set<Long>) -> Boolean,
-    onPurge: (Set<Long>) -> Boolean
+    onPurge: (Set<Long>) -> Boolean,
+    recoveryEntries: List<RecoveryEntry> = emptyList(),
+    onRestoreEntry: (RecoveryEntry) -> Unit = {},
+    onPurgeEntry: (RecoveryEntry) -> Unit = {},
+    onClear: () -> Unit = {}
 ) {
     val view = remember(items, groups) { TrashViews.build(items, groups) }
+    var pendingEntry by remember { mutableStateOf<RecoveryEntry?>(null) }
+    var clearConfirm by remember { mutableStateOf(false) }
     var pendingPurge by remember { mutableStateOf<List<Item>>(emptyList()) }
 
     AppDialog(onDismissRequest = onDismiss, title = { Text("数据与恢复 · 回收站") },
         text = { ScrollableDialogBox(maxHeight = 440.dp, spacing = 8.dp) {
-            if (view.isEmpty) Text("没有最近删除的待办或收集箱记录。")
+            if (recoveryEntries.isNotEmpty()) {
+                Text("计划、课程、重复规则与整批撤回",style=MaterialTheme.typography.titleSmall)
+                RecoveryRows(recoveryEntries,onRestoreEntry,{ pendingEntry=it })
+            }
+            if (view.isEmpty && recoveryEntries.isEmpty()) Text("没有最近删除的待办或收集箱记录。")
             // 契约 §4 规则 3 要求把「为什么不给永久删除」讲清楚，且不得给不清扫的记录显示保留期倒计时。
             if ((view.groups.flatMap { it.members } + view.ungrouped).any { it.id !in purgeable }) {
                 Text("重复任务产生的记录暂不支持永久删除，仍可恢复；它们不受保留期影响。",
@@ -76,8 +86,17 @@ internal fun TrashDialog(
                 }
             }
         } },
+        dismissButton = { TextButton(onClick={clearConfirm=true},enabled=purgeable.isNotEmpty() || recoveryEntries.any { it.canPurge }) { Text("清空可清除记录") } },
         confirmButton = { TextButton(onClick = onDismiss) { Text("关闭") } })
 
+    pendingEntry?.let { e -> AlertDialog(onDismissRequest={pendingEntry=null},title={Text("永久清除恢复记录？")},
+        text={Text("《${e.title}》将失去恢复或撤回入口；已恢复的数据、其他记录和历史会保留。此操作不能撤回。")},
+        confirmButton={TextButton(onClick={pendingEntry=null;onPurgeEntry(e)}) {Text("永久清除")}},
+        dismissButton={TextButton(onClick={pendingEntry=null}) {Text("取消")}}) }
+    if(clearConfirm) AlertDialog(onDismissRequest={clearConfirm=false},title={Text("清空可清除记录？")},
+        text={Text("永久清除当前可清除的回收项和恢复 / 撤回负载。已恢复的数据、历史和仍在续办的记录会保留；无法撤回。")},
+        confirmButton={TextButton(onClick={clearConfirm=false;onClear()}) {Text("清空")}},
+        dismissButton={TextButton(onClick={clearConfirm=false}) {Text("取消")}})
     if (pendingPurge.isNotEmpty()) {
         val targets = pendingPurge
         AlertDialog(

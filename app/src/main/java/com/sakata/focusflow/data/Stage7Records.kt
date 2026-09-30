@@ -117,7 +117,7 @@ internal object Stage7Recovery {
     private fun snapshot(repo: CoreDataRepository) = (repo.read() as? CoreDataReadResult.Ready)?.snapshot ?: error("core data unavailable")
     private fun reject(message: String) = CoreDataWriteResult(CoreDataWriteStatus.CONDITION_NOT_MET,message)
     fun execute(repo: CoreDataRepository, operation: (CoreDataSnapshot) -> CoreDataSnapshot): CoreDataWriteResult = try {
-        if (Stage7CommitGuard.uncertain) reject("previous disk write unconfirmed; restart before recovery")
+        if (Stage7CommitGuard.uncertain || CourseRecoveryWriteGuard.uncertainReason()!=null) reject("previous disk write unconfirmed; restart before recovery")
         else snapshot(repo).let { before -> repo.commitRecovery(before,operation(before)) }
     } catch (e: Exception) { reject(e.message ?: "recovery rejected") }
 
