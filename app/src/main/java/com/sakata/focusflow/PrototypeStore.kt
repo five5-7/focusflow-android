@@ -331,17 +331,31 @@ class PrototypeStore(context: Context) {
         if (StorageProtection.readOnly || !TaskSnapshotPolicy.canSave(expectedItems, loadItems())) {
             return@synchronized false
         }
-        preferences.edit().putString("items", ItemsCodec.encode(items)).commit()
+        val groups = try {
+            com.sakata.focusflow.data.TrashJournal.update(loadItems(), items, loadTrashGroups())
+        } catch (_: Exception) { return@synchronized false }
+        preferences.edit().putString("items", ItemsCodec.encode(items))
+            .putString("trash_groups_v1", com.sakata.focusflow.data.TrashJournalCodec.encode(groups)).commit()
     }
+
+    /** Stage 7 journal shares the task/history commit, including a failed-commit rollback. */
+    fun loadTrashGroups(): List<com.sakata.focusflow.data.TrashGroupRecord> =
+        com.sakata.focusflow.data.TrashJournalCodec.decode(preferences.getString("trash_groups_v1", null))
 
     /** 7.5 整理动作：任务快照与对应历史一次提交，避免中途退出只保存一半。 */
     fun saveItemsAndTaskEvents(items: List<Item>, events: List<TaskEvent>, expectedItems: List<Item>? = null): Boolean = synchronized(taskHistoryLock) {
         if (StorageProtection.readOnly) return@synchronized false
         if (expectedItems != null && !TaskSnapshotPolicy.canSave(expectedItems, loadItems())) return@synchronized false
+        val groups = try {
+            com.sakata.focusflow.data.TrashJournal.update(loadItems(), items, loadTrashGroups())
+        } catch (_: Exception) {
+            return@synchronized false
+        }
         val updatedEvents = events.fold(loadTaskEvents()) { history, event -> TaskHistory.append(history, event) }
         preferences.edit()
             .putString("items", ItemsCodec.encode(items))
             .putString("task_events", TaskEventCodec.encode(updatedEvents))
+            .putString("trash_groups_v1", com.sakata.focusflow.data.TrashJournalCodec.encode(groups))
             .commit()
     }
 
@@ -358,11 +372,15 @@ class PrototypeStore(context: Context) {
         if (StorageProtection.readOnly || !TaskSnapshotPolicy.canSave(expectedItems, loadItems()) || expectedGoals != loadGoals()) {
             return@synchronized false
         }
+        val groups = try {
+            com.sakata.focusflow.data.TrashJournal.update(loadItems(), items, loadTrashGroups())
+        } catch (_: Exception) { return@synchronized false }
         val updatedEvents = events.fold(loadTaskEvents()) { history, event -> TaskHistory.append(history, event) }
         preferences.edit()
             .putString("items", ItemsCodec.encode(items))
             .putString("task_events", TaskEventCodec.encode(updatedEvents))
             .putString("goals", StoredGoalsCodec.encodeGoals(goals))
+            .putString("trash_groups_v1", com.sakata.focusflow.data.TrashJournalCodec.encode(groups))
             .commit()
     }
 

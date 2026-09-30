@@ -371,3 +371,35 @@ data class MigrationStateEntity(
     @ColumnInfo(name = "course_count") val courseCount: Int = 0,
     @ColumnInfo(name = "course_meeting_rule_count") val courseMeetingRuleCount: Int = 0
 )
+
+@Entity(tableName = "trash_groups", indices = [Index(value = ["deleted_at"])])
+data class TrashGroupEntity(
+    @PrimaryKey @ColumnInfo(name = "group_id") val groupId: String,
+    val kind: String,
+    @ColumnInfo(name = "deleted_at") val deletedAt: Long,
+    @ColumnInfo(name = "expires_at") val expiresAt: Long,
+    val state: String,
+    @ColumnInfo(name = "members_json") val membersJson: String
+) {
+    fun toRecord(): TrashGroupRecord {
+        val record = TrashJournalCodec.decode("[$membersJson]").single()
+        require(record.groupId == groupId && record.kind == kind && record.deletedAt == deletedAt &&
+            record.expiresAt == expiresAt && record.state == state) { "trash group columns disagree" }
+        return record
+    }
+
+    companion object {
+        fun fromRecord(record: TrashGroupRecord) = TrashGroupEntity(record.groupId, record.kind,
+            record.deletedAt, record.expiresAt, record.state,
+            TrashJournalCodec.encode(listOf(record)).removePrefix("[").removeSuffix("]"))
+    }
+}
+
+@Entity(tableName = "operation_records", indices = [Index(value = ["recorded_at"])])
+data class OperationRecordEntity(
+    @PrimaryKey @ColumnInfo(name = "operation_id") val operationId: String,
+    val kind: String,
+    @ColumnInfo(name = "recorded_at") val recordedAt: Long,
+    val state: String,
+    val payload: String
+)

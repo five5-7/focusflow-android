@@ -157,7 +157,11 @@ class LegacyCoreDataRepository internal constructor(
 
     override val source: CoreDataRuntimeSource = CoreDataRuntimeSource.LEGACY
 
-    override fun read(): CoreDataReadResult = CoreDataReadResult.Ready(persistence.read())
+    override fun read(): CoreDataReadResult = try {
+        CoreDataReadResult.Ready(persistence.read())
+    } catch (error: Exception) {
+        CoreDataReadResult.Invalid("legacy snapshot read failed: ${error.javaClass.simpleName}")
+    }
 
     override fun replaceTasks(
         tasks: List<Item>,
@@ -270,7 +274,10 @@ class LegacyCoreDataRepository internal constructor(
         activityMutation: CoreDataActivityMutation? = null
     ): CoreDataWriteResult {
         if (applied) return applied(activityMutation = activityMutation)
-        val current = persistence.read()
+        val current = try { persistence.read() } catch (error: Exception) {
+            return CoreDataWriteResult(CoreDataWriteStatus.WRITE_FAILED,
+                "legacy snapshot read failed: ${error.javaClass.simpleName}")
+        }
         return when {
             expectedTasks != null && current.items != expectedTasks -> CoreDataWriteResult(
                 CoreDataWriteStatus.STALE_TASKS,

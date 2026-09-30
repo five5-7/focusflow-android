@@ -17,9 +17,11 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ActivitySessionEntity::class,
         CourseEntity::class,
         CourseMeetingRuleEntity::class,
-        MigrationStateEntity::class
+        MigrationStateEntity::class,
+        TrashGroupEntity::class,
+        OperationRecordEntity::class
     ],
-    version = 5,
+    version = 6,
     exportSchema = true
 )
 abstract class FocusFlowDatabase : RoomDatabase() {
@@ -32,6 +34,8 @@ abstract class FocusFlowDatabase : RoomDatabase() {
     abstract fun courseDao(): CourseDao
     abstract fun courseMeetingRuleDao(): CourseMeetingRuleDao
     abstract fun migrationStateDao(): MigrationStateDao
+    abstract fun trashGroupDao(): TrashGroupDao
+    abstract fun operationRecordDao(): OperationRecordDao
 
     companion object {
         const val FILE_NAME = "focusflow.db"
@@ -68,10 +72,19 @@ abstract class FocusFlowDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS `trash_groups` (`group_id` TEXT NOT NULL, `kind` TEXT NOT NULL, `deleted_at` INTEGER NOT NULL, `expires_at` INTEGER NOT NULL, `state` TEXT NOT NULL, `members_json` TEXT NOT NULL, PRIMARY KEY(`group_id`))")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_trash_groups_deleted_at` ON `trash_groups` (`deleted_at`)")
+                db.execSQL("CREATE TABLE IF NOT EXISTS `operation_records` (`operation_id` TEXT NOT NULL, `kind` TEXT NOT NULL, `recorded_at` INTEGER NOT NULL, `state` TEXT NOT NULL, `payload` TEXT NOT NULL, PRIMARY KEY(`operation_id`))")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_operation_records_recorded_at` ON `operation_records` (`recorded_at`)")
+            }
+        }
+
         fun create(context: Context): FocusFlowDatabase = Room.databaseBuilder(
             context.applicationContext,
             FocusFlowDatabase::class.java,
             FILE_NAME
-        ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5).build()
+        ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6).build()
     }
 }

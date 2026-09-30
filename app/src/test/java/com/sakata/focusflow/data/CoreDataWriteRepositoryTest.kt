@@ -15,6 +15,29 @@ import org.junit.Test
 
 class CoreDataWriteRepositoryTest {
     @Test
+    fun `ordinary deletion group and events commit together and failure rolls back`() {
+        val original = com.sakata.focusflow.Item(id = 991L, title = "草稿", detail = "内容", kind = "任务")
+        val base = sampleSnapshot().copy(items = listOf(original))
+        val store = storeFor(base)
+        val deleted = com.sakata.focusflow.TrashActions.trash(base.items, setOf(original.id), at = 1000)
+        val writer = RoomCoreDataWriteRepository(store)
+
+        assertEquals(CoreDataWriteStatus.APPLIED,
+            writer.replaceTasksAndAppendEvents(deleted.items, deleted.events, base.items).status)
+        assertEquals("active", readySnapshot(store).trashGroups.single().state)
+        assertEquals(original.id, readySnapshot(store).trashGroups.single().members.single().itemId)
+        val beforeFailure = readySnapshot(store)
+        store.failOnEvents = true
+        val restored = com.sakata.focusflow.TrashActions.restore(deleted.items, setOf(original.id), at = 2000)
+        assertEquals(CoreDataWriteStatus.WRITE_FAILED,
+            writer.replaceTasksAndAppendEvents(restored.items, restored.events, deleted.items).status)
+        assertEquals(beforeFailure, readySnapshot(store))
+        store.failOnEvents = false
+        assertEquals(CoreDataWriteStatus.APPLIED,
+            writer.replaceTasksAndAppendEvents(restored.items, restored.events, deleted.items).status)
+        assertEquals("restored", readySnapshot(store).trashGroups.single().state)
+    }
+    @Test
     fun `course write preserves ids order and confirmation and rejects stale snapshot`() {
         val store = storeFor(sampleSnapshot())
         val first = Course("高等数学", 1, 1, 2, "东1", CampusZone.OTHER, id = 201L)
@@ -406,6 +429,7 @@ internal class FakeTransactionalCoreDataStore(
     var sessionRows: List<ActivitySessionEntity> = emptyList(),
     var courseRows: List<CourseEntity> = emptyList(),
     var ruleRows: List<CourseMeetingRuleEntity> = emptyList()
+    var trashRows: List<TrashGroupEntity> = emptyList()
 ) : RoomCoreDataWriteStore {
     var failOnEvents = false
     var failOnCounts = false
@@ -419,6 +443,7 @@ internal class FakeTransactionalCoreDataStore(
         val originalSessions = sessionRows
         val originalCourses = courseRows
         val originalRules = ruleRows
+        val originalTrash = trashRows
         return try {
             block().also { result ->
                 if (result is CoreDataWriteResult && result.applied) committedTransactions++
@@ -431,6 +456,7 @@ internal class FakeTransactionalCoreDataStore(
             sessionRows = originalSessions
             courseRows = originalCourses
             ruleRows = originalRules
+            trashRows = originalTrash
             throw error
         }
     }
@@ -442,6 +468,7 @@ internal class FakeTransactionalCoreDataStore(
     override fun activitySessions(): List<ActivitySessionEntity> = sessionRows
     override fun courses(): List<CourseEntity> = courseRows
     override fun courseMeetingRules(): List<CourseMeetingRuleEntity> = ruleRows
+    override fun trashGroups(): List<TrashGroupEntity> = trashRows
 
     override fun replaceTasks(tasks: List<TaskEntity>) {
         taskRows = tasks
@@ -463,6 +490,10 @@ internal class FakeTransactionalCoreDataStore(
     override fun replaceCourses(courses: List<CourseEntity>, rules: List<CourseMeetingRuleEntity>) {
         courseRows = courses
         ruleRows = rules
+    }
+
+    override fun replaceTrashGroups(groups: List<TrashGroupEntity>) {
+        trashRows = groups
     }
 
     override fun updateMigrationCounts(

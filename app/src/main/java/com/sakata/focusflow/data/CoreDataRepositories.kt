@@ -16,7 +16,8 @@ data class CoreDataSnapshot(
     val taskEvents: List<TaskEvent>,
     val goals: List<Goal>,
     val activitySessions: List<ActivitySession> = emptyList(),
-    val courses: List<Course> = emptyList()
+    val courses: List<Course> = emptyList(),
+    val trashGroups: List<TrashGroupRecord> = emptyList()
 )
 
 sealed interface CoreDataReadResult {
@@ -34,15 +35,21 @@ class LegacyCoreDataReadRepository(
     private val store: PrototypeStore,
     private val itemsLoader: () -> List<Item> = store::loadItems
 ) : CoreDataReadRepository {
-    override fun read(): CoreDataReadResult = CoreDataReadResult.Ready(
-        CoreDataSnapshot(
-            items = itemsLoader(),
-            taskEvents = store.loadTaskEvents(),
-            goals = store.loadGoals(),
-            activitySessions = store.loadSessions(),
-            courses = store.loadCourses()
+    override fun read(): CoreDataReadResult {
+        val items = itemsLoader()
+        val groups = store.loadTrashGroups()
+        TrashJournal.verifyActive(items, groups)
+        return CoreDataReadResult.Ready(
+            CoreDataSnapshot(
+                items = items,
+                taskEvents = store.loadTaskEvents(),
+                goals = store.loadGoals(),
+                activitySessions = store.loadSessions(),
+                courses = store.loadCourses(),
+                trashGroups = groups
+            )
         )
-    )
+    }
 }
 
 interface RoomCoreDataSource {
@@ -55,6 +62,8 @@ interface RoomCoreDataSource {
     fun activitySessions(): List<ActivitySessionEntity> = emptyList()
     fun courses(): List<CourseEntity> = emptyList()
     fun courseMeetingRules(): List<CourseMeetingRuleEntity> = emptyList()
+    fun trashGroups(): List<TrashGroupEntity> = emptyList()
+    fun operationRecords(): List<OperationRecordEntity> = emptyList()
 }
 
 class DatabaseRoomCoreDataSource(private val database: FocusFlowDatabase) : RoomCoreDataSource {
@@ -69,6 +78,8 @@ class DatabaseRoomCoreDataSource(private val database: FocusFlowDatabase) : Room
     override fun activitySessions(): List<ActivitySessionEntity> = database.activitySessionDao().all()
     override fun courses(): List<CourseEntity> = database.courseDao().all()
     override fun courseMeetingRules(): List<CourseMeetingRuleEntity> = database.courseMeetingRuleDao().all()
+    override fun trashGroups(): List<TrashGroupEntity> = database.trashGroupDao().all()
+    override fun operationRecords(): List<OperationRecordEntity> = database.operationRecordDao().all()
 }
 
 /** Reads Room without mutating it. Invalid rows are reported instead of being dropped or fixed. */
@@ -89,6 +100,10 @@ class RoomCoreDataReadRepository(private val source: RoomCoreDataSource) : CoreD
             val sessions = source.activitySessions()
             val courses = source.courses()
             val courseMeetingRules = source.courseMeetingRules()
+            val trashGroups = source.trashGroups().map(TrashGroupEntity::toRecord)
+            val operationRecords = source.operationRecords()
+            if (operationRecords.any { it.operationId.isBlank() || it.payload.isBlank() })
+                return CoreDataReadResult.Invalid("operation_records contains an invalid row")
             val countProblem = countProblem(
                 state,
                 tasks,
@@ -110,6 +125,7 @@ class RoomCoreDataReadRepository(private val source: RoomCoreDataSource) : CoreD
             ) return CoreDataReadResult.Invalid("courses and meeting rules disagree")
 
             val mappedTasks = tasks.map(TaskEntity::toLegacy)
+            TrashJournal.verifyActive(mappedTasks, trashGroups)
             if (tasks.zip(mappedTasks).any { (entity, item) -> entity.status != TaskStatusKey.fromLegacy(item) }) {
                 return CoreDataReadResult.Invalid("tasks contains an inconsistent status")
             }
@@ -128,7 +144,8 @@ class RoomCoreDataReadRepository(private val source: RoomCoreDataSource) : CoreD
                     taskEvents = mappedEvents,
                     goals = plans.map(PlanEntity::toLegacy),
                     activitySessions = sessions.map(ActivitySessionEntity::toLegacy),
-                    courses = courses.zip(courseMeetingRules).map { (parent, rule) -> rule.toLegacy(parent) }
+                    courses = courses.zip(courseMeetingRules).map { (parent, rule) -> rule.toLegacy(parent) },
+                    trashGroups = trashGroups
                 )
             )
         } catch (error: Exception) {
@@ -223,6 +240,10 @@ object CoreDataConsistencyChecker {
                     ActivitySession::id
                 )?.let(::add)
                 difference("courses", legacy.courses, room.snapshot.courses, Course::id)?.let(::add)
+                if (legacy.trashGroups != room.snapshot.trashGroups) {
+                    add(CoreDataDifference("trash_groups", "content or membership differs",
+                        legacy.trashGroups.size, room.snapshot.trashGroups.size))
+                }
             }
             CoreDataConsistencyReport(
                 status = if (differences.isEmpty()) CoreDataConsistencyStatus.CONSISTENT

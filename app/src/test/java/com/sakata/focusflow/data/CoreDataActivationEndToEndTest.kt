@@ -157,6 +157,27 @@ class CoreDataActivationEndToEndTest {
     }
 
     @Test
+    fun `new ordinary trash group migrates with its tombstone and old orphan event stays history only`() {
+        installFixture("8.3-rc.12")
+        val first = Item(id = 991L, title = "待整理", detail = "全文", kind = "收集箱")
+        check(preferences.edit().putString(LegacyPreferencesReader.KEY_ITEMS,
+            com.sakata.focusflow.ItemsCodec.encode(listOf(first))).commit())
+        val deleted = com.sakata.focusflow.TrashActions.trash(listOf(first), setOf(first.id), at = 1000)
+        assertTrue(PrototypeStore(context).saveItemsAndTaskEvents(deleted.items, deleted.events, listOf(first)))
+        val before = (LegacyPreferencesReader.fromContext(context).read() as LegacyReadResult.Success).snapshot
+        assertEquals(1, before.trashGroups.size)
+        val database = newDatabase()
+        val ready = runtime(database, SharedPreferencesCoreDataActivationStore(context),
+            SharedPreferencesMigrationMarker(context), true, sequenceOf(100L, 200L)
+        ).resolve() as CoreDataRuntimeResolution.Ready
+        val after = (ready.repository.read() as CoreDataReadResult.Ready).snapshot
+        assertEquals(before.trashGroups.single().toRecord(), after.trashGroups.single())
+        assertEquals(listOf(991L), database.trashGroupDao().all().single().toRecord().members.map { it.itemId })
+        assertTrue(after.items.none { it.id == 999L })
+        assertTrue(after.taskEvents.any { it.id == 502L && it.itemId == 999L })
+    }
+
+    @Test
     fun `reminder preferences stay live and never change the core migration fingerprint`() {
         installFixture("8.2.1")
         check(preferences.edit()

@@ -440,7 +440,8 @@ class CoreDataActivationCoordinator(
                     activitySessions = snapshot.activitySessions.map(ActivitySessionEntity::toLegacy),
                     courses = snapshot.courses.zip(snapshot.courseMeetingRules).map { (parent, rule) ->
                         rule.toLegacy(parent)
-                    }
+                    },
+                    trashGroups = snapshot.trashGroups.map(TrashGroupEntity::toRecord)
                 )
             )
         } catch (error: Exception) {

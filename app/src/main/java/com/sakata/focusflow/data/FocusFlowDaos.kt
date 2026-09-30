@@ -156,3 +156,24 @@ interface MigrationStateDao {
         courseMeetingRuleCount: Int
     ): Int
 }
+
+@Dao
+interface TrashGroupDao {
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    fun insertAll(groups: List<TrashGroupEntity>)
+
+    @Query("SELECT * FROM trash_groups ORDER BY deleted_at, group_id")
+    fun all(): List<TrashGroupEntity>
+
+    @Query("SELECT group_id FROM trash_groups ORDER BY group_id")
+    fun allIds(): List<String>
+
+    @Query("DELETE FROM trash_groups")
+    fun deleteAll()
+}
+
+@Dao
+interface OperationRecordDao {
+    @Query("SELECT * FROM operation_records ORDER BY recorded_at, operation_id")
+    fun all(): List<OperationRecordEntity>
+}

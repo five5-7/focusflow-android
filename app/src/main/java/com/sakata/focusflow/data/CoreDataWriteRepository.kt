@@ -46,6 +46,7 @@ interface RoomCoreDataWriteStore : RoomCoreDataSource {
     fun replacePlans(plans: List<PlanEntity>)
     fun replaceActivitySessions(sessions: List<ActivitySessionEntity>)
     fun replaceCourses(courses: List<CourseEntity>, rules: List<CourseMeetingRuleEntity>)
+    fun replaceTrashGroups(groups: List<TrashGroupEntity>)
     fun updateMigrationCounts(
         taskCount: Int,
         taskEventCount: Int,
@@ -70,6 +71,8 @@ class DatabaseRoomCoreDataWriteStore(private val database: FocusFlowDatabase) : 
     override fun activitySessions(): List<ActivitySessionEntity> = database.activitySessionDao().all()
     override fun courses(): List<CourseEntity> = database.courseDao().all()
     override fun courseMeetingRules(): List<CourseMeetingRuleEntity> = database.courseMeetingRuleDao().all()
+    override fun trashGroups(): List<TrashGroupEntity> = database.trashGroupDao().all()
+    override fun operationRecords(): List<OperationRecordEntity> = database.operationRecordDao().all()
 
     override fun replaceTasks(tasks: List<TaskEntity>) {
         database.taskDao().deleteAll()
@@ -96,6 +99,11 @@ class DatabaseRoomCoreDataWriteStore(private val database: FocusFlowDatabase) : 
         database.courseDao().deleteAll()
         if (courses.isNotEmpty()) database.courseDao().insertAll(courses)
         if (rules.isNotEmpty()) database.courseMeetingRuleDao().insertAll(rules)
+    }
+
+    override fun replaceTrashGroups(groups: List<TrashGroupEntity>) {
+        database.trashGroupDao().deleteAll()
+        if (groups.isNotEmpty()) database.trashGroupDao().insertAll(groups)
     }
 
     override fun updateMigrationCounts(
@@ -133,10 +141,13 @@ class RoomCoreDataWriteRepository(
     fun replaceTasks(tasks: List<Item>, expectedTasks: List<Item>): CoreDataWriteResult =
         transact { current ->
             if (current.items != expectedTasks) return@transact staleTasks()
+            val updatedGroups = try { TrashJournal.update(current.items, tasks, current.trashGroups) }
+                catch (_: IllegalArgumentException) { return@transact invalidInput("invalid trash transition") }
             validate(tasks, current.taskEvents, current.goals)?.let {
                 return@transact invalidInput(it)
             }
             store.replaceTasks(tasks.toTaskEntities())
+            if (updatedGroups != current.trashGroups) store.replaceTrashGroups(updatedGroups.map(TrashGroupEntity::fromRecord))
             applied()
         }
 
@@ -146,12 +157,15 @@ class RoomCoreDataWriteRepository(
         expectedTasks: List<Item>? = null
     ): CoreDataWriteResult = transact { current ->
         if (expectedTasks != null && current.items != expectedTasks) return@transact staleTasks()
+        val updatedGroups = try { TrashJournal.update(current.items, tasks, current.trashGroups) }
+            catch (_: IllegalArgumentException) { return@transact invalidInput("invalid trash transition") }
         val updatedEvents = events.fold(current.taskEvents, TaskHistory::append)
         validate(tasks, updatedEvents, current.goals)?.let {
             return@transact invalidInput(it)
         }
         store.replaceTasks(tasks.toTaskEntities())
         store.replaceTaskEvents(updatedEvents.toTaskEventEntities())
+        if (updatedGroups != current.trashGroups) store.replaceTrashGroups(updatedGroups.map(TrashGroupEntity::fromRecord))
         applied()
     }
 
@@ -164,6 +178,8 @@ class RoomCoreDataWriteRepository(
     ): CoreDataWriteResult = transact { current ->
         if (expectedTasks != null && current.items != expectedTasks) return@transact staleTasks()
         if (expectedPlans != null && current.goals != expectedPlans) return@transact stalePlans()
+        val updatedGroups = try { TrashJournal.update(current.items, tasks, current.trashGroups) }
+            catch (_: IllegalArgumentException) { return@transact invalidInput("invalid trash transition") }
         val updatedEvents = events.fold(current.taskEvents, TaskHistory::append)
         validate(tasks, updatedEvents, plans)?.let {
             return@transact invalidInput(it)
@@ -171,6 +187,7 @@ class RoomCoreDataWriteRepository(
         store.replaceTasks(tasks.toTaskEntities())
         store.replaceTaskEvents(updatedEvents.toTaskEventEntities())
         store.replacePlans(plans.toPlanEntities())
+        if (updatedGroups != current.trashGroups) store.replaceTrashGroups(updatedGroups.map(TrashGroupEntity::fromRecord))
         applied()
     }
 
