@@ -54,9 +54,20 @@ enum class RecoveryRejection {
     SNAPSHOT_INCONSISTENT,
     INSTANCE_MISSING_OCCURRENCE_DAY,
     INSTANCE_TEMPLATE_MISMATCH,
-    INSTANCE_MISSING_TEMPLATE_LINK,
     /** 当前条目快照里同一 ID 出现多次。 */
     DUPLICATE_CURRENT_ID,
+    /** 模板 `preState` 不是可删除的重复模板（种类或频率不合法）。 */
+    INVALID_TEMPLATE_PRE_STATE,
+    /** 模板 `postState` 不是删除产生的回收站墓碑。 */
+    INVALID_TEMPLATE_POST_STATE,
+    /** 实例 `preState` 不是未完成的普通任务。 */
+    INVALID_INSTANCE_PRE_STATE,
+    /** 实例 `postState` 不符合 `stop` 的真实删除输出。 */
+    INVALID_INSTANCE_POST_STATE,
+    /** `deletedAt` 非法（小于等于 0）或加上保留时长后溢出。 */
+    INVALID_EXPIRY,
+    /** 闭包自带的 `expiresAt` 与按 `deletedAt` 计算出的合法期限不一致。 */
+    EXPIRY_MISMATCH,
 }
 
 /** 当前快照里是否出现了重复 ID（`associateBy` 会静默折叠，必须在使用前发现）。 */
@@ -119,6 +130,9 @@ data class RecoveryOutcome(
 internal object RepeatClosureRecovery {
     /** 闭合组种类；恢复入口只接受它。 */
     const val KIND: String = "repeat_rule_closure"
+
+    /** `RepeatActions.stop` 会写入的两种实例文案；其余文案不属真实删除产物。 */
+    private val STOP_DETAILS = setOf("本次未处理", "规则停止，取消本次")
 
     /** 新闭合组的保留时长：30 × 24 小时（与既有普通组一致）。 */
     const val RETENTION_MS: Long = 30L * 24L * 60L * 60L * 1000L
@@ -230,9 +244,24 @@ internal object RepeatClosureRecovery {
         ) {
             return RecoveryRejection.TEMPLATE_ID_MISMATCH
         }
+        // 模板必须真的是「删除前的重复模板」与「删除后的回收站墓碑」这一对。
+        if (template.preState.kind != "重复模板" ||
+            template.preState.repeatFrequency !in setOf("daily", "weekly", "class_day")
+        ) {
+            return RecoveryRejection.INVALID_TEMPLATE_PRE_STATE
+        }
+        if (template.postState.kind != "回收站") return RecoveryRejection.INVALID_TEMPLATE_POST_STATE
         // 墓碑必须与组记录同一删除时刻。
         if (template.postState.trashedAt != closure.deletedAt) {
             return RecoveryRejection.TEMPLATE_DELETED_AT_MISMATCH
+        }
+        // 期限自洽：非法 deletedAt、溢出、以及与合法计算结果不一致的伪造期限都在此拒绝，
+        // 不把这项检查推迟到 Repository 接入。
+        when (val expiry = expiresAtFor(closure.deletedAt)) {
+            is RecoveryExpiry.Ok -> if (closure.expiresAt != expiry.expiresAt) {
+                return RecoveryRejection.EXPIRY_MISMATCH
+            }
+            RecoveryExpiry.InvalidDeletedAt, RecoveryExpiry.Overflow -> return RecoveryRejection.INVALID_EXPIRY
         }
         when (snapshotConsistency(template)) {
             null -> Unit
@@ -256,8 +285,50 @@ internal object RepeatClosureRecovery {
             if (member.preState.repeatOccurrenceDay == null) {
                 return RecoveryRejection.INSTANCE_MISSING_OCCURRENCE_DAY
             }
+            // 删除前必须是未完成的普通任务。
+            if (!isPendingTask(member.preState)) return RecoveryRejection.INVALID_INSTANCE_PRE_STATE
+            // 删除后必须正好是 stop 的产物（含合法的备注物化）。
+            if (!matchesStopOutput(member)) return RecoveryRejection.INVALID_INSTANCE_POST_STATE
         }
         return null
+    }
+
+    private fun isPendingTask(item: Item): Boolean =
+        item.kind == "任务" && !item.done && item.trashedAt == null && item.trashSnapshot == null
+
+    /**
+     * 实例 `postState` 是否正好是 `RepeatActions.stop` 的输出。
+     *
+     * `stop` 对命中谓词的实例做 `preservingNote().copy(kind="重复历史", detail=…, scheduledAt=null,
+     * dayOnly=false, windowStartAt=null, windowEndAt=null)`；`preservingNote` 在 `userNote == null` 时
+     * 把它物化为 `editableNote()`。因此允许两种合法形式：未物化，或恰好物化一次。
+     * 其余字段必须原样保留，`trashedAt`/`trashSnapshot` 必须为空（受影响实例从来不是墓碑）。
+     */
+    private fun matchesStopOutput(member: RecoveryInstanceMember): Boolean {
+        val post = member.postState
+        if (post.kind != "重复历史" || post.scheduledAt != null || post.dayOnly ||
+            post.windowStartAt != null || post.windowEndAt != null ||
+            post.trashedAt != null || post.trashSnapshot != null
+        ) {
+            return false
+        }
+        // stop 只会写这两条文案之一。
+        if (post.detail !in STOP_DETAILS) return false
+        return post == member.preState.preservingNote().copy(
+            kind = "重复历史",
+            detail = post.detail,
+            scheduledAt = null,
+            dayOnly = false,
+            windowStartAt = null,
+            windowEndAt = null,
+        ) || post == member.preState.copy(
+            kind = "重复历史",
+            detail = post.detail,
+            scheduledAt = null,
+            dayOnly = false,
+            windowStartAt = null,
+            windowEndAt = null,
+        )
     }
 
     private enum class SnapshotCheck { Unreadable, Inconsistent }
@@ -307,26 +378,6 @@ internal object RepeatClosureRecovery {
         windowStartAt = preState.windowStartAt,
         windowEndAt = preState.windowEndAt,
     )
-
-    /** 恢复资格判定（供调用方单独复用；语义与 [recover] 内一致）。结构不合法时返回 null。 */
-    fun instanceStatus(
-        closure: RecoveryClosure,
-        member: RecoveryInstanceMember,
-        currentItems: List<Item>,
-        now: Long,
-        zoneId: ZoneId,
-        courses: List<Course>,
-    ): RecoveryInstanceStatus? {
-        if (structureRejection(closure) != null) return null
-        val current = currentItems.associateBy(Item::id)[member.itemId]
-        val requiresCourse = closure.template.preState.repeatFrequency == "class_day"
-        return when (planInstance(member, current, now, dayStartOf(now, zoneId), zoneId, courses, requiresCourse)) {
-            is InstancePlan.Restore -> RecoveryInstanceStatus.RESTORED
-            InstancePlan.SkipPast -> RecoveryInstanceStatus.SKIPPED_PAST
-            InstancePlan.SkipCourse -> RecoveryInstanceStatus.SKIPPED_COURSE
-            InstancePlan.Conflict -> null
-        }
-    }
 
     private sealed interface InstancePlan {
         data class Restore(val item: Item) : InstancePlan

@@ -88,16 +88,20 @@ class Stage7RepeatClosureRecoveryTest {
         return RecoveryInstanceMember(id, pre, post, handlingReason)
     }
 
+    /** 合法期限：由 [deletedAtFor] 推导，保证夹具自身自洽。 */
+    private val expiresAtFor: Long get() = (RepeatClosureRecovery.expiresAtFor(deletedAt) as RecoveryExpiry.Ok).expiresAt
+
     private fun closure(
         members: List<RecoveryInstanceMember>,
-        expiresAt: Long = RepeatClosureRecovery.expiresAtFor(deletedAt).let { (it as RecoveryExpiry.Ok).expiresAt },
+        expiresAt: Long = expiresAtFor,
         groupRestored: Boolean = false,
         pre: Item = templatePre(),
         kind: String = RepeatClosureRecovery.KIND,
         deletedAtOverride: Long = deletedAt,
+        templatePostOverride: Item? = null,
     ) = RecoveryClosure(
         kind = kind,
-        template = RecoveryTemplateMember(templateId, templatePost(pre), pre),
+        template = RecoveryTemplateMember(templateId, templatePostOverride ?: templatePost(pre), pre),
         instances = members,
         deletedAt = deletedAtOverride,
         expiresAt = expiresAt,
@@ -108,12 +112,10 @@ class Stage7RepeatClosureRecoveryTest {
     private fun snapshot(vararg items: Item): List<Item> =
         (listOf(templatePost()) + items.toList()).associateBy(Item::id).values.toList()
 
-    /** 与给定模板 preState 一致的模板墓碑，用于当前快照。 */
-    private fun templatePostFor(pre: Item): Item = templatePost(pre)
     private fun recoverWith(
         members: List<RecoveryInstanceMember>,
         courses: List<Course> = emptyList(),
-        expiresAt: Long = (RepeatClosureRecovery.expiresAtFor(deletedAt) as RecoveryExpiry.Ok).expiresAt,
+        expiresAt: Long = expiresAtFor,
         groupRestored: Boolean = false,
         pre: Item = templatePre(),
         kind: String = RepeatClosureRecovery.KIND,
@@ -122,17 +124,13 @@ class Stage7RepeatClosureRecoveryTest {
         templatePostOverride: Item? = null,
         currentItems: List<Item> = (listOf(templatePostOverride ?: templatePost(pre)) + members.map { it.postState })
             .associateBy(Item::id).values.toList(),
-    ): RecoveryOutcome {
-        val effectivePost = templatePostOverride ?: templatePost(pre)
-        val base = closure(members, expiresAt, groupRestored, pre, kind, deletedAtOverride)
-        return RepeatClosureRecovery.recover(
-            base.copy(template = RecoveryTemplateMember(templateId, effectivePost, pre)),
-            currentItems,
-            now,
-            zone,
-            courses,
-        )
-    }
+    ): RecoveryOutcome = RepeatClosureRecovery.recover(
+        closure(members, expiresAt, groupRestored, pre, kind, deletedAtOverride, templatePostOverride),
+        currentItems,
+        now,
+        zone,
+        courses,
+    )
 
     private fun course(weekday: Int, from: Long? = null, until: Long? = null): Course = Course(
         title = "高等数学",
@@ -191,15 +189,32 @@ class Stage7RepeatClosureRecoveryTest {
     // ---------- 到期边界 ----------
 
     @Test fun `before boundary is recoverable`() {
+        // 自洽夹具：now 距期限还有 1 秒。
+        val closeDeletedAt = now + 1L - RepeatClosureRecovery.RETENTION_MS
+        val closeExpiry = (RepeatClosureRecovery.expiresAtFor(closeDeletedAt) as RecoveryExpiry.Ok).expiresAt
+        assertEquals(now + 1L, closeExpiry)
         val member = instanceMember(id = 901L, scheduledAt = at(day, LocalTime.of(21, 0)))
-        val outcome = recoverWith(listOf(member), expiresAt = now + 1L)
+        val post = templatePost().copy(trashedAt = closeDeletedAt)
+        val outcome = recoverWith(
+            listOf(member),
+            deletedAtOverride = closeDeletedAt,
+            expiresAt = closeExpiry,
+            templatePostOverride = post,
+            currentItems = snapshot(post, member.postState),
+        )
         assertEquals(RecoveryGroupStatus.RESTORED, outcome.status)
         assertEquals(RecoveryTemplateStatus.RESTORED, outcome.templateStatus)
     }
 
     @Test fun `at boundary is not recoverable`() {
+        // 自洽夹具：注入 now == expiresAt。
+        val closeDeletedAt = now - RepeatClosureRecovery.RETENTION_MS
+        val closeExpiry = (RepeatClosureRecovery.expiresAtFor(closeDeletedAt) as RecoveryExpiry.Ok).expiresAt
+        assertEquals(now, closeExpiry)
         val member = instanceMember(id = 901L, scheduledAt = at(day, LocalTime.of(21, 0)))
-        val outcome = recoverWith(listOf(member), expiresAt = now)
+        val post = templatePost().copy(trashedAt = closeDeletedAt)
+        val base = closure(listOf(member), closeExpiry, false, templatePre(), RepeatClosureRecovery.KIND, closeDeletedAt, post)
+        val outcome = RepeatClosureRecovery.recover(base, snapshot(post, member.postState), now, zone, emptyList())
         assertEquals(RecoveryTemplateStatus.EXPIRED, outcome.templateStatus)
         assertEquals(RecoveryGroupStatus.ACTIVE, outcome.status)
         assertNull(outcome.restoredTemplate)
@@ -207,8 +222,19 @@ class Stage7RepeatClosureRecoveryTest {
     }
 
     @Test fun `expired group past its deadline is not recoverable`() {
+        // 自洽夹具：期限比 now 早 1 秒。
+        val pastDeletedAt = now - 1L - RepeatClosureRecovery.RETENTION_MS
+        val pastExpiry = (RepeatClosureRecovery.expiresAtFor(pastDeletedAt) as RecoveryExpiry.Ok).expiresAt
+        assertEquals(now - 1L, pastExpiry)
         val member = instanceMember(id = 901L, scheduledAt = at(day, LocalTime.of(21, 0)))
-        val outcome = recoverWith(listOf(member), expiresAt = deletedAt + 1000L)
+        val post = templatePost().copy(trashedAt = pastDeletedAt)
+        val outcome = recoverWith(
+            listOf(member),
+            deletedAtOverride = pastDeletedAt,
+            expiresAt = pastExpiry,
+            templatePostOverride = post,
+            currentItems = snapshot(post, member.postState),
+        )
         assertEquals(RecoveryTemplateStatus.EXPIRED, outcome.templateStatus)
     }
 
@@ -611,5 +637,151 @@ class Stage7RepeatClosureRecoveryTest {
         assertEquals(member.postState.durationMinutes, restored.durationMinutes)
         assertEquals(member.postState.repeatTemplateId, restored.repeatTemplateId)
         assertEquals(member.postState.repeatOccurrenceDay, restored.repeatOccurrenceDay)
+    }
+
+    // ---------- 真实删除状态校验 ----------
+
+    @Test fun `rejects when both the current template and the closure postState are a plain task`() {
+        // 两边同为 kind="任务"：既不是重复模板也不是回收站墓碑，必须拒绝。
+        val member = instanceMember(id = 901L, scheduledAt = at(day, LocalTime.of(21, 0)))
+        val notATemplate = templatePre().copy(kind = "任务")
+        val outcome = recoverWith(
+            listOf(member),
+            pre = notATemplate,
+            templatePostOverride = notATemplate.copy(trashedAt = deletedAt, trashSnapshot = null),
+            currentItems = snapshot(
+                notATemplate.copy(trashedAt = deletedAt),
+                member.postState,
+            ),
+        )
+        assertEquals(RecoveryTemplateStatus.REJECTED, outcome.templateStatus)
+        assertEquals(RecoveryRejection.INVALID_TEMPLATE_PRE_STATE, outcome.rejection)
+    }
+
+    @Test fun `rejects a template preState whose frequency is not a repeat rule`() {
+        val member = instanceMember(id = 901L, scheduledAt = at(day, LocalTime.of(21, 0)))
+        val outcome = recoverWith(listOf(member), pre = templatePre(frequency = ""))
+        assertEquals(RecoveryRejection.INVALID_TEMPLATE_PRE_STATE, outcome.rejection)
+    }
+
+    @Test fun `rejects a template postState that is not a tombstone`() {
+        val member = instanceMember(id = 901L, scheduledAt = at(day, LocalTime.of(21, 0)))
+        val notTombstone = templatePost().copy(kind = "任务")
+        val outcome = recoverWith(
+            listOf(member),
+            templatePostOverride = notTombstone,
+            currentItems = snapshot(notTombstone, member.postState),
+        )
+        assertEquals(RecoveryRejection.INVALID_TEMPLATE_POST_STATE, outcome.rejection)
+    }
+
+    @Test fun `rejects an instance preState that is already completed`() {
+        val member = instanceMember(id = 901L, scheduledAt = at(day, LocalTime.of(21, 0)))
+        val done = member.copy(preState = member.preState.copy(done = true))
+        val outcome = recoverWith(listOf(done))
+        assertEquals(RecoveryRejection.INVALID_INSTANCE_PRE_STATE, outcome.rejection)
+    }
+
+    @Test fun `rejects an instance preState that is not a task`() {
+        val member = instanceMember(id = 901L, scheduledAt = at(day, LocalTime.of(21, 0)))
+        val collected = member.copy(preState = member.preState.copy(kind = "收集箱"))
+        val outcome = recoverWith(listOf(collected))
+        assertEquals(RecoveryRejection.INVALID_INSTANCE_PRE_STATE, outcome.rejection)
+    }
+
+    @Test fun `rejects an instance postState that still carries a schedule`() {
+        val member = instanceMember(id = 901L, scheduledAt = at(day, LocalTime.of(21, 0)))
+        val stillScheduled = member.copy(postState = member.postState.copy(scheduledAt = now + 5_000L))
+        val outcome = recoverWith(listOf(stillScheduled))
+        assertEquals(RecoveryRejection.INVALID_INSTANCE_POST_STATE, outcome.rejection)
+    }
+
+    @Test fun `rejects an instance postState marked as a tombstone`() {
+        val member = instanceMember(id = 901L, scheduledAt = at(day, LocalTime.of(21, 0)))
+        val tombstoned = member.copy(postState = member.postState.copy(trashedAt = deletedAt))
+        val outcome = recoverWith(listOf(tombstoned))
+        assertEquals(RecoveryRejection.INVALID_INSTANCE_POST_STATE, outcome.rejection)
+    }
+
+    @Test fun `rejects an instance postState with an invented delete detail`() {
+        val member = instanceMember(id = 901L, scheduledAt = at(day, LocalTime.of(21, 0)))
+        val invented = member.copy(postState = member.postState.copy(detail = "随手编的删除原因"))
+        val outcome = recoverWith(listOf(invented))
+        assertEquals(RecoveryRejection.INVALID_INSTANCE_POST_STATE, outcome.rejection)
+    }
+
+    @Test fun `rejects an instance postState that is not the task shaped by stop`() {
+        val member = instanceMember(id = 901L, scheduledAt = at(day, LocalTime.of(21, 0)))
+        // kind 与时间都对，但标题与 preState 不一致 —— 不是同一条记录的删除产物。
+        val tampered = member.copy(postState = member.postState.copy(title = "另一条任务"))
+        val outcome = recoverWith(listOf(tampered))
+        assertEquals(RecoveryRejection.INVALID_INSTANCE_POST_STATE, outcome.rejection)
+    }
+
+    // ---------- 期限自洽 ----------
+
+    @Test fun `rejects a non positive deletedAt`() {
+        val member = instanceMember(id = 901L, scheduledAt = at(day, LocalTime.of(21, 0)))
+        val outcome = recoverWith(
+            listOf(member),
+            deletedAtOverride = 0L,
+            templatePostOverride = templatePost().copy(trashedAt = 0L),
+            currentItems = snapshot(templatePost().copy(trashedAt = 0L), member.postState),
+        )
+        assertEquals(RecoveryTemplateStatus.REJECTED, outcome.templateStatus)
+        assertEquals(RecoveryRejection.INVALID_EXPIRY, outcome.rejection)
+    }
+
+    @Test fun `rejects an overflow deletedAt`() {
+        val member = instanceMember(id = 901L, scheduledAt = at(day, LocalTime.of(21, 0)))
+        val huge = Long.MAX_VALUE
+        val outcome = recoverWith(
+            listOf(member),
+            deletedAtOverride = huge,
+            templatePostOverride = templatePost().copy(trashedAt = huge),
+            currentItems = snapshot(templatePost().copy(trashedAt = huge), member.postState),
+        )
+        assertEquals(RecoveryRejection.INVALID_EXPIRY, outcome.rejection)
+    }
+
+    @Test fun `rejects a forged expiresAt that disagrees with the legal computation`() {
+        val member = instanceMember(id = 901L, scheduledAt = at(day, LocalTime.of(21, 0)))
+        val outcome = recoverWith(listOf(member), expiresAt = expiresAtFor + 1L)
+        assertEquals(RecoveryTemplateStatus.REJECTED, outcome.templateStatus)
+        assertEquals(RecoveryRejection.EXPIRY_MISMATCH, outcome.rejection)
+    }
+
+    @Test fun `rejects a forged shorter expiresAt too`() {
+        val member = instanceMember(id = 901L, scheduledAt = at(day, LocalTime.of(21, 0)))
+        val outcome = recoverWith(listOf(member), expiresAt = expiresAtFor - 1L)
+        assertEquals(RecoveryRejection.EXPIRY_MISMATCH, outcome.rejection)
+    }
+
+    @Test fun `expiry boundary uses a self consistent deletion time and expiry`() {
+        // 自洽夹具：deletedAt = now - 1s，expiresAt = deletedAt + 30d。
+        val boundaryDeletedAt = now - 1_000L
+        val expiry = (RepeatClosureRecovery.expiresAtFor(boundaryDeletedAt) as RecoveryExpiry.Ok).expiresAt
+        val member = instanceMember(id = 901L, scheduledAt = at(day, LocalTime.of(21, 0)))
+        val post = templatePost().copy(trashedAt = boundaryDeletedAt)
+
+        // now 远小于 expiresAt → 可恢复。
+        val open = recoverWith(
+            listOf(member),
+            deletedAtOverride = boundaryDeletedAt,
+            expiresAt = expiry,
+            templatePostOverride = post,
+            currentItems = snapshot(post, member.postState),
+        )
+        assertEquals(RecoveryTemplateStatus.RESTORED, open.templateStatus)
+
+        // 注入 now == expiresAt → 已不可恢复。
+        val base = closure(listOf(member), expiry, false, templatePre(), RepeatClosureRecovery.KIND, boundaryDeletedAt, post)
+        val closed = RepeatClosureRecovery.recover(base, snapshot(post, member.postState), expiry, zone, emptyList())
+        assertEquals(RecoveryTemplateStatus.EXPIRED, closed.templateStatus)
+
+        // 注入 now == expiresAt - 1 → 仍可恢复。
+        val justBefore =
+            RepeatClosureRecovery.recover(base, snapshot(post, member.postState), expiry - 1L, zone, emptyList())
+        assertEquals(RecoveryTemplateStatus.RESTORED, justBefore.templateStatus)
     }
 }
