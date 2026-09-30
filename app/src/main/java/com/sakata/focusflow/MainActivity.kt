@@ -1140,7 +1140,7 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
     fun restoreRecoveryEntry(e:RecoveryEntry) {
         if(e.course) {
             val candidate=CourseRecoveryOperations.restorableGroups(coreDataRepository).firstOrNull { it.groupId==e.id }
-            if(candidate!=null) restoreCoursesWithRecovery(candidate)
+            if(candidate!=null) restoreCoursesWithRecovery(candidate.groupId)
         } else {
             val record=readCoreData().operationRecords.firstOrNull { it.operationId==e.id }
             val result=if(e.inverse && record?.state=="restoring") Stage7Inverse.resume(context,coreDataRepository,e.id)
