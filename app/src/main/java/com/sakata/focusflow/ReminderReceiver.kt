@@ -603,7 +603,7 @@ class ReminderReceiver : BroadcastReceiver() {
             System.currentTimeMillis() >= startsAt + task.durationMinutes.coerceAtLeast(1) * 60_000L) return
         ensureChannel(manager, CHANNEL_TASK, "FocusFlow 任务提醒")
         val openApp = PendingIntent.getActivity(context, 0, Intent(context, MainActivity::class.java), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        val id = ((taskId + 40_000L) % Int.MAX_VALUE).toInt()
+        val id = taskNotificationId(taskId)
         val minutes = ((startsAt - System.currentTimeMillis()) / 60_000L).toInt().coerceAtLeast(0)
         val timing = if (dueNow) "现在该开始了。" else if (minutes <= 1) "即将开始。" else "约 $minutes 分钟后开始。"
         val notification = NotificationCompat.Builder(context, CHANNEL_TASK)
@@ -629,7 +629,7 @@ class ReminderReceiver : BroadcastReceiver() {
         val task = CoreDataRepositoryOperations.findTask(repository, taskId) ?: return
         if (!TaskMissedReminderPolicy.matches(task, startsAt)) return
         ensureChannel(manager, CHANNEL_TASK, "FocusFlow 任务提醒")
-        val id = ((taskId + 40_000L) % Int.MAX_VALUE).toInt()
+        val id = taskNotificationId(taskId)
         val openApp = PendingIntent.getActivity(context, 0, Intent(context, MainActivity::class.java),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         manager.notify(id, NotificationCompat.Builder(context, CHANNEL_TASK)
@@ -652,7 +652,7 @@ class ReminderReceiver : BroadcastReceiver() {
         val task = CoreDataRepositoryOperations.findTask(repository, taskId) ?: return
         if (!TaskDeadlineReminderPolicy.matches(task, startsAt, dueAt)) return
         ensureChannel(manager, CHANNEL_TASK, "FocusFlow 任务提醒")
-        val id = ((taskId + 40_000L) % Int.MAX_VALUE).toInt()
+        val id = taskNotificationId(taskId)
         val open = PendingIntent.getActivity(context, 0, Intent(context, MainActivity::class.java),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         manager.notify(id, NotificationCompat.Builder(context, CHANNEL_TASK)
@@ -1093,3 +1093,6 @@ class ReminderReceiver : BroadcastReceiver() {
         private const val MEAL_NOTIFICATION_BASE = 3_100_000
     }
 }
+
+/** 任务通知卡片 id：三个产出点与清除后的取消共用同一处公式，避免漂移。 */
+internal fun taskNotificationId(taskId: Long): Int = ((taskId + 40_000L) % Int.MAX_VALUE).toInt()

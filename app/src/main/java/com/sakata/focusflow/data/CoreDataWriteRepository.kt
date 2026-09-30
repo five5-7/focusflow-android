@@ -169,6 +169,28 @@ class RoomCoreDataWriteRepository(
         applied()
     }
 
+    /** 7.3 permanent removal; ids already gone are a no-op so retries and expiry sweeps stay safe. */
+    fun purgeTrash(purgedIds: Set<Long>): CoreDataWriteResult =
+        purgeTrashSelected { _, _ -> purgedIds }
+
+    /** 7.3 expiry sweep; only group members past `expiresAt` are eligible. */
+    fun purgeExpiredTrash(now: Long): CoreDataWriteResult =
+        purgeTrashSelected { items, groups -> TrashJournal.expiredIds(items, groups, now) }
+
+    private fun purgeTrashSelected(
+        select: (List<Item>, List<TrashGroupRecord>) -> Set<Long>
+    ): CoreDataWriteResult = transact { current ->
+        val ids = select(current.items, current.trashGroups)
+            .filterTo(mutableSetOf()) { id -> current.items.any { it.id == id } }
+        if (ids.isEmpty()) return@transact applied()
+        val after = current.items.filterNot { it.id in ids }
+        val updatedGroups = try { TrashJournal.purge(current.items, after, current.trashGroups, ids) }
+            catch (_: IllegalArgumentException) { return@transact invalidInput("invalid trash purge") }
+        store.replaceTasks(after.toTaskEntities())
+        if (updatedGroups != current.trashGroups) store.replaceTrashGroups(updatedGroups.map(TrashGroupEntity::fromRecord))
+        applied()
+    }
+
     fun replaceTasksAppendEventsAndPlans(
         tasks: List<Item>,
         events: List<TaskEvent>,

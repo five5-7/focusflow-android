@@ -558,7 +558,7 @@ import kotlinx.coroutines.delay
         if (pendingInboxDeleteIds.isNotEmpty()) AlertDialog(
             onDismissRequest = { pendingInboxDeleteIds = emptySet() },
             title = { Text("删除所选记录？") },
-            text = { Text("将 ${pendingInboxDeleteIds.size} 条移入最近删除，可从设置中的数据与恢复找回。") },
+            text = { Text("将 ${pendingInboxDeleteIds.size} 条移入最近删除（保留 30 天），可从设置的数据与恢复中找回。") },
             confirmButton = { TextButton(onClick = {
                 val ids = pendingInboxDeleteIds
                 pendingInboxDeleteIds = emptySet()

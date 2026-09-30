@@ -37,6 +37,83 @@ class CoreDataWriteRepositoryTest {
             writer.replaceTasksAndAppendEvents(restored.items, restored.events, deleted.items).status)
         assertEquals("restored", readySnapshot(store).trashGroups.single().state)
     }
+
+    @Test
+    fun `permanent purge removes the tombstone and its group but keeps deletion history`() {
+        val original = Item(id = 993L, title = "草稿", detail = "内容", kind = "任务")
+        val base = sampleSnapshot().copy(items = listOf(original))
+        val store = storeFor(base)
+        val deleted = com.sakata.focusflow.TrashActions.trash(base.items, setOf(original.id), at = 1000)
+        val writer = RoomCoreDataWriteRepository(store)
+        assertEquals(CoreDataWriteStatus.APPLIED,
+            writer.replaceTasksAndAppendEvents(deleted.items, deleted.events, base.items).status)
+        val eventsBefore = readySnapshot(store).taskEvents
+
+        assertEquals(CoreDataWriteStatus.APPLIED, writer.purgeTrash(setOf(original.id)).status)
+
+        val after = readySnapshot(store)
+        assertTrue(after.items.isEmpty())
+        assertTrue(after.trashGroups.isEmpty())
+        // Purge never rewrites task_events; the audit trail outlives the item.
+        assertEquals(eventsBefore, after.taskEvents)
+    }
+
+    @Test
+    fun `expiry sweep removes only the group that reached its retention`() {
+        val first = Item(id = 994L, title = "A", detail = "", kind = "任务")
+        val second = Item(id = 995L, title = "B", detail = "", kind = "任务")
+        val base = sampleSnapshot().copy(items = listOf(first, second))
+        val store = storeFor(base)
+        val writer = RoomCoreDataWriteRepository(store)
+        val retention = 30L * 24 * 60 * 60 * 1000
+        val firstDelete = com.sakata.focusflow.TrashActions.trash(base.items, setOf(first.id), at = 1000)
+        assertEquals(CoreDataWriteStatus.APPLIED,
+            writer.replaceTasksAndAppendEvents(firstDelete.items, firstDelete.events, base.items).status)
+        val secondDelete = com.sakata.focusflow.TrashActions.trash(
+            firstDelete.items, setOf(second.id), at = 1000 + retention)
+        assertEquals(CoreDataWriteStatus.APPLIED,
+            writer.replaceTasksAndAppendEvents(secondDelete.items, secondDelete.events,
+                firstDelete.items).status)
+        assertEquals(2, readySnapshot(store).trashGroups.size)
+
+        assertEquals(CoreDataWriteStatus.APPLIED, writer.purgeExpiredTrash(1000 + retention).status)
+
+        val after = readySnapshot(store)
+        assertEquals(listOf(second.id), after.items.map { it.id })
+        assertEquals(listOf(second.id), after.trashGroups.single().members.map { it.itemId })
+    }
+
+    @Test
+    fun `purge rolls back tasks and groups when the transaction fails`() {
+        val original = Item(id = 996L, title = "草稿", detail = "", kind = "任务")
+        val base = sampleSnapshot().copy(items = listOf(original))
+        val store = storeFor(base)
+        val deleted = com.sakata.focusflow.TrashActions.trash(base.items, setOf(original.id), at = 1000)
+        val writer = RoomCoreDataWriteRepository(store)
+        assertEquals(CoreDataWriteStatus.APPLIED,
+            writer.replaceTasksAndAppendEvents(deleted.items, deleted.events, base.items).status)
+        val before = readySnapshot(store)
+        store.failOnCounts = true
+
+        assertEquals(CoreDataWriteStatus.WRITE_FAILED, writer.purgeTrash(setOf(original.id)).status)
+        assertEquals(before, readySnapshot(store))
+    }
+
+    @Test
+    fun `purge of an already removed id is a no-op success`() {
+        val original = Item(id = 997L, title = "草稿", detail = "", kind = "任务")
+        val base = sampleSnapshot().copy(items = listOf(original))
+        val store = storeFor(base)
+        val deleted = com.sakata.focusflow.TrashActions.trash(base.items, setOf(original.id), at = 1000)
+        val writer = RoomCoreDataWriteRepository(store)
+        assertEquals(CoreDataWriteStatus.APPLIED,
+            writer.replaceTasksAndAppendEvents(deleted.items, deleted.events, base.items).status)
+
+        assertEquals(CoreDataWriteStatus.APPLIED, writer.purgeTrash(setOf(original.id)).status)
+        val afterFirst = readySnapshot(store)
+        assertEquals(CoreDataWriteStatus.APPLIED, writer.purgeTrash(setOf(original.id)).status)
+        assertEquals(afterFirst, readySnapshot(store))
+    }
     @Test
     fun `course write preserves ids order and confirmation and rejects stale snapshot`() {
         val store = storeFor(sampleSnapshot())

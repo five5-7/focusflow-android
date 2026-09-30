@@ -281,5 +281,9 @@ private class RecordingRepository(
         return historyResult
     }
 
+    override fun purgeTrash(purgedIds: Set<Long>): CoreDataWriteResult = applied()
+
+    override fun purgeExpiredTrash(now: Long): CoreDataWriteResult = applied()
+
     private fun applied() = CoreDataWriteResult(CoreDataWriteStatus.APPLIED)
 }

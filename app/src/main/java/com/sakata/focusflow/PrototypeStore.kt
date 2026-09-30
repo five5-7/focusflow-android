@@ -363,6 +363,36 @@ class PrototypeStore(context: Context) {
     fun saveItemsAndTaskEvent(items: List<Item>, event: TaskEvent, expectedItems: List<Item>? = null): Boolean =
         saveItemsAndTaskEvents(items, listOf(event), expectedItems)
 
+    /** 7.3 永久清除：由用户显式选择的 id；已不存在的 id 视为无需处理。 */
+    fun purgeTrash(purgedIds: Set<Long>): Boolean = purgeTrashLocked { _, _ -> purgedIds }
+
+    /** 7.3 到期清理：只清达到 expiresAt 的组成员；无组旧 tombstone 永不自动清理。 */
+    fun purgeExpiredTrash(now: Long): Boolean = purgeTrashLocked { items, groups ->
+        com.sakata.focusflow.data.TrashJournal.expiredIds(items, groups, now)
+    }
+
+    /**
+     * 清除只改 `items` 与 `trash_groups_v1`：历史事件按契约保留，因此不写 `task_events`。
+     * 两个键仍在同一次 `commit()` 内，校验失败时 `Editor` 不提交，不会留下部分清除。
+     */
+    private fun purgeTrashLocked(
+        select: (List<Item>, List<com.sakata.focusflow.data.TrashGroupRecord>) -> Set<Long>
+    ): Boolean = synchronized(taskHistoryLock) {
+        if (StorageProtection.readOnly) return@synchronized false
+        val before = loadItems()
+        val groups = try { loadTrashGroups() } catch (_: Exception) { return@synchronized false }
+        val effective = select(before, groups).filterTo(mutableSetOf()) { id -> before.any { it.id == id } }
+        if (effective.isEmpty()) return@synchronized true
+        val after = before.filterNot { it.id in effective }
+        val updated = try {
+            com.sakata.focusflow.data.TrashJournal.purge(before, after, groups, effective)
+        } catch (_: Exception) { return@synchronized false }
+        preferences.edit()
+            .putString("items", ItemsCodec.encode(after))
+            .putString("trash_groups_v1", com.sakata.focusflow.data.TrashJournalCodec.encode(updated))
+            .commit()
+    }
+
     fun saveItemsTaskEventsAndGoals(
         items: List<Item>,
         events: List<TaskEvent>,

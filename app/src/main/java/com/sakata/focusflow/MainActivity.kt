@@ -47,6 +47,7 @@ import com.sakata.focusflow.data.CoreDataRepositoryOperations
 import com.sakata.focusflow.data.CoreDataRuntimeAccess
 import com.sakata.focusflow.data.CoreDataRuntimeResolution
 import com.sakata.focusflow.data.CoreDataRuntimeSource
+import com.sakata.focusflow.data.TrashJournal
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.input.pointer.PointerEventPass
@@ -257,6 +258,7 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
     var addScheduleOpen by remember { mutableStateOf(false) }
     var addReminderOpen by remember { mutableStateOf(false) }
     var trashOpen by remember { mutableStateOf(false) }
+    var pendingTrashConfirm by remember { mutableStateOf<List<Item>>(emptyList()) }
     var reminderRevision by remember { mutableIntStateOf(0) }
     var focusedReminderId by remember { mutableStateOf<Long?>(null) }
     var addMenuOpen by remember { mutableStateOf(false) }
@@ -946,6 +948,56 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
         ReminderScheduler.cancelGameReminders(context, itemId)
     }
 
+    /** 7.3 单条删除的唯一落点：确认后移入回收站，并保留既有撤回。返回是否真的落盘。 */
+    fun performTrash(ids: Set<Long>): Boolean {
+        val titles = items.filter { it.id in ids }.map(Item::title)
+        val result = TrashActions.trash(items, ids)
+        if (result.events.isEmpty()) {
+            scope.launch { snackbarHostState.showSnackbar("条目已变化，请重新打开后操作。") }
+            return false
+        }
+        if (!saveItemsWithEvents(result.items, result.events)) return false
+        ids.forEach(::removeScheduledActivity)
+        scope.launch {
+            val label = if (titles.size == 1) "已移入最近删除：《${titles.single()}》"
+                else "已移入最近删除 ${ids.size} 项"
+            if (snackbarHostState.showSnackbar(label, actionLabel = "撤回") == SnackbarResult.ActionPerformed) {
+                val undo = TrashActions.restore(items, ids)
+                if (undo.events.isNotEmpty()) saveItemsWithEvents(undo.items, undo.events)
+            }
+        }
+        return true
+    }
+
+    /** 7.3 删除前确认。批量路径已有各自确认，不走这里；被关联任务挡住时直接提示并返回 false。 */
+    fun requestTrash(item: Item, blockedMessage: String): Boolean {
+        if (TrashActions.trash(items, setOf(item.id)).events.isEmpty()) {
+            scope.launch { snackbarHostState.showSnackbar(blockedMessage) }
+            return false
+        }
+        pendingTrashConfirm = listOf(item)
+        return true
+    }
+
+    /** 7.3 永久清除：数据层原子写；成功后同步闹钟并撤掉可能残留的通知卡片。 */
+    fun purgeTrash(ids: Set<Long>): Boolean {
+        val previous = items
+        if (!coreDataRepository.purgeTrash(ids).applied) {
+            // commit() 失败时内存映射可能已被更新，按存储重新对齐；读失败就保持当前快照不动。
+            runCatching { readCoreData().items }.getOrNull()?.let { items = it }
+            scope.launch { snackbarHostState.showSnackbar("永久删除未完成，已按当前数据刷新。") }
+            return false
+        }
+        val refreshed = readCoreData().items
+        items = refreshed
+        ReminderScheduler.syncTaskReminders(context, previous, refreshed)
+        taskEvents = readCoreData().taskEvents
+        val manager = context.getSystemService(android.app.NotificationManager::class.java)
+        ids.forEach { manager?.cancel(taskNotificationId(it)) }
+        scope.launch { snackbarHostState.showSnackbar("已永久删除 ${ids.size} 项") }
+        return true
+    }
+
     fun applyTodoBatch(ids: Set<Long>, action: TodoBatchAction, targetDay: Long?, keepTime: Boolean): Boolean {
         val result = TodoBatchActions.apply(items, ids, action, targetDay = targetDay, keepTime = keepTime)
         if (result.events.isEmpty()) {
@@ -1528,18 +1580,7 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                         if (saveItems(result.items)) removeScheduledActivity(item.id)
                     },
                     onAbandon = { item ->
-                        val result = TrashActions.trash(items, setOf(item.id))
-                        if (result.events.isEmpty()) {
-                            scope.launch { snackbarHostState.showSnackbar("这条记录关联了下一步任务，请先处理关联任务。") }
-                        } else if (saveItemsWithEvents(result.items, result.events)) {
-                            removeScheduledActivity(item.id)
-                            scope.launch {
-                                if (snackbarHostState.showSnackbar("已移入最近删除：《${item.title}》", actionLabel = "撤回") == SnackbarResult.ActionPerformed) {
-                                    val restored = TrashActions.restore(items, setOf(item.id))
-                                    if (restored.events.isNotEmpty()) saveItemsWithEvents(restored.items, restored.events)
-                                }
-                            }
-                        }
+                        requestTrash(item, "这条记录关联了下一步任务，请先处理关联任务。")
                     },
                     baselineEvents = store.loadBaselineEvents(500),
                     taskEvents = taskEvents,
@@ -1591,21 +1632,12 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                         } else completionTarget = item
                     },
                     onDeleteItem = { item ->
-                        val result = TrashActions.trash(items, setOf(item.id))
-                        if (result.events.isEmpty() && item.kind !in setOf("任务", "收集箱", "暂停")) {
+                        if (TrashActions.trash(items, setOf(item.id)).events.isEmpty() &&
+                            item.kind !in setOf("任务", "收集箱", "暂停")) {
+                            // 非普通条目（活动/游戏等）沿用原有硬删除，其删除契约不属 7.3。
                             val removed = TaskActions.deleteItem(items, item)
                             if (saveItemsWithEvent(removed.items, removed.event)) removeScheduledActivity(item.id)
-                        } else if (result.events.isNotEmpty() && saveItemsWithEvents(result.items, result.events)) {
-                            removeScheduledActivity(item.id)
-                            scope.launch {
-                                if (snackbarHostState.showSnackbar("已移入最近删除：《${item.title}》", actionLabel = "撤回") == SnackbarResult.ActionPerformed) {
-                                    val restored = TrashActions.restore(items, setOf(item.id))
-                                    if (restored.events.isNotEmpty()) saveItemsWithEvents(restored.items, restored.events)
-                                }
-                            }
-                        } else if (result.events.isEmpty()) {
-                            scope.launch { snackbarHostState.showSnackbar("关联的下一步任务需先处理，再删除这条记录。") }
-                        }
+                        } else requestTrash(item, "关联的下一步任务需先处理，再删除这条记录。")
                     },
                     onSaveCoursePeriodTable = { table ->
                         coursePeriodTable = table
@@ -2135,7 +2167,26 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                         store.saveCustomThemeColors(extracted)
                         themeOption = FocusFlowThemeOption.CUSTOM
                         store.saveTheme(FocusFlowThemeOption.CUSTOM)
-                    }, onOpenTrash = { trashOpen = true })
+                    }, onOpenTrash = {
+                        // 7.3 到期清理的唯一触发点：打开回收站时清掉已达 expiresAt 的组成员。
+                        val previous = items
+                        if (coreDataRepository.purgeExpiredTrash(System.currentTimeMillis()).applied) {
+                            val refreshed = readCoreData().items
+                            if (refreshed != previous) {
+                                val swept = previous.map(Item::id).toSet() - refreshed.map(Item::id).toSet()
+                                items = refreshed
+                                ReminderScheduler.syncTaskReminders(context, previous, refreshed)
+                                taskEvents = readCoreData().taskEvents
+                                val manager = context.getSystemService(android.app.NotificationManager::class.java)
+                                swept.forEach { manager?.cancel(taskNotificationId(it)) }
+                            }
+                        } else {
+                            // 与手动清除一致：commit 失败时内存映射可能已被更新，按存储重新对齐。
+                            runCatching { readCoreData().items }.getOrNull()?.let { items = it }
+                            scope.launch { snackbarHostState.showSnackbar("到期记录暂时无法清理，已保留全部数据。") }
+                        }
+                        trashOpen = true
+                    })
             }
             }
         }
@@ -2255,9 +2306,34 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
             if (saved) { addReminderOpen = false; reminderRevision++; ReminderScheduler.restoreStandaloneReminders(context) }
             saved
         }
-        if (trashOpen) TrashDialog(items, onDismiss = { trashOpen = false }) { id ->
-            val result = TrashActions.restore(items, setOf(id))
-            result.events.isNotEmpty() && saveItemsWithEvents(result.items, result.events)
+        if (pendingTrashConfirm.isNotEmpty()) {
+            val target = pendingTrashConfirm.first()
+            AlertDialog(
+                onDismissRequest = { pendingTrashConfirm = emptyList() },
+                title = { Text("删除这项？") },
+                text = { Text("《${target.title}》将移入回收站，保留 30 天；到期后在打开回收站时清理，此前可随时恢复。") },
+                confirmButton = { TextButton(onClick = {
+                    pendingTrashConfirm = emptyList()
+                    // 详情弹窗跟着它所显示的那一条走：真正删除成功后才关闭。
+                    if (performTrash(setOf(target.id)) && todoDetailTarget?.id == target.id) todoDetailTarget = null
+                }) { Text("删除") } },
+                dismissButton = { TextButton(onClick = { pendingTrashConfirm = emptyList() }) { Text("取消") } }
+            )
+        }
+        if (trashOpen) {
+            val trashGroups = readCoreData().trashGroups
+            TrashDialog(
+                items = items,
+                groups = trashGroups,
+                purgeable = TrashJournal.purgeableIds(items, trashGroups),
+                now = System.currentTimeMillis(),
+                onDismiss = { trashOpen = false },
+                onRestore = { ids ->
+                    val result = TrashActions.restore(items, ids)
+                    result.events.isNotEmpty() && saveItemsWithEvents(result.items, result.events)
+                },
+                onPurge = { ids -> purgeTrash(ids) }
+            )
         }
         if (addTodoOpen) TodoCreateDialog(
             onDismiss = { addTodoOpen = false },
@@ -2709,20 +2785,7 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                             }
                             return@TodoDetailDialog
                         }
-                        val before = items
-                        val result = TrashActions.trash(before, setOf(item.id))
-                        if (result.events.isNotEmpty() && saveItemsWithEvents(result.items, result.events)) {
-                            todoDetailTarget = null
-                            removeScheduledActivity(item.id)
-                            scope.launch {
-                                if (snackbarHostState.showSnackbar("已删除《${item.title}》", actionLabel = "撤回") == SnackbarResult.ActionPerformed) {
-                                    val undo = TrashActions.restore(items, setOf(item.id))
-                                    if (undo.events.isNotEmpty()) saveItemsWithEvents(undo.items, undo.events)
-                                }
-                            }
-                        } else if (result.events.isEmpty()) {
-                            scope.launch { snackbarHostState.showSnackbar("关联的下一步任务需先处理，再删除这项待办。") }
-                        }
+                        requestTrash(item, "关联的下一步任务需先处理，再删除这项待办。")
                     }
                 )
             }

@@ -16,6 +16,29 @@ import java.io.File
 
 class CoreDataRepositoryTest {
     @Test
+    fun `legacy purge fails closed without touching the stored snapshot when the commit fails`() {
+        val original = Item(940L, "草稿", "内容", "任务")
+        val tombstones = com.sakata.focusflow.TrashActions
+            .trash(listOf(original), setOf(original.id), at = 1000L).items
+        val groups = TrashJournal.update(listOf(original), tombstones, emptyList())
+        val base = sampleSnapshot().copy(items = tombstones, trashGroups = groups)
+        val persistence = FakeLegacyPersistence(base)
+        val repository = LegacyCoreDataRepository(persistence)
+        persistence.failWrites = true
+
+        // The injected commit failure must surface as WRITE_FAILED and leave both keys untouched.
+        assertEquals(CoreDataWriteStatus.WRITE_FAILED, repository.purgeTrash(setOf(original.id)).status)
+        assertEquals(base, persistence.snapshot)
+        assertEquals(0, persistence.commits)
+
+        persistence.failWrites = false
+        assertEquals(CoreDataWriteStatus.APPLIED, repository.purgeTrash(setOf(original.id)).status)
+        assertTrue(persistence.snapshot.items.isEmpty())
+        assertTrue(persistence.snapshot.trashGroups.isEmpty())
+        assertEquals(1, persistence.commits)
+    }
+
+    @Test
     fun `legacy course writer fails closed on stale snapshot`() {
         val persistence = FakeLegacyPersistence(sampleSnapshot())
         val repository = LegacyCoreDataRepository(persistence)
@@ -404,6 +427,21 @@ private class FakeLegacyPersistence(
         commits++
         return true
     }
+
+    override fun purgeTrash(purgedIds: Set<Long>): Boolean {
+        if (failWrites) return false
+        val ids = purgedIds.filterTo(mutableSetOf()) { id -> snapshot.items.any { it.id == id } }
+        if (ids.isEmpty()) return true
+        val after = snapshot.items.filterNot { it.id in ids }
+        val updated = try { TrashJournal.purge(snapshot.items, after, snapshot.trashGroups, ids) }
+            catch (_: IllegalArgumentException) { return false }
+        snapshot = snapshot.copy(items = after, trashGroups = updated)
+        commits++
+        return true
+    }
+
+    override fun purgeExpiredTrash(now: Long): Boolean =
+        purgeTrash(TrashJournal.expiredIds(snapshot.items, snapshot.trashGroups, now))
 
     override fun saveItemsTaskEventsAndGoals(
         items: List<Item>,

@@ -55,6 +55,12 @@ interface CoreDataRepository : CoreDataReadRepository {
 
     /** Runs the pre-Room task-history bootstrap only when the selected source still needs it. */
     fun ensureTaskHistoryMigrated(): CoreDataWriteResult
+
+    /** Stage 7.3: permanently removes the given trashed ids. Ids already gone are ignored. */
+    fun purgeTrash(purgedIds: Set<Long>): CoreDataWriteResult
+
+    /** Stage 7.3: permanently removes every group member whose retention elapsed at [now]. */
+    fun purgeExpiredTrash(now: Long): CoreDataWriteResult
 }
 
 internal interface LegacyCoreDataPersistence {
@@ -84,6 +90,8 @@ internal interface LegacyCoreDataPersistence {
         event: (Item, Item) -> TaskEvent
     ): CoreDataTaskMutation?
     fun migrateTaskHistory()
+    fun purgeTrash(purgedIds: Set<Long>): Boolean
+    fun purgeExpiredTrash(now: Long): Boolean
 }
 
 private class PrototypeStoreCoreDataPersistence(
@@ -147,6 +155,10 @@ private class PrototypeStoreCoreDataPersistence(
     override fun migrateTaskHistory() {
         store.migrateTaskHistory()
     }
+
+    override fun purgeTrash(purgedIds: Set<Long>): Boolean = store.purgeTrash(purgedIds)
+
+    override fun purgeExpiredTrash(now: Long): Boolean = store.purgeExpiredTrash(now)
 }
 
 /** Legacy adapter that preserves the existing optimistic-concurrency and atomic commit rules. */
@@ -265,6 +277,20 @@ class LegacyCoreDataRepository internal constructor(
         failed(error)
     }
 
+    override fun purgeTrash(purgedIds: Set<Long>): CoreDataWriteResult = try {
+        if (persistence.purgeTrash(purgedIds)) applied()
+        else CoreDataWriteResult(CoreDataWriteStatus.WRITE_FAILED, "legacy trash purge failed")
+    } catch (error: Exception) {
+        failed(error)
+    }
+
+    override fun purgeExpiredTrash(now: Long): CoreDataWriteResult = try {
+        if (persistence.purgeExpiredTrash(now)) applied()
+        else CoreDataWriteResult(CoreDataWriteStatus.WRITE_FAILED, "legacy trash expiry failed")
+    } catch (error: Exception) {
+        failed(error)
+    }
+
     private fun resultAfterWrite(
         applied: Boolean,
         expectedTasks: List<Item>? = null,
@@ -375,6 +401,10 @@ class RoomCoreDataRepository(
     )
 
     override fun ensureTaskHistoryMigrated(): CoreDataWriteResult = applied()
+
+    override fun purgeTrash(purgedIds: Set<Long>): CoreDataWriteResult = writer.purgeTrash(purgedIds)
+
+    override fun purgeExpiredTrash(now: Long): CoreDataWriteResult = writer.purgeExpiredTrash(now)
 
     private fun applied() = CoreDataWriteResult(CoreDataWriteStatus.APPLIED)
 }
