@@ -376,13 +376,15 @@ class PrototypeStore(context: Context) {
                 .putString("goals", StoredGoalsCodec.encodeGoals(updated.goals))
                 .putString("courses", encodeCourses(updated.courses))
                 .putString("trash_groups_v1", com.sakata.focusflow.data.TrashJournalCodec.encode(groups))
-                .putString("stage7_records_v1", com.sakata.focusflow.data.Stage7RecordsCodec.encode(updated.operationRecords))
+                .putString("stage7_records_v1", com.sakata.focusflow.data.Stage7RecordsCodec.encode(updated.operationRecords.filterNot { it.kind == "course_recovery" }))
+                .putString("course_recovery_groups_v1", CourseRecoveryCodec.encode(updated.operationRecords.filter { it.kind == "course_recovery" }.flatMap { (CourseRecoveryCodec.decode(it.payload) as com.sakata.focusflow.data.CourseRecoveryLoad.Ready).groups }))
                 .commit()
             if (!confirmed) {
                 com.sakata.focusflow.data.Stage7CommitGuard.markUncertain()
                 return@synchronized com.sakata.focusflow.data.CoreDataWriteResult(com.sakata.focusflow.data.CoreDataWriteStatus.WRITE_FAILED, "disk write is unconfirmed; restart before recovery")
             }
             com.sakata.focusflow.data.Stage7CommitGuard.confirm()
+            com.sakata.focusflow.data.CourseRecoveryWriteGuard.clearAfterConfirmedCommit()
             com.sakata.focusflow.data.CoreDataWriteResult(com.sakata.focusflow.data.CoreDataWriteStatus.APPLIED)
         } catch (error: Exception) {
             if (submitting) com.sakata.focusflow.data.Stage7CommitGuard.markUncertain()

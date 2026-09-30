@@ -25,7 +25,6 @@ class Stage7RecoveryIntegrationTest {
         listOf("focusflow","course_reminder_settings","course_location_overrides","course_merge_journal","course_split_journal").forEach {
             check(context.getSharedPreferences(it,Context.MODE_PRIVATE).edit().clear().commit())
         }
-        StorageProtection.readOnly=false
         Stage7CommitGuard.confirm();CourseRecoveryWriteGuard.reset()
     }
     @After fun cleanup() { databases.forEach { it.close() };reset() }

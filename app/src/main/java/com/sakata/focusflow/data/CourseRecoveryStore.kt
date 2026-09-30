@@ -562,7 +562,7 @@ internal class LegacyCourseRecoveryStore(
     }
 
     private fun uncertaintyOrNull(): String? =
-        CourseRecoveryWriteGuard.uncertainReason()?.let {
+        (CourseRecoveryWriteGuard.uncertainReason() ?: if(Stage7CommitGuard.uncertain) "stage7 disk write unconfirmed" else null)?.let {
             "a previous commit outcome is still unverified ($it); refusing to continue from in-memory state"
         }
 
@@ -807,7 +807,7 @@ internal object CourseRecoveryOperations {
         groupId: String,
         now: Long = System.currentTimeMillis()
     ): CourseRestoreCompletionOutcome = repository.withCourseWriteLock {
-        CourseRecoveryWriteGuard.uncertainReason()?.let { reason ->
+        (CourseRecoveryWriteGuard.uncertainReason() ?: if(Stage7CommitGuard.uncertain) "stage7 disk write unconfirmed" else null)?.let { reason ->
             return@withCourseWriteLock CourseRestoreCompletionOutcome.WriteUncertain(
                 "a previous course recovery commit is unverified ($reason)"
             )

@@ -48,7 +48,10 @@ class LegacyCoreDataReadRepository(
                 activitySessions = store.loadSessions(),
                 courses = store.loadCourses(),
                 trashGroups = groups,
-                operationRecords = store.loadStage7Records()
+                operationRecords = store.loadStage7Records() + when(val read=store.loadCourseRecoveryGroups()) {
+                    is CourseRecoveryGroupsRead.Ready -> read.groups.map { OperationRecord(it.groupId,"course_recovery",it.deletedAt,it.state.name.lowercase(),CourseRecoveryCodec.encode(listOf(it))) }
+                    else -> error("course recovery payload is unreadable")
+                }
             )
         )
     }
@@ -239,6 +242,9 @@ object CoreDataConsistencyChecker {
                     ActivitySession::id
                 )?.let(::add)
                 difference("courses", legacy.courses, room.snapshot.courses, Course::id)?.let(::add)
+                if (legacy.operationRecords.sortedBy { it.operationId } != room.snapshot.operationRecords.sortedBy { it.operationId }) {
+                    add(CoreDataDifference("operation_records", "content or membership differs", legacy.operationRecords.size, room.snapshot.operationRecords.size))
+                }
                 if (legacy.trashGroups != room.snapshot.trashGroups) {
                     add(CoreDataDifference("trash_groups", "content or membership differs",
                         legacy.trashGroups.size, room.snapshot.trashGroups.size))
