@@ -428,7 +428,7 @@ internal class FakeTransactionalCoreDataStore(
     var planRows: List<PlanEntity>,
     var sessionRows: List<ActivitySessionEntity> = emptyList(),
     var courseRows: List<CourseEntity> = emptyList(),
-    var ruleRows: List<CourseMeetingRuleEntity> = emptyList()
+    var ruleRows: List<CourseMeetingRuleEntity> = emptyList(),
     var trashRows: List<TrashGroupEntity> = emptyList()
 ) : RoomCoreDataWriteStore {
     var failOnEvents = false
