@@ -19,6 +19,25 @@ class ZijingangTravelTest {
         assertEquals(21, ZijingangTravel.estimateMinutes(CampusZone.WEST_TEACHING, CampusZone.EAST_TEACHING, bike))
     }
 
+    @Test fun transportReserves_areIndependentAndAffectPlanning() {
+        val configured = profile.copy(
+            walkingReserveMinutes = 20,
+            bicycleReserveMinutes = 8,
+            eBikeReserveMinutes = 4
+        )
+        assertEquals(20, configured.reserveMinutesFor("步行"))
+        assertEquals(8, configured.reserveMinutesFor("自行车"))
+        assertEquals(4, configured.reserveMinutesFor("电动车"))
+        assertEquals(16, ZijingangTravel.estimateMinutes(CampusZone.WEST_TEACHING, CampusZone.EAST_TEACHING, configured.copy(campusMode = "自行车")))
+        assertEquals(11, ZijingangTravel.estimateMinutes(CampusZone.WEST_TEACHING, CampusZone.EAST_TEACHING, configured.copy(campusMode = "电动车")))
+    }
+
+    @Test fun legacyProfile_keepsTheFormerTransportDefaults() {
+        assertEquals(10, profile.reserveMinutesFor("步行"))
+        assertEquals(6, profile.reserveMinutesFor("自行车"))
+        assertEquals(5, profile.reserveMinutesFor("电动车"))
+    }
+
     @Test fun routeKey_symmetric() {
         val k1 = ZijingangTravel.routeKey(CampusZone.WEST_TEACHING, CampusZone.EAST_TEACHING, "步行")
         val k2 = ZijingangTravel.routeKey(CampusZone.EAST_TEACHING, CampusZone.WEST_TEACHING, "步行")

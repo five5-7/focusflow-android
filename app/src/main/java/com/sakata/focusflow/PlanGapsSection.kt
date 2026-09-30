@@ -102,7 +102,7 @@ internal fun gapSuggestionEmptyMessage(
     } else {
         "课程、已有安排和通勤时间扣除后，目前没有可安排的空挡。"
     }
-    val unfinishedGoals = goals.filter { GoalPlanner.completedThisWeek(it) < it.weeklyTarget }
+    val unfinishedGoals = goals.filter { it.state == PlanState.IN_PROGRESS && GoalPlanner.completedThisWeek(it) < it.weeklyTarget }
     val flexibleItems = items.filter { it.kind == "任务" && it.scheduledAt == null }
     if (unfinishedGoals.isEmpty() && flexibleItems.isEmpty()) {
         return "有 ${availability.size} 个可用时段，但没有待完成目标或未定时任务；可先查看课间、自由时段或新增目标。"

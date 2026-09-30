@@ -18,7 +18,10 @@ data class Goal(
     val desiredOutcome: String = "",
     /** The concrete first action for this goal; optional for 6.1 compatibility. */
     val firstAction: String = "",
-    val sourceNotes: String = ""
+    val sourceNotes: String = "",
+    val state: PlanState = PlanState.IN_PROGRESS,
+    /** Optional local date for the plan; it never schedules an alarm or a task. */
+    val deadlineAt: Long? = null
 )
 
 data class LearningResource(
@@ -163,7 +166,7 @@ object GoalPlanner {
         completionRate: (weekday: Int, startHour: Int) -> Float?,
         nowMillis: Long = System.currentTimeMillis()
     ): AutoPlanResult {
-        val remainingByGoal = goals.mapNotNull { goal ->
+        val remainingByGoal = goals.filter { it.state == PlanState.IN_PROGRESS }.mapNotNull { goal ->
             val remaining = goal.weeklyTarget - completedThisWeek(goal)
             if (remaining > 0) goal to remaining else null
         }

@@ -39,6 +39,30 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.lifecycleScope
+import com.sakata.focusflow.data.ExistingRoomCoreDataReader
+import com.sakata.focusflow.data.CoreDataReadResult
+import com.sakata.focusflow.data.CoreDataRepository
+import com.sakata.focusflow.data.CoreDataRepositoryOperations
+import com.sakata.focusflow.data.CoreDataRuntimeAccess
+import com.sakata.focusflow.data.CoreDataRuntimeResolution
+import com.sakata.focusflow.data.CoreDataRuntimeSource
+import com.sakata.focusflow.data.CourseDeletionOutcome
+import com.sakata.focusflow.data.Stage7Recovery
+import com.sakata.focusflow.data.Stage7Inverse
+import com.sakata.focusflow.data.Stage7CourseMaintenance
+import com.sakata.focusflow.data.CourseRecoveryGroupsRead
+import com.sakata.focusflow.data.CourseRecoveryState
+import com.sakata.focusflow.data.withCourseWriteLock
+import com.sakata.focusflow.data.courseRecoveryStore
+import com.sakata.focusflow.data.CoreDataWriteResult
+import com.sakata.focusflow.data.CoreDataWriteStatus
+import com.sakata.focusflow.data.CourseRecoveryOperations
+import com.sakata.focusflow.data.CourseRecoveryRestoreCandidate
+import com.sakata.focusflow.data.CourseRecoveryScope
+import com.sakata.focusflow.data.CourseRestoreCompletionOutcome
+import com.sakata.focusflow.data.CoursePurgeOutcome
+import com.sakata.focusflow.data.TrashJournal
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.input.pointer.PointerEventPass
@@ -64,6 +88,7 @@ private data class SuspendedCourseEditor(val original: Course?)
 class MainActivity : ComponentActivity() {
     private var statusCheckInRequested by mutableStateOf(false)
     private var quickCaptureRequested by mutableStateOf(false)
+    private var standaloneOpenRequested by mutableStateOf<Pair<Long, Long>?>(null)
     private var mealPromptRequested by mutableStateOf<MealType?>(null)
     private var mealFinishRequested by mutableStateOf<MealType?>(null)
     // 首次启动权限一站式进行中标记：置位时门控习惯基线引导，避免两个弹窗叠在一起。
@@ -79,9 +104,11 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         CrashReporter.init(applicationContext)
+        FrameTimingRecorder.install(window)
         statusCheckInRequested = intent.getBooleanExtra(ReminderReceiver.EXTRA_OPEN_STATUS_CHECK_IN, false) &&
             PrototypeStore(this).loadStatusCheckInSettings().enabled
         quickCaptureRequested = intent.getBooleanExtra(ReminderReceiver.EXTRA_OPEN_QUICK_CAPTURE, false)
+        standaloneOpenRequested = validStandaloneOpen(intent)
         mealPromptRequested = validMealPrompt(intent)
         mealFinishRequested = validMealFinish(intent)
         // 首次启动一站式权限申请：先标记完成防中断重复打扰，再按系统支持情况依次申请。
@@ -103,13 +130,51 @@ class MainActivity : ComponentActivity() {
         onBackPressedDispatcher.addCallback(this, startupBackFallback)
         // 8.1.0：判断本次开机系统是否把开机广播送给了我们（ColorOS 会推迟），设置页据此如实提示。
         BootRecovery.noteLaunch(this)
-        setContent {
-            LaunchedEffect(Unit) { startupBackFallback.isEnabled = false }
-            FocusFlowApp(statusCheckInRequested, mealPromptRequested, mealFinishRequested, quickCaptureRequested, permissionOnboardingPending) {
-                statusCheckInRequested = false
-                mealPromptRequested = null
-                mealFinishRequested = null
-                quickCaptureRequested = false
+        val startupStore = PrototypeStore(this)
+        FrameTimingRecorder.beginStartupSnapshot()
+        lifecycleScope.launch {
+            val runtime = withContext(Dispatchers.IO) {
+                CoreDataRuntimeAccess.resolve(this@MainActivity)
+            }
+            if (runtime is CoreDataRuntimeResolution.Blocked) {
+                FrameTimingRecorder.endStartupSnapshot()
+                FrameTimingRecorder.recordStartupFrames()
+                setContent {
+                    LaunchedEffect(Unit) { startupBackFallback.isEnabled = false }
+                    CoreDataBlockedScreen(runtime.decision)
+                }
+                return@launch
+            }
+            val coreDataRepository = (runtime as CoreDataRuntimeResolution.Ready).repository
+            val mergeRecoveryReady = withContext(Dispatchers.IO) {
+                CourseMergeOperation.recover(this@MainActivity, coreDataRepository) &&
+                    CourseSplitOperation.recover(this@MainActivity, coreDataRepository)
+            }
+            val startupSnapshot = withContext(Dispatchers.IO) {
+                FocusFlowStartupSnapshot.load(
+                    store = startupStore,
+                    coreDataRepository = coreDataRepository,
+                    shadowReader = if (coreDataRepository.source == CoreDataRuntimeSource.LEGACY) {
+                        { ExistingRoomCoreDataReader.read(this@MainActivity) }
+                    } else null
+                )
+            }
+            // 图片背景在首个 Compose 树建立前完成后台解码。旧路径先显示主题底色，再把整屏位图
+            // 塞进已组合好的页面与全部亚克力卡片，首次 GPU 上传会正好撞上用户的第一个动画。
+            val startupPageBackdropBitmap = withContext(Dispatchers.IO) {
+                loadStartupPageBackdrop(this@MainActivity, startupSnapshot.appearance)
+            }
+            FrameTimingRecorder.endStartupSnapshot()
+            FrameTimingRecorder.recordStartupFrames()
+            setContent {
+                LaunchedEffect(Unit) { startupBackFallback.isEnabled = false }
+                FocusFlowApp(startupStore, coreDataRepository, startupSnapshot, startupPageBackdropBitmap, statusCheckInRequested, mealPromptRequested, mealFinishRequested, quickCaptureRequested, standaloneOpenRequested, permissionOnboardingPending, mergeRecoveryReady) {
+                    statusCheckInRequested = false
+                    mealPromptRequested = null
+                    mealFinishRequested = null
+                    quickCaptureRequested = false
+                    standaloneOpenRequested = null
+                }
             }
         }
     }
@@ -130,6 +195,11 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onDestroy() {
+        FrameTimingRecorder.uninstall(window)
+        super.onDestroy()
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
@@ -139,6 +209,16 @@ class MainActivity : ComponentActivity() {
         if (intent.getBooleanExtra(ReminderReceiver.EXTRA_OPEN_MEAL_PROMPT, false)) mealPromptRequested = validMealPrompt(intent)
         if (intent.getBooleanExtra(ReminderReceiver.EXTRA_OPEN_MEAL_FINISH, false)) mealFinishRequested = validMealFinish(intent)
         if (intent.getBooleanExtra(ReminderReceiver.EXTRA_OPEN_QUICK_CAPTURE, false)) quickCaptureRequested = true
+        standaloneOpenRequested = validStandaloneOpen(intent)
+    }
+
+    private fun validStandaloneOpen(intent: Intent): Pair<Long, Long>? {
+        if (intent.action != ReminderReceiver.ACTION_STANDALONE_OPEN) return null
+        val id = intent.getLongExtra(ReminderReceiver.EXTRA_STANDALONE_ID, -1L)
+        val at = intent.getLongExtra(ReminderReceiver.EXTRA_STANDALONE_AT, -1L)
+        return (id to at).takeIf { id > 0 && at > 0 &&
+            StandaloneReminders.all(this).any { it.id == id && it.scheduledAt == at && it.completedAt == null }
+        }
     }
 
     private fun validMealPrompt(intent: Intent): MealType? {
@@ -166,99 +246,154 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+/**
+ * 启动页图片沿用导入时的上限，同时按当前屏幕约束目标尺寸；解码始终发生在 IO 线程。
+ * 不降低图片质量，只把原本首屏后的第二次整页重绘提前到用户能交互之前。
+ */
+private fun loadStartupPageBackdrop(context: Context, appearance: AppearanceSpec): ImageBitmap? {
+    if (!appearance.hasPageImage) return null
+    val metrics = context.resources.displayMetrics
+    return AppearanceImages.load(
+        context = context,
+        name = appearance.pageImage,
+        maxWidth = metrics.widthPixels.coerceIn(1, 1440),
+        maxHeight = metrics.heightPixels.coerceIn(1, 3168)
+    )
+}
+
 @Composable
-private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: MealType?, mealFinishRequested: MealType?, quickCaptureRequested: Boolean, permissionOnboardingPending: Boolean, onRequestHandled: () -> Unit) {
+private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepository, startup: FocusFlowStartupSnapshot, startupPageBackdropBitmap: ImageBitmap?, statusCheckInRequested: Boolean, mealPromptRequested: MealType?, mealFinishRequested: MealType?, quickCaptureRequested: Boolean, standaloneOpenRequested: Pair<Long, Long>?, permissionOnboardingPending: Boolean, mergeRecoveryReady: Boolean, onRequestHandled: () -> Unit) {
     val context = LocalContext.current
-    val store = remember(context) { PrototypeStore(context) }
+    fun readCoreData() = (coreDataRepository.read() as CoreDataReadResult.Ready).snapshot
     var tab by remember { mutableIntStateOf(0) }
     var todayInboxOpen by remember { mutableStateOf(false) }
     var addOpen by remember { mutableStateOf(false) }
+    var addTodoOpen by remember { mutableStateOf(false) }
+    var addWantedOpen by remember { mutableStateOf(false) }
+    var addScheduleOpen by remember { mutableStateOf(false) }
+    var addReminderOpen by remember { mutableStateOf(false) }
+    var trashOpen by remember { mutableStateOf(false) }
+    var pendingPlanDelete by remember { mutableStateOf<Goal?>(null) }
+    var selectedPlanTasks by remember { mutableStateOf(emptySet<Long>()) }
+    var pendingIgnoreCourses by remember { mutableStateOf<Set<Course>>(emptySet()) }
+    var pendingTrashConfirm by remember { mutableStateOf<List<Item>>(emptyList()) }
+    var reminderRevision by remember { mutableIntStateOf(0) }
+    var focusedReminderId by remember { mutableStateOf<Long?>(null) }
     var addMenuOpen by remember { mutableStateOf(false) }
+    // 历史导航可能只把加号弹窗收起，Boolean 仍为 true；请求序号保证再次点击会重建并注册弹窗。
+    var addMenuRequestId by remember { mutableIntStateOf(0) }
     var gamePlanOpen by remember { mutableStateOf(false) }
     var activityOpen by remember { mutableStateOf(false) }
     var activityPreset by remember { mutableStateOf<ActivityLaunchPreset?>(null) }
+    var activityTaskId by remember { mutableStateOf<Long?>(null) }
     var transitionTarget by remember { mutableStateOf<ActivitySession?>(null) }
+    var rescheduleAfterActivitySession by remember { mutableStateOf<ActivitySession?>(null) }
     var autoPromptedSessionId by remember { mutableStateOf<Long?>(null) }
     var rescheduleTarget by remember { mutableStateOf<Item?>(null) }
     var inboxScheduleTarget by remember { mutableStateOf<Item?>(null) }
     var goalScheduleTarget by remember { mutableStateOf<Goal?>(null) }
     var flexiblePlanTarget by remember { mutableStateOf<Item?>(null) }
     var inboxEditTarget by remember { mutableStateOf<Item?>(null) }
+    var todoDetailTarget by remember { mutableStateOf<Item?>(null) }
     var organizeTarget by remember { mutableStateOf<Item?>(null) }
     var convertTarget by remember { mutableStateOf<Item?>(null) }
     var attachTarget by remember { mutableStateOf<Item?>(null) }
+    var attachBatchIds by remember { mutableStateOf<Set<Long>?>(null) }
     var schedulePresetExact by remember { mutableStateOf<Long?>(null) }
-    var gameSessions by remember { mutableStateOf(store.loadGameSessions()) }
-    var gameDetectionEnabled by remember { mutableStateOf(store.loadGameDetectionEnabled()) }
-    var foregroundDetectionTrace by remember { mutableStateOf(store.loadForegroundDetectionTrace()) }
-    var appCategories by remember { mutableStateOf(store.loadAppCategories()) }
-    var hiddenApps by remember { mutableStateOf(store.loadHiddenApps()) }
-    var items by remember {
-        mutableStateOf(store.recoverMissedGoalTasks())
-    }
-    var taskEvents by remember { mutableStateOf(store.loadTaskEvents()) }
-    var activeSession by remember { mutableStateOf(store.loadLatestActiveSession()) }
-    var activityHistory by remember { mutableStateOf(store.loadRecentActivitySessions()) }
-    var activitySettings by remember { mutableStateOf(store.loadActivityReminderSettings()) }
-    var statusCheckInSettings by remember { mutableStateOf(store.loadStatusCheckInSettings()) }
-    var statusPromptTrace by remember { mutableStateOf(store.loadStatusPromptTrace()) }
-    var nextStatusPromptAt by remember { mutableLongStateOf(store.loadNextStatusPromptAt()) }
-    var quietHours by remember { mutableStateOf(store.loadQuietHoursSettings()) }
-    var quickCaptureEnabled by remember { mutableStateOf(store.loadQuickCaptureEnabled()) }
-    var windDownEnabled by remember { mutableStateOf(store.loadWindDownEnabled()) }
-    var latestStatusCheckIn by remember { mutableStateOf(store.loadLatestStatusCheckIn()) }
-    var statusCheckIns by remember { mutableStateOf(store.loadStatusCheckIns(365)) }
+    var gameSessions by remember { mutableStateOf(startup.gameSessions) }
+    var gameDetectionEnabled by remember { mutableStateOf(startup.gameDetectionEnabled) }
+    var foregroundDetectionTrace by remember { mutableStateOf(startup.foregroundDetectionTrace) }
+    var appCategories by remember { mutableStateOf(startup.appCategories) }
+    var hiddenApps by remember { mutableStateOf(startup.hiddenApps) }
+    var items by remember { mutableStateOf(startup.items) }
+    var taskEvents by remember { mutableStateOf(startup.taskEvents) }
+    var activeSession by remember { mutableStateOf(startup.activeSession) }
+    var activityHistory by remember { mutableStateOf(startup.activityHistory) }
+    var activitySettings by remember { mutableStateOf(startup.activitySettings) }
+    var statusCheckInSettings by remember { mutableStateOf(startup.statusCheckInSettings) }
+    var statusPromptTrace by remember { mutableStateOf(startup.statusPromptTrace) }
+    var nextStatusPromptAt by remember { mutableLongStateOf(startup.nextStatusPromptAt) }
+    var quietHours by remember { mutableStateOf(startup.quietHours) }
+    var quickCaptureEnabled by remember { mutableStateOf(startup.quickCaptureEnabled) }
+    var windDownEnabled by remember { mutableStateOf(startup.windDownEnabled) }
+    var latestStatusCheckIn by remember { mutableStateOf(startup.latestStatusCheckIn) }
+    var statusCheckIns by remember { mutableStateOf(startup.statusCheckIns) }
     var statusCheckInOpen by remember { mutableStateOf(false) }
     var activityStatusOpen by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    // 首启保护窗只记录按下动作；全部隐藏页完成预热后会移除监听，不给日常交互增加重组。
+    var startupInteractionToken by remember { mutableIntStateOf(0) }
+    var startupInteractionGuardActive by remember { mutableStateOf(true) }
     val appLifecycleOwner = LocalLifecycleOwner.current
     // 初始值保证冷启动也检查；后续每次回到前台再递增。
     var notificationForegroundCheck by remember { mutableIntStateOf(1) }
+    // 注册观察器时 Lifecycle 会把当前 STARTED 状态补发一次；初始状态已经从 store 读取，不能立即再读整批数据。
+    var initialStartObserved by remember(appLifecycleOwner) { mutableStateOf(false) }
     DisposableEffect(appLifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_START) {
-                notificationForegroundCheck++
-                items = store.loadItems()
-                gameSessions = store.loadGameSessions()
-                activeSession = store.loadLatestActiveSession()
-                activityHistory = store.loadRecentActivitySessions()
-                // 弹窗可能持有通知操作前的任务快照，返回前台后重新打开。
-                rescheduleTarget = null
-                inboxScheduleTarget = null
-                flexiblePlanTarget = null
-                inboxEditTarget = null
-                organizeTarget = null
-                convertTarget = null
-                attachTarget = null
-                // 通知栏里完成/最低版本/延后/跳过是后台 Receiver 写的，回到前台时重读事件，让今日统计与记录卡同步。
-                taskEvents = store.loadTaskEvents()
-                statusPromptTrace = store.loadStatusPromptTrace()
-                nextStatusPromptAt = store.loadNextStatusPromptAt()
-                foregroundDetectionTrace = store.loadForegroundDetectionTrace()
+                if (!initialStartObserved) {
+                    initialStartObserved = true
+                } else {
+                    notificationForegroundCheck++
+                    val refreshedCoreData = readCoreData()
+                    items = refreshedCoreData.items
+                    gameSessions = store.loadGameSessions()
+                    activeSession = refreshedCoreData.activitySessions.lastOrNull(ActivitySession::isOpen)
+                    activityHistory = refreshedCoreData.activitySessions.takeLast(20).reversed()
+                    // 弹窗可能持有通知操作前的任务快照，返回前台后重新打开。
+                    rescheduleTarget = null
+                    inboxScheduleTarget = null
+                    flexiblePlanTarget = null
+                    inboxEditTarget = null
+                    todoDetailTarget = null
+                    organizeTarget = null
+                    convertTarget = null
+                    attachTarget = null
+                    // 通知栏里完成/最低版本/延后/跳过是后台 Receiver 写的，回到前台时重读事件，让今日统计与记录卡同步。
+                    taskEvents = refreshedCoreData.taskEvents
+                    statusPromptTrace = store.loadStatusPromptTrace()
+                    nextStatusPromptAt = store.loadNextStatusPromptAt()
+                    foregroundDetectionTrace = store.loadForegroundDetectionTrace()
+                }
             }
         }
         appLifecycleOwner.lifecycle.addObserver(observer)
         onDispose { appLifecycleOwner.lifecycle.removeObserver(observer) }
     }
     var globalLoading by remember { mutableStateOf(false) }
-    var themeOption by remember { mutableStateOf(store.loadTheme()) }
-    var darkMode by remember { mutableStateOf(store.loadDarkMode()) }
+    var themeOption by remember { mutableStateOf(startup.themeOption) }
+    var darkMode by remember { mutableStateOf(startup.darkMode) }
 
     // 8.2.0 外观系统：全部可选、默认等于现状（老装机升级后外观不变）。
-    var appearance by remember { mutableStateOf(store.loadAppearance()) }
+    var appearance by remember { mutableStateOf(startup.appearance) }
     // 背景图在后台线程按屏幕尺寸降采样解码；没设图或解码失败就是 null，页面退回主题底色。
-    var pageBackdropBitmap by remember { mutableStateOf<ImageBitmap?>(null) }
-    LaunchedEffect(appearance.pageImage, appearance.pageBackdrop) {
+    var pageBackdropBitmap by remember { mutableStateOf(startupPageBackdropBitmap) }
+    var loadedPageImageName by remember {
+        mutableStateOf(startup.appearance.pageImage.takeIf { startupPageBackdropBitmap != null })
+    }
+    LaunchedEffect(appearance.pageImage, appearance.hasPageImage) {
         val name = appearance.pageImage
-        pageBackdropBitmap = if (appearance.hasPageImage && name.isNotBlank()) {
-            withContext(Dispatchers.IO) { AppearanceImages.load(context, name, 1440, 3168) }
-        } else {
-            null
+        if (!appearance.hasPageImage || name.isBlank()) {
+            pageBackdropBitmap = null
+            loadedPageImageName = null
+        } else if (loadedPageImageName != name || pageBackdropBitmap == null) {
+            val metrics = context.resources.displayMetrics
+            val loaded = withContext(Dispatchers.IO) {
+                AppearanceImages.load(
+                    context,
+                    name,
+                    metrics.widthPixels.coerceIn(1, 1440),
+                    metrics.heightPixels.coerceIn(1, 3168)
+                )
+            }
+            pageBackdropBitmap = loaded
+            loadedPageImageName = name.takeIf { loaded != null }
         }
     }
     // 8.1.0 动画速度（外观页）：全局时长倍率，写入 MotionSettings 供各动画换算。
-    var animationSpeed by remember { mutableStateOf(store.loadAnimationSpeed()) }
+    var animationSpeed by remember { mutableStateOf(startup.animationSpeed) }
     // 8.2.0「丰富的动画与外观效果」对动画的影响有**两条**，缺一不可：
     //   ① 时长收紧到 0.6 倍。注意不是 0——置 0 会让 MotionSpec 全部退化成 snap，
     //      连"最基本的淡入淡出"都没了，与这个开关的承诺不符。
@@ -268,100 +403,232 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     val effectiveMotionScale = if (appearance.richEffects) animationSpeed else animationSpeed * 0.6f
     LaunchedEffect(effectiveMotionScale) { MotionSettings.update(effectiveMotionScale) }
     LaunchedEffect(appearance.richEffects) { MotionSettings.updateRichForms(appearance.richEffects) }
-    var customThemeColors by remember { mutableStateOf(store.loadCustomThemeColors() ?: FocusFlowThemeOption.CUSTOM.colors) }
-    var themePresets by remember { mutableStateOf(store.loadThemePresets()) }
+    var customThemeColors by remember { mutableStateOf(startup.customThemeColors ?: FocusFlowThemeOption.CUSTOM.colors) }
+    var themePresets by remember { mutableStateOf(startup.themePresets) }
     // 自定义主题的"恢复默认"目标：最近一次选过的内置主题。
     var lastBuiltInTheme by remember {
-        mutableStateOf(store.loadTheme().takeIf { it != FocusFlowThemeOption.CUSTOM } ?: FocusFlowThemeOption.OCEAN)
+        mutableStateOf(startup.themeOption.takeIf { it != FocusFlowThemeOption.CUSTOM } ?: FocusFlowThemeOption.OCEAN)
     }
-    var energyLevel by remember { mutableStateOf(store.loadEnergyLevel()) }
-    var energyRecordedAt by remember { mutableLongStateOf(store.loadEnergyRecordedAt()) }
+    var energyLevel by remember { mutableStateOf(startup.energyLevel) }
+    var energyRecordedAt by remember { mutableLongStateOf(startup.energyRecordedAt) }
     val planningEnergyLevel = if (StatusFreshnessPolicy.isCurrent(energyRecordedAt)) energyLevel else "正常"
-    var commuteProfile by remember { mutableStateOf(store.loadCommuteProfile()) }
-    var campusLifeEnabled by remember {
-        mutableStateOf(
-            CampusLifePolicy.initialEnabled(
-                stored = store.loadCampusLifeEnabled(),
-                featureIntroShown = store.loadFeatureIntroShown(),
-                choiceShown = store.loadCampusLifeChoiceShown()
-            )
-        )
-    }
-    var hiddenPlaces by remember { mutableStateOf(store.loadHiddenPlaces()) }
-    var campusMapPackage by remember { mutableStateOf(store.loadCampusMapPackage()) }
-    var currentCampusPlace by remember { mutableStateOf(store.loadCurrentCampusPlace()) }
-    var customPlaces by remember { mutableStateOf(store.loadCustomPlaces()) }
-    var amapKey by remember { mutableStateOf(store.loadAmapKey()) }
-    var campusCenter by remember { mutableStateOf(store.loadCampusCenter()) }
-    var tutorialSearch by remember { mutableStateOf(store.loadTutorialSearchSettings()) }
-    var aiWeeklySummary by remember { mutableStateOf(store.loadAiWeeklySummarySettings()) }
+    var commuteProfile by remember { mutableStateOf(startup.commuteProfile) }
+    var campusLifeEnabled by remember { mutableStateOf(startup.campusLifeEnabled) }
+    var hiddenPlaces by remember { mutableStateOf(startup.hiddenPlaces) }
+    var campusMapPackage by remember { mutableStateOf(startup.campusMapPackage) }
+    var currentCampusPlace by remember { mutableStateOf(startup.currentCampusPlace) }
+    var customPlaces by remember { mutableStateOf(startup.customPlaces) }
+    var amapKey by remember { mutableStateOf(startup.amapKey) }
+    var campusCenter by remember { mutableStateOf(startup.campusCenter) }
+    var tutorialSearch by remember { mutableStateOf(startup.tutorialSearch) }
     var tutorialSearchOpen by remember { mutableStateOf(false) }
     var tutorialFinderOpen by remember { mutableStateOf(false) }
     var finderContext by remember { mutableStateOf("") }
     var videoAnalysisOpen by remember { mutableStateOf(false) }
-    var videoAnalysisModel by remember { mutableStateOf(store.loadVideoAnalysisModel()) }
-    var courseVision by remember { mutableStateOf(store.loadCourseVisionSettings()) }
-    var pendingPlaces by remember { mutableStateOf(store.loadPendingPlaces()) }
+    var videoAnalysisModel by remember { mutableStateOf(startup.videoAnalysisModel) }
+    var courseVision by remember { mutableStateOf(startup.courseVision) }
+    var pendingPlaces by remember { mutableStateOf(startup.pendingPlaces) }
     var courseVisionGuideOpen by remember { mutableStateOf(false) }
+    var courseVisionGuideShown by remember { mutableStateOf(startup.courseVisionGuideShown) }
     var featureIntroOpen by remember { mutableStateOf(false) }
+    var featureIntroShown by remember { mutableStateOf(startup.featureIntroShown) }
     var campusLifeChoiceOpen by remember { mutableStateOf(false) }
+    var campusLifeChoiceShown by remember { mutableStateOf(startup.campusLifeChoiceShown) }
     var updateNoticeOpen by remember { mutableStateOf(false) }
+    var lastSeenAppVersion by remember { mutableStateOf(startup.lastSeenAppVersion) }
     var baselineWhereToFindOpen by remember { mutableStateOf(false) }
     // 首次开启课表视觉模型且未填 key 时自动弹出申请引导（只弹一次）。
     LaunchedEffect(courseVision.enabled) {
-        if (courseVision.enabled && tutorialSearch.apiKey.isBlank() && !store.loadCourseVisionGuideShown()) {
+        if (courseVision.enabled && tutorialSearch.apiKey.isBlank() && !courseVisionGuideShown) {
+            courseVisionGuideShown = true
             store.saveCourseVisionGuideShown(true)
             courseVisionGuideOpen = true
         }
     }
-    var courses by remember { mutableStateOf(if (store.hasCourseSetup()) store.loadCourses() else emptyList()) }
-    var coursePeriodTable by remember { mutableStateOf(store.loadCoursePeriodTable()) }
-    var coursePeriodTableConfigured by remember { mutableStateOf(store.hasCoursePeriodTable()) }
-    var courseTimetableCompact by remember { mutableStateOf(store.loadCourseTimetableCompact()) }
-    var courseTimetableTrailingDaysExpanded by remember { mutableStateOf(store.loadCourseTimetableTrailingDaysExpanded()) }
+    var courses by remember { mutableStateOf(startup.courses) }
+    var coursePeriodTable by remember { mutableStateOf(startup.coursePeriodTable) }
+    var courseReminderSettings by remember { mutableStateOf(CourseReminders.load(context)) }
+    var coursePeriodTableConfigured by remember { mutableStateOf(startup.coursePeriodTableConfigured) }
+    var courseTimetableCompact by remember { mutableStateOf(startup.courseTimetableCompact) }
+    var courseTimetableTrailingDaysExpanded by remember { mutableStateOf(startup.courseTimetableTrailingDaysExpanded) }
     CourseGapPlanner.configure(coursePeriodTable)
     var courseEditor by remember { mutableStateOf<Course?>(null) }
     var addCourseOpen by remember { mutableStateOf(false) }
     var courseImportRunning by remember { mutableStateOf(false) }
-    var courseImportMessage by remember { mutableStateOf<String?>(null) }
+    var courseImportMessage by remember { mutableStateOf<String?>(
+        if (mergeRecoveryReady) null else "课程编辑的覆盖设置尚未恢复；请保留数据并重启重试，课程提醒暂不重排。"
+    ) }
+    fun applyCourseState(previous: List<Course>, updated: List<Course>): Boolean {
+        CourseReminders.sync(context, previous, updated, coursePeriodTable, courseReminderSettings)
+        courses = updated
+        if (items.any { it.kind == "重复模板" && it.repeatFrequency == "class_day" }) {
+            RepeatActions.refreshRepository(context)
+            items = readCoreData().items
+        }
+        return true
+    }
+    fun persistCourses(updated: List<Course>): Boolean {
+        val result = coreDataRepository.replaceCourses(updated, courses)
+        if (result.applied) return applyCourseState(courses, updated)
+        courseImportMessage = "课程保存失败（${result.status}），原数据已保留；请返回后重试。"
+        scope.launch { snackbarHostState.showSnackbar(courseImportMessage.orEmpty()) }
+        return false
+    }
+    var restorableCourses by remember { mutableStateOf<List<CourseRecoveryRestoreCandidate>>(emptyList()) }
+    fun refreshRestorableCourses() {
+        restorableCourses = CourseRecoveryOperations.restorableGroups(coreDataRepository)
+    }
+    fun reportCourseRecovery(message: String) {
+        courseImportMessage = message
+        scope.launch { snackbarHostState.showSnackbar(message) }
+    }
+    fun purgeExpiredCourseGroups() {
+        when (val result = CourseRecoveryOperations.purgeExpired(coreDataRepository)) {
+            is CoursePurgeOutcome.Applied -> refreshRestorableCourses()
+            is CoursePurgeOutcome.WriteUncertain -> reportCourseRecovery(
+                "课程恢复记录的清理结果尚未确认：${result.reason}"
+            )
+            else -> Unit
+        }
+    }
+    /** Production delete entry: the group and the course removal commit together; state follows after. */
+    fun deleteCoursesWithRecovery(targets: Set<Course>): Boolean = coreDataRepository.withCourseWriteLock {
+        if (targets.isEmpty()) return@withCourseWriteLock true
+        val current=(coreDataRepository.read() as? CoreDataReadResult.Ready)?.snapshot?.courses
+        if(current==null || targets.any { target -> current.singleOrNull { it.id==target.id }!=target }) {
+            reportCourseRecovery("课次已变化，请重新核对后删除。")
+            return@withCourseWriteLock false
+        }
+        val ids = targets.mapTo(mutableSetOf()) { it.id }
+        val recoveryScope = if (ids.size == 1) CourseRecoveryScope.MEETING else CourseRecoveryScope.BATCH
+        val before = courses
+        when (val outcome = CourseRecoveryOperations.deleteCourses(
+            context, coreDataRepository, recoveryScope, ids, "course-delete-${System.currentTimeMillis()}"
+        )) {
+            is CourseDeletionOutcome.Applied, is CourseDeletionOutcome.AlreadyApplied -> {
+                applyCourseState(before, readCoreData().courses)
+                refreshRestorableCourses()
+                if (outcome is CourseDeletionOutcome.Applied) {
+                    reportCourseRecovery("已删除 ${ids.size} 个课次；可在课程页恢复，恢复记录保留 30 天。")
+                }
+                true
+            }
+            is CourseDeletionOutcome.Rejected -> {
+                reportCourseRecovery("课程删除未执行（${outcome.status}）：${outcome.reason}")
+                false
+            }
+            is CourseDeletionOutcome.WriteUncertain -> {
+                reportCourseRecovery("课程删除的落盘结果未确认：${outcome.reason}；请勿重复删除，重启应用后再确认。")
+                false
+            }
+            is CourseDeletionOutcome.NotReady -> {
+                reportCourseRecovery("课程删除不可用：${outcome.reason}")
+                false
+            }
+        }
+    }
+    /** Production restore entry: core courses first, then the follow-up, then the terminal state. */
+    fun restoreCoursesWithRecovery(groupId: String): Boolean {
+        val candidate = restorableCourses.firstOrNull { it.groupId == groupId } ?: return false
+        val before = courses
+        return when (val outcome = CourseRecoveryOperations.restoreAndComplete(
+            context, coreDataRepository, candidate.groupId
+        )) {
+            is CourseRestoreCompletionOutcome.Completed -> {
+                courseReminderSettings = CourseReminders.load(context)
+                applyCourseState(before, readCoreData().courses)
+                refreshRestorableCourses()
+                reportCourseRecovery("已恢复 ${candidate.meetingCount} 个课次。")
+                true
+            }
+            is CourseRestoreCompletionOutcome.CoreCommittedFollowUpPending -> {
+                courseReminderSettings = CourseReminders.load(context)
+                applyCourseState(before, readCoreData().courses)
+                refreshRestorableCourses()
+                reportCourseRecovery("课程已恢复，但提醒/地点回填尚未确认：${outcome.reason}。下次进入会继续。")
+                true
+            }
+            is CourseRestoreCompletionOutcome.Rejected -> {
+                refreshRestorableCourses()
+                reportCourseRecovery("恢复未执行（${outcome.status}）：${outcome.reason}")
+                false
+            }
+            is CourseRestoreCompletionOutcome.WriteUncertain -> {
+                refreshRestorableCourses()
+                reportCourseRecovery("恢复的落盘结果未确认：${outcome.reason}")
+                false
+            }
+            is CourseRestoreCompletionOutcome.NotReady -> {
+                reportCourseRecovery("恢复不可用：${outcome.reason}")
+                false
+            }
+        }
+    }
+    LaunchedEffect(Unit) {
+        refreshRestorableCourses()
+        // Every RESTORING group has already committed its courses. Resume all such groups, even
+        // when their original undo window has expired or a newer deletion group also exists.
+        for (groupId in CourseRecoveryOperations.pendingRestoringGroups(coreDataRepository)) {
+            val before = courses
+            when (val outcome = CourseRecoveryOperations.restoreAndComplete(context, coreDataRepository, groupId)) {
+                is CourseRestoreCompletionOutcome.Completed -> {
+                    courseReminderSettings = CourseReminders.load(context)
+                    applyCourseState(before, readCoreData().courses)
+                    refreshRestorableCourses()
+                }
+                is CourseRestoreCompletionOutcome.CoreCommittedFollowUpPending -> {
+                    courseReminderSettings = CourseReminders.load(context)
+                    applyCourseState(before, readCoreData().courses)
+                    refreshRestorableCourses()
+                    reportCourseRecovery("有课次的提醒/地点回填仍未确认：${outcome.reason}。下次进入会继续。")
+                }
+                else -> refreshRestorableCourses()
+            }
+        }
+        purgeExpiredCourseGroups()
+        refreshRestorableCourses()
+    }
     var autoPlanMessage by remember { mutableStateOf<String?>(null) }
-    var goals by remember { mutableStateOf(store.loadGoals()) }
+    var goals by remember { mutableStateOf(startup.goals) }
     var addGoalOpen by remember { mutableStateOf(false) }
     var editGoalTarget by remember { mutableStateOf<Goal?>(null) }
     var goalFinderSuggestion by remember { mutableStateOf("") }
-    var resources by remember { mutableStateOf(store.loadResources()) }
+    var resources by remember { mutableStateOf(startup.resources) }
     var addResourceOpen by remember { mutableStateOf(false) }
     var summaryTarget by remember { mutableStateOf<LearningResource?>(null) }
     var completionTarget by remember { mutableStateOf<Item?>(null) }
     LaunchedEffect(notificationForegroundCheck) {
-        goals = store.loadGoals()
+        if (notificationForegroundCheck <= 1) return@LaunchedEffect
+        goals = readCoreData().goals
         completionTarget = null
         editGoalTarget = null
         goalScheduleTarget = null
     }
     var feedbackTarget by remember { mutableStateOf<Pair<Item, String>?>(null) }
-    var feedback by remember { mutableStateOf(store.loadFeedback()) }
-    var improvementNotes by remember { mutableStateOf(store.loadImprovementNotes()) }
+    var feedback by remember { mutableStateOf(startup.feedback) }
+    var improvementNotes by remember { mutableStateOf(startup.improvementNotes) }
     var improvementOpen by remember { mutableStateOf(false) }
-    var baselineProfile by remember { mutableStateOf(store.loadBaselineProfile()) }
-    var baselineVariants by remember { mutableStateOf(store.loadBaselineVariants()) }
+    var baselineProfile by remember { mutableStateOf(startup.baselineProfile) }
+    var baselineVariants by remember { mutableStateOf(startup.baselineVariants) }
     var baselineVariantNameOpen by remember { mutableStateOf(false) }
+    var onboardingDone by remember { mutableStateOf(startup.onboardingDone) }
     // 权限一站式进行中时先不弹习惯基线引导，避免两个对话框叠在一起；权限流程结束后补弹。
-    var baselineOnboardingOpen by remember { mutableStateOf(!store.loadOnboardingDone() && !permissionOnboardingPending) }
+    var baselineOnboardingOpen by remember { mutableStateOf(!onboardingDone && !permissionOnboardingPending) }
     LaunchedEffect(permissionOnboardingPending) {
-        if (!permissionOnboardingPending && !store.loadOnboardingDone()) baselineOnboardingOpen = true
+        if (!permissionOnboardingPending && !onboardingDone) baselineOnboardingOpen = true
     }
     // 仅新安装在快速入门前询问一次；已有用户升级时不弹出，也不改写现有校园生活设置。
     LaunchedEffect(permissionOnboardingPending, baselineOnboardingOpen, baselineWhereToFindOpen) {
         if (!permissionOnboardingPending && !baselineOnboardingOpen && !baselineWhereToFindOpen &&
-            !store.loadFeatureIntroShown() && !store.loadCampusLifeChoiceShown()
+            !featureIntroShown && !campusLifeChoiceShown
         ) campusLifeChoiceOpen = true
     }
     // 首次启动快速入门：校园生活选择完成后再弹，避免两个弹窗叠在一起。
     LaunchedEffect(permissionOnboardingPending, baselineOnboardingOpen, baselineWhereToFindOpen, campusLifeChoiceOpen) {
         if (!permissionOnboardingPending && !baselineOnboardingOpen && !baselineWhereToFindOpen && !campusLifeChoiceOpen &&
-            store.loadCampusLifeChoiceShown() && !store.loadFeatureIntroShown()
+            campusLifeChoiceShown && !featureIntroShown
         ) {
+            featureIntroShown = true
             store.saveFeatureIntroShown(true)
             featureIntroOpen = true
         }
@@ -370,19 +637,19 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     // 首次安装先完成快速入门；既有用户或后续覆盖安装才显示一次版本更新说明。
     LaunchedEffect(permissionOnboardingPending, baselineOnboardingOpen, baselineWhereToFindOpen, campusLifeChoiceOpen, featureIntroOpen) {
         if (permissionOnboardingPending || baselineOnboardingOpen || baselineWhereToFindOpen || campusLifeChoiceOpen || featureIntroOpen) return@LaunchedEffect
-        val seenVersion = store.loadLastSeenAppVersion()
-        if (seenVersion == null && !store.loadFeatureIntroShown()) return@LaunchedEffect
-        if (seenVersion != BuildConfig.VERSION_NAME) {
+        if (lastSeenAppVersion == null && !featureIntroShown) return@LaunchedEffect
+        if (lastSeenAppVersion != BuildConfig.VERSION_NAME) {
+            lastSeenAppVersion = BuildConfig.VERSION_NAME
             store.saveLastSeenAppVersion(BuildConfig.VERSION_NAME)
             updateNoticeOpen = true
         }
     }
     var baselineEventsOpen by remember { mutableStateOf(false) }
     var baselineResetConfirmOpen by remember { mutableStateOf(false) }
-    var mealRecords by remember { mutableStateOf(store.loadMealRecords()) }
-    var mealReminderEnabled by remember { mutableStateOf(store.loadMealReminderEnabled()) }
-    var mealDurationTrackingEnabled by remember { mutableStateOf(store.loadMealDurationTrackingEnabled()) }
-    var mealSkipDays by remember { mutableStateOf(store.loadMealSkipDays()) }
+    var mealRecords by remember { mutableStateOf(startup.mealRecords) }
+    var mealReminderEnabled by remember { mutableStateOf(startup.mealReminderEnabled) }
+    var mealDurationTrackingEnabled by remember { mutableStateOf(startup.mealDurationTrackingEnabled) }
+    var mealSkipDays by remember { mutableStateOf(startup.mealSkipDays) }
     var mealPromptOpen by remember { mutableStateOf<MealType?>(null) }
     var mealFinishOpen by remember { mutableStateOf<MealType?>(null) }
     var mealRecordsOpen by remember { mutableStateOf(false) }
@@ -417,8 +684,8 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     }
     // 8.1.0 检查更新（仅 GitHub 正式版；下载后调系统安装）。
     var updateCheckState by remember { mutableStateOf(UpdateCheckState()) }
-    var autoCheckUpdates by remember { mutableStateOf(store.loadAutoCheckUpdates()) }
-    var acceptRcUpdates by remember { mutableStateOf(store.loadAcceptRcUpdates()) }
+    var autoCheckUpdates by remember { mutableStateOf(startup.autoCheckUpdates) }
+    var acceptRcUpdates by remember { mutableStateOf(startup.acceptRcUpdates) }
     var downloadedUpdate by remember { mutableStateOf<File?>(null) }
     // 8.1.0 导航历史与草稿保险箱（会话内）：页面目的地变化统一记录，回退/折返键恢复快照。
     val navHistory = remember { NavHistory() }
@@ -445,6 +712,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
 
     /** 把页面状态写回（统一导航与回退/折返恢复共用；不记录历史）。 */
     fun applySnapshot(snapshot: PageSnapshot) {
+        if (snapshot.tab != tab) FrameTimingRecorder.recordTabSwitch(snapshot.tab)
         tab = snapshot.tab
         todayInboxOpen = snapshot.todayInboxOpen
         planPage = snapshot.planPage
@@ -591,7 +859,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     LaunchedEffect(Unit) {
         if (autoCheckUpdates) {
             val day = java.text.SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(java.util.Date())
-            if (store.loadLastUpdateCheckDay() != day) {
+            if (startup.lastUpdateCheckDay != day) {
                 store.saveLastUpdateCheckDay(day)
                 checkForUpdate(silent = true)
             }
@@ -633,17 +901,55 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     // 新安装不预置任何校园地点；只有用户导入地点包或自行添加后才参与课程与通勤。
     val basePlaces = campusMapPackage?.places.orEmpty()
     val campusPlaces = if (campusLifeEnabled) basePlaces.filterNot { b -> customPlaces.any { it.name.lowercase() == b.name.lowercase() } || b.name.lowercase() in hiddenPlaces } + customPlaces else emptyList()
-    /** 统一处理识别结果：去重、保留冲突为待确认课程并生成提示（计算在 CourseSchedule，只保留保存/状态副作用）。 */
-    fun applyRecognizedCourses(recognized: List<Course>) {
-        val merge = mergeRecognizedCourses(courses, recognized)
-        // 与已确认课程冲突的识别结果也保留为待确认：应用已有冲突警示机制，由用户决定确认/编辑/忽略。
-        if (merge.added.isNotEmpty()) {
-            val updated = courses + merge.added
-            courses = updated
-            store.saveCourses(updated)
-            navHistory.markWorkedHere()
+    /** 任意来源统一进入同一条校验、去重、冲突与待确认链路。 */
+    fun applyImportedCourses(rawBatch: CourseImportBatch) {
+        val batch = CourseImportPolicy.prepare(rawBatch)
+        if (batch.newPlaces.isNotEmpty()) {
+            pendingPlaces = (batch.newPlaces + pendingPlaces).distinct().take(50)
+            store.savePendingPlaces(pendingPlaces)
         }
-        courseImportMessage = merge.message
+        if (batch.source == CourseImportSource.ZJU_TIMETABLE) {
+            val sync = syncSchoolCourses(courses, batch.courses)
+            if (sync.courses != courses) {
+                if (!persistCourses(sync.courses)) {
+                    courseImportRunning = false
+                    globalLoading = false
+                    return
+                }
+                navHistory.markWorkedHere()
+            }
+            courseImportMessage = buildString {
+                append(batch.source.label).append("：")
+                when {
+                    batch.courses.isEmpty() -> append("没有找到可解析的课程。")
+                    sync.addedCount == 0 && sync.updatedCount == 0 -> append("已有课程均为最新数据。")
+                    else -> {
+                        if (sync.addedCount > 0) append("新增 ").append(sync.addedCount).append(" 门待确认课程")
+                        if (sync.updatedCount > 0) {
+                            if (sync.addedCount > 0) append("；")
+                            append("更新 ").append(sync.updatedCount).append(" 门已有课程")
+                        }
+                        append("。")
+                    }
+                }
+            }
+        } else {
+            val merge = mergeRecognizedCourses(courses, batch.courses)
+            // 截图等不可靠来源仍只新增待确认课程，不更新已有记录。
+            if (merge.added.isNotEmpty()) {
+                val updated = courses + merge.added
+                if (!persistCourses(updated)) {
+                    courseImportRunning = false
+                    globalLoading = false
+                    return
+                }
+                navHistory.markWorkedHere()
+            }
+            courseImportMessage = "${batch.source.label}：${merge.message}"
+        }
+        if (batch.warnings.isNotEmpty()) {
+            courseImportMessage = courseImportMessage.orEmpty() + " " + batch.warnings.joinToString("；") + "。"
+        }
         courseImportRunning = false
         globalLoading = false
     }
@@ -654,31 +960,49 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             globalLoading = true
             courseImportMessage = "正在用硅基流动视觉模型识别课程…"
             CourseVisionRecognizer.recognize(context, uri, tutorialSearch.apiKey, courseVision.model, campusPlaces,
-                onSuccess = { applyRecognizedCourses(it) },
+                onSuccess = { applyImportedCourses(it) },
                 onFailure = { visionError ->
                     // 4.0.1 起不再回退本地 OCR（效果差）：直接说明失败原因，可检查 key/模型名/网络后重试。
                     courseImportMessage = "视觉模型识别失败（$visionError）。可检查设置里的 key、模型名或网络后重试。"
                     courseImportRunning = false
                     globalLoading = false
-                },
-                onNewPlaces = { newPlaces ->
-                    if (newPlaces.isNotEmpty()) {
-                        pendingPlaces = (newPlaces + pendingPlaces).distinct().take(50)
-                        store.savePendingPlaces(pendingPlaces)
-                    }
                 })
+        }
+    }
+    val zjuTimetableLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        courseImportRunning = false
+        globalLoading = false
+        if (result.resultCode == android.app.Activity.RESULT_OK) {
+            val payload = result.data?.getStringExtra(ZjuTimetableImportActivity.EXTRA_TIMETABLE_PAYLOAD).orEmpty()
+            val schoolYearCode = result.data?.getStringExtra(ZjuTimetableImportActivity.EXTRA_SCHOOL_YEAR_CODE)
+            val termCode = result.data?.getStringExtra(ZjuTimetableImportActivity.EXTRA_TERM_CODE)
+            // 与导入页首次解析严格同源：直接用它送出的学期显示文字（termDisplayOf），不再从 code 反推。
+            val termDisplay = result.data?.getStringExtra(ZjuTimetableImportActivity.EXTRA_SEMESTER).orEmpty()
+            when (val parsed = ZjuTimetableParser.parse(payload, schoolYearCode, termCode, termDisplay = termDisplay)) {
+                is ZjuTimetableParseResult.Success -> {
+                    applyImportedCourses(parsed.batch)
+                    val cautions = buildList {
+                        if (parsed.nonWeeklyRows > 0) add("${parsed.nonWeeklyRows} 条含单双周或不连续教学周，已保留为待确认，请按本学期实际周次核对")
+                        if (parsed.invalidRows > 0) add("${parsed.invalidRows} 条缺少课程名、星期或节次，未导入")
+                    }
+                    if (cautions.isNotEmpty()) courseImportMessage = courseImportMessage.orEmpty() + " " + cautions.joinToString("；") + "。"
+                }
+                is ZjuTimetableParseResult.Failure -> courseImportMessage = parsed.message
+            }
+        } else {
+            courseImportMessage = "已取消浙江大学教务导入。"
         }
     }
     fun saveItems(updated: List<Item>): Boolean {
         val previous = items
-        if (!store.saveItemsIfUnchanged(updated, previous)) {
-            items = store.loadItems()
+        if (!coreDataRepository.replaceTasks(updated, previous).applied) {
+            items = readCoreData().items
             scope.launch { snackbarHostState.showSnackbar("条目已在通知或其他操作中更新，请重新打开后操作。") }
             return false
         }
         items = updated
         ReminderScheduler.syncTaskReminders(context, previous, updated)
-        taskEvents = store.loadTaskEvents()
+        taskEvents = readCoreData().taskEvents
         navHistory.markWorkedHere()
         return true
     }
@@ -689,14 +1013,15 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             return false
         }
         val previous = items
-        if (!store.saveItemsAndTaskEvents(updated, events, expectedItems = previous)) {
-            items = store.loadItems()
+        val generated = RepeatActions.refresh(updated, courses = courses)
+        if (!coreDataRepository.replaceTasksAndAppendEvents(generated.items, events + generated.events, previous).applied) {
+            items = readCoreData().items
             scope.launch { snackbarHostState.showSnackbar("保存失败，尚未确认此次操作；请检查存储空间或数据保护提示。") }
             return false
         }
-        items = updated
-        ReminderScheduler.syncTaskReminders(context, previous, updated)
-        taskEvents = store.loadTaskEvents()
+        items = generated.items
+        ReminderScheduler.syncTaskReminders(context, previous, generated.items)
+        taskEvents = readCoreData().taskEvents
         navHistory.markWorkedHere()
         return true
     }
@@ -709,8 +1034,8 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
 
     fun saveGoals(updated: List<Goal>): Boolean {
         val previous = goals
-        if (!store.saveGoalsIfUnchanged(updated, previous)) {
-            goals = store.loadGoals()
+        if (!coreDataRepository.replacePlans(updated, previous).applied) {
+            goals = readCoreData().goals
             scope.launch { snackbarHostState.showSnackbar("目标已在其他操作中更新，请重新打开后操作。") }
             return false
         }
@@ -719,24 +1044,29 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
         return true
     }
 
-    fun saveItemsAndGoalsWithEvent(updatedItems: List<Item>, updatedGoals: List<Goal>, event: TaskEvent?): Boolean {
-        if (event == null) return false
+    fun saveItemsAndGoalsWithEvents(updatedItems: List<Item>, updatedGoals: List<Goal>, events: List<TaskEvent>): Boolean {
+        if (events.isEmpty()) return false
         val previousItems = items
         val previousGoals = goals
-        if (!store.saveItemsTaskEventsAndGoals(
-                updatedItems, listOf(event), updatedGoals,
-                expectedItems = previousItems, expectedGoals = previousGoals
-            )) {
-            items = store.loadItems()
-            goals = store.loadGoals()
+        if (!coreDataRepository.replaceTasksAppendEventsAndPlans(
+                updatedItems, events, updatedGoals, previousItems, previousGoals
+            ).applied) {
+            val current = readCoreData()
+            items = current.items
+            goals = current.goals
             scope.launch { snackbarHostState.showSnackbar("任务或目标已发生变化，请重新打开后操作。") }
             return false
         }
         items = updatedItems
         goals = updatedGoals
         ReminderScheduler.syncTaskReminders(context, previousItems, updatedItems)
-        taskEvents = store.loadTaskEvents()
+        taskEvents = readCoreData().taskEvents
         return true
+    }
+
+    fun saveItemsAndGoalsWithEvent(updatedItems: List<Item>, updatedGoals: List<Goal>, event: TaskEvent?): Boolean {
+        if (event == null) return false
+        return saveItemsAndGoalsWithEvents(updatedItems, updatedGoals, listOf(event))
     }
 
     /**
@@ -751,6 +1081,124 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
         ReminderScheduler.cancelGameReminders(context, itemId)
     }
 
+    /** 7.3 单条删除的唯一落点：确认后移入回收站，并保留既有撤回。返回是否真的落盘。 */
+    fun performTrash(ids: Set<Long>): Boolean {
+        val titles = items.filter { it.id in ids }.map(Item::title)
+        val result = TrashActions.trash(items, ids)
+        if (result.events.isEmpty()) {
+            scope.launch { snackbarHostState.showSnackbar("条目已变化，请重新打开后操作。") }
+            return false
+        }
+        if (!saveItemsWithEvents(result.items, result.events)) return false
+        ids.forEach(::removeScheduledActivity)
+        scope.launch {
+            val label = if (titles.size == 1) "已移入最近删除：《${titles.single()}》"
+                else "已移入最近删除 ${ids.size} 项"
+            if (snackbarHostState.showSnackbar(label, actionLabel = "撤回") == SnackbarResult.ActionPerformed) {
+                val undo = TrashActions.restore(items, ids)
+                if (undo.events.isNotEmpty()) saveItemsWithEvents(undo.items, undo.events)
+            }
+        }
+        return true
+    }
+
+    /** 7.3 删除前确认。批量路径已有各自确认，不走这里；被关联任务挡住时直接提示并返回 false。 */
+    fun requestTrash(item: Item, blockedMessage: String): Boolean {
+        if (TrashActions.trash(items, setOf(item.id)).events.isEmpty()) {
+            scope.launch { snackbarHostState.showSnackbar(blockedMessage) }
+            return false
+        }
+        pendingTrashConfirm = listOf(item)
+        return true
+    }
+
+    /** 7.3 永久清除：数据层原子写；成功后同步闹钟并撤掉可能残留的通知卡片。 */
+    fun purgeTrash(ids: Set<Long>): Boolean {
+        val previous = items
+        if (!coreDataRepository.purgeTrash(ids).applied) {
+            // commit() 失败时内存映射可能已被更新，按存储重新对齐；读失败就保持当前快照不动。
+            runCatching { readCoreData().items }.getOrNull()?.let { items = it }
+            scope.launch { snackbarHostState.showSnackbar("永久删除未完成，已按当前数据刷新。") }
+            return false
+        }
+        val refreshed = readCoreData().items
+        items = refreshed
+        ReminderScheduler.syncTaskReminders(context, previous, refreshed)
+        taskEvents = readCoreData().taskEvents
+        val manager = context.getSystemService(android.app.NotificationManager::class.java)
+        ids.forEach { manager?.cancel(taskNotificationId(it)) }
+        scope.launch { snackbarHostState.showSnackbar("已永久删除 ${ids.size} 项") }
+        return true
+    }
+
+    fun refreshRecoveryState(result:CoreDataWriteResult):Boolean {
+        val previousItems=items
+        val previousCourses=courses
+        val snapshot=(coreDataRepository.read() as? CoreDataReadResult.Ready)?.snapshot
+        if(snapshot==null) { scope.launch { snackbarHostState.showSnackbar("数据无法完整读取，已停止恢复操作，请保留原数据。") };return false }
+        items=snapshot.items; taskEvents=snapshot.taskEvents; goals=snapshot.goals
+        courseReminderSettings=CourseReminders.load(context)
+        if(snapshot.courses!=previousCourses) applyCourseState(previousCourses,snapshot.courses)
+        ReminderScheduler.syncTaskReminders(context,previousItems,items)
+        refreshRestorableCourses()
+        if(!result.applied) scope.launch { snackbarHostState.showSnackbar("操作未确认：${result.message.ifBlank { result.status.name }}；未覆盖后续修改。") }
+        return result.applied
+    }
+    fun restoreRecoveryEntry(e:RecoveryEntry) {
+        if(e.course) {
+            val candidate=CourseRecoveryOperations.restorableGroups(coreDataRepository).firstOrNull { it.groupId==e.id }
+            if(candidate!=null) restoreCoursesWithRecovery(candidate.groupId)
+        } else {
+            val record=readCoreData().operationRecords.firstOrNull { it.operationId==e.id }
+            val result=if(e.inverse && record?.state=="restoring") Stage7Inverse.resume(context,coreDataRepository,e.id)
+                else if(e.inverse) Stage7Inverse.undo(context,coreDataRepository,e.id)
+                else Stage7Recovery.restore(coreDataRepository,e.id)
+            if(refreshRecoveryState(result)) scope.launch { snackbarHostState.showSnackbar("已${if(e.inverse) "撤回" else "恢复"}，历史仍保留。") }
+        }
+    }
+    fun purgeRecoveryEntry(e:RecoveryEntry):Boolean {
+        val okay=if(e.course) when(val outcome=coreDataRepository.courseRecoveryStore.purgeSelectedGroups(setOf(e.id))) {
+            is CoursePurgeOutcome.Applied -> true
+            else -> { reportCourseRecovery("清除未确认：$outcome"); false }
+        } else refreshRecoveryState(Stage7Recovery.purge(coreDataRepository,setOf(e.id)))
+        if(okay) { Stage7CourseMaintenance.collect(context,coreDataRepository); refreshRestorableCourses(); reminderRevision++ }
+        return okay
+    }
+    LaunchedEffect(Unit) {
+        val pending=readCoreData().operationRecords.filter { it.state=="restoring" && it.kind.endsWith("inverse") }
+        pending.forEach { refreshRecoveryState(Stage7Inverse.resume(context,coreDataRepository,it.operationId)) }
+        val now=System.currentTimeMillis()
+        refreshRecoveryState(Stage7Recovery.purge(coreDataRepository,now=now))
+        Stage7CourseMaintenance.collect(context,coreDataRepository)
+    }
+
+    fun applyTodoBatch(ids: Set<Long>, action: TodoBatchAction, targetDay: Long?, keepTime: Boolean): Boolean {
+        val result = TodoBatchActions.apply(items, ids, action, targetDay = targetDay, keepTime = keepTime)
+        if (result.events.isEmpty()) {
+            scope.launch { snackbarHostState.showSnackbar("待办已变化，请重新选择。") }
+            return false
+        }
+        if(action!=TodoBatchAction.DELETE) {
+            val (outcome,operationId)=Stage7Inverse.applyTaskBatch(coreDataRepository,result,System.currentTimeMillis())
+            if(!refreshRecoveryState(outcome)) return false
+            scope.launch {
+                if(snackbarHostState.showSnackbar("已${action.label} ${result.affectedBefore.size} 项",actionLabel="撤回")==SnackbarResult.ActionPerformed && operationId!=null)
+                    refreshRecoveryState(Stage7Inverse.undo(context,coreDataRepository,operationId))
+            }
+        } else {
+            val changed=TrashActions.trash(items,ids)
+            if(changed.events.isEmpty() || !saveItemsWithEvents(changed.items,changed.events)) return false
+            result.affectedBefore.forEach { removeScheduledActivity(it.id) }
+            scope.launch {
+                if(snackbarHostState.showSnackbar("已删除 ${ids.size} 项",actionLabel="撤回")==SnackbarResult.ActionPerformed) {
+                    val undo=TrashActions.restore(items,ids)
+                    if(undo.events.isNotEmpty()) saveItemsWithEvents(undo.items,undo.events)
+                }
+            }
+        }
+        return true
+    }
+
     /** 放回收集箱：清掉时间与范围，保留原调度日记忆；三处共用（回收卡 / 快速改期建议 / 时间轴弹窗）。 */
     fun returnToInbox(item: Item) {
         val result = TaskActions.returnToInbox(items, item)
@@ -758,13 +1206,14 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
         removeScheduledActivity(item.id)
     }
     /** 改期保存的完整动作：数据变换在 TaskActions，事件/基线/提醒/游戏会话同步在 FApp 层（原 saveDelayedItem）。 */
-    fun applyDelayed(item: Item, scheduledAt: Long, duration: Int, label: String, priority: String) {
+    fun applyDelayed(item: Item, scheduledAt: Long, duration: Int, label: String, priority: String,
+                     preserveTaskKind: Boolean = false): Boolean {
         val storedSessions = store.loadGameSessions()
-        val scheduledActivity = storedSessions.firstOrNull { it.id == item.id && it.isOpen() }
+        val scheduledActivity = if (preserveTaskKind) null else storedSessions.firstOrNull { it.id == item.id && it.isOpen() }
         // 兼容 7.1.3 以前活动改期后被误写成普通任务的记录。
         val source = if (scheduledActivity != null && item.kind !in setOf("活动", "游戏")) item.copy(kind = "活动") else item
         val plan = TaskActions.planDelayed(items, source, scheduledAt, duration, label, priority)
-        if (!saveItemsWithEvent(plan.items, plan.event)) return
+        if (!saveItemsWithEvent(plan.items, plan.event)) return false
         store.appendBaselineEvent(BaselineRecorder.event(BaselineEventType.TASK_RESCHEDULED, plan.baselinePayload))
         ReminderScheduler.scheduleTaskReminder(context, plan.delayedItem)
         if (scheduledActivity != null) {
@@ -775,6 +1224,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                 ReminderScheduler.scheduleGameReminders(context, it)
             }
         }
+        return true
     }
     /** 目标任务安排（算法建议点击与自定义时间共用）：写入日程、记事件、建提醒。 */
     val scheduleGoalItem: (Goal, Long) -> Unit = schedule@ { goal, at ->
@@ -802,7 +1252,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     // 8.1.0 两级退出：非今日页主页按返回先回今日主页；今日页主页按返回二次确认退出，可记忆不再提示。
     // 子页返回处理器在本处理器之后组合，子页打开时优先；弹窗宿主也组合在本处理器之后，弹窗打开时返回先关弹窗。
     var lastExitPromptAt by remember { mutableLongStateOf(0L) }
-    var exitConfirmDisabled by remember { mutableStateOf(store.loadExitConfirmDisabled()) }
+    var exitConfirmDisabled by remember { mutableStateOf(startup.exitConfirmDisabled) }
     // 只按"当前页签"判断是否在子页：别的页签遗留的子页状态（切走后保留）不该让本处理器失效，
     // 否则系统返回没有任何处理器接管，会直接退出应用、跳过二次确认。
     val onCurrentSubpage = (tab == 0 && todayInboxOpen) ||
@@ -861,6 +1311,16 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
         }
     }
 
+    LaunchedEffect(standaloneOpenRequested) {
+        standaloneOpenRequested?.let { (id, expectedAt) ->
+            if (StandaloneReminders.all(context).any { it.id == id && it.scheduledAt == expectedAt && it.completedAt == null }) {
+                focusedReminderId = id
+                addReminderOpen = true
+            }
+            onRequestHandled()
+        }
+    }
+
     LaunchedEffect(mealPromptRequested, mealFinishRequested) {
         if (mealPromptRequested != null || mealFinishRequested != null) {
             jumpTo(PageSnapshot(0, false, planPage, settingsSubPage, settingsBackStack))
@@ -871,11 +1331,28 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
     }
 
     LaunchedEffect(Unit) {
-        ReminderScheduler.restoreActivityReminders(context)
+        // 恢复提醒会读取多组偏好、重建多类闹钟；它不应在首个 Compose 提交后立刻占住主线程。
+        withContext(Dispatchers.IO) { ReminderScheduler.restoreUnifiedReminders(context) }
+        val afterReminderRestore = readCoreData()
+        items = afterReminderRestore.items
+        taskEvents = afterReminderRestore.taskEvents
+        var lastRepeatDay = TaskHistory.dayStartOf(System.currentTimeMillis())
+        // 启动快照已经带回当前会话与历史，首轮无需再次读取。
+        delay(1_000)
         while (true) {
-            val restored = store.loadLatestActiveSession()
+            val currentDay = TaskHistory.dayStartOf(System.currentTimeMillis())
+            if (currentDay != lastRepeatDay) {
+                withContext(Dispatchers.IO) { RepeatActions.refreshRepository(context) }
+                val refreshed = readCoreData()
+                items = refreshed.items; taskEvents = refreshed.taskEvents
+                lastRepeatDay = currentDay
+            }
+            val (restored, recentHistory) = withContext(Dispatchers.IO) {
+                CoreDataRepositoryOperations.latestActiveSession(coreDataRepository) to
+                    CoreDataRepositoryOperations.recentActivitySessions(coreDataRepository)
+            }
             activeSession = restored
-            activityHistory = store.loadRecentActivitySessions()
+            activityHistory = recentHistory
             if (restored == null) {
                 transitionTarget = null
             } else if (transitionTarget?.id == restored.id && transitionTarget != restored) {
@@ -906,7 +1383,6 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             }
         }
         val density = LocalDensity.current
-        val keyboardVisible = WindowInsets.ime.getBottom(density) > 0
         var floatingBarHeight by remember { mutableStateOf(112.dp) }
         val capturesGlassBackdrop = appearance.effectiveCardMaterial.samplesPageBackdrop
         // 默认关闭时连 HazeState 都不创建；开关或材质变化后才建立／释放共享捕获源。
@@ -914,7 +1390,21 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
         val glassBackdropState = remember(capturesGlassBackdrop) {
             if (capturesGlassBackdrop) HazeState() else null
         }
-        Box(Modifier.fillMaxSize().imePadding()) {
+        val startupInteractionModifier = if (startupInteractionGuardActive) {
+            Modifier.pointerInput(Unit) {
+                awaitPointerEventScope {
+                    while (true) {
+                        val event = awaitPointerEvent(PointerEventPass.Initial)
+                        if (event.changes.any { it.pressed && !it.previousPressed }) {
+                            startupInteractionToken++
+                        }
+                    }
+                }
+            }
+        } else {
+            Modifier
+        }
+        Box(Modifier.fillMaxSize().imePadding().then(startupInteractionModifier)) {
         // 8.2.0 外观系统：背景层画在最底下（页面渐变/图片）。默认外观下它不新增任何绘制，
         // 因此「默认与 8.1.1 逐像素一致」是结构上成立的，不靠调参。
         Box(
@@ -937,7 +1427,9 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             LocalAppearance provides appearance,
             LocalBackdropBitmap provides pageBackdropBitmap,
             LocalGlassBackdropState provides glassBackdropState,
-            LocalAppDialogHost provides dialogHost
+            LocalAppDialogHost provides dialogHost,
+            // 页面直接文字也要随真实背景选对比色，不能只修卡片内容。
+            LocalContentColor provides pageBodyContentColor()
         ) {
         // Horizontal cutouts constrain the viewport. Top safety travels with scroll content.
         val safeContentInsets = WindowInsets.systemBars.union(WindowInsets.displayCutout)
@@ -967,7 +1459,9 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             },
         ) { padding ->
             CompositionLocalProvider(
-                LocalFloatingBottomPadding provides if (keyboardVisible) 0.dp else floatingBarHeight,
+                // Keep the scrollable page behind the floating bar even with the IME open;
+                // clipping its viewport above the bar cuts cards across a straight edge.
+                LocalFloatingBottomPadding provides floatingBarHeight,
                 LocalScrollingTopPadding provides if (hasTopNotice) 0.dp else topSafety
             ) {
             // Applied and consumed once for both root pages and their animated children.
@@ -979,7 +1473,6 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             // 同一个开关写 true 等于没变，Compose 不会重组。要修得改弹窗打开状态的建模方式（例如用 token 而不是 Boolean），
             // 属于独立改动，先按现状记录。
             val pageModifier = Modifier.padding(padding).consumeWindowInsets(padding)
-                .padding(bottom = if (keyboardVisible) floatingBarHeight else 0.dp)
                 .then(if (dialogLayerVisible) Modifier.clearAndSetSemantics {} else Modifier)
             // 假期或校园生活关闭时，课程不参与今日、日程、空挡与目标建议；原数据仍保留。
             val scheduleCourses = activeCourses
@@ -992,16 +1485,37 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                 TransformOrigin(0.664f, 0.878f),
                 TransformOrigin(0.829f, 0.878f)
             )
-            // 8.1.0 第三轮：启动只组合当前页签（首帧不被三个整页拖慢）；
-            // 首帧之后再逐帧补齐其余页签——否则第一次切到某页签时才组合整页，切换会明显掉帧。
+            // 启动只组合当前页签。隐藏页必须等当前页面持续空闲后逐个预热；首帧后连续组合三个整页
+            // 会和首次展开、弹窗及切页动画争抢主线程，正是“前几次动画都掉帧”的高风险路径。
             val visitedTabs = remember { mutableStateListOf(0) }
             // 当前页签在组合期就入表：否则切过去的那一帧它还没被组合，页面会空白一帧。
             if (tab !in visitedTabs) visitedTabs.add(tab)
-            LaunchedEffect(Unit) {
+            val visitedTabCount = visitedTabs.size
+            LaunchedEffect(
+                tab,
+                todayInboxOpen,
+                planPage,
+                settingsSubPage,
+                dialogLayerVisible,
+                globalLoading,
+                startupInteractionToken,
+                visitedTabCount
+            ) {
+                if (!StartupWorkPolicy.canWarmTabs(globalLoading, dialogLayerVisible)) return@LaunchedEffect
+                val extra = StartupWorkPolicy.nextPendingTab(visitedTabs, tab)
+                if (extra == null) {
+                    startupInteractionGuardActive = false
+                    return@LaunchedEffect
+                }
+                // 固定的“启动 1.2 秒后连做三页”仍会撞上第一次触摸；现在每次按下都会取消
+                // 当前等待，并从最后一次交互重新计算空闲窗。每个空闲窗只组合一个完整页签，
+                // 图片背景 + 亚克力下也不会在相邻几帧连续建立大量 Haze 效果层。
+                delay(StartupWorkPolicy.warmupIdleMs(hasInteracted = startupInteractionToken > 0))
                 withFrameNanos { }
-                for (extra in listOf(1, 2, 3)) {
-                    if (extra !in visitedTabs) visitedTabs.add(extra)
-                    withFrameNanos { }
+                if (StartupWorkPolicy.canWarmTabs(globalLoading, dialogLayerVisible) &&
+                    extra != tab && extra !in visitedTabs
+                ) {
+                    visitedTabs.add(extra)
                 }
             }
             val currentSnapshot = PageSnapshot(tab, todayInboxOpen, planPage, settingsSubPage, settingsBackStack)
@@ -1098,6 +1612,13 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                     pageModifier, items,
                     inboxOpen = todayInboxOpen,
                     onInboxOpenChange = { goTo(pageSnapshot().copy(todayInboxOpen = it)) },
+                    onCaptureToInbox = { title ->
+                        val captured = Item(title = title, detail = "稍后决定安排", kind = "收集箱")
+                        saveItemsWithEvent(
+                            listOf(captured) + items,
+                            TaskRecorder.event(TaskEventType.TASK_CREATED, captured.id, captured.title)
+                        )
+                    },
                     energyLevel = energyLevel,
                     energyRecordedAt = energyRecordedAt,
                     onEnergyLevelChange = { updated ->
@@ -1126,7 +1647,8 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                     onOpenGoals = { jumpTo(PageSnapshot(2, todayInboxOpen, PlanPage.GOALS, settingsSubPage, settingsBackStack)) },
                     onStartGoalTask = { task ->
                         activityPreset = ActivityLaunchPreset(name = task.title, category = "学习", minutes = task.durationMinutes.coerceIn(5, 360), nextStep = upcomingCommitment?.title.orEmpty(), minimumVersion = false)
-                        activityOpen = true
+                        activityTaskId = task.id
+                        if (activeSession != null) transitionTarget = activeSession else activityOpen = true
                     },
                     latestStatusCheckIn = latestStatusCheckIn,
                     checkIns = statusCheckIns,
@@ -1140,6 +1662,12 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                             }
                         } else completionTarget = item
                     },
+                    onBatchToday = { ids, action, targetDay, keepTime ->
+                        if (ids.isEmpty() || !TodayBatchSelection.eligibleIds(items, System.currentTimeMillis()).containsAll(ids)) {
+                            scope.launch { snackbarHostState.showSnackbar("今日待办已变化，请重新选择。") }
+                            false
+                        } else applyTodoBatch(ids, action, targetDay, keepTime)
+                    },
                     goals = goals,
                     feedback = feedback,
                     activeSession = activeSession,
@@ -1150,23 +1678,60 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                         commuteProfile = updated
                         store.saveCommuteProfile(updated)
                     },
-                    onStartActivity = { activityPreset = null; activityOpen = true },
-                    onStartSuggestion = { suggestion, minimumVersion ->
-                        val minutes = if (minimumVersion) suggestion.minimumMinutes else suggestion.item.durationMinutes.coerceIn(5, 360)
-                        activityPreset = ActivityLaunchPreset(
-                            name = if (minimumVersion) "${suggestion.item.title} · 最低版本" else suggestion.item.title,
-                            category = if (suggestion.item.goalId != null) "学习" else "自定义",
-                            minutes = minutes,
-                            nextStep = upcomingCommitment?.title.orEmpty(),
-                            minimumVersion = minimumVersion
-                        )
-                        activityOpen = true
-                    },
-                    onReplanSuggestion = { item -> rescheduleTarget = item },
                     onReviewActivity = { activeSession?.let { transitionTarget = it } },
                     onPickTime = { item -> inboxScheduleTarget = item },
                     onEdit = { item -> inboxEditTarget = item },
                     onOrganize = { item -> organizeTarget = item },
+                    onInboxToTodo = { item ->
+                        val result = InboxBatchActions.apply(items, setOf(item.id), InboxBatchAction.TO_TASK)
+                        if (result.events.isNotEmpty()) saveItemsWithEvents(result.items, result.events)
+                    },
+                    onInboxToWanted = { item ->
+                        val result = WantedPlanActions.fromInbox(items, goals, setOf(item.id))
+                        if (result.created != null) saveItemsAndGoalsWithEvents(result.items, result.plans, result.events)
+                    },
+                    onBatchOrganize = { selectedIds, action ->
+                        if (action == InboxBatchAction.TO_PLAN) {
+                            if (selectedIds.isEmpty() || goals.none { it.state == PlanState.IN_PROGRESS }) {
+                                scope.launch { snackbarHostState.showSnackbar("先选择记录并建立进行中的计划。") }
+                                false
+                            } else {
+                                attachBatchIds = selectedIds
+                                true
+                            }
+                        } else if (action == InboxBatchAction.TO_WANTED) {
+                            val converted = WantedPlanActions.fromInbox(items, goals, selectedIds)
+                            if (converted.created == null) {
+                                scope.launch { snackbarHostState.showSnackbar("所选条目已变化，请重新选择。") }
+                                false
+                            } else if (saveItemsAndGoalsWithEvents(converted.items, converted.plans, converted.events)) {
+                                scope.launch { snackbarHostState.showSnackbar("已合并为想做《${converted.created.title}》") }
+                                true
+                            } else false
+                        } else {
+                        val before = items
+                        val result = InboxBatchActions.apply(before, selectedIds, action)
+                        val changed = if (action == InboxBatchAction.DELETE)
+                            TrashActions.trash(before, selectedIds) else TrashResult(result.items, result.events)
+                        if (result.events.isEmpty() || changed.events.isEmpty()) {
+                            scope.launch { snackbarHostState.showSnackbar("选中的条目已变化，请重新选择。") }
+                            false
+                        } else if (!saveItemsWithEvents(changed.items, changed.events)) false
+                        else {
+                            if (action == InboxBatchAction.DELETE) {
+                                scope.launch {
+                                    if (snackbarHostState.showSnackbar("已删除 ${result.affected.size} 项", actionLabel = "撤回") == SnackbarResult.ActionPerformed) {
+                                        val undo = TrashActions.restore(items, selectedIds)
+                                        if (undo.events.isNotEmpty()) saveItemsWithEvents(undo.items, undo.events)
+                                    }
+                                }
+                            } else {
+                                scope.launch { snackbarHostState.showSnackbar("已${action.label} ${result.affected.size} 项") }
+                            }
+                            true
+                        }
+                        }
+                    },
                     onCreateNextAction = { parent ->
                         val result = TaskActions.createNextAction(items, parent)
                         if (result.created != null) {
@@ -1196,8 +1761,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                         if (saveItems(result.items)) removeScheduledActivity(item.id)
                     },
                     onAbandon = { item ->
-                        val result = TaskActions.abandon(items, item)
-                        if (saveItemsWithEvent(result.items, result.event)) removeScheduledActivity(item.id)
+                        requestTrash(item, "这条记录关联了下一步任务，请先处理关联任务。")
                     },
                     baselineEvents = store.loadBaselineEvents(500),
                     taskEvents = taskEvents,
@@ -1235,7 +1799,8 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                             nextStep = upcomingCommitment?.title.orEmpty(),
                             minimumVersion = false
                         )
-                        activityOpen = true
+                        activityTaskId = item.id
+                        if (activeSession != null) transitionTarget = activeSession else activityOpen = true
                     },
                     onReturnToInbox = { item -> returnToInbox(item) },
                     onRescheduleTask = { item -> rescheduleTarget = item },
@@ -1248,14 +1813,19 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                         } else completionTarget = item
                     },
                     onDeleteItem = { item ->
-                        val result = TaskActions.deleteItem(items, item)
-                        if (saveItemsWithEvent(result.items, result.event)) removeScheduledActivity(item.id)
+                        if (TrashActions.trash(items, setOf(item.id)).events.isEmpty() &&
+                            item.kind !in setOf("任务", "收集箱", "暂停")) {
+                            // 非普通条目（活动/游戏等）沿用原有硬删除，其删除契约不属 7.3。
+                            val removed = TaskActions.deleteItem(items, item)
+                            if (saveItemsWithEvent(removed.items, removed.event)) removeScheduledActivity(item.id)
+                        } else requestTrash(item, "关联的下一步任务需先处理，再删除这条记录。")
                     },
                     onSaveCoursePeriodTable = { table ->
                         coursePeriodTable = table
                         coursePeriodTableConfigured = true
                         CourseGapPlanner.configure(table)
                         store.saveCoursePeriodTable(table)
+                        CourseReminders.sync(context, courses, courses, table, courseReminderSettings)
                     },
                     onCourseTimetableCompactChange = { compact ->
                         courseTimetableCompact = compact
@@ -1272,29 +1842,66 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                     campusLifeEnabled = campusLifeEnabled,
                     onCampusLifeRequired = { scope.launch { snackbarHostState.showSnackbar(CampusLifePolicy.disabledMessage()) } },
                     page = planPage,
-                                    onPageChange = { goTo(pageSnapshot().copy(planPage = it)); if (it == PlanPage.REVIEW) gameSessions = store.loadGameSessions(); if (it == PlanPage.HISTORY) taskEvents = store.loadTaskEvents() },
+                                    onPageChange = { goTo(pageSnapshot().copy(planPage = it)); if (it == PlanPage.HISTORY) taskEvents = readCoreData().taskEvents },
                     onResume = { item ->
                         val result = TaskActions.resume(items, item)
                         saveItemsWithEvent(result.items, result.event)
                     },
+                    onAddTodo = { addTodoOpen = true },
+                    onCompleteTodo = completeTodo@ { item ->
+                        if (items.none { it.id == item.id && it == item && !it.done }) return@completeTodo
+                        if (item.goalId != null) {
+                            completionTarget = item
+                            return@completeTodo
+                        }
+                        val result = TaskActions.completeNow(items, item)
+                        val completedAt = result.items.first { it.id == item.id }.completedAt ?: return@completeTodo
+                        if (saveItemsWithEvent(result.items, result.event)) {
+                            scope.launch {
+                                if (snackbarHostState.showSnackbar("已完成《${item.title}》", actionLabel = "撤回") == SnackbarResult.ActionPerformed) {
+                                    val undo = TaskActions.undoCompletion(items, item.id, completedAt)
+                                    if (undo.event != null) saveItemsWithEvent(undo.items, undo.event)
+                                }
+                            }
+                        }
+                    },
+                    onTodoDetail = { todoDetailTarget = it },
+                    onBatchTodo = ::applyTodoBatch,
+                    onPauseRepeat = { template, paused ->
+                        val updated = RepeatActions.pause(items, template, paused)
+                        if (updated.events.isNotEmpty() && saveItemsWithEvents(updated.items, updated.events) && !paused) {
+                            val next = RepeatActions.refresh(items, courses = courses)
+                            if (next.events.isNotEmpty()) saveItemsWithEvents(next.items, next.events)
+                        }
+                    },
+                    onRepeatRuleAction = { template, action ->
+                        if(action=="delete") {
+                            if(refreshRecoveryState(Stage7Recovery.deleteRepeat(coreDataRepository,template))) scope.launch { snackbarHostState.showSnackbar("已删除重复规则；可在数据与恢复中成组恢复。") }
+                        } else if(action=="stop") {
+                            val result=RepeatActions.stop(items,template)
+                            if(result.events.isNotEmpty()) saveItemsWithEvents(result.items,result.events)
+                        }
+                    },
                     onConfirmCourse = { course ->
-                        courseImportMessage = null
-                        courses = courses.map { if (it == course) it.copy(needsConfirmation = false) else it }
-                        store.saveCourses(courses)
+                        if (CourseConfirmationSafety.isDirectConfirmationBlocked(course, courses)) {
+                            courseImportMessage = "这门课与另一门待确认或已确认课程被识别到完全相同的星期和节次。请点“编辑并确认”核对坐标，避免错误课表直接生效。"
+                        } else {
+                            courseImportMessage = null
+                            persistCourses(courses.map { if (it == course) it.copy(needsConfirmation = false) else it })
+                        }
                     },
-                    onIgnoreCourse = { course ->
-                        courseImportMessage = null
-                        courses = courses.filterNot { it == course }
-                        store.saveCourses(courses)
+                    onConfirmSafeCourses = confirmSafe@ {
+                        val ids = CourseConfirmationSafety.safeBatchConfirmationIds(courses)
+                        if (ids.isNotEmpty()) {
+                            if (!persistCourses(courses.map { if (it.id in ids) it.copy(needsConfirmation = false) else it })) return@confirmSafe
+                        }
+                        courseImportMessage = if (ids.isEmpty()) "没有可直接确认的课程，请逐条核对重叠时段。"
+                        else "已一键确认 ${ids.size} 条无冲突时段；其余记录仍待核对。"
                     },
+                    onIgnoreCourse = { targets -> pendingIgnoreCourses=targets },
                     onAddCourse = { addCourseOpen = true },
                     onClearAwaitingCourses = {
-                        val count = courses.count { it.needsConfirmation }
-                        if (count > 0) {
-                            courses = courses.filterNot { it.needsConfirmation }
-                            store.saveCourses(courses)
-                            courseImportMessage = "已忽略全部 $count 门待确认课程。"
-                        }
+                        pendingIgnoreCourses=courses.filterTo(mutableSetOf()) { it.needsConfirmation }
                     },
                     courseImportRunning = courseImportRunning,
                     courseImportMessage = courseImportMessage,
@@ -1305,21 +1912,137 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                             courseScreenshotLauncher.launch(arrayOf("image/*"))
                         }
                     },
+                    onImportZju = {
+                        courseImportRunning = true
+                        globalLoading = false
+                        courseImportMessage = "请在应用内填写浙江大学统一身份认证账号和密码，随后自动获取当前课表。"
+                        zjuTimetableLauncher.launch(Intent(context, ZjuTimetableImportActivity::class.java))
+                    },
                     onEditCourse = { courseEditor = it },
                     onToggleCourse = { course ->
-                        courses = courses.map { if (it.id == course.id) it.copy(enabled = !it.enabled) else it }
-                        store.saveCourses(courses)
+                        persistCourses(courses.map { if (it.id == course.id) it.copy(enabled = !it.enabled) else it })
                     },
                     onDeleteCourses = { targets ->
-                        courses = removeCoursesById(courses, targets)
-                        store.saveCourses(courses)
+                        deleteCoursesWithRecovery(targets)
                     },
+                    onMergeCourses = { ids, preferred, plan ->
+                        val before = courses
+                        when (CourseMergeOperation.apply(context, coreDataRepository, before, ids, preferred, plan)) {
+                            CourseMergeOperation.Outcome.APPLIED -> {
+                                val updated = readCoreData().courses
+                                courseReminderSettings = CourseReminders.load(context)
+                                CourseReminders.sync(context, before, updated, coursePeriodTable, courseReminderSettings)
+                                courses = updated
+                                if (items.any { it.kind == "重复模板" && it.repeatFrequency == "class_day" }) {
+                                    RepeatActions.refreshRepository(context)
+                                    items = readCoreData().items
+                                }
+                                courseImportMessage = "课程已合并；其他星期或节次仍保持独立。"
+                                true
+                            }
+                            CourseMergeOperation.Outcome.RECOVERY_PENDING -> {
+                                courses = readCoreData().courses
+                                courseImportMessage = "课程已写入，但覆盖设置恢复尚未完成；请重启重试，暂不重排提醒。"
+                                false
+                            }
+                            else -> {
+                                courses = readCoreData().courses
+                                courseImportMessage = "合并未完成：选中记录或设置已变化，或存储不可写。请核对后重试。"
+                                false
+                            }
+                        }
+                    },
+                    onConfirmImportedGroup = { ids ->
+                        val grouped = CourseGrouping.confirmImported(courses, ids)
+                        if (grouped == null) {
+                            courseImportMessage = "课次已变化、时间冲突或候选来源不一致，请逐条核对。"
+                            false
+                        } else persistCourses(grouped)
+                    },
+                    onLinkCourses = { ids ->
+                        val grouped = CourseGrouping.linkConfirmed(courses, ids)
+                        if (grouped == null) {
+                            courseImportMessage = "无法归组：课程名、学期或时间冲突，请核对后重试。"
+                            false
+                        } else persistCourses(grouped)
+                    },
+                    onSeparateCourse = { id ->
+                        val separated = CourseGrouping.separate(courses, id)
+                        if (separated == null) {
+                            courseImportMessage = "课次已变化，请刷新后重试。"
+                            false
+                        } else persistCourses(separated)
+                    },
+                    onRenameCourse = { id, name ->
+                        val title = name.trim()
+                        if (title.isBlank() || courses.none { it.courseId == id && !it.needsConfirmation }) {
+                            courseImportMessage = "课程已变化，请刷新后重试。"
+                            false
+                        } else persistCourses(courses.map {
+                            if (it.courseId == id) it.copy(title = title) else it
+                        })
+                    },
+                    courseReminderSettings = courseReminderSettings,
+                    courseReminderPeriodTable = coursePeriodTable,
+                    onCourseReminderGlobalChange = { enabled ->
+                        if (CourseReminders.setGlobal(context, enabled)) {
+                            courseReminderSettings = courseReminderSettings.copy(enabled = enabled)
+                            CourseReminders.sync(context, courses, courses, coursePeriodTable, courseReminderSettings)
+                        }
+                    },
+                    onCourseReminderOverrideChange = { course, enabled ->
+                        if (CourseReminders.setOverride(context, course.id, enabled)) {
+                            courseReminderSettings = courseReminderSettings.copy(overrides =
+                                courseReminderSettings.overrides.toMutableMap().apply {
+                                    if (enabled == null) remove(course.id) else put(course.id, enabled)
+                                })
+                            CourseReminders.sync(context, courses, courses, coursePeriodTable, courseReminderSettings)
+                        }
+                    },
+                    restorableCourses = restorableCourses,
+                    onRestoreCourses = { restoreCoursesWithRecovery(it) },
+                    onPurgeExpiredCourseGroups = { purgeExpiredCourseGroups() },
                     goals = goals,
                     onAddGoal = { goalFinderSuggestion = ""; addGoalOpen = true },
                     onEditGoal = { goal -> goalFinderSuggestion = ""; editGoalTarget = goal },
-                    onDeleteGoal = { goal ->
-                        if (saveGoals(goals.filterNot { it.id == goal.id })) {
-                            scope.launch { snackbarHostState.showSnackbar("已删除目标《${goal.title}》") }
+                    onDeleteGoal = { goal -> pendingPlanDelete=goal; selectedPlanTasks=emptySet() },
+                    onCreateWanted = { title ->
+                        val plan = WantedPlanActions.create(goals, title)
+                        plan != null && saveGoals(goals + plan)
+                    },
+                    onEditPlan = { plan, title, outcome, notes, deadline ->
+                        val edited = WantedPlanActions.edit(plan, title, outcome, notes, deadline)
+                        edited != null && goals.any { it == plan } && saveGoals(goals.map { if (it.id == plan.id) edited else it })
+                    },
+                    onStartWanted = { plan, firstTask ->
+                        val started = if (goals.any { it == plan } && plan.state == PlanState.WANTED)
+                            WantedPlanActions.changeState(plan, PlanState.IN_PROGRESS) else null
+                        if (started == null) false else {
+                            val updatedGoals = goals.map { if (it.id == plan.id) started else it }
+                            if (firstTask.isBlank()) saveGoals(updatedGoals) else {
+                                val created = WantedPlanActions.linkedTask(items, started, firstTask)
+                                created.event != null && saveItemsAndGoalsWithEvents(created.items, updatedGoals, listOf(created.event))
+                            }
+                        }
+                    },
+                    onAddPlanTask = { plan, title ->
+                        if (goals.none { it == plan }) false else {
+                            val created = WantedPlanActions.linkedTask(items, plan, title)
+                            created.event != null && saveItemsWithEvent(created.items, created.event)
+                        }
+                    },
+                    onMovePlanTask = { plan, task, bucket ->
+                        if (goals.none { it == plan }) false else
+                            PlanTaskActions.move(items, plan, task, bucket)?.let(::saveItems) ?: false
+                    },
+                    onFocusPlanTask = { plan, task ->
+                        if (goals.none { it == plan }) false else
+                            PlanTaskActions.focus(items, plan, task)?.let(::saveItems) ?: false
+                    },
+                    onChangeGoalState = { goal, state ->
+                        val changed = WantedPlanActions.changeState(goal, state)
+                        if (changed != null && goals.any { it == goal }) {
+                            saveGoals(goals.map { if (it.id == goal.id) changed else it })
                         }
                     },
                     onScheduleGoal = { goal, suggestion ->
@@ -1376,23 +2099,21 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                     },
                     autoPlanMessage = autoPlanMessage,
                     tutorialSearch = tutorialSearch,
-                    aiWeeklySummary = aiWeeklySummary,
                     courseVision = courseVision,
                     onSearchTutorial = { tutorialSearchOpen = true },
                     onVideoAnalysis = { videoAnalysisOpen = true },
                     feedback = feedback,
-                    gameSessions = gameSessions,
                     checkIns = statusCheckIns,
                     taskEvents = taskEvents,
                     onReplaceTaskEvents = { updated ->
-                        if (store.replaceTaskEvents(updated)) {
+                        if (coreDataRepository.replaceTaskEvents(updated).applied) {
                             taskEvents = updated
                             true
                         } else false
                     },
                     store = store
                 )
-                else -> SettingsScreen(pageModifier, settingsScrollState, themeOption, commuteProfile, campusLifeEnabled, campusMapPackage, currentCampusPlace, improvementNotes, activitySettings, statusCheckInSettings, statusPromptTrace = statusPromptTrace, nextStatusPromptAt = nextStatusPromptAt, onStatusPromptTest = {
+                else -> SettingsScreen(pageModifier, coreDataRepository, settingsScrollState, themeOption, commuteProfile, campusLifeEnabled, campusMapPackage, currentCampusPlace, improvementNotes, activitySettings, statusCheckInSettings, statusPromptTrace = statusPromptTrace, nextStatusPromptAt = nextStatusPromptAt, onStatusPromptTest = {
                     if (!statusCheckInSettings.enabled) {
                         scope.launch { snackbarHostState.showSnackbar("请先开启每日精力询问") }
                     } else {
@@ -1477,9 +2198,6 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                 }, tutorialSearch = tutorialSearch, onTutorialSearchSettingsChange = { updated ->
                     tutorialSearch = updated
                     store.saveTutorialSearchSettings(updated)
-                }, aiWeeklySummary = aiWeeklySummary, onAiWeeklySummarySettingsChange = { updated ->
-                    aiWeeklySummary = updated
-                    store.saveAiWeeklySummarySettings(updated)
                 }, courseVision = courseVision, onCourseVisionSettingsChange = { updated ->
                     courseVision = updated
                     store.saveCourseVisionSettings(updated)
@@ -1504,6 +2222,7 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                     activitySettings = updated
                     store.saveActivityReminderSettings(updated)
                     activeSession?.let { ReminderScheduler.scheduleActivityReminders(context, it, updated) }
+                    ReminderScheduler.scheduleMissedDigest(context)
                     ReminderScheduler.restoreTaskReminders(context)
                 }, onStatusCheckInSettingsChange = { updated ->
                     if ((updated.enabled && !statusCheckInSettings.enabled) ||
@@ -1620,6 +2339,28 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                         store.saveCustomThemeColors(extracted)
                         themeOption = FocusFlowThemeOption.CUSTOM
                         store.saveTheme(FocusFlowThemeOption.CUSTOM)
+                    }, onOpenTrash = {
+                        // 7.3 到期清理的唯一触发点：打开回收站时清掉已达 expiresAt 的组成员。
+                        val previous = items
+                        if (coreDataRepository.purgeExpiredTrash(System.currentTimeMillis()).applied) {
+                            val refreshed = readCoreData().items
+                            if (refreshed != previous) {
+                                val swept = previous.map(Item::id).toSet() - refreshed.map(Item::id).toSet()
+                                items = refreshed
+                                ReminderScheduler.syncTaskReminders(context, previous, refreshed)
+                                taskEvents = readCoreData().taskEvents
+                                val manager = context.getSystemService(android.app.NotificationManager::class.java)
+                                swept.forEach { manager?.cancel(taskNotificationId(it)) }
+                            }
+                        } else {
+                            // 与手动清除一致：commit 失败时内存映射可能已被更新，按存储重新对齐。
+                            runCatching { readCoreData().items }.getOrNull()?.let { items = it }
+                            scope.launch { snackbarHostState.showSnackbar("到期记录暂时无法清理，已保留全部数据。") }
+                        }
+                        refreshRecoveryState(Stage7Recovery.purge(coreDataRepository))
+                        purgeExpiredCourseGroups()
+                        Stage7CourseMaintenance.collect(context,coreDataRepository)
+                        trashOpen = true
                     })
             }
             }
@@ -1657,7 +2398,11 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             },
             onSelectTab = { selectTab(it) },
             // 点 ＋ 视为"换一个动作"：先关掉当前弹窗再打开添加菜单（内容有草稿箱兜底）。
-            onAdd = { dialogHost.dismissCurrent(); addMenuOpen = true },
+            onAdd = {
+                dialogHost.dismissCurrent()
+                addMenuOpen = true
+                addMenuRequestId++
+            },
             canGoBack = navHistory.canGoBack(),
             canGoForward = navHistory.canGoForward(),
             // 弹窗打开时让底栏退后（压暗 + 收阴影）：它的 zIndex 比弹窗层高，遮罩盖不到它。
@@ -1672,10 +2417,138 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
         )
         if (!hasTopNotice) StatusBarScrim(topSafety, Modifier.align(Alignment.TopCenter))
         // page with overlaid navigation; no full-width bottom surface
-        if (addMenuOpen) AddMenuDialog(
-            onDismiss = { addMenuOpen = false },
-            onQuickCapture = { addMenuOpen = false; addOpen = true },
-            onGamePlan = { addMenuOpen = false; gamePlanOpen = true }
+        if (addMenuOpen) key(addMenuRequestId) {
+            AddMenuDialog(
+                onDismiss = { addMenuOpen = false },
+                onCapture = { title ->
+                    val item = Item(title = title, detail = "", kind = "收集箱")
+                    saveItemsWithEvent(listOf(item) + items,
+                        TaskRecorder.event(TaskEventType.TASK_CREATED, item.id, item.title))
+                },
+                onAddTodo = { addMenuOpen = false; addTodoOpen = true },
+                onAddPlan = { addMenuOpen = false; addWantedOpen = true },
+                onAddSchedule = { addMenuOpen = false; addScheduleOpen = true },
+                onAddReminder = { addMenuOpen = false; addReminderOpen = true }
+            )
+        }
+        if (addWantedOpen) SimpleTitleDialog("新建计划", "计划名称", onDismiss = { addWantedOpen = false }) { title ->
+            val plan = WantedPlanActions.create(goals, title)
+            if (plan != null && saveGoals(goals + plan)) { addWantedOpen = false; true } else false
+        }
+        if (addScheduleOpen) GlobalTimeCreateDialog("新建日程", onDismiss = { addScheduleOpen = false }) { title, at ->
+            val item = Item(title = title, detail = TaskScheduleText.scheduledDetail(at, 60), kind = "任务", scheduledAt = at)
+            if (saveItemsWithEvents(listOf(item) + items, listOf(
+                    TaskRecorder.event(TaskEventType.TASK_CREATED, item.id, item.title),
+                    TaskRecorder.event(TaskEventType.TASK_SCHEDULED, item.id, item.title, scheduledAt = at)
+                ))) { addScheduleOpen = false; true } else false
+        }
+        if (addReminderOpen) GlobalTimeCreateDialog("新建提醒", onDismiss = { addReminderOpen = false; focusedReminderId = null },
+            existing = remember(reminderRevision) { StandaloneReminders.all(context) },
+            focusedReminderId = focusedReminderId,
+            onMoveReminderToInbox = { reminder ->
+                when (StandaloneInboxTransfer.move(context, coreDataRepository, reminder.id, reminder.scheduledAt)) {
+                    StandaloneInboxTransfer.Result.MOVED, StandaloneInboxTransfer.Result.ALREADY_MOVED -> {
+                        val refreshed = readCoreData()
+                        items = refreshed.items
+                        taskEvents = refreshed.taskEvents
+                        reminderRevision++
+                        focusedReminderId = null
+                        addReminderOpen = false
+                        scope.launch { snackbarHostState.showSnackbar("已移入收集箱") }
+                    }
+                    StandaloneInboxTransfer.Result.STALE -> {
+                        reminderRevision++
+                        scope.launch { snackbarHostState.showSnackbar("提醒状态已变化，请重新打开。") }
+                    }
+                    StandaloneInboxTransfer.Result.ID_COLLISION ->
+                        scope.launch { snackbarHostState.showSnackbar("条目编号冲突，未改动提醒或收集箱。") }
+                    StandaloneInboxTransfer.Result.WRITE_FAILED ->
+                        scope.launch { snackbarHostState.showSnackbar("保存尚未完成，请重试；不会重复创建条目。") }
+                }
+            },
+            onCompleteReminder = { reminder ->
+                if (StandaloneReminders.complete(context, reminder.id, reminder.scheduledAt)) {
+                    StandaloneReminders.cancel(context, reminder)
+                    context.getSystemService(android.app.NotificationManager::class.java)
+                        .apply {
+                            cancel(StandaloneReminders.notificationTag(reminder.id), 0)
+                            cancel((reminder.id % Int.MAX_VALUE).toInt())
+                        }
+                    reminderRevision++
+                }
+            }) { title, at ->
+            val saved = StandaloneReminders.create(context, title, at)
+            if (saved) { addReminderOpen = false; reminderRevision++; ReminderScheduler.restoreStandaloneReminders(context) }
+            saved
+        }
+        if (pendingTrashConfirm.isNotEmpty()) {
+            val target = pendingTrashConfirm.first()
+            AlertDialog(
+                onDismissRequest = { pendingTrashConfirm = emptyList() },
+                title = { Text("删除这项？") },
+                text = { Text("《${target.title}》将移入回收站，保留 30 天；到期后在打开回收站时清理，此前可随时恢复。") },
+                confirmButton = { TextButton(onClick = {
+                    pendingTrashConfirm = emptyList()
+                    // 详情弹窗跟着它所显示的那一条走：真正删除成功后才关闭。
+                    if (performTrash(setOf(target.id)) && todoDetailTarget?.id == target.id) todoDetailTarget = null
+                }) { Text("删除") } },
+                dismissButton = { TextButton(onClick = { pendingTrashConfirm = emptyList() }) { Text("取消") } }
+            )
+        }
+        if (trashOpen) {
+            val snapshot=readCoreData()
+            val owned=RecoveryEntries.ownedItemIds(snapshot.operationRecords)
+            val ordinaryItems=items.filterNot { it.id in owned }
+            val courseGroups=(CourseRecoveryOperations.readGroups(coreDataRepository) as? CourseRecoveryGroupsRead.Ready)?.groups.orEmpty()
+            val entries=RecoveryEntries.build(snapshot,courseGroups,System.currentTimeMillis())
+            TrashDialog(
+                items=ordinaryItems,groups=snapshot.trashGroups,
+                purgeable=TrashJournal.purgeableIds(ordinaryItems,snapshot.trashGroups),now=System.currentTimeMillis(),
+                onDismiss={trashOpen=false},
+                onRestore={ids -> val result=TrashActions.restore(items,ids); result.events.isNotEmpty() && saveItemsWithEvents(result.items,result.events)},
+                onPurge={ids -> purgeTrash(ids)},recoveryEntries=entries,
+                onRestoreEntry=::restoreRecoveryEntry,onPurgeEntry={purgeRecoveryEntry(it)},
+                onClear={
+                    var okay=true
+                    entries.filter { it.canPurge }.forEach { if(okay) okay=purgeRecoveryEntry(it) }
+                    if(okay) {
+                        val latest=readCoreData(); val ids=TrashJournal.purgeableIds(latest.items,latest.trashGroups)
+                        if(ids.isNotEmpty()) okay=purgeTrash(ids)
+                    }
+                    refreshRecoveryState(CoreDataWriteResult(if(okay) CoreDataWriteStatus.APPLIED else CoreDataWriteStatus.WRITE_FAILED,"清理未全部完成，已保留未确认部分。"))
+                    reminderRevision++
+                }
+            )
+        }
+        pendingPlanDelete?.let { plan ->
+            val selectable=items.filter { it.goalId==plan.id && it.kind=="任务" && it.repeatTemplateId==null && it.trashedAt==null && it.parentCaptureId==null && items.none { child->child.parentCaptureId==it.id } }
+            AlertDialog(onDismissRequest={pendingPlanDelete=null},title={Text("删除计划《${plan.title}》？")},
+                text={ScrollableDialogBox(maxHeight=340.dp,spacing=8.dp) {
+                    Text("计划和所选普通任务将保留 30 天，可成组恢复。未选择的任务保持原样；重复任务由各自的规则管理。")
+                    selectable.forEach { task -> Row(verticalAlignment=Alignment.CenterVertically) {
+                        Checkbox(checked=task.id in selectedPlanTasks,onCheckedChange={checked->selectedPlanTasks=if(checked) selectedPlanTasks+task.id else selectedPlanTasks-task.id})
+                        Text(task.title,modifier=Modifier.weight(1f))
+                    } }
+                }},confirmButton={TextButton(onClick={
+                    val ids=selectedPlanTasks; pendingPlanDelete=null; selectedPlanTasks=emptySet()
+                    if(refreshRecoveryState(Stage7Recovery.deletePlan(coreDataRepository,plan,ids))) scope.launch { snackbarHostState.showSnackbar("已删除计划，可在数据与恢复中找回。") }
+                }) {Text("删除")}},dismissButton={TextButton(onClick={pendingPlanDelete=null}) {Text("取消")}})
+        }
+        if(pendingIgnoreCourses.isNotEmpty()) AlertDialog(onDismissRequest={pendingIgnoreCourses=emptySet()},title={Text("忽略这些导入课次？")},
+            text={Text("${pendingIgnoreCourses.size} 个课次将移入恢复记录，保留 30 天。")},
+            confirmButton={TextButton(onClick={val targets=pendingIgnoreCourses;pendingIgnoreCourses=emptySet();deleteCoursesWithRecovery(targets)}) {Text("忽略")}},
+            dismissButton={TextButton(onClick={pendingIgnoreCourses=emptySet()}) {Text("取消")}})
+        if (addTodoOpen) TodoCreateDialog(
+            onDismiss = { addTodoOpen = false },
+            onSave = { title, dateOnlyAt, asChecklist, frequency, repeatMinute ->
+                val created = if (frequency.isNotEmpty()) {
+                    val repeat = RepeatActions.create(items, title, frequency,
+                        dateOnlyAt ?: TaskHistory.dayStartOf(System.currentTimeMillis()), repeatMinute, courses = courses)
+                    CreatedTodos(repeat.items, repeat.items.filter { item -> items.none { it.id == item.id } }, repeat.events)
+                } else if (asChecklist) TodoActions.createChecklist(items, title, dateOnlyAt, minute = repeatMinute)
+                    else TodoActions.createLines(items, title, dateOnlyAt, minute = repeatMinute)
+                created.created.isNotEmpty() && saveItemsWithEvents(created.items, created.events)
+            }
         )
         if (gamePlanOpen) GamePlanDialog(
             courses = activeCourses,
@@ -1733,13 +2606,25 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
         )
         if (activityOpen) ActivityDialog(suggestedNextStepName, activityPreset, activityHistory, upcomingCommitment, planningEnergyLevel, onDismiss = { activityOpen = false; activityPreset = null }) { category, name, endsAt, nextStep ->
             val now = System.currentTimeMillis()
-            val session = ActivitySession(name = name, category = category, plannedStartAt = now, actualStartAt = now, endsAt = endsAt, nextStep = nextStep)
-            store.saveSession(session)
-            activeSession = session
-            store.appendBaselineEvent(BaselineRecorder.event(BaselineEventType.ACTIVITY_STARTED, name))
-            ReminderScheduler.scheduleActivityReminders(context, session, activitySettings)
-            activityOpen = false
-            activityPreset = null
+            val current = CoreDataRepositoryOperations.latestActiveSession(coreDataRepository)
+            if (current != null) {
+                activeSession = current
+                activityOpen = false
+                transitionTarget = current
+                return@ActivityDialog
+            }
+            val task = items.firstOrNull { it.id == activityTaskId && it.kind == "任务" && !it.done }
+            if (task == null) { activityOpen = false; activityTaskId = null; return@ActivityDialog }
+            val session = ActivitySession(id = newItemId(), name = task.title, category = category, plannedStartAt = now, actualStartAt = now, endsAt = endsAt, nextStep = nextStep, taskId = task.id)
+            if (CoreDataRepositoryOperations.saveActivitySession(coreDataRepository, session).applied) {
+                activeSession = session
+                activityHistory = CoreDataRepositoryOperations.recentActivitySessions(coreDataRepository, 200)
+                store.appendBaselineEvent(BaselineRecorder.event(BaselineEventType.ACTIVITY_STARTED, name))
+                ReminderScheduler.scheduleActivityReminders(context, session, activitySettings)
+                activityOpen = false
+                activityPreset = null
+                activityTaskId = null
+            }
         }
         if (statusCheckInOpen) StatusCheckInDialog(
             initialEnergy = planningEnergyLevel,
@@ -1776,10 +2661,11 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                 if (remindMinutes != null) {
                     val now = System.currentTimeMillis()
                     val session = ActivitySession(name = "游戏／娱乐", category = "游戏／娱乐", plannedStartAt = now, actualStartAt = now, endsAt = now + remindMinutes * 60_000L, nextStep = "")
-                    store.saveSession(session)
-                    activeSession = session
-                    store.appendBaselineEvent(BaselineRecorder.event(BaselineEventType.ACTIVITY_STARTED, "游戏／娱乐"))
-                    ReminderScheduler.scheduleActivityReminders(context, session, activitySettings)
+                    if (activeSession == null && CoreDataRepositoryOperations.saveActivitySession(coreDataRepository, session).applied) {
+                        activeSession = session
+                        store.appendBaselineEvent(BaselineRecorder.event(BaselineEventType.ACTIVITY_STARTED, "游戏／娱乐"))
+                        ReminderScheduler.scheduleActivityReminders(context, session, activitySettings)
+                    }
                 }
             }
         )
@@ -1788,50 +2674,187 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             maxExtensions = activitySettings.maxExtensions,
             upcomingCommitment = upcomingCommitment,
             onDismiss = { transitionTarget = null },
-            onFinish = { actualEndAt ->
-                store.finishSession(session.id, ActivitySession.STATUS_COMPLETED, "finished_now", actualEndAt)
+            onPause = onPause@ {
+                val now = System.currentTimeMillis()
+                val result = CoreDataRepositoryOperations.finishActivitySession(
+                    coreDataRepository, session.id, ActivitySession.STATUS_COMPLETED,
+                    "paused", now, session.endsAt
+                )
+                if (!result.applied) return@onPause
                 store.appendBaselineEvent(BaselineRecorder.event(BaselineEventType.ACTIVITY_ENDED, session.name))
                 ReminderScheduler.cancelActivityReminders(context, session.id)
                 activeSession = null
+                activityHistory = CoreDataRepositoryOperations.recentActivitySessions(coreDataRepository, 200)
                 transitionTarget = null
             },
-            onStartNext = {
+            onCompleteTask = onCompleteTask@ {
+                val task = readCoreData().items.firstOrNull { it.id == session.taskId && it.kind == "任务" && !it.done }
+                if (task == null || items.none { it == task }) {
+                    scope.launch { snackbarHostState.showSnackbar("待办已变化，请重新打开后操作。") }
+                    return@onCompleteTask
+                }
                 val now = System.currentTimeMillis()
-                store.finishSession(session.id, ActivitySession.STATUS_COMPLETED, "started_next", now)
+                val result = CoreDataRepositoryOperations.finishActivitySession(
+                    coreDataRepository, session.id, ActivitySession.STATUS_COMPLETED,
+                    "completed_task", now, session.endsAt
+                )
+                if (!result.applied) return@onCompleteTask
+                store.appendBaselineEvent(BaselineRecorder.event(BaselineEventType.ACTIVITY_ENDED, session.name))
+                ReminderScheduler.cancelActivityReminders(context, session.id)
+                activeSession = null
+                activityHistory = CoreDataRepositoryOperations.recentActivitySessions(coreDataRepository, 200)
+                transitionTarget = null
+                val completed = TaskActions.completeNow(items, task, now)
+                if (!saveItemsWithEvent(completed.items, completed.event)) {
+                    scope.launch { snackbarHostState.showSnackbar("计时已结束，待办未完成，请在待办详情中重试。") }
+                }
+            },
+            onRescheduleTask = onRescheduleTask@ {
+                val task = items.firstOrNull { it.id == session.taskId }
+                if (!ActivityTaskReplan.canOpen(session, task)) {
+                    scope.launch { snackbarHostState.showSnackbar("待办已变化，请重新打开后操作。") }
+                    return@onRescheduleTask
+                }
+                rescheduleAfterActivitySession = session
+                rescheduleTarget = task
+                transitionTarget = null
+            },
+            onFinish = onFinish@ { actualEndAt ->
+                val result = CoreDataRepositoryOperations.finishActivitySession(
+                    coreDataRepository,
+                    session.id,
+                    ActivitySession.STATUS_COMPLETED,
+                    "finished_now",
+                    actualEndAt,
+                    session.endsAt
+                )
+                if (!result.applied) return@onFinish
+                store.appendBaselineEvent(BaselineRecorder.event(BaselineEventType.ACTIVITY_ENDED, session.name))
+                ReminderScheduler.cancelActivityReminders(context, session.id)
+                activeSession = null
+                activityHistory = CoreDataRepositoryOperations.recentActivitySessions(coreDataRepository, 200)
+                transitionTarget = null
+            },
+            onStartNext = onStartNext@ {
+                val now = System.currentTimeMillis()
                 val nextName = session.nextStep.ifBlank { suggestedNextStepName }
+                val nextSession = if (nextName.isNotBlank()) {
+                    val courseDuration = courses.firstOrNull { nextName.startsWith(it.title) }
+                        ?.let { CourseGapPlanner.periodEnd(it.endPeriod) - CourseGapPlanner.periodStart(it.startPeriod) }
+                    val duration = items.firstOrNull { it.title == nextName }?.durationMinutes
+                        ?: courseDuration ?: 30
+                    ActivitySession(
+                        name = nextName,
+                        category = "下一步",
+                        plannedStartAt = now,
+                        actualStartAt = now,
+                        endsAt = now + duration * 60_000L
+                    )
+                } else null
+                val finished = if (nextSession == null) {
+                    CoreDataRepositoryOperations.finishActivitySession(
+                        coreDataRepository,
+                        session.id,
+                        ActivitySession.STATUS_COMPLETED,
+                        "started_next",
+                        now,
+                        session.endsAt
+                    )
+                } else {
+                    CoreDataRepositoryOperations.finishAndStartNextActivitySession(
+                        coreDataRepository,
+                        session.id,
+                        nextSession,
+                        now,
+                        session.endsAt
+                    )
+                }
+                if (!finished.applied) return@onStartNext
                 store.appendBaselineEvent(BaselineRecorder.event(BaselineEventType.ACTIVITY_ENDED, nextName.takeIf { it.isNotBlank() }?.let { "${session.name} → $it" } ?: session.name))
                 ReminderScheduler.cancelActivityReminders(context, session.id)
-                if (nextName.isNotBlank()) {
-                    val courseDuration = courses.firstOrNull { nextName.startsWith(it.title) }?.let { CourseGapPlanner.periodEnd(it.endPeriod) - CourseGapPlanner.periodStart(it.startPeriod) }
-                    val duration = items.firstOrNull { it.title == nextName }?.durationMinutes ?: courseDuration ?: 30
-                    val nextSession = ActivitySession(name = nextName, category = "下一步", plannedStartAt = now, actualStartAt = now, endsAt = now + duration * 60_000L)
-                    store.saveSession(nextSession)
+                if (nextSession != null) {
                     activeSession = nextSession
                     store.appendBaselineEvent(BaselineRecorder.event(BaselineEventType.ACTIVITY_STARTED, nextName))
                     ReminderScheduler.scheduleActivityReminders(context, nextSession, activitySettings)
                 } else activeSession = null
+                activityHistory = CoreDataRepositoryOperations.recentActivitySessions(coreDataRepository, 200)
                 transitionTarget = null
             },
             onExtend = { minutes, reason ->
-                store.extendSession(session.id, minutes, reason)?.let { extended ->
+                CoreDataRepositoryOperations.extendActivitySession(
+                    coreDataRepository,
+                    session.id,
+                    minutes,
+                    activitySettings.maxExtensions,
+                    reason,
+                    session.endsAt
+                ).activityMutation?.after?.let { extended ->
                     activeSession = extended
                     ReminderScheduler.scheduleActivityReminders(context, extended, activitySettings)
                 }
                 transitionTarget = null
             },
-            onReplan = {
-                store.finishSession(session.id, ActivitySession.STATUS_SKIPPED, "replan")
+            onReplan = onReplan@ {
+                val skipped = CoreDataRepositoryOperations.finishActivitySession(
+                    coreDataRepository,
+                    session.id,
+                    ActivitySession.STATUS_SKIPPED,
+                    "replan",
+                    expectedEndsAt = session.endsAt
+                )
+                if (!skipped.applied) return@onReplan
                 store.appendBaselineEvent(BaselineRecorder.event(BaselineEventType.ACTIVITY_SKIPPED, session.name))
                 ReminderScheduler.cancelActivityReminders(context, session.id)
-                store.addReplanItem(session.nextStep.ifBlank { session.name })
-                items = store.loadItems()
+                CoreDataRepositoryOperations.addReplanItem(
+                    coreDataRepository,
+                    session.nextStep.ifBlank { session.name }
+                )
+                items = readCoreData().items
                 activeSession = null
+                activityHistory = CoreDataRepositoryOperations.recentActivitySessions(coreDataRepository, 200)
                 transitionTarget = null
             }
         ) }
-        rescheduleTarget?.let { item -> RescheduleTimeDialog(item, items, courses, commuteProfile, onDismiss = { rescheduleTarget = null }) { scheduledAt, duration, label, priority ->
-            applyDelayed(item, scheduledAt, duration, label, priority)
-            rescheduleTarget = null
+        rescheduleTarget?.let { item -> RescheduleTimeDialog(item, items, courses, commuteProfile,
+            title = if (rescheduleAfterActivitySession != null) "改期后结束计时" else "什么时候再提醒？",
+            onDismiss = {
+                rescheduleTarget = null
+                rescheduleAfterActivitySession?.let { session ->
+                    CoreDataRepositoryOperations.findActivitySession(coreDataRepository, session.id)
+                        ?.takeIf(ActivitySession::isOpen)?.let { transitionTarget = it }
+                }
+                rescheduleAfterActivitySession = null
+            }) { scheduledAt, duration, label, priority ->
+            val session = rescheduleAfterActivitySession
+            if (session == null) {
+                applyDelayed(item, scheduledAt, duration, label, priority)
+                rescheduleTarget = null
+            } else {
+                val current = readCoreData().items.firstOrNull { it.id == item.id }
+                if (!ActivityTaskReplan.canCommit(session, item, current, scheduledAt, duration)) {
+                    scope.launch { snackbarHostState.showSnackbar("待办或所选时间已变化，请重新选择。") }
+                } else {
+                    val finished = CoreDataRepositoryOperations.finishActivitySession(
+                        coreDataRepository, session.id, ActivitySession.STATUS_COMPLETED,
+                        "rescheduled_task", System.currentTimeMillis(), session.endsAt
+                    )
+                    if (finished.applied) {
+                        store.appendBaselineEvent(BaselineRecorder.event(BaselineEventType.ACTIVITY_ENDED, session.name))
+                        ReminderScheduler.cancelActivityReminders(context, session.id)
+                        activeSession = null
+                        activityHistory = CoreDataRepositoryOperations.recentActivitySessions(coreDataRepository, 200)
+                        rescheduleTarget = null
+                        rescheduleAfterActivitySession = null
+                        if (!applyDelayed(item, scheduledAt, duration, label, priority, preserveTaskKind = true)) {
+                            scope.launch { snackbarHostState.showSnackbar("计时已结束，待办尚未改期，请在待办详情中重试。") }
+                        }
+                    } else {
+                        scope.launch { snackbarHostState.showSnackbar("计时状态已变化，请重新打开后操作。") }
+                        rescheduleTarget = null
+                        rescheduleAfterActivitySession = null
+                    }
+                }
+            }
         } }
         goalScheduleTarget?.let { goal -> GoalScheduleDialog(
             goal = goal,
@@ -1912,6 +2935,64 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             if (!saveItems(items.map { if (it.id == item.id) it.copy(title = title, detail = detail, userNote = detail, durationMinutes = durationMinutes, priority = priority) else it })) return@editInbox
             inboxEditTarget = null
         } }
+        todoDetailTarget?.let { target ->
+            items.firstOrNull { it.id == target.id }?.let { item ->
+                TodoDetailDialog(
+                    item = item,
+                    onDismiss = { todoDetailTarget = null },
+                    onSchedule = {
+                        todoDetailTarget = null
+                        if (item.scheduledAt == null) inboxScheduleTarget = item else rescheduleTarget = item
+                    },
+                    onEdit = { todoDetailTarget = null; inboxEditTarget = item },
+                    onDueDate = { date ->
+                        if (items.any { it == item }) saveItems(items.map { if (it.id == item.id) it.copy(dueAt = date) else it })
+                    },
+                    onAddChecklist = { lines ->
+                        val updated = ChecklistActions.add(item, lines)
+                        updated != null && items.any { it == item } && saveItems(items.map { if (it.id == item.id) updated else it })
+                    },
+                    onToggleChecklist = { stepId ->
+                        val updated = ChecklistActions.toggle(item, stepId)
+                        if (updated != null && items.any { it == item }) saveItems(items.map { if (it.id == item.id) updated else it })
+                    },
+                    activitySessions = CoreDataRepositoryOperations.recentActivitySessions(coreDataRepository, Int.MAX_VALUE).filter { it.taskId == item.id },
+                    onStartTimer = {
+                        todoDetailTarget = null
+                        val current = CoreDataRepositoryOperations.latestActiveSession(coreDataRepository)
+                        if (current != null) { activeSession = current; transitionTarget = current }
+                        else {
+                            activityTaskId = item.id
+                            activityPreset = ActivityLaunchPreset(item.title, if (item.goalId != null) "学习" else "自定义", item.durationMinutes.coerceIn(5, 360), "", false)
+                            activityOpen = true
+                        }
+                    },
+                    onSkipRepeat = {
+                        val skipped = RepeatActions.skip(items, item, courses = courses)
+                        if (skipped.events.isNotEmpty() && saveItemsWithEvents(skipped.items, skipped.events))
+                            todoDetailTarget = null
+                    },
+                    onDelete = {
+                        if (item.repeatTemplateId != null) {
+                            val cancelled = RepeatActions.cancelInstance(items, item)
+                            if (cancelled.events.isNotEmpty() && saveItemsWithEvents(cancelled.items, cancelled.events)) {
+                                todoDetailTarget = null
+                                scope.launch {
+                                    if (snackbarHostState.showSnackbar("已取消本次《${item.title}》", actionLabel = "撤回") == SnackbarResult.ActionPerformed) {
+                                        val current = items.firstOrNull { it.id == item.id }
+                                        if (current?.kind == "重复历史" && current.repeatOccurrenceDay == item.repeatOccurrenceDay)
+                                            saveItemsWithEvent(items.map { if (it.id == item.id) item else it },
+                                                TaskRecorder.event(TaskEventType.TASK_RESTORED, item.id, item.title))
+                                    }
+                                }
+                            }
+                            return@TodoDetailDialog
+                        }
+                        requestTrash(item, "关联的下一步任务需先处理，再删除这项待办。")
+                    }
+                )
+            }
+        }
         // 自填教学楼自动进入地点库：地点库独立于课程，之后可在地点管理里修改分区/用途（计算在 CampusPlacesEditor）。
         fun ensureCoursePlaceInLibrary(course: Course) {
             val updated = ensurePlaceForCourse(course, campusPlaces, customPlaces) ?: return
@@ -1920,17 +3001,48 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
         }
         if (addCourseOpen) CourseEditorDialog(null, campusPlaces, maxPeriod = coursePeriodTable.periods.size, onDismiss = { addCourseOpen = false }, onOpenCommutePlaces = {
             addCourseOpen = false; suspendedCourseEditor = SuspendedCourseEditor(null); jumpTo(PageSnapshot(3, todayInboxOpen, planPage, SettingsSubPage.COMMUTE_PLACES, emptyList()))
-        }) { course ->
-            courses = courses + course.copy(needsConfirmation = false)
-            store.saveCourses(courses)
+        }) addCourse@ { course, _ ->
+            if (!persistCourses(courses + course.copy(needsConfirmation = false))) return@addCourse
             ensureCoursePlaceInLibrary(course)
             addCourseOpen = false
         }
         courseEditor?.let { original -> CourseEditorDialog(original, campusPlaces, maxPeriod = coursePeriodTable.periods.size, onDismiss = { courseEditor = null }, onOpenCommutePlaces = {
             courseEditor = null; suspendedCourseEditor = SuspendedCourseEditor(original); jumpTo(PageSnapshot(3, todayInboxOpen, planPage, SettingsSubPage.COMMUTE_PLACES, emptyList()))
-        }) { edited ->
-            courses = courses.map { if (it == original) edited.copy(needsConfirmation = false) else it }
-            store.saveCourses(courses)
+        }) editCourse@ { edited, followingFrom ->
+            if (followingFrom != null) {
+                val before = courses
+                when (CourseSplitOperation.apply(context, coreDataRepository, before, original, edited, followingFrom)) {
+                    CourseSplitOperation.Outcome.APPLIED -> {
+                        val updated = readCoreData().courses
+                        courseReminderSettings = CourseReminders.load(context)
+                        CourseReminders.sync(context, before, updated, coursePeriodTable, courseReminderSettings)
+                        courses = updated
+                        if (items.any { it.kind == "重复模板" && it.repeatFrequency == "class_day" }) {
+                            RepeatActions.refreshRepository(context)
+                            items = readCoreData().items
+                        }
+                    }
+                    CourseSplitOperation.Outcome.RECOVERY_PENDING -> {
+                        courses = readCoreData().courses
+                        courseImportMessage = "课程已拆分，覆盖设置仍待恢复；请重启重试，暂不重排提醒。"
+                        return@editCourse
+                    }
+                    else -> {
+                        courses = readCoreData().courses
+                        courseImportMessage = "拆分未完成：请核对分界日期和课程状态后重试。"
+                        return@editCourse
+                    }
+                }
+            } else {
+                val separated = if (edited.title.trim() != original.title.trim() &&
+                    courses.count { it.courseId == original.courseId } > 1
+                ) CourseGrouping.separate(courses, original.id) ?: return@editCourse else courses
+                val current = separated.single { it.id == original.id }
+                if (!persistCourses(separated.map {
+                    if (it.id == original.id) edited.copy(courseId = current.courseId,
+                        needsConfirmation = false) else it
+                })) return@editCourse
+            }
             ensureCoursePlaceInLibrary(edited)
             courseEditor = null
         } }
@@ -1972,6 +3084,13 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
                 }
             },
             onConvertToGoal = { organizeTarget = null; convertTarget = item },
+            onWant = {
+                val converted = WantedPlanActions.fromInbox(items, goals, setOf(item.id))
+                if (converted.created != null && saveItemsAndGoalsWithEvents(converted.items, converted.plans, converted.events)) {
+                    organizeTarget = null
+                    scope.launch { snackbarHostState.showSnackbar("已记入想做《${converted.created.title}》") }
+                }
+            },
             onAttachToPlan = { organizeTarget = null; attachTarget = item }
         ) }
         convertTarget?.let { item -> GoalEditorDialog(
@@ -1995,33 +3114,54 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             val updatedGoals = goals + goal.copy(sourceNotes = item.editableNote())
             val previousItems = items
             val previousGoals = goals
-            if (store.saveGoalConversion(
-                    updatedGoals,
+            if (coreDataRepository.replaceTasksAppendEventsAndPlans(
                     result.items,
-                    result.event!!,
-                    expectedGoals = previousGoals,
-                    expectedItems = previousItems
-                )) {
+                    listOf(result.event!!),
+                    updatedGoals,
+                    previousItems,
+                    previousGoals
+                ).applied) {
                 goals = updatedGoals
                 items = result.items
                 ReminderScheduler.syncTaskReminders(context, previousItems, result.items)
-                taskEvents = store.loadTaskEvents()
+                taskEvents = readCoreData().taskEvents
                 removeScheduledActivity(item.id)
                 convertTarget = null
             } else {
-                goals = store.loadGoals()
-                items = store.loadItems()
+                val current = readCoreData()
+                goals = current.goals
+                items = current.items
                 scope.launch { snackbarHostState.showSnackbar("任务或目标已发生变化，请重新打开后操作。") }
             }
         } }
         attachTarget?.let { item -> AttachToPlanDialog(
-            goals = goals,
+            goals = goals.filter { it.state == PlanState.IN_PROGRESS },
             onDismiss = { attachTarget = null },
             onAttach = { goal ->
-                val result = TaskActions.attachToGoal(items, item, goal)
-                if (saveItemsWithEvent(result.items, result.event)) {
+                val result = if (goals.any { it == goal }) InboxBatchActions.attachToPlan(items, setOf(item.id), goal)
+                    else InboxBatchResult(items, emptyList(), emptyList())
+                if (result.events.isNotEmpty() && saveItemsWithEvents(result.items, result.events)) {
                     removeScheduledActivity(item.id)
                     attachTarget = null
+                }
+            }
+        ) }
+        attachBatchIds?.let { selectedIds -> AttachToPlanDialog(
+            goals = goals.filter { it.state == PlanState.IN_PROGRESS },
+            onDismiss = { attachBatchIds = null },
+            onAttach = { goal ->
+                if (goals.none { it == goal }) {
+                    attachBatchIds = null
+                    scope.launch { snackbarHostState.showSnackbar("计划已变化，请重新选择。") }
+                } else {
+                    val attached = InboxBatchActions.attachToPlan(items, selectedIds, goal)
+                    if (attached.events.isEmpty()) {
+                        attachBatchIds = null
+                        scope.launch { snackbarHostState.showSnackbar("收集箱记录已变化，请重新选择。") }
+                    } else if (saveItemsWithEvents(attached.items, attached.events)) {
+                        attachBatchIds = null
+                        scope.launch { snackbarHostState.showSnackbar("已将 ${attached.affected.size} 项归入《${goal.title}》") }
+                    }
                 }
             }
         ) }
@@ -2107,12 +3247,14 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             initial = baselineProfile,
             onDismiss = {
                 baselineOnboardingOpen = false
+                onboardingDone = true
                 store.saveOnboardingDone(true)
             },
             onSave = { profile ->
                 val previous = baselineProfile
                 baselineProfile = profile
                 store.saveBaselineProfile(profile)
+                onboardingDone = true
                 store.saveOnboardingDone(true)
                 ReminderScheduler.scheduleDailyWindDown(context, profile)
                 profile.lifeStage?.takeIf { it != previous.lifeStage }?.let { stage ->
@@ -2140,17 +3282,20 @@ private fun FocusFlowApp(statusCheckInRequested: Boolean, mealPromptRequested: M
             onEnable = {
                 campusLifeEnabled = true
                 store.saveCampusLifeEnabled(true)
+                campusLifeChoiceShown = true
                 store.saveCampusLifeChoiceShown(true)
                 campusLifeChoiceOpen = false
             },
             onSkip = {
                 campusLifeEnabled = false
                 store.saveCampusLifeEnabled(false)
+                campusLifeChoiceShown = true
                 store.saveCampusLifeChoiceShown(true)
                 campusLifeChoiceOpen = false
             }
         )
         if (featureIntroOpen) WelcomeIntroDialog(onDismiss = {
+            lastSeenAppVersion = BuildConfig.VERSION_NAME
             store.saveLastSeenAppVersion(BuildConfig.VERSION_NAME)
             featureIntroOpen = false
         })
