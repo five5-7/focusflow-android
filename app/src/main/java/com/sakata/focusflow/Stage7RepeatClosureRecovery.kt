@@ -11,15 +11,16 @@ import java.time.ZoneId
  * 所有时间基准（[now]、[zoneId]）与课程条件由调用方传入，便于纯 JVM 单元测试。
  *
  * 契约要点（与 `docs/9.0-stage7-4-design-proposal.md` 同步）：
- * - 恢复资格比较**当前状态与 [RecoveryInstanceMember.postState]**，绝不拿当前状态去比 `preDetail` 文案。
+ * - 恢复资格比较**当前状态与 [RecoveryInstanceMember.postState]**，绝不拿当前状态去比 `detail` 文案。
  * - 先区分 `dayOnly`，再判断时间：`dayOnly` 的 `scheduledAt` 是**当地当天零点**，不等于 null；
  *   当天及未来可恢复，过去跳过。有具体时间的实例只在 `preScheduledAt > now` 时恢复，`== now` 跳过。
- * - `class_day` 还必须满足**恢复当下**该日仍有课程（由调用方经 [RecoveryInstanceMember.requiresCourse] 声明）。
+ * - `class_day` 的课程条件**由模板的 `repeatFrequency` 推导**，不靠调用方另传标志。
  * - `repeatOccurrenceDay` 是**当地日期零点时间戳**，与 `TaskHistory.dayStartOf` 同一表示，
  *   不是 `LocalDate.epochDay`；课程判定内部再换算 epochDay。
  * - 组终态只有 `ACTIVE` 与 `RESTORED`；恢复成功后即使有实例被跳过也进入 `RESTORED`。
  * - 恢复幂等：`groupRestored == true` 时不再改数据。
  * - 恢复资格要求 `now < expiresAt`；`now == expiresAt` 已不可恢复。
+ * - 结构与身份不合法一律返回 [RecoveryTemplateStatus.REJECTED]，**不抛未处理异常**。
  *
  * 本模块**不**负责：写回存储、追加事件、清理组负载、放宽 `repeatGenerated` 的永久删除保护。
  */
@@ -30,8 +31,39 @@ enum class RecoveryGroupStatus { ACTIVE, RESTORED }
 /** 单个实例的恢复结果；名称即契约里的 `restored` / `skipped_past` / `skipped_course`。 */
 enum class RecoveryInstanceStatus { RESTORED, SKIPPED_PAST, SKIPPED_COURSE }
 
-/** 模板恢复结果的分类。 */
-enum class RecoveryTemplateStatus { RESTORED, ALREADY_RESTORED, EXPIRED, CONFLICT }
+/** 模板恢复结果的分类；[REJECTED] 表示结构与身份守卫不通过。 */
+enum class RecoveryTemplateStatus { RESTORED, ALREADY_RESTORED, EXPIRED, CONFLICT, REJECTED }
+
+/** 到期时刻计算失败的原因。 */
+sealed interface RecoveryExpiry {
+    data class Ok(val expiresAt: Long) : RecoveryExpiry
+    data object InvalidDeletedAt : RecoveryExpiry
+    data object Overflow : RecoveryExpiry
+}
+
+/** 结构校验失败的原因，供调用点区分拒绝来源。 */
+enum class RecoveryRejection {
+    KIND_MISMATCH,
+    TEMPLATE_ID_MISMATCH,
+    INSTANCE_ID_MISMATCH,
+    EMPTY_INSTANCE_ID,
+    DUPLICATE_MEMBER_ID,
+    MEMBER_OVERLAPS_TEMPLATE,
+    TEMPLATE_DELETED_AT_MISMATCH,
+    SNAPSHOT_UNREADABLE,
+    SNAPSHOT_INCONSISTENT,
+    INSTANCE_MISSING_OCCURRENCE_DAY,
+    INSTANCE_TEMPLATE_MISMATCH,
+    INSTANCE_MISSING_TEMPLATE_LINK,
+    /** 当前条目快照里同一 ID 出现多次。 */
+    DUPLICATE_CURRENT_ID,
+}
+
+/** 当前快照里是否出现了重复 ID（`associateBy` 会静默折叠，必须在使用前发现）。 */
+internal fun hasDuplicateItemIds(items: List<Item>): Boolean {
+    val seen = mutableSetOf<Long>()
+    return items.any { !seen.add(it.id) }
+}
 
 data class RecoveryTemplateMember(
     val templateId: Long,
@@ -49,8 +81,6 @@ data class RecoveryInstanceMember(
     val postState: Item,
     /** 删除时对该实例的处理原因，随组记录、用于展示与审计；**不**参与恢复资格判定。 */
     val handlingReason: String,
-    /** 该实例是否属于 `class_day` 规则：为 true 时还要满足「恢复当下该日仍有课程」。 */
-    val requiresCourse: Boolean = false,
 )
 
 data class RecoveryClosure(
@@ -76,6 +106,8 @@ data class RecoveryOutcome(
     /** 成功恢复时为还原后的模板；否则为 null。 */
     val restoredTemplate: Item?,
     val instanceOutcomes: List<RecoveryInstanceOutcome>,
+    /** 仅在 [RecoveryTemplateStatus.REJECTED] 时给出具体原因。 */
+    val rejection: RecoveryRejection? = null,
 ) {
     val isTerminal: Boolean get() = status == RecoveryGroupStatus.RESTORED
 
@@ -85,13 +117,24 @@ data class RecoveryOutcome(
 }
 
 internal object RepeatClosureRecovery {
+    /** 闭合组种类；恢复入口只接受它。 */
+    const val KIND: String = "repeat_rule_closure"
+
     /** 新闭合组的保留时长：30 × 24 小时（与既有普通组一致）。 */
     const val RETENTION_MS: Long = 30L * 24L * 60L * 60L * 1000L
 
-    /** `deletedAt` 的上限；超过即拒绝创建，避免 `expiresAt` 溢出（沿用既有普通组的口径）。 */
-    fun retentionLimitAt(deletedAt: Long): Long = Long.MAX_VALUE - RETENTION_MS
+    /** 合法 `deletedAt` 的最大值：加上保留时长后仍不溢出。 */
+    const val MAX_DELETED_AT: Long = Long.MAX_VALUE - RETENTION_MS
 
-    fun expiresAtFor(deletedAt: Long): Long = deletedAt + RETENTION_MS
+    /**
+     * 计算到期时刻；`deletedAt` 非法或相加溢出时返回失败，而不是静默产出错值。
+     * 恢复侧的合法 `deletedAt` 是正数（与既有普通组 `deletedAt > 0` 的口径一致）。
+     */
+    fun expiresAtFor(deletedAt: Long): RecoveryExpiry = when {
+        deletedAt <= 0L -> RecoveryExpiry.InvalidDeletedAt
+        deletedAt > MAX_DELETED_AT -> RecoveryExpiry.Overflow
+        else -> RecoveryExpiry.Ok(deletedAt + RETENTION_MS)
+    }
 
     /** 恢复资格：`now < expiresAt` 才可恢复；`now == expiresAt` 已不可恢复。 */
     fun isRecoverable(expiresAt: Long, now: Long): Boolean = now < expiresAt
@@ -112,6 +155,9 @@ internal object RepeatClosureRecovery {
     /**
      * 恢复一个重复规则闭合组。
      *
+     * 先做结构与身份守卫（kind、ID 归属、成员唯一性、墓碑与快照自洽、必要发生日），
+     * 再做逐项资格判定与冲突检测；任一冲突即整组拒绝、零修改。
+     *
      * @param currentItems 当前条目快照；用于核对成员 `postState` 并产出还原结果。
      * @param courses 恢复**当下**的课程表；`class_day` 用它判定该日是否仍有课。
      * @param zoneId 当地时区；`dayOnly` 的当天判定与 `class_day` 的 epochDay 换算都用它。
@@ -126,19 +172,25 @@ internal object RepeatClosureRecovery {
         if (closure.groupRestored) {
             return rejected(RecoveryGroupStatus.RESTORED, RecoveryTemplateStatus.ALREADY_RESTORED)
         }
+        structureRejection(closure)?.let {
+            return rejected(RecoveryGroupStatus.ACTIVE, RecoveryTemplateStatus.REJECTED, it)
+        }
         if (!isRecoverable(closure.expiresAt, now)) {
             return rejected(RecoveryGroupStatus.ACTIVE, RecoveryTemplateStatus.EXPIRED)
         }
+        // 当前快照自身必须自洽：同一 ID 出现两次即拒绝，否则后面的 associateBy 会把重复静默折叠掉。
+        if (hasDuplicateItemIds(currentItems)) {
+            return rejected(RecoveryGroupStatus.ACTIVE, RecoveryTemplateStatus.REJECTED, RecoveryRejection.DUPLICATE_CURRENT_ID)
+        }
         val byId = currentItems.associateBy(Item::id)
-        val currentTemplate = byId[closure.template.templateId]
-        if (currentTemplate != closure.template.postState || !hasIntactSnapshot(closure.template.postState)) {
+        if (byId[closure.template.templateId] != closure.template.postState) {
             return rejected(RecoveryGroupStatus.ACTIVE, RecoveryTemplateStatus.CONFLICT)
         }
 
+        val requiresCourse = closure.template.preState.repeatFrequency == "class_day"
         val today = dayStartOf(now, zoneId)
-        // 先算逐项结果再决定是否放行：任一冲突即整组拒绝、零修改。
         val plans = closure.instances.map { member ->
-            member to planInstance(member, byId[member.itemId], now, today, zoneId, courses)
+            member to planInstance(member, byId[member.itemId], now, today, zoneId, courses, requiresCourse)
         }
         if (plans.any { (_, plan) -> plan == InstancePlan.Conflict }) {
             return rejected(RecoveryGroupStatus.ACTIVE, RecoveryTemplateStatus.CONFLICT)
@@ -157,13 +209,75 @@ internal object RepeatClosureRecovery {
                 InstancePlan.Conflict -> error("conflict is rejected before this point")
             }
         }
-        // 有实例被跳过仍是成功恢复：组进入 RESTORED 终态。
+        // 有实例被跳过仍是成功恢复：组进入 RESTORED 终态。零实例组同样合法。
         return RecoveryOutcome(
             status = RecoveryGroupStatus.RESTORED,
             templateStatus = RecoveryTemplateStatus.RESTORED,
             restoredTemplate = restoreTemplateFields(closure.template.preState, closure.template.postState),
             instanceOutcomes = outcomes,
         )
+    }
+
+    /**
+     * 结构与身份守卫。返回 null 表示通过。
+     * 零实例组是合法情况；实例 ID 必须唯一、不得与模板重叠，且当前快照里不得有重复 ID。
+     */
+    fun structureRejection(closure: RecoveryClosure): RecoveryRejection? {
+        if (closure.kind != KIND) return RecoveryRejection.KIND_MISMATCH
+        val template = closure.template
+        if (template.templateId <= 0L || template.preState.id != template.templateId ||
+            template.postState.id != template.templateId
+        ) {
+            return RecoveryRejection.TEMPLATE_ID_MISMATCH
+        }
+        // 墓碑必须与组记录同一删除时刻。
+        if (template.postState.trashedAt != closure.deletedAt) {
+            return RecoveryRejection.TEMPLATE_DELETED_AT_MISMATCH
+        }
+        when (snapshotConsistency(template)) {
+            null -> Unit
+            SnapshotCheck.Unreadable -> return RecoveryRejection.SNAPSHOT_UNREADABLE
+            SnapshotCheck.Inconsistent -> return RecoveryRejection.SNAPSHOT_INCONSISTENT
+        }
+        val seen = mutableSetOf<Long>()
+        closure.instances.forEach { member ->
+            if (member.itemId <= 0L) return RecoveryRejection.EMPTY_INSTANCE_ID
+            if (member.preState.id != member.itemId || member.postState.id != member.itemId) {
+                return RecoveryRejection.INSTANCE_ID_MISMATCH
+            }
+            if (member.itemId == template.templateId) return RecoveryRejection.MEMBER_OVERLAPS_TEMPLATE
+            if (!seen.add(member.itemId)) return RecoveryRejection.DUPLICATE_MEMBER_ID
+            if (member.preState.repeatTemplateId != template.templateId ||
+                member.postState.repeatTemplateId != template.templateId
+            ) {
+                return RecoveryRejection.INSTANCE_TEMPLATE_MISMATCH
+            }
+            // 发生日缺失无法判定日期资格：拒绝，而不是抛异常或猜一个日子。
+            if (member.preState.repeatOccurrenceDay == null) {
+                return RecoveryRejection.INSTANCE_MISSING_OCCURRENCE_DAY
+            }
+        }
+        return null
+    }
+
+    private enum class SnapshotCheck { Unreadable, Inconsistent }
+
+    /**
+     * 墓碑快照必须解码成**唯一**一条、与模板 `preState` 一致的删除前记录。
+     *
+     * 注意真实 `RepeatActions.stop` 会对实例调用 `preservingNote()`，把 `userNote == null`
+     * 物化为 `editableNote()`；因此「删除前记录」允许与 `preState` 相差这一处笔记物化，
+     * 不得因此误拒合法删除结果。
+     */
+    private fun snapshotConsistency(template: RecoveryTemplateMember): SnapshotCheck? {
+        val raw = template.postState.trashSnapshot ?: return SnapshotCheck.Unreadable
+        val decoded = runCatching { ItemsCodec.decode(raw).items.singleOrNull() }.getOrNull()
+            ?: return SnapshotCheck.Unreadable
+        if (decoded.id != template.templateId || decoded.trashedAt != null || decoded.kind == "回收站") {
+            return SnapshotCheck.Inconsistent
+        }
+        return if (decoded == template.preState || decoded == template.preState.preservingNote()) null
+        else SnapshotCheck.Inconsistent
     }
 
     /**
@@ -194,16 +308,19 @@ internal object RepeatClosureRecovery {
         windowEndAt = preState.windowEndAt,
     )
 
-    /** 恢复资格判定（供调用方在需要时单独复用；语义与 [recover] 内一致）。 */
+    /** 恢复资格判定（供调用方单独复用；语义与 [recover] 内一致）。结构不合法时返回 null。 */
     fun instanceStatus(
+        closure: RecoveryClosure,
         member: RecoveryInstanceMember,
         currentItems: List<Item>,
         now: Long,
         zoneId: ZoneId,
         courses: List<Course>,
     ): RecoveryInstanceStatus? {
+        if (structureRejection(closure) != null) return null
         val current = currentItems.associateBy(Item::id)[member.itemId]
-        return when (planInstance(member, current, now, dayStartOf(now, zoneId), zoneId, courses)) {
+        val requiresCourse = closure.template.preState.repeatFrequency == "class_day"
+        return when (planInstance(member, current, now, dayStartOf(now, zoneId), zoneId, courses, requiresCourse)) {
             is InstancePlan.Restore -> RecoveryInstanceStatus.RESTORED
             InstancePlan.SkipPast -> RecoveryInstanceStatus.SKIPPED_PAST
             InstancePlan.SkipCourse -> RecoveryInstanceStatus.SKIPPED_COURSE
@@ -225,13 +342,15 @@ internal object RepeatClosureRecovery {
         today: Long,
         zoneId: ZoneId,
         courses: List<Course>,
+        requiresCourse: Boolean,
     ): InstancePlan {
         // 资格与冲突都只看「当前 vs postState」，绝不比对 detail 文案。
         if (current == null || current != member.postState) return InstancePlan.Conflict
         val pre = member.preState
         if (!timeQualifies(pre, now, today, zoneId)) return InstancePlan.SkipPast
         if (!occurrenceDayQualifies(pre, today)) return InstancePlan.SkipPast
-        if (member.requiresCourse && !hasCourseOn(requireNotNull(pre.repeatOccurrenceDay), courses, zoneId)) {
+        val occurrenceDay = pre.repeatOccurrenceDay
+        if (requiresCourse && occurrenceDay != null && !hasCourseOn(occurrenceDay, courses, zoneId)) {
             return InstancePlan.SkipCourse
         }
         return InstancePlan.Restore(pre)
@@ -247,15 +366,12 @@ internal object RepeatClosureRecovery {
         return if (pre.dayOnly) dayStartOf(at, zoneId) >= today else at > now
     }
 
-    /** `dayOnly` 的日判定与 `repeatOccurrenceDay` 的日判定共用同一表示（当地零点时间戳）。 */
-    private fun occurrenceDayQualifies(pre: Item, today: Long): Boolean {
-        val occurrenceDay = pre.repeatOccurrenceDay ?: return true
-        return occurrenceDay >= today
-    }
+    private fun occurrenceDayQualifies(pre: Item, today: Long): Boolean =
+        requireNotNull(pre.repeatOccurrenceDay) >= today
 
-    private fun hasIntactSnapshot(tombstone: Item): Boolean =
-        tombstone.kind == "回收站" && (tombstone.trashedAt ?: 0L) > 0L && tombstone.trashSnapshot != null
-
-    private fun rejected(status: RecoveryGroupStatus, templateStatus: RecoveryTemplateStatus) =
-        RecoveryOutcome(status, templateStatus, null, emptyList())
+    private fun rejected(
+        status: RecoveryGroupStatus,
+        templateStatus: RecoveryTemplateStatus,
+        rejection: RecoveryRejection? = null,
+    ) = RecoveryOutcome(status, templateStatus, null, emptyList(), rejection)
 }
