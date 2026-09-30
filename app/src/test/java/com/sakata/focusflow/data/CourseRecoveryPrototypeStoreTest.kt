@@ -8,8 +8,11 @@ import com.sakata.focusflow.CourseEditPlans
 import com.sakata.focusflow.CourseLocationOverrides
 import com.sakata.focusflow.CourseMergeOperation
 import com.sakata.focusflow.CourseReminders
+import com.sakata.focusflow.CourseSplitOperation
 import com.sakata.focusflow.PrototypeStore
 import com.sakata.focusflow.StorageProtection
+import org.json.JSONArray
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -353,44 +356,233 @@ class CourseRecoveryPrototypeStoreTest {
         assertTrue(purge is CoursePurgeOutcome.Rejected)
         assertEquals(true, prefs("focusflow").getBoolean("course_recovery_groups_v1", false))
     }
+    // ------------- item 1/2 (this round): capture window, mutual exclusion evidence and races
 
-    // ------------------------------------------------ item 2: one mutual exclusion for course writes
+    /** Runs [body] on a worker thread, always signals completion and rethrows on join. */
+    private class Worker(name: String, private val body: () -> Unit) {
+        val done = CountDownLatch(1)
+
+        @Volatile
+        var error: Throwable? = null
+        val thread = Thread({
+            try {
+                body()
+            } catch (t: Throwable) {
+                error = t
+            } finally {
+                done.countDown()
+            }
+        }, name)
+
+        fun start() = thread.start()
+
+        /** Positive evidence that the thread reached [state] - e.g. waiting on the course lock. */
+        fun awaitState(state: Thread.State, timeoutMs: Long = 5_000): Boolean {
+            val deadline = System.currentTimeMillis() + timeoutMs
+            while (System.currentTimeMillis() < deadline) {
+                if (thread.state == state) return true
+                Thread.yield()
+            }
+            return thread.state == state
+        }
+
+        /** Joins and rethrows a worker failure so a broken thread never passes silently. */
+        fun joinOrFail() {
+            thread.join(10_000)
+            assertFalse("worker ${thread.name} did not finish", thread.isAlive)
+            error?.let { throw AssertionError("worker ${thread.name} failed", it) }
+        }
+
+        /** Best-effort cleanup for failure paths; never masks the original assertion. */
+        fun shutdown() {
+            thread.interrupt()
+            thread.join(10_000)
+        }
+    }
+
+    private fun waitAll(vararg workers: Worker, timeoutMs: Long = 10_000) {
+        workers.forEach { assertTrue("worker ${it.thread.name} did not finish", it.done.await(timeoutMs, TimeUnit.MILLISECONDS)) }
+        workers.forEach { it.joinOrFail() }
+    }
+
+    // ---------------------- item 1: the pending split preference migration and the delete window
+
+    private val splitBoundary = 150L
+
+    private fun splitCourse(id: Long, from: Long?, until: Long?) = Course(
+        title = "实验", weekday = 1, startPeriod = 1, endPeriod = 2, building = "东一",
+        zone = CampusZone.EAST_TEACHING, needsConfirmation = false, enabled = true,
+        effectiveFromEpochDay = from, effectiveUntilEpochDay = until, id = id, courseId = 41L
+    )
+
+    /** The journal exactly as `CourseSplitOperation` writes it, for the pending-state fixture. */
+    private fun writePendingSplitJournal(boundary: Long, enabled: Boolean?, future: Map<Long, String>) {
+        val json = JSONObject().apply {
+            put("originalId", 41L)
+            put("successorId", 42L)
+            put("boundary", boundary)
+            put("reminderEnabled", enabled ?: JSONObject.NULL)
+            put("futureLocations", JSONArray().apply {
+                future.toSortedMap().forEach { (day, place) ->
+                    put(JSONObject().put("day", day).put("place", place))
+                }
+            })
+        }
+        assertTrue(prefs("course_split_journal").edit().putString("pending", json.toString()).commit())
+    }
+
+    /**
+     * The state right after a split's core course write and before its preference migration: the
+     * courses are already split, the journal is still pending and every preference is still stored
+     * under the original meeting id.
+     */
+    private fun seedPendingSplitMigration(): CoreDataRepository {
+        val repository = freshRepository()
+        val before = freshStore().loadCourses()
+        val original = splitCourse(41L, 100L, 200L)
+        assertEquals(CoreDataWriteStatus.APPLIED, repository.replaceCourses(listOf(original), before).status)
+        assertTrue(CourseLocationOverrides.set(context, 41L, 120L, "留在原课次"))
+        assertTrue(CourseLocationOverrides.set(context, 41L, 250L, "迁移地点"))
+        assertTrue(CourseReminders.setOverride(context, 41L, true))
+        assertTrue(CourseReminders.markNotified(context, 41L, 3_000L))
+
+        val clipped = splitCourse(41L, 100L, splitBoundary - 1)
+        val successor = splitCourse(42L, splitBoundary, 200L)
+        assertEquals(
+            CoreDataWriteStatus.APPLIED,
+            repository.replaceCourses(listOf(clipped, successor), listOf(original)).status
+        )
+        writePendingSplitJournal(splitBoundary, true, mapOf(250L to "迁移地点"))
+        return repository
+    }
+
+    private fun assertSplitMigrationStillPending() {
+        assertEquals(listOf(41L, 42L), freshStore().loadCourses().map(Course::id))
+        assertTrue(CourseLocationOverrides.snapshot(context, 42L).isEmpty())
+        assertNull(CourseReminders.load(context).overrides[42L])
+        assertEquals(
+            mapOf(120L to "留在原课次", 250L to "迁移地点"),
+            CourseLocationOverrides.snapshot(context, 41L)
+        )
+    }
+
+    @Test
+    fun `a delete during a pending split migration is refused and the retry captures migrated values`() {
+        seedPendingSplitMigration()
+        assertSplitMigrationStillPending()
+
+        val refused = CourseRecoveryOperations.deleteCourses(
+            context, freshRepository(), CourseRecoveryScope.MEETING, setOf(42L), "op-split", now
+        )
+        assertTrue("expected Rejected but got $refused", refused is CourseDeletionOutcome.Rejected)
+        assertEquals(CoreDataWriteStatus.CONDITION_NOT_MET, (refused as CourseDeletionOutcome.Rejected).status)
+        assertEquals(0, storedGroups().size)
+        // Nothing was captured from the pre-migration state.
+        assertSplitMigrationStillPending()
+
+        // The real recovery migrates the preferences and clears the journal.
+        assertTrue(CourseSplitOperation.recover(context, freshRepository()))
+        assertNull(prefs("course_split_journal").getString("pending", null))
+        assertEquals(mapOf(250L to "迁移地点"), CourseLocationOverrides.snapshot(context, 42L))
+        assertEquals(mapOf(120L to "留在原课次"), CourseLocationOverrides.snapshot(context, 41L))
+        assertEquals(true, CourseReminders.load(context).overrides[42L])
+        assertTrue(CourseReminders.markNotified(context, 42L, 9_000L))
+
+        val applied = CourseRecoveryOperations.deleteCourses(
+            context, freshRepository(), CourseRecoveryScope.MEETING, setOf(42L), "op-split-retry", now
+        )
+        assertTrue("expected Applied but got $applied", applied is CourseDeletionOutcome.Applied)
+        val member = (applied as CourseDeletionOutcome.Applied).group.members.single()
+        assertEquals(42L, member.id)
+        assertEquals(true, member.reminderOverride)
+        assertEquals(9_000L, member.deliveredAt)
+        assertEquals(mapOf(250L to "迁移地点"), member.temporaryLocations)
+        assertTrue("the original meeting watermark must not be captured", member.deliveredAt != 3_000L)
+    }
+
+    @Test
+    fun `a delete that waited for the lock captures the preferences migrated while it waited`() {
+        val repository = seedPendingSplitMigration()
+        var deleteWorker: Worker? = null
+        var outcome: CourseDeletionOutcome? = null
+        try {
+            // The test thread itself holds the lock, so the recovery below is reentrant.
+            repository.withCourseWriteLock {
+                deleteWorker = Worker("waiting-delete") {
+                    outcome = CourseRecoveryOperations.deleteCourses(
+                        context, repository, CourseRecoveryScope.MEETING, setOf(42L), "op-wait", now
+                    )
+                }
+                deleteWorker!!.start()
+                assertTrue(
+                    "the delete must be waiting on the course lock",
+                    deleteWorker!!.awaitState(Thread.State.BLOCKED)
+                )
+                assertFalse(
+                    "a delete waiting on the lock cannot have finished",
+                    deleteWorker!!.done.await(200, TimeUnit.MILLISECONDS)
+                )
+                // Migrates the preferences without touching the course list, while the delete waits.
+                assertTrue(CourseSplitOperation.recover(context, repository))
+                assertNull(prefs("course_split_journal").getString("pending", null))
+            }
+            assertTrue("the delete must finish once the lock is free", deleteWorker!!.done.await(10, TimeUnit.SECONDS))
+            deleteWorker!!.joinOrFail()
+
+            assertTrue("expected Applied but got $outcome", outcome is CourseDeletionOutcome.Applied)
+            val member = (outcome as CourseDeletionOutcome.Applied).group.members.single()
+            assertEquals(42L, member.id)
+            assertEquals(true, member.reminderOverride)
+            assertEquals(mapOf(250L to "迁移地点"), member.temporaryLocations)
+            assertFalse("a pre-migration location must never be captured", member.temporaryLocations.containsKey(120L))
+        } finally {
+            deleteWorker?.shutdown()
+        }
+    }
+
+    // ---------------------------- item 2: mutual exclusion evidence for the earlier wait tests
 
     @Test
     fun `a recovery delete waits for the course lock instead of interleaving`() {
         val repository = freshRepository()
         val lockHeld = CountDownLatch(1)
         val release = CountDownLatch(1)
-        val holder = Thread {
+        val holder = Worker("lock-holder") {
             repository.withCourseWriteLock {
                 lockHeld.countDown()
                 release.await(10, TimeUnit.SECONDS)
             }
         }
-        holder.start()
-        assertTrue("the helper thread must hold the lock", lockHeld.await(10, TimeUnit.SECONDS))
-
-        val done = CountDownLatch(1)
         var outcome: CourseDeletionOutcome? = null
-        val worker = Thread {
+        val deleteWorker = Worker("locked-out-delete") {
             outcome = CourseRecoveryOperations.deleteCourses(
                 context, repository, CourseRecoveryScope.MEETING, setOf(11L), "op-lock", now
             )
-            done.countDown()
         }
-        worker.start()
-        assertFalse(
-            "the delete must not reach its commit while another writer holds the lock",
-            done.await(300, TimeUnit.MILLISECONDS)
-        )
-        release.countDown()
-        assertTrue("the delete must finish once the lock is released", done.await(10, TimeUnit.SECONDS))
-        holder.join()
-        worker.join()
+        try {
+            holder.start()
+            assertTrue("the helper thread must hold the lock", lockHeld.await(10, TimeUnit.SECONDS))
+            deleteWorker.start()
+            assertTrue(
+                "the delete must be blocked on the course lock",
+                deleteWorker.awaitState(Thread.State.BLOCKED)
+            )
+            assertFalse(
+                "a blocked delete cannot have reached its commit",
+                deleteWorker.done.await(200, TimeUnit.MILLISECONDS)
+            )
+            release.countDown()
+            waitAll(deleteWorker)
+            holder.joinOrFail()
 
-        assertTrue("expected Applied but got $outcome", outcome is CourseDeletionOutcome.Applied)
-        assertEquals(listOf(22L), freshStore().loadCourses().map(Course::id))
-        assertEquals(1, storedGroups().size)
+            assertTrue("expected Applied but got $outcome", outcome is CourseDeletionOutcome.Applied)
+            assertEquals(listOf(22L), freshStore().loadCourses().map(Course::id))
+            assertEquals(1, storedGroups().size)
+        } finally {
+            release.countDown()
+            deleteWorker.shutdown()
+            holder.shutdown()
+        }
     }
 
     @Test
@@ -399,45 +591,45 @@ class CourseRecoveryPrototypeStoreTest {
         val before = freshStore().loadCourses()
         // Merge needs two meetings of the same slot/period.
         val mergeCourses = listOf(course(31, title = "实验"), course(32, title = "实验"))
-        assertEquals(
-            CoreDataWriteStatus.APPLIED,
-            repository.replaceCourses(mergeCourses, before).status
-        )
+        assertEquals(CoreDataWriteStatus.APPLIED, repository.replaceCourses(mergeCourses, before).status)
         val plan = CourseMergeOperation.preview(context, mergeCourses, 31L)
             as CourseEditPlans.CourseMergePlan.Applied
 
         val lockHeld = CountDownLatch(1)
         val release = CountDownLatch(1)
-        val holder = Thread {
+        val holder = Worker("merge-lock-holder") {
             repository.withCourseWriteLock {
                 lockHeld.countDown()
                 release.await(10, TimeUnit.SECONDS)
             }
         }
-        holder.start()
-        assertTrue(lockHeld.await(10, TimeUnit.SECONDS))
-
-        val done = CountDownLatch(1)
         var outcome: CourseMergeOperation.Outcome? = null
-        val merger = Thread {
+        val merger = Worker("merge") {
             outcome = CourseMergeOperation.apply(
                 context, repository, mergeCourses, setOf(31L, 32L), 31L, plan
             )
-            done.countDown()
         }
-        merger.start()
-        assertFalse(
-            "the merge must not create its journal while another writer holds the lock",
-            done.await(300, TimeUnit.MILLISECONDS)
-        )
-        release.countDown()
-        assertTrue("the merge must finish once the lock is released", done.await(10, TimeUnit.SECONDS))
-        holder.join()
-        merger.join()
+        try {
+            holder.start()
+            assertTrue(lockHeld.await(10, TimeUnit.SECONDS))
+            merger.start()
+            assertTrue(
+                "the merge must be blocked on the course lock before it can write its journal",
+                merger.awaitState(Thread.State.BLOCKED)
+            )
+            assertFalse("a blocked merge cannot have finished", merger.done.await(200, TimeUnit.MILLISECONDS))
+            release.countDown()
+            waitAll(merger)
+            holder.joinOrFail()
 
-        assertEquals(CourseMergeOperation.Outcome.APPLIED, outcome)
-        assertEquals(listOf(31L), freshStore().loadCourses().map(Course::id))
-        assertNull(prefs("course_merge_journal").getString("pending", null))
+            assertEquals(CourseMergeOperation.Outcome.APPLIED, outcome)
+            assertEquals(listOf(31L), freshStore().loadCourses().map(Course::id))
+            assertNull(prefs("course_merge_journal").getString("pending", null))
+        } finally {
+            release.countDown()
+            merger.shutdown()
+            holder.shutdown()
+        }
     }
 
     @Test
@@ -445,66 +637,132 @@ class CourseRecoveryPrototypeStoreTest {
         val repository = freshRepository()
         val lockHeld = CountDownLatch(1)
         val release = CountDownLatch(1)
-        val holder = Thread {
+        val holder = Worker("journal-holder") {
             repository.withCourseWriteLock {
                 lockHeld.countDown()
                 release.await(10, TimeUnit.SECONDS)
             }
         }
-        holder.start()
-        assertTrue(lockHeld.await(10, TimeUnit.SECONDS))
-        // A merge/split journal appears before the recovery enters its critical section.
-        prefs("course_merge_journal").edit().putString("pending", "{}").commit()
-
-        val done = CountDownLatch(1)
         var outcome: CourseDeletionOutcome? = null
-        val worker = Thread {
+        val worker = Worker("journal-blocked-delete") {
             outcome = CourseRecoveryOperations.deleteCourses(
                 context, repository, CourseRecoveryScope.MEETING, setOf(11L), "op-journal", now
             )
-            done.countDown()
         }
-        worker.start()
-        release.countDown()
-        assertTrue(done.await(10, TimeUnit.SECONDS))
-        holder.join()
-        worker.join()
+        try {
+            holder.start()
+            assertTrue(lockHeld.await(10, TimeUnit.SECONDS))
+            // A merge/split journal appears while the lock is held.
+            prefs("course_merge_journal").edit().putString("pending", "{}").commit()
+            worker.start()
+            assertTrue(
+                "the delete must observe the pending journal only after the lock is released",
+                worker.awaitState(Thread.State.BLOCKED)
+            )
+            release.countDown()
+            waitAll(worker)
+            holder.joinOrFail()
 
-        assertTrue("expected Rejected but got $outcome", outcome is CourseDeletionOutcome.Rejected)
-        assertEquals(
-            CoreDataWriteStatus.CONDITION_NOT_MET,
-            (outcome as CourseDeletionOutcome.Rejected).status
-        )
-        assertEquals(listOf(11L, 22L), freshStore().loadCourses().map(Course::id))
-        assertEquals(0, storedGroups().size)
-        assertEquals("{}", prefs("course_merge_journal").getString("pending", null))
+            assertTrue("expected Rejected but got $outcome", outcome is CourseDeletionOutcome.Rejected)
+            assertEquals(
+                CoreDataWriteStatus.CONDITION_NOT_MET,
+                (outcome as CourseDeletionOutcome.Rejected).status
+            )
+            assertEquals(listOf(11L, 22L), freshStore().loadCourses().map(Course::id))
+            assertEquals(0, storedGroups().size)
+            assertEquals("{}", prefs("course_merge_journal").getString("pending", null))
+        } finally {
+            release.countDown()
+            worker.shutdown()
+            holder.shutdown()
+        }
     }
 
+    // ------------------------------------------- item 2: the two races, asserted separately
+
     @Test
-    fun `two recovery deletes racing keep one group and lose no write`() {
+    fun `a storage CAS race with the same old snapshot commits once and rejects the loser as stale`() {
         val repository = freshRepository()
-        val barrier = CyclicBarrier(2)
+        val snapshot = freshStore().loadCourses()
+        val store = repository.courseRecoveryStore
         val results = arrayOfNulls<CourseDeletionOutcome>(2)
-        val threads = (0..1).map { index ->
-            Thread {
-                barrier.await(10, TimeUnit.SECONDS)
-                results[index] = CourseRecoveryOperations.deleteCourses(
-                    context, repository, CourseRecoveryScope.MEETING, setOf(11L), "op-race-$index", now
+        val workers = (0..1).map { index ->
+            Worker("cas-$index") {
+                results[index] = store.deleteCoursesWithRecoveryGroup(
+                    snapshot,
+                    CourseRecoveryRequest(
+                        requestedIds = setOf(11L),
+                        scope = CourseRecoveryScope.MEETING,
+                        operationId = "cas-$index",
+                        now = now,
+                        reminderOverrides = emptyMap(),
+                        deliveredWatermarks = emptyMap(),
+                        temporaryLocations = emptyMap()
+                    )
                 )
             }
         }
-        threads.forEach { it.start() }
-        threads.forEach { it.join(10_000) }
-
-        val applied = results.count { it is CourseDeletionOutcome.Applied }
-        val rejected = results.count {
-            it is CourseDeletionOutcome.Rejected &&
-                (it as CourseDeletionOutcome.Rejected).status == CoreDataWriteStatus.STALE_COURSES
+        try {
+            // Both racers carry the *same* old snapshot and are held on the storage lock, so the
+            // first one to enter commits and the second one must observe its own staleness.
+            repository.withCourseWriteLock {
+                workers.forEach { it.start() }
+                workers.forEach {
+                    assertTrue(
+                        "racer ${it.thread.name} must be waiting on the storage lock",
+                        it.awaitState(Thread.State.BLOCKED)
+                    )
+                }
+            }
+            waitAll(*workers.toTypedArray())
+        } finally {
+            workers.forEach { it.shutdown() }
         }
-        assertEquals("exactly one racer may commit: ${results.toList()}", 1, applied)
-        assertEquals("the loser must be rejected as stale: ${results.toList()}", 1, rejected)
+
+        assertEquals("exactly one racer commits: ${results.toList()}", 1, results.count { it is CourseDeletionOutcome.Applied })
+        val loser = results.first { it !is CourseDeletionOutcome.Applied }
+        assertTrue("the loser must be rejected: $loser", loser is CourseDeletionOutcome.Rejected)
+        assertEquals(CoreDataWriteStatus.STALE_COURSES, (loser as CourseDeletionOutcome.Rejected).status)
         assertEquals(listOf(22L), freshStore().loadCourses().map(Course::id))
         assertEquals(1, storedGroups().size)
-        assertEquals(1, results.filterNotNull().count { it is CourseDeletionOutcome.Applied })
+    }
+
+    @Test
+    fun `two business deletes serialize so the later caller is refused on the real state`() {
+        val repository = freshRepository()
+        val results = arrayOfNulls<CourseDeletionOutcome>(2)
+        val workers = (0..1).map { index ->
+            Worker("business-$index") {
+                results[index] = CourseRecoveryOperations.deleteCourses(
+                    context, repository, CourseRecoveryScope.MEETING, setOf(11L), "business-$index", now
+                )
+            }
+        }
+        try {
+            workers.forEach { it.start() }
+            waitAll(*workers.toTypedArray())
+        } finally {
+            workers.forEach { it.shutdown() }
+        }
+
+        assertEquals("exactly one group may be created: ${results.toList()}", 1, results.count { it is CourseDeletionOutcome.Applied })
+        val later = results.first { it !is CourseDeletionOutcome.Applied }
+        assertTrue("the later caller must be refused explicitly: $later", later is CourseDeletionOutcome.Rejected)
+        val rejection = later as CourseDeletionOutcome.Rejected
+        assertTrue("a rejection must carry a reason", rejection.reason.isNotBlank())
+        assertTrue(
+            "the refusal must describe the real state: ${rejection.status}",
+            rejection.status in setOf(
+                CoreDataWriteStatus.STALE_COURSES,
+                CoreDataWriteStatus.INVALID_INPUT,
+                CoreDataWriteStatus.CONDITION_NOT_MET
+            )
+        )
+        // The deletion happened exactly once and nothing else was lost.
+        assertEquals(listOf(22L), freshStore().loadCourses().map(Course::id))
+        assertEquals(1, storedGroups().size)
+        val group = storedGroups().single()
+        assertEquals(CourseRecoveryState.ACTIVE, group.state)
+        assertEquals(11L, CourseSnapshotCodec.decode(group.members.single().courseJson)!!.id)
     }
 }
