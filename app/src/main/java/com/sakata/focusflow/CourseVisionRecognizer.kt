@@ -260,6 +260,45 @@ object CourseVisionRecognizer {
         return (if (detected == "地点待确认") location.trim() else detected) to zone
     }
 
+    /**
+     * Converts only explicitly confirmed candidates to the existing import batch.
+     * Policy.prepare remains the final normalization and persistence boundary.
+     */
+    internal fun importReviewedCandidates(
+        result: VisionReviewResult,
+        places: List<CampusPlace>
+    ): CourseImportBatch {
+        val courses = result.candidates
+            .filter { it.state == VisionCandidateState.CONFIRMED_BY_USER }
+            .mapNotNull { candidate ->
+                val day = candidate.day ?: return@mapNotNull null
+                val start = candidate.startPeriod ?: return@mapNotNull null
+                val end = candidate.endPeriod ?: return@mapNotNull null
+                val (building, zone) = matchLocation(candidate.rawLocation.orEmpty(), places)
+                Course(
+                    title = candidate.title.trim(),
+                    weekday = day,
+                    startPeriod = start,
+                    endPeriod = end,
+                    building = building,
+                    zone = zone,
+                    needsConfirmation = true
+                )
+            }
+        val distinct = courses.distinctBy { listOf(it.weekday, it.startPeriod, it.endPeriod, it.title) }
+        val newPlaces = distinct.map { it.building }.filter { building ->
+            building != "地点待确认" && places.none { place ->
+                CourseScreenshotParser.normalize(building).contains(CourseScreenshotParser.normalize(place.name))
+            }
+        }.distinct()
+        return CourseImportPolicy.prepare(CourseImportBatch(
+            source = CourseImportSource.VISION_SCREENSHOT,
+            courses = distinct,
+            newPlaces = newPlaces,
+            warnings = result.warnings + result.unresolvedIds.map { "候选 $it 仍需确认，未导入" }
+        ))
+    }
+
     /** 解码（含 EXIF 旋转、降采样）后压缩为 JPEG base64，避免大图让接口请求过大。 */
     private fun compressImage(context: Context, uri: Uri): ByteArray? = runCatching {
         val bitmap = CourseScreenshotParser.decodeRotated(context, uri)
