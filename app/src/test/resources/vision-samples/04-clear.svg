@@ -43,17 +43,17 @@
 <text x="70" y="650">11</text>
 <text x="70" y="702">12</text>
 <text x="70" y="754">13</text>
-<rect x="122" y="102" width="106" height="100" rx="4" fill="#d7e9ff"/>
-<text x="126" y="130" font-size="13">数学</text>
-<text x="126" y="152" font-size="12">东1-101</text>
-<rect x="342" y="206" width="106" height="100" rx="4" fill="#d7e9ff"/>
-<text x="346" y="234" font-size="13">有机化学</text>
-<text x="346" y="256" font-size="12">西2-209</text>
-<rect x="562" y="362" width="106" height="152" rx="4" fill="#d7e9ff"/>
-<text x="566" y="390" font-size="13">大学物理实验</text>
-<text x="566" y="412" font-size="12">东4-212</text>
-<rect x="782" y="622" width="106" height="152" rx="4" fill="#d7e9ff"/>
-<text x="786" y="650" font-size="13">中国改革开放史</text>
-<text x="786" y="672" font-size="12">蒙民伟-225</text>
+<rect x="452" y="102" width="106" height="100" rx="4" fill="#eadcff"/>
+<text x="456" y="130" font-size="13">数学</text>
+<text x="456" y="152" font-size="12">东1-101</text>
+<rect x="672" y="206" width="106" height="100" rx="4" fill="#eadcff"/>
+<text x="676" y="234" font-size="13">有机化学</text>
+<text x="676" y="256" font-size="12">西2-209</text>
+<rect x="122" y="362" width="106" height="152" rx="4" fill="#eadcff"/>
+<text x="126" y="390" font-size="13">大学物理实验</text>
+<text x="126" y="412" font-size="12">东4-212</text>
+<rect x="342" y="622" width="106" height="152" rx="4" fill="#eadcff"/>
+<text x="346" y="650" font-size="13">中国改革开放史</text>
+<text x="346" y="672" font-size="12">蒙民伟-225</text>
 <text x="130" y="810" font-size="12">备注：教师、学分、考试日期不得识别为课程</text></g>
 </svg>
