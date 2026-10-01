@@ -60,6 +60,9 @@ internal object ThemePresetCodec {
         put("gradientTop", spec.gradientTop)
         put("gradientBottom", spec.gradientBottom)
         put("cardMaterial", spec.cardMaterial.storageKey)
+        spec.glassSurfaceOpacity?.let {
+            put("glassSurfaceOpacity", it.coerceIn(GLASS_SURFACE_OPACITY_MIN, GLASS_SURFACE_OPACITY_MAX))
+        }
         put("timetableBackdrop", spec.timetableBackdrop.storageKey)
         put("timetableColor", spec.timetableColor)
         put("timetableImage", spec.timetableImage)
@@ -95,6 +98,8 @@ internal object ThemePresetCodec {
             gradientTop = value.optInt("gradientTop", fallback.gradientTop),
             gradientBottom = value.optInt("gradientBottom", fallback.gradientBottom),
             cardMaterial = CardMaterial.fromKey(value.optString("cardMaterial", fallback.cardMaterial.storageKey)),
+            glassSurfaceOpacity = (value.opt("glassSurfaceOpacity") as? Number)?.toInt()
+                ?.coerceIn(GLASS_SURFACE_OPACITY_MIN, GLASS_SURFACE_OPACITY_MAX),
             timetableBackdrop = BackdropKind.fromKey(
                 value.optString("timetableBackdrop", fallback.timetableBackdrop.storageKey)
             ),

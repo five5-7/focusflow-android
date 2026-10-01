@@ -21,6 +21,8 @@
     <application
         android:name=".FocusFlowApplication"
         android:allowBackup="true"
+        android:fullBackupContent="@xml/backup_rules"
+        android:dataExtractionRules="@xml/data_extraction_rules"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher"
         android:label="FocusFlow"
@@ -49,10 +51,16 @@
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
                 <action android:name="android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+                <action android:name="android.intent.action.TIME_SET" />
             </intent-filter>
         </receiver>
         <!-- 竖屏锁定：本应用的布局（底部悬浮栏 + 单列卡片）为竖屏设计，横屏只是被拉伸的同一套布局。
              横屏几何（弹窗避让底栏、窄屏不裁切）仍保留为兜底，大屏/分屏被系统忽略锁定时不会破版。 -->
+        <activity
+            android:name=".ZjuTimetableImportActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
         <activity
             android:name=".MainActivity"
             android:exported="true"

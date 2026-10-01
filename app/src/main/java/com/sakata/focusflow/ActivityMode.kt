@@ -12,7 +12,8 @@ data class ActivitySession(
     val extensionCount: Int = 0,
     val extensionReason: String = "",
     val actualEndAt: Long? = null,
-    val endChoice: String = ""
+    val endChoice: String = "",
+    val taskId: Long? = null
 ) {
     fun isOpen(): Boolean = status in OPEN_STATUSES
 

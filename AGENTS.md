@@ -35,6 +35,7 @@
 - 应用内更新说明必须在发版时展示该版本核心变化：为每个新版本在 `QuickStartDialog.updateHighlightsFor` 写 2–3 条用户可感知的变化，禁止落入兜底文案；与 `CHANGELOG.md`、`RoadmapData.kt` 同步。
 - Follow `VERSIONING.md`; a CI `run-N` is not a product version and a successful build is not a release.
 - The current official release is `8.2.1` / versionCode 534 (the fifth formal release). It extends the optional appearance system with acrylic and frosted-glass profiles plus non-destructive image crop controls; rich appearance remains disabled by default.
+- The current development candidate is `8.3.0-rc.26` / versionCode 560: stage 8 batch A configurable vision services, encrypted shared credentials, bound capability probes and cancellable explicit uploads. See `docs/9.0-stage8-batch-a-contract.md`. Stage 8 device and live-provider validation remain unexecuted; stage 7's device skip does not apply automatically. Room activation remains off. Do not merge or release without separate explicit approval.
 - The previous official release is `8.2.0` / versionCode 525.
 - Do not allocate a new version merely to record an idea; keep uncommitted ideas in the future-candidate section until a coherent scope is frozen.
 - Do not merge a pull request without explicit user confirmation.
@@ -51,7 +52,7 @@
 
 - Start by reporting the checked-out branch, HEAD, working-tree state, and the approved phase.
 - Read the live repository as the source of truth; do not infer completion only from roadmap labels.
-- This checkout is the live one; `D:\focusflow\focusflow-android` and `focusflow-android-6.4` are older snapshots.
-  On this machine git needs `-c safe.directory=D:/focusflow/focusflow-android-8.0.0` (workspace owner SID differs),
+- This checkout is the live one; the older snapshots (`focusflow-android`, `focusflow-android-6.4`, `focusflow-android-8.0.0`) are archived under `D:\focusflow\legacy\snapshots\`.
+  On this machine git needs `-c safe.directory=D:/focusflow/legacy/snapshots/focusflow-android-8.0.0` when opening the archived 8.0.0 repo (workspace owner SID differs; the global `safe.directory` entry still points at the old path),
   and helper scripts under `D:\focusflow\.tmp\` must stay ASCII-only (PowerShell 5.1 mangles non-BOM UTF-8).
 - Stop at the end of the assigned phase and report changed files, observed test evidence, risks, and next-step recommendation.

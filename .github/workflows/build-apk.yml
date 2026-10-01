@@ -115,13 +115,60 @@ jobs:
       - name: Run unit tests
         run: gradle --no-daemon :app:testDebugUnitTest :app:testReleaseUnitTest
 
+      - name: Summarize unit test results
+        if: always()
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+
+          results = {}
+          for variant in ("Debug", "Release"):
+              directory = Path(f"app/build/test-results/test{variant}UnitTest")
+              files = sorted(directory.glob("TEST-*.xml"))
+              if not files:
+                  raise SystemExit(f"No unit test XML found for {variant}")
+              totals = {key: 0 for key in ("tests", "failures", "errors", "skipped")}
+              for file in files:
+                  root = ET.parse(file).getroot()
+                  if root.tag != "testsuite":
+                      raise SystemExit(f"Unexpected XML root in {file}: {root.tag}")
+                  for key in totals:
+                      totals[key] += int(root.attrib.get(key, 0))
+              results[variant] = {"suites": len(files), **totals}
+              print(f"UNIT_TEST_SUMMARY {variant} {json.dumps(results[variant], sort_keys=True)}")
+          Path("unit-test-summary.json").write_text(json.dumps(results, indent=2) + "\n")
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
+              summary.write("## Unit test results\n\n")
+              summary.write("| Variant | Suites | Tests | Failures | Errors | Skipped |\n")
+              summary.write("| --- | ---: | ---: | ---: | ---: | ---: |\n")
+              for variant, totals in results.items():
+                  values = " | ".join(str(totals[key]) for key in ("suites", "tests", "failures", "errors", "skipped"))
+                  summary.write(f"| {variant} | {values} |\n")
+          if any(totals["tests"] == 0 or totals["failures"] or totals["errors"] for totals in results.values()):
+              raise SystemExit("Unit test reports contain failures or no executed tests")
+          PY
+
       - name: Upload unit test evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: FocusFlow-tests-run-${{ github.run_number }}
-          path: app/build/test-results/test*UnitTest/*.xml
+          path: |
+            app/build/test-results/test*UnitTest/*.xml
+            unit-test-summary.json
           if-no-files-found: warn
+          retention-days: 7
+
+      - name: Upload Room schema evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: FocusFlow-room-schema-run-${{ github.run_number }}
+          path: app/schemas
+          if-no-files-found: error
           retention-days: 7
 
       - name: Build debug APK

@@ -5,7 +5,64 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import com.sakata.focusflow.data.CoreDataReadResult
+import com.sakata.focusflow.data.CoreDataRepositoryOperations
+import com.sakata.focusflow.data.CoreDataRuntimeAccess
+import com.sakata.focusflow.data.CoreDataRuntimeResolution
 import java.util.Calendar
+
+/**
+ * 提醒类型清单。**新增一类提醒必须在这里登记**，否则 ReminderRestoreCoverageTest 会红。
+ *
+ * 存在的理由：此前"某一类提醒有没有恢复步骤"只靠人记得——入口函数名（restoreUnifiedReminders）
+ * 只说"活动"，实际恢复的是 10 类（按分组 7 组：活动、每日三项、重复刷新／漏做摘要、任务、独立提醒、课程、游戏）。
+ * 游戏提醒原先只由 BootReceiver 单独恢复，2026-09-29 已并入本入口（本机 ColorOS 会推迟 BOOT_COMPLETED ⇒ 只靠它等于没恢复）。
+ * 名字撒谎 + 没有守卫 ⇒ 新入口很容易静默漏掉某类提醒
+ * （漏了不报错，只在"该响时没响"）。
+ */
+internal enum class ReminderRestoreStep {
+    MISSED_DIGEST,
+    ACTIVITY,
+    DAILY_STATUS,
+    DAILY_MEAL,
+    DAILY_WIND_DOWN,
+    REPEAT_REFRESH,
+    TASK,
+    STANDALONE,
+    COURSE,
+    GAME
+}
+
+/**
+ * 由统一恢复入口（那次遍历）负责的类型，**顺序即数据**。
+ * 除游戏外的 9 项与原实现的顺序逐条一致（漏做摘要 → 活动 → 每日三项 → 重复刷新 → 任务 → 独立提醒 → 课程）；
+ * 游戏紧随漏做摘要之后，保持原来并入时的恢复顺序。活动的数据源被阻断时只跳过活动本身。
+ */
+internal val REMINDER_RESTORE_ORDER: List<ReminderRestoreStep> = listOf(
+    ReminderRestoreStep.MISSED_DIGEST,
+    ReminderRestoreStep.GAME,
+    ReminderRestoreStep.ACTIVITY,
+    ReminderRestoreStep.DAILY_STATUS,
+    ReminderRestoreStep.DAILY_MEAL,
+    ReminderRestoreStep.DAILY_WIND_DOWN,
+    ReminderRestoreStep.REPEAT_REFRESH,
+    ReminderRestoreStep.TASK,
+    ReminderRestoreStep.STANDALONE,
+    ReminderRestoreStep.COURSE
+)
+
+/**
+ * **不由**统一入口恢复、而是在别处单独恢复的类型。
+ *
+ * 2026-09-29 起**为空**：GAME 已并入 REMINDER_RESTORE_ORDER（见设计件 §4 第三步，已放行并落地）。
+ * 保留这个（可能为空的）清单，是为了让 ReminderRestoreCoverageTest 的
+ * 「每个类型必须登记在某一处」继续有效：将来若又出现「只该在别处恢复」的类型，
+ * 登记在这里、并在测试里写清原因。**注意**：现在有测试断言它必须为空
+ * （game sits in the unified order and the outside list is empty）——真要再往这里登记，必须同时改那条断言。
+ */
+internal val REMINDER_RESTORED_OUTSIDE_UNIFIED_ENTRY: List<ReminderRestoreStep> = listOf(
+    // 当前为空：全部类型都在 REMINDER_RESTORE_ORDER 里。
+)
 
 object ReminderScheduler {
     fun scheduleActivityEnd(context: Context, session: ActivitySession) {
@@ -29,26 +86,99 @@ object ReminderScheduler {
         }
     }
 
-    fun restoreActivityReminders(context: Context) {
+    /**
+     * 统一恢复入口：把每一类提醒在开机／时间变更／权限变更后重新排上。
+     *
+     * 旧名 restoreActivityReminders 里的 Activity 是历史遗留——它恢复的远不止活动（见 REMINDER_RESTORE_ORDER）；
+     * 改名已在 470c42f 落地；游戏提醒也已并入这个入口。
+     *
+     * 核心数据运行时被阻断时只跳过依赖仓库的活动恢复。每日提醒和独立提醒仍有自己的数据源；
+     * 任务与课程恢复各自校验核心运行时，不由本入口提前替它们返回。
+     */
+    fun restoreUnifiedReminders(context: Context) {
         val store = PrototypeStore(context)
-        store.loadLatestActiveSession()?.let { session ->
-            if (session.endsAt <= System.currentTimeMillis()) {
-                if (session.status != ActivitySession.STATUS_AWAITING_CONFIRMATION) {
-                    store.markSessionAwaitingConfirmation(session.id)
-                    context.sendBroadcast(Intent(context, ReminderReceiver::class.java).apply {
-                        action = ReminderReceiver.ACTION_ACTIVITY_END
-                        putExtra(ReminderReceiver.EXTRA_ACTIVITY_NAME, session.name)
-                        putExtra(ReminderReceiver.EXTRA_SESSION_ID, session.id)
-                        putExtra(ReminderReceiver.EXTRA_NEXT_STEP, session.nextStep)
-                        putExtra(ReminderReceiver.EXTRA_ACTIVITY_ENDS_AT, session.endsAt)
-                    })
+        REMINDER_RESTORE_ORDER.forEach { step ->
+            when (step) {
+                ReminderRestoreStep.MISSED_DIGEST -> scheduleMissedDigest(context)
+
+                ReminderRestoreStep.ACTIVITY -> {
+                    val runtime = CoreDataRuntimeAccess.resolve(context)
+                    val repository = (runtime as? CoreDataRuntimeResolution.Ready)?.repository
+                    if (repository != null) {
+                        CoreDataRepositoryOperations.latestActiveSession(repository)?.let { session ->
+                            if (session.endsAt <= System.currentTimeMillis()) {
+                                if (session.status != ActivitySession.STATUS_AWAITING_CONFIRMATION) {
+                                    val marked = CoreDataRepositoryOperations.markActivitySessionAwaitingConfirmation(
+                                        repository,
+                                        session.id,
+                                        session.endsAt
+                                    )
+                                    if (marked.applied) {
+                                        context.sendBroadcast(Intent(context, ReminderReceiver::class.java).apply {
+                                            action = ReminderReceiver.ACTION_ACTIVITY_END
+                                            putExtra(ReminderReceiver.EXTRA_ACTIVITY_NAME, session.name)
+                                            putExtra(ReminderReceiver.EXTRA_SESSION_ID, session.id)
+                                            putExtra(ReminderReceiver.EXTRA_NEXT_STEP, session.nextStep)
+                                            putExtra(ReminderReceiver.EXTRA_ACTIVITY_ENDS_AT, session.endsAt)
+                                        })
+                                    }
+                                }
+                            } else scheduleActivityReminders(context, session, store.loadActivityReminderSettings())
+                        }
+                    }
                 }
-            } else scheduleActivityReminders(context, session, store.loadActivityReminderSettings())
+
+                ReminderRestoreStep.DAILY_STATUS -> scheduleDailyStatusCheckIn(context, store.loadStatusCheckInSettings())
+                ReminderRestoreStep.DAILY_MEAL -> scheduleDailyMealReminders(context, store.loadBaselineProfile())
+                ReminderRestoreStep.DAILY_WIND_DOWN -> scheduleDailyWindDown(context, store.loadBaselineProfile())
+
+                ReminderRestoreStep.REPEAT_REFRESH -> {
+                    RepeatActions.refreshRepository(context)
+                    scheduleRepeatRefresh(context)
+                }
+
+                ReminderRestoreStep.TASK -> restoreTaskReminders(context)
+                ReminderRestoreStep.STANDALONE -> restoreStandaloneReminders(context)
+                ReminderRestoreStep.COURSE -> CourseReminders.restore(context)
+
+                // 2026-09-29 第三步落地：游戏提醒并入统一恢复。此前它只由 BootReceiver 恢复，
+                // 而本机 ColorOS 会把 BOOT_COMPLETED 推迟到不可预期 ⇒ 实际上等于没恢复。
+                ReminderRestoreStep.GAME -> restoreGameReminders(context)
+            }
         }
-        scheduleDailyStatusCheckIn(context, store.loadStatusCheckInSettings())
-        scheduleDailyMealReminders(context, store.loadBaselineProfile())
-        scheduleDailyWindDown(context, store.loadBaselineProfile())
-        restoreTaskReminders(context)
+    }
+
+    fun restoreStandaloneReminders(context: Context) = StandaloneReminders.restore(context)
+
+    fun scheduleRepeatRefresh(context: Context) {
+        val next = Calendar.getInstance().apply {
+            add(Calendar.DAY_OF_YEAR, 1); set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 5); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
+        val pending = PendingIntent.getBroadcast(context, 200_210,
+            Intent(context, ReminderReceiver::class.java).apply { action = ReminderReceiver.ACTION_REPEAT_REFRESH },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val manager = context.getSystemService(AlarmManager::class.java)
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || manager.canScheduleExactAlarms())
+            manager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, next, pending)
+        else manager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, next, pending)
+    }
+
+    fun scheduleMissedDigest(context: Context) {
+        if (!PrototypeStore(context).loadActivityReminderSettings().scheduleRemindersEnabled) {
+            cancelPending(context, 200_211, ReminderReceiver.ACTION_TASK_MISSED_DIGEST)
+            return
+        }
+        val next = TaskMissedDigestPolicy.triggerAfter(System.currentTimeMillis())
+        val pending = PendingIntent.getBroadcast(context, 200_211,
+            Intent(context, ReminderReceiver::class.java).apply {
+                action = ReminderReceiver.ACTION_TASK_MISSED_DIGEST
+                putExtra(ReminderReceiver.EXTRA_DIGEST_DAY, TaskHistory.dayStartOf(next))
+            }, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val manager = context.getSystemService(AlarmManager::class.java)
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || manager.canScheduleExactAlarms())
+            manager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, next, pending)
+        else manager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, next, pending)
     }
 
     fun scheduleDailyStatusCheckIn(
@@ -234,20 +364,23 @@ object ReminderScheduler {
     ) {
         val scheduledAt = item.scheduledAt ?: return
         cancelTaskReminder(context, item.id)
-        if (!settings.scheduleRemindersEnabled || item.done || item.kind in setOf("收集箱", "暂停", "游戏", "活动")) return
-        // 不补发已经开始的日程；否则一次重启会把旧安排集中推送。
+        if (!settings.scheduleRemindersEnabled || item.done || item.dayOnly || item.kind in setOf("收集箱", "暂停", "游戏", "活动", "回收站", "重复历史", "重复模板")) return
+        // 已过结束时刻的时段不补发开始/结束提醒；独立的未来截止提示仍可恢复。
         val now = System.currentTimeMillis()
-        if (scheduledAt <= now) return
         TaskReminderPolicy.pendingReminders(listOf(item), settings, now).forEach { reminder ->
             val actionName = when (reminder.stage) {
                 TaskReminderStage.ADVANCE -> ReminderReceiver.ACTION_TASK_ADVANCE
                 TaskReminderStage.DUE -> ReminderReceiver.ACTION_TASK_DUE
+                TaskReminderStage.MISSED -> ReminderReceiver.ACTION_TASK_MISSED
+                TaskReminderStage.DEADLINE -> ReminderReceiver.ACTION_TASK_DEADLINE
             }
             val intent = Intent(context, ReminderReceiver::class.java).apply {
                 action = actionName
                 putExtra(ReminderReceiver.EXTRA_TASK_ID, item.id)
                 putExtra(ReminderReceiver.EXTRA_TASK_TITLE, reminder.title)
                 putExtra(ReminderReceiver.EXTRA_TASK_START_AT, scheduledAt)
+                if (reminder.stage == TaskReminderStage.DEADLINE)
+                    putExtra(ReminderReceiver.EXTRA_TASK_DUE_AT, item.dueAt ?: 0L)
             }
             val pending = PendingIntent.getBroadcast(
                 context,
@@ -281,13 +414,24 @@ object ReminderScheduler {
     fun cancelTaskReminder(context: Context, itemId: Long) {
         cancelPending(context, taskRequestCode(itemId, TaskReminderStage.ADVANCE), ReminderReceiver.ACTION_TASK_ADVANCE)
         cancelPending(context, taskRequestCode(itemId, TaskReminderStage.DUE), ReminderReceiver.ACTION_TASK_DUE)
+        cancelPending(context, taskRequestCode(itemId, TaskReminderStage.MISSED), ReminderReceiver.ACTION_TASK_MISSED)
+        cancelPending(context, taskRequestCode(itemId, TaskReminderStage.DEADLINE), ReminderReceiver.ACTION_TASK_DEADLINE)
     }
 
     /** 设备重启/应用更新后恢复未来日程，已开始或已完成项目不补发。 */
     fun restoreTaskReminders(context: Context) {
         val store = PrototypeStore(context)
         val settings = store.loadActivityReminderSettings()
-        store.loadItems().filter { !it.done && it.scheduledAt != null && it.scheduledAt > System.currentTimeMillis() }
+        val runtime = CoreDataRuntimeAccess.resolve(context)
+        if (runtime !is CoreDataRuntimeResolution.Ready) return
+        val coreData = runtime.repository.read()
+        if (coreData !is CoreDataReadResult.Ready) return
+        if (!settings.scheduleRemindersEnabled) {
+            coreData.snapshot.items.forEach { cancelTaskReminder(context, it.id) }
+            return
+        }
+        val now = System.currentTimeMillis()
+        coreData.snapshot.items.filter { TaskReminderPolicy.pendingReminders(listOf(it), settings, now).isNotEmpty() }
             .forEach { scheduleTaskReminder(context, it, settings) }
     }
 
@@ -453,7 +597,12 @@ object ReminderScheduler {
     }
 
     private fun taskRequestCode(itemId: Long, stage: TaskReminderStage): Int {
-        val offset = if (stage == TaskReminderStage.ADVANCE) 20_000L else 30_000L
+        val offset = when (stage) {
+            TaskReminderStage.ADVANCE -> 20_000L
+            TaskReminderStage.DUE -> 30_000L
+            TaskReminderStage.MISSED -> 40_000L
+            TaskReminderStage.DEADLINE -> 50_000L
+        }
         return ((itemId + offset) % Int.MAX_VALUE).toInt()
     }
 
