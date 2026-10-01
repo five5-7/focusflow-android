@@ -26,6 +26,12 @@ data class CourseVisionSettings(
     val model: String = DEFAULT_COURSE_VISION_MODEL
 )
 
+internal data class ParseReport(
+    val courses: List<Course>,
+    val warnings: List<String> = emptyList(),
+    val rejectionReason: String? = null
+)
+
 /** 可替换的视觉服务识别入口；批次 A 沿用待确认课程解析。 */
 object CourseVisionRecognizer {
     /** One immutable, previously verified service snapshot; no fallback provider. */
