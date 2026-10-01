@@ -951,6 +951,7 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
     var visionServiceChoiceOpen by remember { mutableStateOf(false) }
     var selectedVisionService by remember { mutableStateOf<VisionServiceProfile?>(null) }
     var visionSession by remember { mutableStateOf<VisionSession?>(null) }
+    var visionReviewPayload by remember { mutableStateOf<VisionRecognitionPreview?>(null) }
     var verifiedVisionChoices by remember { mutableStateOf<List<VisionServiceProfile>>(emptyList()) }
     var visionDefaultId by remember { mutableStateOf<String?>(null) }
     DisposableEffect(Unit) { onDispose { visionSession?.cancel() } }
@@ -963,8 +964,14 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
             courseImportRunning = true
             globalLoading = true
             courseImportMessage = "正在通过 ${profile.name} 识别课程…"
-            CourseVisionRecognizer.recognize(context, uri, profile, task, campusPlaces,
-                onSuccess = { if (visionSession === task && !task.cancelled()) { visionSession = null; applyImportedCourses(it) } },
+            CourseVisionRecognizer.recognizePreview(context, uri, profile, task,
+                onSuccess = { preview -> if (visionSession === task && !task.cancelled()) {
+                    visionSession = null
+                    visionReviewPayload = preview
+                    courseImportRunning = false
+                    globalLoading = false
+                    courseImportMessage = "识别完成，请逐条确认、编辑或拒绝候选"
+                } },
                 onFailure = { error -> if (visionSession === task) {
                     visionSession = null
                     courseImportMessage = error
@@ -977,6 +984,20 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
     if (visionServiceChoiceOpen) VisionServiceChoiceDialog(verifiedVisionChoices, visionDefaultId,
         onChoose = { selected -> selectedVisionService = selected; visionServiceChoiceOpen = false; courseScreenshotLauncher.launch(arrayOf("image/*")) },
         onDismiss = { visionServiceChoiceOpen = false })
+    visionReviewPayload?.let { payload ->
+        VisionReviewDialog(
+            payload = payload,
+            onApply = { review ->
+                val batch = CourseVisionRecognizer.importReviewedCandidates(review, campusPlaces)
+                visionReviewPayload = null
+                applyImportedCourses(batch)
+            },
+            onDismiss = {
+                visionReviewPayload = null
+                courseImportMessage = "已取消审核，本次未导入"
+            }
+        )
+    }
     if (visionSession != null) AlertDialog(onDismissRequest = {}, title = { Text("正在识别课表") },
         text = { Text(courseImportMessage.orEmpty() + "\n取消后本次结果不会写入课程。") },
         confirmButton = { TextButton(onClick = {
