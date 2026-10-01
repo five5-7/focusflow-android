@@ -65,7 +65,7 @@ class VisionCredentialStore internal constructor(
         val raw = encrypted.all[ref] ?: return@synchronized VisionCredentialRead.Missing
         runCatching {
             require(raw is String && raw.length <= 32768 && VisionJsonSyntax.valid(raw))
-            val o = JSONObject(raw); require(o.keySet() == setOf("version","revision","encrypted") && o.get("version") is Int && o.getInt("version") == 1)
+            val o = JSONObject(raw); require(o.keys().asSequence().toSet() == setOf("version","revision","encrypted") && o.get("version") is Int && o.getInt("version") == 1)
             require(o.get("revision") is String && o.getString("revision").isNotBlank() && o.get("encrypted") is String)
             val secret = cipher.decrypt(o.getString("encrypted")); require(secret.isNotBlank() && secret.length <= 8192 && secret.none { it == '\r' || it == '\n' })
             VisionCredentialRead.Ready(secret, o.getString("revision"))
