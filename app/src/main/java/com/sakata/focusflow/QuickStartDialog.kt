@@ -1,5 +1,9 @@
 package com.sakata.focusflow
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -9,7 +13,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -57,6 +63,7 @@ internal fun QuickStartDialog(onDismiss: () -> Unit) {
         onDismissRequest = onDismiss,
         title = { Text("快速入门 · ${chapter + 1}/${quickStartChapters.size}") },
         text = {
+            val chapterStates = rememberSaveableStateHolder()
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 LazyRow(state = tabs, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     itemsIndexed(quickStartChapters) { index, section ->
@@ -64,10 +71,20 @@ internal fun QuickStartDialog(onDismiss: () -> Unit) {
                     }
                 }
                 Box(Modifier.fillMaxWidth().height(contentHeight)) {
-                    SubpageMotion(chapter, containerColor = AlertDialogDefaults.containerColor) { index ->
-                        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Text(quickStartChapters[index].title, fontWeight = FontWeight.Bold)
-                            quickStartChapters[index].lines.forEach { Text(it, style = MaterialTheme.typography.bodyMedium) }
+                    // This is dialog content, not a page: do not repaint the page backdrop here.
+                    AnimatedContent(
+                        targetState = chapter,
+                        modifier = Modifier.fillMaxSize().clipToBounds(),
+                        transitionSpec = {
+                            (fadeIn(MotionSpec.enter()) togetherWith fadeOut(MotionSpec.exit())).using(null)
+                        },
+                        label = "quick-start-chapter"
+                    ) { index ->
+                        chapterStates.SaveableStateProvider(index) {
+                            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Text(quickStartChapters[index].title, fontWeight = FontWeight.Bold)
+                                quickStartChapters[index].lines.forEach { Text(it, style = MaterialTheme.typography.bodyMedium) }
+                            }
                         }
                     }
                 }
@@ -105,6 +122,10 @@ internal fun CampusLifeChoiceDialog(onEnable: () -> Unit, onSkip: () -> Unit) {
 
 /** 覆盖安装后每个版本只展示一次的更新说明；版本名来自 BuildConfig，路线图是唯一详情入口。 */
 internal fun updateHighlightsFor(version: String): List<String> = when {
+    version == "8.3.0-rc.27" -> listOf(
+        "快速入门正文现在跟随弹窗卡片材质，不再在内容区重复铺页面图片或渐变。",
+        "章节切换保留动画与各章滚动位置；关闭动画时直接切换。"
+    )
     version == "8.3.0-rc.26" -> listOf(
         "课表识别可以添加自己的兼容视觉服务；先完成图像和结构化能力测试，再选择默认服务。",
         "共享 key 加密保存且不回显；导入前显示上传目标，识别过程中可取消。",
