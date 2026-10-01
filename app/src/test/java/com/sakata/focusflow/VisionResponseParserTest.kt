@@ -49,13 +49,13 @@ class VisionResponseParserTest {
 
     @Test fun duplicate_candidate_ids_are_rejected() {
         val first = response()
-        val second = response("c1").substringAfter("\\"candidates\\":[{").substringBeforeLast("]}") 
+        val second = response("c1").substringAfter("\"candidates\":[{").substringBeforeLast("]}") 
         val duplicate = first.substringBeforeLast("]") + ",{" + second + "]}"+ "}"
         assertNull(VisionResponseParser.parse(duplicate))
     }
 
     @Test fun incomplete_candidate_coordinates_remain_parseable_for_review() {
-        val parsed = VisionResponseParser.parse(response().replace("\\"day\\":1,\\"startPeriod\\":1,\\"endPeriod\\":1", "\\"day\\":null,\\"startPeriod\\":null,\\"endPeriod\\":null"))
+        val parsed = VisionResponseParser.parse(response().replace("\"day\":1,\"startPeriod\":1,\"endPeriod\":1", "\"day\":null,\"startPeriod\":null,\"endPeriod\":null"))
         assertNotNull(parsed)
         assertNull(parsed!!.candidates.single().day)
     }
