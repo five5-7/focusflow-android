@@ -55,7 +55,7 @@ class VisionResponseParserTest {
     }
 
     @Test fun incomplete_candidate_coordinates_remain_parseable_for_review() {
-        val parsed = VisionResponseParser.parse(response().replace("\"day\":1,\"startPeriod\":1,\"endPeriod\":1", "\"day\":null,\"startPeriod\":null,\"endPeriod\":null"))
+        val parsed = VisionResponseParser.parse(response().replace("\"day\":1", "\"day\":null").replace("\"startPeriod\":1", "\"startPeriod\":null").replace("\"endPeriod\":1", "\"endPeriod\":null"))
         assertNotNull(parsed)
         assertNull(parsed!!.candidates.single().day)
     }
