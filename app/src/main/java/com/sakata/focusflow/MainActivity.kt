@@ -2220,8 +2220,10 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                         else snackbarHostState.showSnackbar("学习建议设置未确认保存，请重试")
                     }
                 }, courseVision = courseVision, onCourseVisionSettingsChange = { updated ->
-                    courseVision = updated
-                    store.saveCourseVisionSettings(updated)
+                    scope.launch {
+                        val saved = withContext(Dispatchers.IO) { store.saveCourseVisionSettings(updated) }
+                        if (saved) courseVision = updated else snackbarHostState.showSnackbar("视觉启用状态未确认保存，请重试")
+                    }
                 }, courseVisionGuideOpen = courseVisionGuideOpen, onCourseVisionGuideOpenChange = { courseVisionGuideOpen = it }, pendingPlaces = pendingPlaces, onAddPendingPlace = { place ->
                     val zone = when {
                         place.contains("田径场") -> CampusZone.EAST_STADIUM

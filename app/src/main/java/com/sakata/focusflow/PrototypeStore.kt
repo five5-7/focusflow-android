@@ -783,12 +783,10 @@ class PrototypeStore(context: Context) {
         }
     }
 
-    fun saveCourseVisionSettings(settings: CourseVisionSettings) {
-        preferences.edit()
-            .putBoolean("course_vision_enabled", settings.enabled)
-            .putString("course_vision_model", settings.model.ifBlank { DEFAULT_COURSE_VISION_MODEL })
-            .apply()
-    }
+    fun saveCourseVisionSettings(settings: CourseVisionSettings): Boolean = preferences.edit()
+        .putBoolean("course_vision_enabled", settings.enabled)
+        .putString("course_vision_model", settings.model.ifBlank { DEFAULT_COURSE_VISION_MODEL })
+        .commit()
 
     /** 首次开启课表视觉模型时的 key 申请引导是否已显示过（只自动弹一次，之后可从设置页/帮助再次打开）。 */
     fun loadCourseVisionGuideShown(): Boolean = preferences.getBoolean("course_vision_guide_shown", false)

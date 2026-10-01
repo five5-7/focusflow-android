@@ -24,7 +24,12 @@ class VisionSession(private val clock: () -> Long = { System.nanoTime() / 1_000_
     private var active = 0
     private val stopped = AtomicBoolean(false)
     private val connections = mutableSetOf<HttpURLConnection>()
-    @Synchronized internal fun begin() { check(!cancelled() && requests < VisionLimits.MAX_REQUESTS && active < 2); requests++; active++ }
+    @Synchronized internal fun begin() {
+        if(cancelled()) throw VisionSessionRejected("已取消或超过会话时限")
+        if(requests >= VisionLimits.MAX_REQUESTS) throw VisionSessionRejected("已用完 8 次请求预算，请手动重新开始")
+        if(active >= 2) throw VisionSessionRejected("同时最多 2 个请求，请等待当前请求结束")
+        requests++; active++
+    }
     @Synchronized internal fun end() { active-- }
     fun cancelled() = stopped.get() || clock() - started >= VisionLimits.SESSION_MS
     fun cancel() { stopped.set(true); synchronized(this) { connections.toList().forEach { it.disconnect() }; connections.clear() } }
@@ -32,12 +37,13 @@ class VisionSession(private val clock: () -> Long = { System.nanoTime() / 1_000_
     @Synchronized internal fun detach(c: HttpURLConnection) { connections.remove(c) }
     internal fun remainingMs() = (VisionLimits.SESSION_MS - (clock() - started)).coerceAtLeast(1)
 }
+internal class VisionSessionRejected(val safeMessage: String) : RuntimeException()
 internal data class VisionHttpReply(val status: Int, val body: ByteArray)
 internal interface VisionTransport { fun exchange(profile: VisionServiceProfile, key: String, path: String, body: ByteArray?, session: VisionSession): VisionHttpReply }
-internal class VisionUrlTransport : VisionTransport {
+internal class VisionUrlTransport(private val open: (URL) -> HttpURLConnection = { it.openConnection() as HttpURLConnection }) : VisionTransport {
     companion object { private val timer = ScheduledThreadPoolExecutor(1) { r -> Thread(r,"vision-deadline").apply { isDaemon = true } }.apply { removeOnCancelPolicy = true } }
     override fun exchange(profile: VisionServiceProfile, key: String, path: String, body: ByteArray?, session: VisionSession): VisionHttpReply {
-        val connection = URL(profile.endpoint(path)).openConnection() as HttpURLConnection
+        val connection = open(URL(profile.endpoint(path)))
         session.attach(connection)
         val deadline = timer.schedule({ connection.disconnect() }, session.remainingMs(), TimeUnit.MILLISECONDS)
         try {
@@ -74,12 +80,19 @@ class VisionServiceClient internal constructor(private val transport: VisionTran
             session.begin(); begun = true
             val reply = transport.exchange(profile,key,path,body,session)
             if(session.cancelled()) return VisionClientResult.Failure("已取消或超过会话时限")
-            if(reply.status !in 200..299) return VisionClientResult.Failure(when(reply.status) { 401,403 -> "认证失败，请检查 key 与服务权限"; 404 -> "接口或模型不可用"; 429 -> "服务限流，请稍后重试"; in 300..399 -> "服务重定向已拒绝，请核对接口地址"; else -> "服务请求失败（${reply.status}）" })
+            if(reply.status !in 200..299) return VisionClientResult.Failure(when(reply.status) { 400 -> "请求不被接受，请检查协议、模型及图片支持"; 413 -> "服务拒绝请求大小，请缩小图片"; 401,403 -> "认证失败，请检查 key 与服务权限"; 404 -> "接口或模型不可用"; 429 -> "服务限流，请稍后重试"; in 300..399 -> "服务重定向已拒绝，请核对接口地址"; else -> "服务请求失败（${reply.status}）" })
             require(reply.body.size <= VisionLimits.MAX_RESPONSE_BYTES)
             val raw = Charsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT).onUnmappableCharacter(CodingErrorAction.REPORT).decode(ByteBuffer.wrap(reply.body)).toString()
             require(VisionJsonSyntax.valid(raw) && raw.trimStart().startsWith("{"))
             VisionClientResult.Text(raw)
-        } catch (_: Exception) { VisionClientResult.Failure(if(session.cancelled()) "已取消或超过会话时限" else "请求失败：检查网络、响应格式、大小限制或服务配置") }
+        } catch (e: Exception) { VisionClientResult.Failure(when {
+            session.cancelled() -> "已取消或超过会话时限"
+            e is VisionSessionRejected -> e.safeMessage
+            e is java.net.SocketTimeoutException -> "服务响应超时，请稍后重试"
+            e is javax.net.ssl.SSLException -> "HTTPS 安全连接失败，请检查证书与地址"
+            e is java.net.UnknownHostException -> "无法解析服务地址，请检查网络与域名"
+            else -> "请求失败：检查网络、响应格式、大小限制或服务配置"
+        }) }
         finally { if(begun) session.end() }
     }
     fun chat(profile: VisionServiceProfile, key: String, prompt: String, image: ByteArray?, session: VisionSession): VisionClientResult {

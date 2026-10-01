@@ -33,6 +33,7 @@ internal fun VisionServicesSettings(enabled: Boolean, onEnabledChange: (Boolean)
     val store=remember { VisionServiceStore(context) }; val vault=remember { VisionCredentialStore(context) }
     var configuration by remember { mutableStateOf<VisionServiceConfiguration?>(null) }
     var available by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var keyStates by remember { mutableStateOf<Map<String,String>>(emptyMap()) }
     var message by remember { mutableStateOf("正在读取服务配置…") }
     var editing by remember { mutableStateOf<VisionServiceProfile?>(null) }
     var name by remember { mutableStateOf("") }; var url by remember { mutableStateOf("https://") }; var model by remember { mutableStateOf("") }; var key by remember { mutableStateOf("") }
@@ -40,8 +41,12 @@ internal fun VisionServicesSettings(enabled: Boolean, onEnabledChange: (Boolean)
     var session by remember { mutableStateOf<VisionSession?>(null) }
     var modelList by remember { mutableStateOf<List<String>>(emptyList()) }
     suspend fun reload() {
-        val loaded=withContext(Dispatchers.IO) { vault.migrateShared(); store.read() to store.verifiedProfiles(vault).map { it.id }.toSet() }
-        configuration=(loaded.first as? VisionConfigurationRead.Ready)?.configuration; available=loaded.second
+        val loaded=withContext(Dispatchers.IO) {
+            vault.migrateShared(); val read=store.read()
+            val keys=(read as? VisionConfigurationRead.Ready)?.configuration?.profiles.orEmpty().associate { p -> p.id to when(vault.read(p.credentialRef)) { is VisionCredentialRead.Ready -> "key 已保存"; VisionCredentialRead.Missing -> "key 未保存"; VisionCredentialRead.Uncertain -> "key 写入未确认"; else -> "key 不可读，请重填" } }
+            Triple(read,store.verifiedProfiles(vault).map { it.id }.toSet(),keys)
+        }
+        configuration=(loaded.first as? VisionConfigurationRead.Ready)?.configuration; available=loaded.second;keyStates=loaded.third
         if(configuration==null) message="配置损坏或写入未确认；保留原数据，不能覆盖为空配置。"
     }
     LaunchedEffect(Unit) { reload(); if(configuration!=null) message="先保存配置，再点击能力测试。测试使用生成的小图片，可能产生 API 费用。" }
@@ -53,7 +58,7 @@ internal fun VisionServicesSettings(enabled: Boolean, onEnabledChange: (Boolean)
     configuration?.profiles?.forEach { p ->
         HorizontalDivider()
         Text("${p.name} · ${p.baseUrl}",style=MaterialTheme.typography.titleSmall)
-        Text("${p.model} · ${if(p.id in available) "已通过能力测试" else "待测试或凭据不可读"}${if(configuration?.defaultId==p.id && p.id in available) " · 默认" else ""}",style=MaterialTheme.typography.bodySmall)
+        Text("${keyStates[p.id].orEmpty()} · ${p.model} · ${if(p.id in available) "已通过能力测试" else "待测试或凭据不可读"}${if(configuration?.defaultId==p.id && p.id in available) " · 默认" else ""}",style=MaterialTheme.typography.bodySmall)
         Row(horizontalArrangement=Arrangement.spacedBy(6.dp)) {
             TextButton(enabled=!busy,onClick={ editing=p;name=p.name;url=p.baseUrl;model=p.model;timeout=p.timeoutSeconds.toString();key="";modelList=emptyList() }) { Text("编辑") }
             TextButton(enabled=!busy,onClick={
