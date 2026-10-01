@@ -6,10 +6,15 @@ ROOT=Path(__file__).resolve().parents[1]/'app/src/test/resources/vision-samples'
 ROOT.mkdir(parents=True,exist_ok=True)
 W,H=960,820;left,top,cw,rh=120,100,110,52
 courses=[('数学',1,1,2,'东1-101'),('有机化学',3,3,4,'西2-209'),('大学物理实验',5,6,8,'东4-212'),('中国改革开放史',7,11,13,'蒙民伟-225')]
+clear_fills=['#d7e9ff','#ffe3c2','#d9f2d9','#eadcff','#ffd6e7','#d6f0f0','#f4edc7','#dce5ff','#e8d8c5','#d7f0e1']
 variants=['clear']*10+['rotate','perspective','moire','low_contrast','scaled','gridless']+['header_missing','period_missing','cropped_left','ambiguous_headers']+['blank','severe_blur','unrelated','unrecoverable_crop']
 manifest=[]
 for n,variant in enumerate(variants,1):
  category='clear' if n<=10 else 'recoverable' if n<=16 else 'manual_anchors' if n<=20 else 'reject'
+ clear_index=n-1 if variant=='clear' else 0
+ offset=clear_index%7
+ sample_courses=[(title,((day-1+offset)%7)+1,start,end,location) for title,day,start,end,location in courses] if variant=='clear' else courses
+ fill=clear_fills[clear_index] if variant=='clear' else ('#eee' if variant=='low_contrast' else '#d7e9ff')
  missing_header=variant in ('header_missing','ambiguous_headers');missing_period=variant in ('period_missing','cropped_left')
  stroke='#bbb' if variant=='low_contrast' else '#444'
  pieces=[f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewBox="0 0 {W} {H}">','<rect width="960" height="820" fill="white"/>']
@@ -32,9 +37,9 @@ for n,variant in enumerate(variants,1):
   for period in range(1,14):
    if not missing_period:pieces.append(f'<text x="70" y="{top+(period-1)*rh+30}">{period}</text>')
   if variant=='ambiguous_headers':pieces.append('<text x="200" y="75">周? 周? 周?</text>')
-  for title,day,start,end,location in courses:
+  for title,day,start,end,location in sample_courses:
    x=left+(day-1)*cw+2;y=top+(start-1)*rh+2;h=(end-start+1)*rh-4
-   pieces.extend([f'<rect x="{x}" y="{y}" width="106" height="{h}" rx="4" fill="{"#eee" if variant=="low_contrast" else "#d7e9ff"}"/>',f'<text x="{x+4}" y="{y+28}" font-size="13">{html.escape(title)}</text>',f'<text x="{x+4}" y="{y+50}" font-size="12">{location}</text>'])
+   pieces.extend([f'<rect x="{x}" y="{y}" width="106" height="{h}" rx="4" fill="{fill}"/>',f'<text x="{x+4}" y="{y+28}" font-size="13">{html.escape(title)}</text>',f'<text x="{x+4}" y="{y+50}" font-size="12">{location}</text>'])
   pieces.append('<text x="130" y="810" font-size="12">备注：教师、学分、考试日期不得识别为课程</text></g>')
   if variant=='moire':
    for x in range(0,W,7):pieces.append(f'<path d="M{x} 0L{x+80} 820" opacity=".08" stroke="black"/>')
