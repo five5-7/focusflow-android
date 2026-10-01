@@ -83,12 +83,12 @@ internal object VisionProfileCodec {
     fun decode(raw: String): VisionServiceConfiguration? = runCatching {
         require(raw.toByteArray().size <= 131072 && VisionJsonSyntax.valid(raw))
         val root = JSONObject(raw)
-        require(root.keySet() == setOf("version", "defaultId", "profiles") && root.get("version") is Int && root.getInt("version") == 1)
+        require(root.keys().asSequence().toSet() == setOf("version", "defaultId", "profiles") && root.get("version") is Int && root.getInt("version") == 1)
         val a = root.getJSONArray("profiles"); require(a.length() <= 20)
         fun text(o: JSONObject, k: String): String { require(o.get(k) is String); return o.getString(k) }
         val profiles = (0 until a.length()).map { i ->
             val o = a.getJSONObject(i)
-            require(o.keySet() == setOf("id","name","baseUrl","model","credentialRef","revision","timeoutSeconds","protocol","verifiedCredentialRevision","probeVersion"))
+            require(o.keys().asSequence().toSet() == setOf("id","name","baseUrl","model","credentialRef","revision","timeoutSeconds","protocol","verifiedCredentialRevision","probeVersion"))
             require(o.get("timeoutSeconds") is Int)
             val verified = o.get("verifiedCredentialRevision").let { if (it == JSONObject.NULL) null else { require(it is String); it } }
             val probe = o.get("probeVersion").let { if (it == JSONObject.NULL) null else { require(it is Int); it } }
