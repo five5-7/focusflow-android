@@ -32,6 +32,12 @@ internal data class ParseReport(
     val rejectionReason: String? = null
 )
 
+data class VisionRecognitionPreview(
+    val preview: VisionGridPreview,
+    val candidates: List<VisionCandidate>,
+    val warnings: List<String> = emptyList()
+)
+
 /** 可替换的视觉服务识别入口；批次 A 沿用待确认课程解析。 */
 object CourseVisionRecognizer {
     /** One immutable, previously verified service snapshot; no fallback provider. */
@@ -50,7 +56,10 @@ object CourseVisionRecognizer {
                 when (val response = VisionServiceClient().chat(profile, key.secret, buildPrompt(places), image, session)) {
                     is VisionClientResult.Failure -> response
                     is VisionClientResult.Text -> {
-                        val parsed = parseCourses(response.value, places)
+                        if (VisionResponseParser.parse(response.value) != null) {
+                            VisionClientResult.Failure("结构化视觉结果需要先在审核页确认，未直接写入课程")
+                        } else {
+                            val parsed = parseCourses(response.value, places)
                         if (parsed.rejectionReason != null) VisionClientResult.Failure(parsed.rejectionReason)
                         else if (parsed.courses.isEmpty() || parsed.courses.size > VisionLimits.MAX_CANDIDATES) VisionClientResult.Failure("没有可导入课程或超过 200 条上限")
                         else {
@@ -76,6 +85,57 @@ object CourseVisionRecognizer {
             }
         }.apply { name = "course-vision" }.start()
     }
+
+    /**
+     * Structured geometry path used by the review UI. It deliberately has a
+     * separate callback so legacy providers keep the existing import contract.
+     */
+    fun recognizePreview(
+        context: Context, uri: Uri, profile: VisionServiceProfile, session: VisionSession,
+        onSuccess: (VisionRecognitionPreview) -> Unit, onFailure: (String) -> Unit
+    ) {
+        Thread {
+            val store = VisionServiceStore(context)
+            val vault = VisionCredentialStore(context)
+            val result = runCatching {
+                check(store.currentAndVerified(profile, vault) && !session.cancelled())
+                val key = vault.read(profile.credentialRef) as? VisionCredentialRead.Ready ?: error("key unavailable")
+                val image = compressImage(context, uri) ?: error("image unavailable")
+                when (val response = VisionServiceClient().chat(profile, key.secret, buildStructuredPrompt(), image, session)) {
+                    is VisionClientResult.Failure -> PreviewResult.Failure(response.message)
+                    is VisionClientResult.Text -> {
+                        val parsed = VisionResponseParser.parse(response.value)
+                            ?: return@runCatching PreviewResult.Failure("模型没有返回严格的结构化视觉结果")
+                        val preview = VisionGridPipeline.preview(parsed.geometry, parsed.candidates, null)
+                        PreviewResult.Success(VisionRecognitionPreview(preview, parsed.candidates, preview.warnings))
+                    }
+                }
+            }.getOrElse { PreviewResult.Failure("图片、凭据或服务不可用，请检查配置后重试") }
+            Handler(Looper.getMainLooper()).post {
+                if (!session.cancelled() && store.currentAndVerified(profile, vault)) {
+                    when (result) {
+                        is PreviewResult.Success -> onSuccess(result.value)
+                        is PreviewResult.Failure -> onFailure(result.message)
+                    }
+                } else onFailure("已取消、超时或服务配置发生变化，本次未导入")
+            }
+        }.apply { name = "course-vision-preview" }.start()
+    }
+
+    private sealed interface PreviewResult {
+        data class Success(val value: VisionRecognitionPreview) : PreviewResult
+        data class Failure(val message: String) : PreviewResult
+    }
+
+    internal fun buildStructuredPrompt(): String = """
+        你是课表网格识别助手，只识别课表网格内的课程色块。
+        严格只返回一个 JSON 对象，不要代码围栏、解释或额外文字。
+        对象键必须是 geometry 和 candidates。geometry 键必须是 width,height,originalToWorking,weekdays,periods,evidence；
+        weekdays/periods 的每项键必须是 index,start,end,source，source 只能是 detected。
+        candidates 每项键必须是 id,title,day,startPeriod,endPeriod,box,evidence,rawLocation,weeks,note,textConfidence,geometryConfidence；
+        看不清的 day/startPeriod/endPeriod 使用 null，box 使用归一化坐标或 null，不能猜测坐标。
+        geometry 的 originalToWorking 必须是 9 个数字，所有坐标在 0 到 1 之间，候选最多 ${VisionLimits.MAX_CANDIDATES} 条。
+    """.trimIndent()
 
     /** 说明性文字（页脚/备注等）关键词，命中则丢弃，避免把“隐藏课程信息”等当成课程。 */
     private val noiseKeywords = listOf("隐藏课程信息", "课程信息", "学分", "备注", "说明", "教师", "老师", "节次")
