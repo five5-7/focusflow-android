@@ -721,9 +721,9 @@ class PrototypeStore(context: Context) {
         }.toString()).apply()
     }
 
-    fun loadTutorialSearchSettings(): TutorialSearchSettings = TutorialSearchSettings(
+    fun loadTutorialSearchSettings(vault: VisionCredentialStore = VisionCredentialStore(appContext)): TutorialSearchSettings = TutorialSearchSettings(
         enabled = preferences.getBoolean("tutorial_search_enabled", false),
-        apiKey = preferences.getString("siliconflow_api_key", "") ?: "",
+        apiKey = (vault.migrateShared() as? VisionCredentialRead.Ready)?.secret.orEmpty(),
         // 旧默认 Qwen/Qwen2.5-7B 已从硅基流动下线：已保存的旧默认值迁移为新默认，用户自定义模型名不动。
         model = (preferences.getString("tutorial_search_model", null) ?: DEFAULT_TUTORIAL_MODEL)
             .takeIf { it.isNotBlank() }
@@ -731,12 +731,16 @@ class PrototypeStore(context: Context) {
             ?: DEFAULT_TUTORIAL_MODEL
     )
 
-    fun saveTutorialSearchSettings(settings: TutorialSearchSettings) {
-        preferences.edit()
+    fun saveTutorialSearchSettings(settings: TutorialSearchSettings): Boolean {
+        val vault = VisionCredentialStore(appContext)
+        val current = vault.migrateShared()
+        if (settings.apiKey.isNotBlank() && (current as? VisionCredentialRead.Ready)?.secret != settings.apiKey.trim()) {
+            if (!vault.saveShared(settings.apiKey)) return false
+        }
+        return preferences.edit()
             .putBoolean("tutorial_search_enabled", settings.enabled)
-            .putString("siliconflow_api_key", settings.apiKey.trim())
             .putString("tutorial_search_model", settings.model.ifBlank { DEFAULT_TUTORIAL_MODEL })
-            .apply()
+            .commit()
     }
 
     /** AI 周总结设置：独立键未设置过时开关回退到教程搜索开关（升级用户零感知）；key 为独立的 `ai_weekly_summary_key`，留空时调用方回退教程搜索 key。 */

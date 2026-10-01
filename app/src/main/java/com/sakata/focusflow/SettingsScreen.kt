@@ -575,7 +575,7 @@ private data class BaselineVariantDraft(val name: String)
                         }
                         PlanHubItem("通勤与地点", if (campusLifeEnabled) "校园生活 开" else "校园生活 关") { onSubPageChange(SettingsSubPage.COMMUTE_PLACES) }
                         PlanHubItem("学习路径建议", if (tutorialSearch.enabled) "已开启${if (tutorialSearch.apiKey.isNotBlank()) " · 已填 key" else ""}" else "未开启") { onSubPageChange(SettingsSubPage.TUTORIAL_SEARCH) }
-                        PlanHubItem("课表识别（视觉模型）", if (!campusLifeEnabled) "校园生活关闭 · 点击查看开启方法" else if (courseVision.enabled) "已开启${if (tutorialSearch.apiKey.isNotBlank()) " · 已填 key" else " · 未填 key"}" else "未开启") {
+                        PlanHubItem("课表识别（视觉模型）", if (!campusLifeEnabled) "校园生活关闭 · 点击查看开启方法" else if (courseVision.enabled) "已开启 · 服务须通过能力测试" else "未开启") {
                             if (campusLifeEnabled) onSubPageChange(SettingsSubPage.COURSE_VISION) else onCampusLifeRequired()
                         }
                         PlanHubItem("前台应用检测", if (gameDetectionEnabled) "已开启 · 应用分类" else "未开启") { onSubPageChange(SettingsSubPage.APP_DETECTION) }
@@ -1162,14 +1162,7 @@ private data class BaselineVariantDraft(val name: String)
                             { enabled -> onTutorialSearchSettingsChange(tutorialSearch.copy(enabled = enabled)) }
                         )
                         if (tutorialSearch.enabled) {
-                            OutlinedTextField(
-                                value = tutorialSearch.apiKey,
-                                onValueChange = { onTutorialSearchSettingsChange(tutorialSearch.copy(apiKey = it)) },
-                                label = { Text("硅基流动 API key") },
-                                singleLine = true,
-                                visualTransformation = PasswordVisualTransformation(),
-                                modifier = Modifier.fillMaxWidth()
-                            )
+                            SecureSharedKeyEditor(tutorialSearch, onTutorialSearchSettingsChange)
                             Text("常用模型（点选即切换，也可手填）", style = MaterialTheme.typography.labelMedium)
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
                                 TUTORIAL_MODEL_PRESETS.forEach { (id, label) ->
@@ -1211,44 +1204,9 @@ private data class BaselineVariantDraft(val name: String)
                         }
                     }
                     SettingsSubPage.COURSE_VISION -> {
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                            HelpToggleButton(onClick = { helpBlock = SettingsBlock.COURSE_VISION })
-                        }
-                        SettingSwitch(
-                            "课表识别用硅基流动视觉模型",
-                            "开启后，导入课表截图时改用视觉模型识别（不再内置本地识别）；识别失败会提示原因：检查 key、模型名或网络后重试。图片只发往 api.siliconflow.cn",
-                            courseVision.enabled,
-                            { enabled -> onCourseVisionSettingsChange(courseVision.copy(enabled = enabled)) }
-                        )
-                        if (courseVision.enabled) {
-                            OutlinedTextField(
-                                value = tutorialSearch.apiKey,
-                                onValueChange = { onTutorialSearchSettingsChange(tutorialSearch.copy(apiKey = it)) },
-                                label = { Text("硅基流动 API key（与教程搜索共用）") },
-                                singleLine = true,
-                                visualTransformation = PasswordVisualTransformation(),
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                            TextButton(onClick = { onCourseVisionGuideOpenChange(true) }) { Text("如何获取 key（新用户 2 分钟）") }
-                            Text("常用模型（点选即切换，也可在下面手填）", style = MaterialTheme.typography.labelMedium)
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
-                                VISION_MODEL_PRESETS.forEach { (id, label) ->
-                                    FilterChip(
-                                        selected = courseVision.model == id,
-                                        onClick = { onCourseVisionSettingsChange(courseVision.copy(model = id)) },
-                                        label = { Text(label) }
-                                    )
-                                }
-                            }
-                            OutlinedTextField(
-                                value = courseVision.model,
-                                onValueChange = { onCourseVisionSettingsChange(courseVision.copy(model = it)) },
-                                label = { Text("视觉模型名（硅基流动模型 ID）") },
-                                singleLine = true,
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                            Text("默认 Qwen/Qwen3-VL-8B-Instruct（在线免费，适合先试；复杂网格、拍屏摩尔纹或透视图片可能识别错误）；可换 32B／30B-A3B，或像自定义模型工具一样在上方直接填写硅基流动支持的其他视觉模型 ID。识别结果会校验星期与节次，明显塌缩的整批结果不会导入。旧版 Qwen2.5-VL 系列已下线。key 仅存本机，只发往 api.siliconflow.cn。", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
+                        VisionServicesSettings(courseVision.enabled,
+                            { enabled -> onCourseVisionSettingsChange(courseVision.copy(enabled = enabled)) },
+                            onTutorialSearchSettingsChange)
                     }
                     SettingsSubPage.APP_DETECTION -> {
                         val context = LocalContext.current

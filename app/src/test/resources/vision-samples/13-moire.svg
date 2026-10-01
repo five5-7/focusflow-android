@@ -1,0 +1,197 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="820" viewBox="0 0 960 820">
+<rect width="960" height="820" fill="white"/>
+<g transform="" font-family="sans-serif" font-size="17">
+<path d="M120 100V776" stroke="#444"/>
+<path d="M230 100V776" stroke="#444"/>
+<path d="M340 100V776" stroke="#444"/>
+<path d="M450 100V776" stroke="#444"/>
+<path d="M560 100V776" stroke="#444"/>
+<path d="M670 100V776" stroke="#444"/>
+<path d="M780 100V776" stroke="#444"/>
+<path d="M890 100V776" stroke="#444"/>
+<path d="M120 100H890" stroke="#444"/>
+<path d="M120 152H890" stroke="#444"/>
+<path d="M120 204H890" stroke="#444"/>
+<path d="M120 256H890" stroke="#444"/>
+<path d="M120 308H890" stroke="#444"/>
+<path d="M120 360H890" stroke="#444"/>
+<path d="M120 412H890" stroke="#444"/>
+<path d="M120 464H890" stroke="#444"/>
+<path d="M120 516H890" stroke="#444"/>
+<path d="M120 568H890" stroke="#444"/>
+<path d="M120 620H890" stroke="#444"/>
+<path d="M120 672H890" stroke="#444"/>
+<path d="M120 724H890" stroke="#444"/>
+<path d="M120 776H890" stroke="#444"/>
+<text x="150" y="75">周一</text>
+<text x="260" y="75">周二</text>
+<text x="370" y="75">周三</text>
+<text x="480" y="75">周四</text>
+<text x="590" y="75">周五</text>
+<text x="700" y="75">周六</text>
+<text x="810" y="75">周日</text>
+<text x="70" y="130">1</text>
+<text x="70" y="182">2</text>
+<text x="70" y="234">3</text>
+<text x="70" y="286">4</text>
+<text x="70" y="338">5</text>
+<text x="70" y="390">6</text>
+<text x="70" y="442">7</text>
+<text x="70" y="494">8</text>
+<text x="70" y="546">9</text>
+<text x="70" y="598">10</text>
+<text x="70" y="650">11</text>
+<text x="70" y="702">12</text>
+<text x="70" y="754">13</text>
+<rect x="122" y="102" width="106" height="100" rx="4" fill="#d7e9ff"/>
+<text x="126" y="130" font-size="13">数学</text>
+<text x="126" y="152" font-size="12">东1-101</text>
+<rect x="342" y="206" width="106" height="100" rx="4" fill="#d7e9ff"/>
+<text x="346" y="234" font-size="13">有机化学</text>
+<text x="346" y="256" font-size="12">西2-209</text>
+<rect x="562" y="362" width="106" height="152" rx="4" fill="#d7e9ff"/>
+<text x="566" y="390" font-size="13">大学物理实验</text>
+<text x="566" y="412" font-size="12">东4-212</text>
+<rect x="782" y="622" width="106" height="152" rx="4" fill="#d7e9ff"/>
+<text x="786" y="650" font-size="13">中国改革开放史</text>
+<text x="786" y="672" font-size="12">蒙民伟-225</text>
+<text x="130" y="810" font-size="12">备注：教师、学分、考试日期不得识别为课程</text></g>
+<path d="M0 0L80 820" opacity=".08" stroke="black"/>
+<path d="M7 0L87 820" opacity=".08" stroke="black"/>
+<path d="M14 0L94 820" opacity=".08" stroke="black"/>
+<path d="M21 0L101 820" opacity=".08" stroke="black"/>
+<path d="M28 0L108 820" opacity=".08" stroke="black"/>
+<path d="M35 0L115 820" opacity=".08" stroke="black"/>
+<path d="M42 0L122 820" opacity=".08" stroke="black"/>
+<path d="M49 0L129 820" opacity=".08" stroke="black"/>
+<path d="M56 0L136 820" opacity=".08" stroke="black"/>
+<path d="M63 0L143 820" opacity=".08" stroke="black"/>
+<path d="M70 0L150 820" opacity=".08" stroke="black"/>
+<path d="M77 0L157 820" opacity=".08" stroke="black"/>
+<path d="M84 0L164 820" opacity=".08" stroke="black"/>
+<path d="M91 0L171 820" opacity=".08" stroke="black"/>
+<path d="M98 0L178 820" opacity=".08" stroke="black"/>
+<path d="M105 0L185 820" opacity=".08" stroke="black"/>
+<path d="M112 0L192 820" opacity=".08" stroke="black"/>
+<path d="M119 0L199 820" opacity=".08" stroke="black"/>
+<path d="M126 0L206 820" opacity=".08" stroke="black"/>
+<path d="M133 0L213 820" opacity=".08" stroke="black"/>
+<path d="M140 0L220 820" opacity=".08" stroke="black"/>
+<path d="M147 0L227 820" opacity=".08" stroke="black"/>
+<path d="M154 0L234 820" opacity=".08" stroke="black"/>
+<path d="M161 0L241 820" opacity=".08" stroke="black"/>
+<path d="M168 0L248 820" opacity=".08" stroke="black"/>
+<path d="M175 0L255 820" opacity=".08" stroke="black"/>
+<path d="M182 0L262 820" opacity=".08" stroke="black"/>
+<path d="M189 0L269 820" opacity=".08" stroke="black"/>
+<path d="M196 0L276 820" opacity=".08" stroke="black"/>
+<path d="M203 0L283 820" opacity=".08" stroke="black"/>
+<path d="M210 0L290 820" opacity=".08" stroke="black"/>
+<path d="M217 0L297 820" opacity=".08" stroke="black"/>
+<path d="M224 0L304 820" opacity=".08" stroke="black"/>
+<path d="M231 0L311 820" opacity=".08" stroke="black"/>
+<path d="M238 0L318 820" opacity=".08" stroke="black"/>
+<path d="M245 0L325 820" opacity=".08" stroke="black"/>
+<path d="M252 0L332 820" opacity=".08" stroke="black"/>
+<path d="M259 0L339 820" opacity=".08" stroke="black"/>
+<path d="M266 0L346 820" opacity=".08" stroke="black"/>
+<path d="M273 0L353 820" opacity=".08" stroke="black"/>
+<path d="M280 0L360 820" opacity=".08" stroke="black"/>
+<path d="M287 0L367 820" opacity=".08" stroke="black"/>
+<path d="M294 0L374 820" opacity=".08" stroke="black"/>
+<path d="M301 0L381 820" opacity=".08" stroke="black"/>
+<path d="M308 0L388 820" opacity=".08" stroke="black"/>
+<path d="M315 0L395 820" opacity=".08" stroke="black"/>
+<path d="M322 0L402 820" opacity=".08" stroke="black"/>
+<path d="M329 0L409 820" opacity=".08" stroke="black"/>
+<path d="M336 0L416 820" opacity=".08" stroke="black"/>
+<path d="M343 0L423 820" opacity=".08" stroke="black"/>
+<path d="M350 0L430 820" opacity=".08" stroke="black"/>
+<path d="M357 0L437 820" opacity=".08" stroke="black"/>
+<path d="M364 0L444 820" opacity=".08" stroke="black"/>
+<path d="M371 0L451 820" opacity=".08" stroke="black"/>
+<path d="M378 0L458 820" opacity=".08" stroke="black"/>
+<path d="M385 0L465 820" opacity=".08" stroke="black"/>
+<path d="M392 0L472 820" opacity=".08" stroke="black"/>
+<path d="M399 0L479 820" opacity=".08" stroke="black"/>
+<path d="M406 0L486 820" opacity=".08" stroke="black"/>
+<path d="M413 0L493 820" opacity=".08" stroke="black"/>
+<path d="M420 0L500 820" opacity=".08" stroke="black"/>
+<path d="M427 0L507 820" opacity=".08" stroke="black"/>
+<path d="M434 0L514 820" opacity=".08" stroke="black"/>
+<path d="M441 0L521 820" opacity=".08" stroke="black"/>
+<path d="M448 0L528 820" opacity=".08" stroke="black"/>
+<path d="M455 0L535 820" opacity=".08" stroke="black"/>
+<path d="M462 0L542 820" opacity=".08" stroke="black"/>
+<path d="M469 0L549 820" opacity=".08" stroke="black"/>
+<path d="M476 0L556 820" opacity=".08" stroke="black"/>
+<path d="M483 0L563 820" opacity=".08" stroke="black"/>
+<path d="M490 0L570 820" opacity=".08" stroke="black"/>
+<path d="M497 0L577 820" opacity=".08" stroke="black"/>
+<path d="M504 0L584 820" opacity=".08" stroke="black"/>
+<path d="M511 0L591 820" opacity=".08" stroke="black"/>
+<path d="M518 0L598 820" opacity=".08" stroke="black"/>
+<path d="M525 0L605 820" opacity=".08" stroke="black"/>
+<path d="M532 0L612 820" opacity=".08" stroke="black"/>
+<path d="M539 0L619 820" opacity=".08" stroke="black"/>
+<path d="M546 0L626 820" opacity=".08" stroke="black"/>
+<path d="M553 0L633 820" opacity=".08" stroke="black"/>
+<path d="M560 0L640 820" opacity=".08" stroke="black"/>
+<path d="M567 0L647 820" opacity=".08" stroke="black"/>
+<path d="M574 0L654 820" opacity=".08" stroke="black"/>
+<path d="M581 0L661 820" opacity=".08" stroke="black"/>
+<path d="M588 0L668 820" opacity=".08" stroke="black"/>
+<path d="M595 0L675 820" opacity=".08" stroke="black"/>
+<path d="M602 0L682 820" opacity=".08" stroke="black"/>
+<path d="M609 0L689 820" opacity=".08" stroke="black"/>
+<path d="M616 0L696 820" opacity=".08" stroke="black"/>
+<path d="M623 0L703 820" opacity=".08" stroke="black"/>
+<path d="M630 0L710 820" opacity=".08" stroke="black"/>
+<path d="M637 0L717 820" opacity=".08" stroke="black"/>
+<path d="M644 0L724 820" opacity=".08" stroke="black"/>
+<path d="M651 0L731 820" opacity=".08" stroke="black"/>
+<path d="M658 0L738 820" opacity=".08" stroke="black"/>
+<path d="M665 0L745 820" opacity=".08" stroke="black"/>
+<path d="M672 0L752 820" opacity=".08" stroke="black"/>
+<path d="M679 0L759 820" opacity=".08" stroke="black"/>
+<path d="M686 0L766 820" opacity=".08" stroke="black"/>
+<path d="M693 0L773 820" opacity=".08" stroke="black"/>
+<path d="M700 0L780 820" opacity=".08" stroke="black"/>
+<path d="M707 0L787 820" opacity=".08" stroke="black"/>
+<path d="M714 0L794 820" opacity=".08" stroke="black"/>
+<path d="M721 0L801 820" opacity=".08" stroke="black"/>
+<path d="M728 0L808 820" opacity=".08" stroke="black"/>
+<path d="M735 0L815 820" opacity=".08" stroke="black"/>
+<path d="M742 0L822 820" opacity=".08" stroke="black"/>
+<path d="M749 0L829 820" opacity=".08" stroke="black"/>
+<path d="M756 0L836 820" opacity=".08" stroke="black"/>
+<path d="M763 0L843 820" opacity=".08" stroke="black"/>
+<path d="M770 0L850 820" opacity=".08" stroke="black"/>
+<path d="M777 0L857 820" opacity=".08" stroke="black"/>
+<path d="M784 0L864 820" opacity=".08" stroke="black"/>
+<path d="M791 0L871 820" opacity=".08" stroke="black"/>
+<path d="M798 0L878 820" opacity=".08" stroke="black"/>
+<path d="M805 0L885 820" opacity=".08" stroke="black"/>
+<path d="M812 0L892 820" opacity=".08" stroke="black"/>
+<path d="M819 0L899 820" opacity=".08" stroke="black"/>
+<path d="M826 0L906 820" opacity=".08" stroke="black"/>
+<path d="M833 0L913 820" opacity=".08" stroke="black"/>
+<path d="M840 0L920 820" opacity=".08" stroke="black"/>
+<path d="M847 0L927 820" opacity=".08" stroke="black"/>
+<path d="M854 0L934 820" opacity=".08" stroke="black"/>
+<path d="M861 0L941 820" opacity=".08" stroke="black"/>
+<path d="M868 0L948 820" opacity=".08" stroke="black"/>
+<path d="M875 0L955 820" opacity=".08" stroke="black"/>
+<path d="M882 0L962 820" opacity=".08" stroke="black"/>
+<path d="M889 0L969 820" opacity=".08" stroke="black"/>
+<path d="M896 0L976 820" opacity=".08" stroke="black"/>
+<path d="M903 0L983 820" opacity=".08" stroke="black"/>
+<path d="M910 0L990 820" opacity=".08" stroke="black"/>
+<path d="M917 0L997 820" opacity=".08" stroke="black"/>
+<path d="M924 0L1004 820" opacity=".08" stroke="black"/>
+<path d="M931 0L1011 820" opacity=".08" stroke="black"/>
+<path d="M938 0L1018 820" opacity=".08" stroke="black"/>
+<path d="M945 0L1025 820" opacity=".08" stroke="black"/>
+<path d="M952 0L1032 820" opacity=".08" stroke="black"/>
+<path d="M959 0L1039 820" opacity=".08" stroke="black"/>
+</svg>

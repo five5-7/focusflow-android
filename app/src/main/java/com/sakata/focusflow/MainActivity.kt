@@ -438,13 +438,7 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
     var lastSeenAppVersion by remember { mutableStateOf(startup.lastSeenAppVersion) }
     var baselineWhereToFindOpen by remember { mutableStateOf(false) }
     // 首次开启课表视觉模型且未填 key 时自动弹出申请引导（只弹一次）。
-    LaunchedEffect(courseVision.enabled) {
-        if (courseVision.enabled && tutorialSearch.apiKey.isBlank() && !courseVisionGuideShown) {
-            courseVisionGuideShown = true
-            store.saveCourseVisionGuideShown(true)
-            courseVisionGuideOpen = true
-        }
-    }
+
     var courses by remember { mutableStateOf(startup.courses) }
     var coursePeriodTable by remember { mutableStateOf(startup.coursePeriodTable) }
     var courseReminderSettings by remember { mutableStateOf(CourseReminders.load(context)) }
@@ -954,21 +948,41 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
         globalLoading = false
     }
 
+    var visionServiceChoiceOpen by remember { mutableStateOf(false) }
+    var selectedVisionService by remember { mutableStateOf<VisionServiceProfile?>(null) }
+    var visionSession by remember { mutableStateOf<VisionSession?>(null) }
+    var verifiedVisionChoices by remember { mutableStateOf<List<VisionServiceProfile>>(emptyList()) }
+    var visionDefaultId by remember { mutableStateOf<String?>(null) }
+    DisposableEffect(Unit) { onDispose { visionSession?.cancel() } }
     val courseScreenshotLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) {
+        val profile = selectedVisionService
+        if (uri != null && profile != null && courseVision.enabled) {
+            val task = VisionSession()
+            visionSession?.cancel()
+            visionSession = task
             courseImportRunning = true
             globalLoading = true
-            courseImportMessage = "正在用硅基流动视觉模型识别课程…"
-            CourseVisionRecognizer.recognize(context, uri, tutorialSearch.apiKey, courseVision.model, campusPlaces,
-                onSuccess = { applyImportedCourses(it) },
-                onFailure = { visionError ->
-                    // 4.0.1 起不再回退本地 OCR（效果差）：直接说明失败原因，可检查 key/模型名/网络后重试。
-                    courseImportMessage = "视觉模型识别失败（$visionError）。可检查设置里的 key、模型名或网络后重试。"
+            courseImportMessage = "正在通过 ${profile.name} 识别课程…"
+            CourseVisionRecognizer.recognize(context, uri, profile, task, campusPlaces,
+                onSuccess = { if (visionSession === task && !task.cancelled()) { visionSession = null; applyImportedCourses(it) } },
+                onFailure = { error -> if (visionSession === task) {
+                    visionSession = null
+                    courseImportMessage = error
                     courseImportRunning = false
                     globalLoading = false
-                })
+                } })
         }
+        selectedVisionService = null
     }
+    if (visionServiceChoiceOpen) VisionServiceChoiceDialog(verifiedVisionChoices, visionDefaultId,
+        onChoose = { selected -> selectedVisionService = selected; visionServiceChoiceOpen = false; courseScreenshotLauncher.launch(arrayOf("image/*")) },
+        onDismiss = { visionServiceChoiceOpen = false })
+    if (visionSession != null) AlertDialog(onDismissRequest = {}, title = { Text("正在识别课表") },
+        text = { Text(courseImportMessage.orEmpty() + "\n取消后本次结果不会写入课程。") },
+        confirmButton = { TextButton(onClick = {
+            visionSession?.cancel(); visionSession = null; courseImportRunning = false; globalLoading = false
+            courseImportMessage = "已取消，本次未导入"
+        }) { Text("取消识别") } })
     val zjuTimetableLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         courseImportRunning = false
         globalLoading = false
@@ -1906,10 +1920,14 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                     courseImportRunning = courseImportRunning,
                     courseImportMessage = courseImportMessage,
                     onImportCourses = {
-                        if (!courseVision.enabled || tutorialSearch.apiKey.isBlank()) {
-                            courseImportMessage = "请先在 设置 → 高级工具 → 课表识别（视觉模型）开启并填写硅基流动 key，再导入课表截图。"
-                        } else {
-                            courseScreenshotLauncher.launch(arrayOf("image/*"))
+                        if (!courseVision.enabled) courseImportMessage = "请先在设置开启截图识别并配置服务。"
+                        else scope.launch {
+                            val ready = withContext(Dispatchers.IO) {
+                                val vault = VisionCredentialStore(context); vault.migrateShared()
+                                val profiles = VisionServiceStore(context)
+                                profiles.verifiedProfiles(vault) to (profiles.read() as? VisionConfigurationRead.Ready)?.configuration?.defaultId
+                            }
+                            verifiedVisionChoices = ready.first; visionDefaultId = ready.second; visionServiceChoiceOpen = true
                         }
                     },
                     onImportZju = {
@@ -2196,8 +2214,11 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                     campusCenter = updated
                     store.saveCampusCenter(updated)
                 }, tutorialSearch = tutorialSearch, onTutorialSearchSettingsChange = { updated ->
-                    tutorialSearch = updated
-                    store.saveTutorialSearchSettings(updated)
+                    scope.launch {
+                        val saved = withContext(Dispatchers.IO) { store.saveTutorialSearchSettings(updated) }
+                        if (saved) tutorialSearch = withContext(Dispatchers.IO) { store.loadTutorialSearchSettings() }
+                        else snackbarHostState.showSnackbar("学习建议设置未确认保存，请重试")
+                    }
                 }, courseVision = courseVision, onCourseVisionSettingsChange = { updated ->
                     courseVision = updated
                     store.saveCourseVisionSettings(updated)

@@ -105,6 +105,11 @@ internal fun CampusLifeChoiceDialog(onEnable: () -> Unit, onSkip: () -> Unit) {
 
 /** 覆盖安装后每个版本只展示一次的更新说明；版本名来自 BuildConfig，路线图是唯一详情入口。 */
 internal fun updateHighlightsFor(version: String): List<String> = when {
+    version == "8.3.0-rc.26" -> listOf(
+        "课表识别可以添加自己的兼容视觉服务；先完成图像和结构化能力测试，再选择默认服务。",
+        "共享 key 加密保存且不回显；导入前显示上传目标，识别过程中可取消。",
+        "仍需逐项确认识别课程；新的网格定位和修正预览将在后续批次加入。"
+    )
     version == "8.3.0-rc.25" -> listOf(
         "数据与恢复现在集中列出回收项、计划、重复规则与课程；默认保留 30 天，永久清除前需确认。",
         "删除计划时可选择一并删除的普通任务；课程恢复会带回通知设置和本次地点。",

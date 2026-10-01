@@ -82,10 +82,10 @@ internal fun PlanCoursesSection(
         TextButton(enabled = !courseImportRunning, onClick = onAddCourse) { Text("手动新增") }
     }
     Text(
-        if (courseVision.enabled && tutorialSearch.apiKey.isNotBlank()) {
-            "截图识别：硅基流动视觉模型（${courseVision.model}）"
+        if (courseVision.enabled) {
+            "截图识别已开启：导入时选择已通过能力测试的服务"
         } else {
-            "截图识别未开启：可到设置开启并填写 key"
+            "截图识别未开启：可到设置配置服务并完成能力测试"
         },
         style = MaterialTheme.typography.labelSmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant
