@@ -40,7 +40,6 @@ data class VisionRecognitionPreview(
 
 /** 可替换的视觉服务识别入口；批次 A 沿用待确认课程解析。 */
 object CourseVisionRecognizer {
-    /** One immutable, previously verified service snapshot; no fallback provider. */
     fun recognize(
         context: Context, uri: Uri, profile: VisionServiceProfile, session: VisionSession,
         places: List<CampusPlace>, onSuccess: (CourseImportBatch) -> Unit, onFailure: (String) -> Unit
@@ -60,22 +59,29 @@ object CourseVisionRecognizer {
                             VisionClientResult.Failure("结构化视觉结果需要先在审核页确认，未直接写入课程")
                         } else {
                             val parsed = parseCourses(response.value, places)
-                        if (parsed.rejectionReason != null) VisionClientResult.Failure(parsed.rejectionReason)
-                        else if (parsed.courses.isEmpty() || parsed.courses.size > VisionLimits.MAX_CANDIDATES) VisionClientResult.Failure("没有可导入课程或超过 200 条上限")
-                        else {
-                            val newPlaces = parsed.courses.map { it.building }.filter { building ->
-                                building != "地点待确认" && places.none { place ->
-                                    val p = CourseScreenshotParser.normalize(place.name)
-                                    CourseScreenshotParser.normalize(building) == p || CourseScreenshotParser.normalize(building).contains(p)
-                                }
-                            }.distinct()
-                            CourseImportBatch(CourseImportSource.VISION_SCREENSHOT, parsed.courses, newPlaces = newPlaces, warnings = parsed.warnings)
+                            if (parsed.rejectionReason != null) VisionClientResult.Failure(parsed.rejectionReason)
+                            else if (parsed.courses.isEmpty() || parsed.courses.size > VisionLimits.MAX_CANDIDATES) {
+                                VisionClientResult.Failure("没有可导入课程或超过 200 条上限")
+                            } else {
+                                val newPlaces = parsed.courses.map { it.building }.filter { building ->
+                                    building != "地点待确认" && places.none { place ->
+                                        val p = CourseScreenshotParser.normalize(place.name)
+                                        CourseScreenshotParser.normalize(building) == p ||
+                                            CourseScreenshotParser.normalize(building).contains(p)
+                                    }
+                                }.distinct()
+                                CourseImportBatch(
+                                    CourseImportSource.VISION_SCREENSHOT,
+                                    parsed.courses,
+                                    newPlaces = newPlaces,
+                                    warnings = parsed.warnings
+                                )
+                            }
                         }
                     }
                 }
             }.getOrElse { VisionClientResult.Failure("图片、凭据或服务不可用，请检查配置后重试") }
             Handler(Looper.getMainLooper()).post {
-                // Cancellation, key replacement and configuration changes invalidate every old callback.
                 if (!session.cancelled() && store.currentAndVerified(profile, vault)) {
                     when (result) {
                         is CourseImportBatch -> onSuccess(result)
@@ -86,10 +92,6 @@ object CourseVisionRecognizer {
         }.apply { name = "course-vision" }.start()
     }
 
-    /**
-     * Structured geometry path used by the review UI. It deliberately has a
-     * separate callback so legacy providers keep the existing import contract.
-     */
     fun recognizePreview(
         context: Context, uri: Uri, profile: VisionServiceProfile, session: VisionSession,
         onSuccess: (VisionRecognitionPreview) -> Unit, onFailure: (String) -> Unit
@@ -97,7 +99,7 @@ object CourseVisionRecognizer {
         Thread {
             val store = VisionServiceStore(context)
             val vault = VisionCredentialStore(context)
-            val result = runCatching {
+            val result = runCatching<PreviewResult> {
                 check(store.currentAndVerified(profile, vault) && !session.cancelled())
                 val key = vault.read(profile.credentialRef) as? VisionCredentialRead.Ready ?: error("key unavailable")
                 val image = compressImage(context, uri) ?: error("image unavailable")
@@ -122,9 +124,9 @@ object CourseVisionRecognizer {
         }.apply { name = "course-vision-preview" }.start()
     }
 
-    private sealed interface PreviewResult {
-        data class Success(val value: VisionRecognitionPreview) : PreviewResult
-        data class Failure(val message: String) : PreviewResult
+    private sealed class PreviewResult {
+        data class Success(val value: VisionRecognitionPreview) : PreviewResult()
+        data class Failure(val message: String) : PreviewResult()
     }
 
     internal fun buildStructuredPrompt(): String = """
