@@ -9,18 +9,18 @@
 ## 已核对的起点
 
 - 起点分支：`stage8/vision-import`
-- 起点 HEAD：`8a6a605bf20ca9118869ded1fff21999b2541ce3`
+- 起点 HEAD：`3f99944d418df57eb133f7f6099142aefdca52f4`
 - 阶段 9 工作分支：`stage9/regression-freeze`
 - PR #57：草稿、未合并；PR #56：草稿、未合并
 - 版本：`8.3.0-rc.26` / versionCode `560`
-- Run 544：双变体各 182 suites / 1423 tests 全绿，Debug/Release 构建、稳定签名和元数据通过
+- Run 545：双变体各 182 suites / 1423 tests 全绿，Debug/Release 构建、稳定签名和元数据通过
 - 尚未完成：真实设备、真实供应商、Keystore 换机/备份、覆盖安装、一天连续使用
 
 详细矩阵见 [docs/9.0-stage9-regression-matrix.md](docs/9.0-stage9-regression-matrix.md)。
 
 ## 执行顺序
 
-1. 保留当前阶段 8 分支和 PR 草稿，复核 Run 544 完整日志、测试 XML、Room schema、签名/元数据报告和 APK 归档。
+1. 保留当前阶段 8 分支和 PR 草稿，复核 Run 545 完整日志、测试 XML、Room schema、签名/元数据报告和 APK 归档。
 2. 在目标 OPPO / ColorOS 16 / Android 15 上执行通知、后台、重启恢复、取消、餐次 dismiss 和视觉导入 UI 验收。
 3. 用两个真实供应商执行能力测试、严格响应、超时/取消、3xx、字节预算和错误分类验收；不记录 key、图片或响应正文。
 4. 验证 Android Keystore 的保存、替换、删除、密钥失效、备份排除和换机重填，确认课程数据保留。
@@ -31,7 +31,7 @@
 
 ## 当前决定
 
-候选暂不冻结。Run 544 的工程门禁通过不代表完整发布门禁通过；不占用新候选号，不合并，不发布。
+候选暂不冻结。Run 545 的工程门禁通过不代表完整发布门禁通过；不占用新候选号，不合并，不发布。
 
 
 ## 需求决策记录核对
@@ -41,8 +41,8 @@
 
 ## 执行状态（阶段 9 开始后）
 
-- [x] 远端分支、PR、版本号、最近 Actions 和完整 Run 544 日志已复核。
-- [x] Run 544 测试 XML、Room schema、签名/元数据报告和 rc.26 APK 归档已取得可下载引用。
+- [x] 远端分支、PR、版本号、最近 Actions 和完整 Run 545 日志已复核。
+- [x] Run 545 测试 XML、Room schema、签名/元数据报告和 rc.26 APK 归档已取得可下载引用。
 - [x] 确认阶段 9 分支相对阶段 8 HEAD 只有计划、矩阵和批次 C 契约文档差量，没有生产代码差量。
 - [x] 批次 C 契约已按实际 `VisionReviewUi.kt` 对齐审核 UI 范围。
 - [ ] OPPO / ColorOS 16 / Android 15 目标设备验收。
