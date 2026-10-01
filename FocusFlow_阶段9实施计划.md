@@ -1,0 +1,34 @@
+# FocusFlow 阶段 9 实施计划
+
+日期：2026-10-01
+
+## 目标
+
+对阶段 8 批次 A、B、C 做综合回归，形成可审计的候选冻结决定，并为后续发布准备证据。阶段 9 不扩大功能范围，不激活 Room，不改变版本号，不合并 PR。
+
+## 已核对的起点
+
+- 起点分支：`stage8/vision-import`
+- 起点 HEAD：`8a6a605bf20ca9118869ded1fff21999b2541ce3`
+- 阶段 9 工作分支：`stage9/regression-freeze`
+- PR #57：草稿、未合并；PR #56：草稿、未合并
+- 版本：`8.3.0-rc.26` / versionCode `560`
+- Run 544：双变体各 182 suites / 1423 tests 全绿，Debug/Release 构建、稳定签名和元数据通过
+- 尚未完成：真实设备、真实供应商、Keystore 换机/备份、覆盖安装、一天连续使用
+
+详细矩阵见 [docs/9.0-stage9-regression-matrix.md](docs/9.0-stage9-regression-matrix.md)。
+
+## 执行顺序
+
+1. 保留当前阶段 8 分支和 PR 草稿，复核 Run 544 完整日志、测试 XML、Room schema、签名/元数据报告和 APK 归档。
+2. 在目标 OPPO / ColorOS 16 / Android 15 上执行通知、后台、重启恢复、取消、餐次 dismiss 和视觉导入 UI 验收。
+3. 用两个真实供应商执行能力测试、严格响应、超时/取消、3xx、字节预算和错误分类验收；不记录 key、图片或响应正文。
+4. 验证 Android Keystore 的保存、替换、删除、密钥失效、备份排除和换机重填，确认课程数据保留。
+5. 用稳定签名 release 包做覆盖安装、旧数据迁移和至少一天连续使用。
+6. 把每项结果、设备/系统、APK SHA-256 和失败重试写回回归矩阵。
+7. 只有所有阻塞项都有证据后，才冻结 rc.26；候选转正式需按 VERSIONING.md 增加 versionCode 并重新跑完整门禁。
+8. 合并、打 tag、创建 GitHub Release 需维护者明确批准。
+
+## 当前决定
+
+候选暂不冻结。Run 544 的工程门禁通过不代表完整发布门禁通过；不占用新候选号，不合并，不发布。
