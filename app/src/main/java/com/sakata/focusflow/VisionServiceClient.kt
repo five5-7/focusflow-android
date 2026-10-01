@@ -123,7 +123,7 @@ class VisionServiceClient internal constructor(private val transport: VisionTran
         if(connected !is VisionClientResult.Text) return VisionCapabilityResult(false,false,false,(connected as VisionClientResult.Failure).message)
         val answer = chat(profile,key,"Read the six digits in this image. Return exactly one JSON object with a string field named code. No markdown or other text.",image,session)
         if(answer !is VisionClientResult.Text) return VisionCapabilityResult(true,false,false,(answer as VisionClientResult.Failure).message)
-        val code = runCatching { require(VisionJsonSyntax.valid(answer.value)); val o = JSONObject(answer.value); require(o.keySet() == setOf("code") && o.get("code") is String); o.getString("code") }.getOrNull()
+        val code = runCatching { require(VisionJsonSyntax.valid(answer.value)); val o = JSONObject(answer.value); require(o.keys().asSequence().toSet() == setOf("code") && o.get("code") is String); o.getString("code") }.getOrNull()
         val imageMatched = code == expected
         return VisionCapabilityResult(true,imageMatched,code != null,if(imageMatched) "连接、图像读取与结构化输出通过" else "连接成功，但图像校验或严格 JSON 输出未通过")
     }
