@@ -50,7 +50,7 @@ class VisionGridPipelineTest {
     @Test fun missing_coordinates_use_box_span_for_multi_period_review() {
         val candidate = VisionCandidate(
             "multi", "物理", null, null, null,
-            VisionBox(0.10, 0.17, 0.20, 0.50), emptyList()
+            VisionBox(0.05, 0.17, 0.10, 0.50), emptyList()
         )
         val preview = VisionGridPipeline.preview(geometry(), listOf(candidate), null)
         assertEquals(VisionGridCell(1, 2, 3), preview.cells["multi"])
