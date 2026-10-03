@@ -107,9 +107,10 @@ internal fun VisionServicesSettings(enabled: Boolean, onEnabledChange: (Boolean)
 
 @Composable
 internal fun VisionServiceChoiceDialog(profiles: List<VisionServiceProfile>, defaultId: String?, onChoose: (VisionServiceProfile) -> Unit, onDismiss: () -> Unit) {
-    AlertDialog(onDismissRequest=onDismiss,title={Text("选择截图上传服务")},text={ Column {
+    AppDialog(onDismissRequest=onDismiss,title={Text("选择截图上传服务")},text={ Column {
         Text("接下来选择的课表图片会发送到所选地址，可能产生 API 费用。识别结果仍需确认。")
-        if(profiles.isEmpty()) Text("没有通过能力测试的服务，请先到设置保存并测试。")
+        Text("列表包含完整能力通过，或仅连接和结构化输出通过的服务；后者仅用于手动逐条审核，不会自动导入，也不能设为默认。")
+        if(profiles.isEmpty()) Text("没有可审核的服务，请先到设置保存并测试。")
         profiles.forEach { p -> TextButton(onClick={onChoose(p)}) { Text("${p.name}${if(p.id==defaultId) "（默认）" else ""}\n${p.baseUrl}\n${p.model}") } }
     } },confirmButton={},dismissButton={TextButton(onClick=onDismiss){Text("取消")}})
 }

@@ -48,7 +48,7 @@ object CourseVisionRecognizer {
             val store = VisionServiceStore(context)
             val vault = VisionCredentialStore(context)
             val result = runCatching {
-                check(store.currentAndVerified(profile, vault) && !session.cancelled())
+                check(store.currentAndReviewable(profile, vault) && !session.cancelled())
                 val key = vault.read(profile.credentialRef) as? VisionCredentialRead.Ready ?: error("key unavailable")
                 val image = compressImage(context, uri) ?: error("image unavailable")
                 check(!session.cancelled())
@@ -82,7 +82,7 @@ object CourseVisionRecognizer {
                 }
             }.getOrElse { VisionClientResult.Failure("图片、凭据或服务不可用，请检查配置后重试") }
             Handler(Looper.getMainLooper()).post {
-                if (!session.cancelled() && store.currentAndVerified(profile, vault)) {
+                if (!session.cancelled() && store.currentAndReviewable(profile, vault)) {
                     when (result) {
                         is CourseImportBatch -> onSuccess(result)
                         is VisionClientResult.Failure -> onFailure(result.message)
@@ -100,7 +100,7 @@ object CourseVisionRecognizer {
             val store = VisionServiceStore(context)
             val vault = VisionCredentialStore(context)
             val result = runCatching<PreviewResult> {
-                check(store.currentAndVerified(profile, vault) && !session.cancelled())
+                check(store.currentAndReviewable(profile, vault) && !session.cancelled())
                 val key = vault.read(profile.credentialRef) as? VisionCredentialRead.Ready ?: error("key unavailable")
                 val image = compressImage(context, uri) ?: error("image unavailable")
                 when (val response = VisionServiceClient().chat(profile, key.secret, buildStructuredPrompt(), image, session)) {
@@ -114,7 +114,7 @@ object CourseVisionRecognizer {
                 }
             }.getOrElse { PreviewResult.Failure("图片、凭据或服务不可用，请检查配置后重试") }
             Handler(Looper.getMainLooper()).post {
-                if (!session.cancelled() && store.currentAndVerified(profile, vault)) {
+                if (!session.cancelled() && store.currentAndReviewable(profile, vault)) {
                     when (result) {
                         is PreviewResult.Success -> onSuccess(result.value)
                         is PreviewResult.Failure -> onFailure(result.message)

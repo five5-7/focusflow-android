@@ -952,7 +952,7 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
     var selectedVisionService by remember { mutableStateOf<VisionServiceProfile?>(null) }
     var visionSession by remember { mutableStateOf<VisionSession?>(null) }
     var visionReviewPayload by remember { mutableStateOf<VisionRecognitionPreview?>(null) }
-    var verifiedVisionChoices by remember { mutableStateOf<List<VisionServiceProfile>>(emptyList()) }
+    var reviewableVisionChoices by remember { mutableStateOf<List<VisionServiceProfile>>(emptyList()) }
     var visionDefaultId by remember { mutableStateOf<String?>(null) }
     DisposableEffect(Unit) { onDispose { visionSession?.cancel() } }
     val courseScreenshotLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -981,7 +981,7 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
         }
         selectedVisionService = null
     }
-    if (visionServiceChoiceOpen) VisionServiceChoiceDialog(verifiedVisionChoices, visionDefaultId,
+    if (visionServiceChoiceOpen) VisionServiceChoiceDialog(reviewableVisionChoices, visionDefaultId,
         onChoose = { selected -> selectedVisionService = selected; visionServiceChoiceOpen = false; courseScreenshotLauncher.launch(arrayOf("image/*")) },
         onDismiss = { visionServiceChoiceOpen = false })
     visionReviewPayload?.let { payload ->
@@ -998,7 +998,7 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
             }
         )
     }
-    if (visionSession != null) AlertDialog(onDismissRequest = {}, title = { Text("正在识别课表") },
+    if (visionSession != null) AppDialog(onDismissRequest = {}, title = { Text("正在识别课表") },
         text = { Text(courseImportMessage.orEmpty() + "\n取消后本次结果不会写入课程。") },
         confirmButton = { TextButton(onClick = {
             visionSession?.cancel(); visionSession = null; courseImportRunning = false; globalLoading = false
@@ -1946,9 +1946,9 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                             val ready = withContext(Dispatchers.IO) {
                                 val vault = VisionCredentialStore(context); vault.migrateShared()
                                 val profiles = VisionServiceStore(context)
-                                profiles.verifiedProfiles(vault) to (profiles.read() as? VisionConfigurationRead.Ready)?.configuration?.defaultId
+                                profiles.reviewableProfiles(vault) to (profiles.read() as? VisionConfigurationRead.Ready)?.configuration?.defaultId
                             }
-                            verifiedVisionChoices = ready.first; visionDefaultId = ready.second; visionServiceChoiceOpen = true
+                            reviewableVisionChoices = ready.first; visionDefaultId = ready.second; visionServiceChoiceOpen = true
                         }
                     },
                     onImportZju = {

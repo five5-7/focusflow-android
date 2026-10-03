@@ -46,8 +46,17 @@ internal object AppearanceImages {
     fun store(context: Context, name: String, input: InputStream, maxWidth: Int, maxHeight: Int): Boolean {
         val target = fileFor(context, name) ?: return false
         return runCatching {
-            val bytes = input.use { it.readBytes() }
-            if (bytes.size > MAX_STORED_BYTES) return false
+            val bytes = input.use { stream ->
+                val output = java.io.ByteArrayOutputStream()
+                val buffer = ByteArray(8192)
+                while (true) {
+                    val count = stream.read(buffer)
+                    if (count < 0) break
+                    if (output.size().toLong() + count > MAX_STORED_BYTES) return false
+                    output.write(buffer, 0, count)
+                }
+                output.toByteArray()
+            }
             val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
             BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
             if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return false
