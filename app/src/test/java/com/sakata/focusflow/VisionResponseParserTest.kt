@@ -54,6 +54,10 @@ class VisionResponseParserTest {
         assertNull(VisionResponseParser.parse(duplicate))
     }
 
+    @Test fun non_string_candidate_identity_is_rejected() {
+        assertNull(VisionResponseParser.parse(response().replace("\"id\":\"c1\"", "\"id\":123")))
+    }
+
     @Test fun incomplete_candidate_coordinates_remain_parseable_for_review() {
         val parsed = VisionResponseParser.parse(response().replace("\"day\":1", "\"day\":null").replace("\"startPeriod\":1", "\"startPeriod\":null").replace("\"endPeriod\":1", "\"endPeriod\":null"))
         assertNotNull(parsed)

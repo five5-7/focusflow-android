@@ -41,7 +41,8 @@ object VisionReviewApplier {
 
         val reviewed = candidates.map { original ->
             val decision = decisionById[original.id]
-            if (decision == null || original.id in duplicateIds) return@map original
+            if (original.id in duplicateIds) return@map original.copy(state = VisionCandidateState.NEEDS_REVIEW)
+            if (decision == null) return@map original
             when (decision.action) {
                 VisionReviewAction.REJECT -> original.copy(
                     state = VisionCandidateState.REJECTED,
@@ -49,6 +50,11 @@ object VisionReviewApplier {
                 )
                 VisionReviewAction.CONFIRM, VisionReviewAction.EDIT -> {
                     val cell = preview.cells[original.id]
+                    if (decision.action == VisionReviewAction.EDIT &&
+                        (decision.day == null || decision.startPeriod == null || decision.endPeriod == null)) {
+                        warnings += "候选 " + original.id + " 的审核信息不完整，仍需确认"
+                        return@map original.copy(state = VisionCandidateState.NEEDS_REVIEW)
+                    }
                     val edited = original.copy(
                         title = decision.title ?: original.title,
                         day = decision.day ?: cell?.day ?: original.day,
@@ -59,7 +65,7 @@ object VisionReviewApplier {
                     )
                     if (!edited.valid() || edited.day == null || edited.startPeriod == null || edited.endPeriod == null) {
                         warnings += "候选 " + original.id + " 的审核信息不完整，仍需确认"
-                        original
+                        original.copy(state = VisionCandidateState.NEEDS_REVIEW)
                     } else edited.copy(state = VisionCandidateState.CONFIRMED_BY_USER)
                 }
             }

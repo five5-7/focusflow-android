@@ -106,9 +106,25 @@ object VisionGridPipeline {
         if (!geometry.valid() || !point.valid()) return null
         val days = geometry.weekdays.filter { point.x >= it.start && point.x <= it.end }
         val periods = geometry.periods.filter { point.y >= it.start && point.y <= it.end }
-        if (days.size != 1 || periods.isEmpty()) return null
+        if (days.size != 1 || periods.size != 1) return null
         val orderedPeriods = periods.sortedBy { it.index }
         return VisionGridCell(days.single().index, orderedPeriods.first().index, orderedPeriods.last().index)
+    }
+
+    /** Resolve the whole mapped box so a multi-period course is not collapsed to its centre row. */
+    fun locateBox(box: VisionBox, geometry: VisionImageGeometry): VisionGridCell? {
+        if (!geometry.valid() || !box.valid()) return null
+        val epsilon = 1e-8
+        val weekdays = geometry.weekdays.sortedBy { it.start }
+        val periods = geometry.periods.sortedBy { it.start }
+        if (weekdays.zipWithNext().any { (a, b) -> a.end > b.start + epsilon || a.index >= b.index }) return null
+        if (periods.zipWithNext().any { (a, b) -> a.end > b.start + epsilon || b.index != a.index + 1 }) return null
+        val centerX = (box.left + box.right) / 2.0
+        val day = weekdays.filter { centerX >= it.start - epsilon && centerX <= it.end + epsilon }
+        val rows = periods.filter { min(box.bottom, it.end) - max(box.top, it.start) > epsilon }
+        if (day.size != 1 || rows.isEmpty()) return null
+        if (box.top < rows.first().start - epsilon || box.bottom > rows.last().end + epsilon) return null
+        return VisionGridCell(day.single().index, rows.first().index, rows.last().index)
     }
 
     fun preview(
@@ -128,7 +144,13 @@ object VisionGridPipeline {
         val cells = candidates.associate { candidate ->
             val box = boxes[candidate.id]?.corrected
             val center = box?.let { VisionMappedPoint((it.left + it.right) / 2, (it.top + it.bottom) / 2) }
-            candidate.id to center?.let { locate(it, geometry) }
+            val centreCell = center?.let { locate(it, geometry) }
+            val boxCell = box?.let { locateBox(it, geometry) }
+            // Preserve the legacy centre result when the model already supplied complete coordinates;
+            // use the box span when any coordinate is missing and review must infer it.
+            candidate.id to if (candidate.day == null || candidate.startPeriod == null || candidate.endPeriod == null) {
+                boxCell ?: centreCell
+            } else centreCell
         }
         val warnings = buildList {
             if (anchors != null && transform == null) add("人工锚点无效，未应用透视修正")

@@ -998,7 +998,7 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
             }
         )
     }
-    if (visionSession != null) AlertDialog(onDismissRequest = {}, title = { Text("正在识别课表") },
+    if (visionSession != null) AppDialog(onDismissRequest = {}, title = { Text("正在识别课表") },
         text = { Text(courseImportMessage.orEmpty() + "\n取消后本次结果不会写入课程。") },
         confirmButton = { TextButton(onClick = {
             visionSession?.cancel(); visionSession = null; courseImportRunning = false; globalLoading = false

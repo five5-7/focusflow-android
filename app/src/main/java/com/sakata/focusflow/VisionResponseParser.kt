@@ -21,6 +21,7 @@ object VisionResponseParser {
         val fence = Char(96).toString().repeat(3)
         val cleaned = content.trim().removePrefix(fence + "json").removePrefix(fence).removeSuffix(fence).trim()
         if (!cleaned.startsWith("{")) return null
+        require(cleaned.toByteArray(Charsets.UTF_8).size <= VisionLimits.MAX_RESPONSE_BYTES)
         require(VisionJsonSyntax.valid(cleaned))
         val root = JSONObject(cleaned)
         require(root.keys().asSequence().toSet() == setOf("geometry", "candidates"))
@@ -52,8 +53,8 @@ object VisionResponseParser {
                 ).also { require(it.valid()) }
             }
             VisionCandidate(
-                id = objectValue.getString("id"),
-                title = objectValue.getString("title"),
+                id = strictString(objectValue, "id"),
+                title = strictString(objectValue, "title"),
                 day = nullableInt(objectValue, "day"),
                 startPeriod = nullableInt(objectValue, "startPeriod"),
                 endPeriod = nullableInt(objectValue, "endPeriod"),
@@ -69,15 +70,25 @@ object VisionResponseParser {
         VisionStructuredResponse(geometry, candidates)
     }.getOrNull()
 
-    private fun axes(array: JSONArray): List<VisionGridAxis> = (0 until array.length()).map {
+    private fun axes(array: JSONArray): List<VisionGridAxis> {
+        require(array.length() <= 20)
+        return (0 until array.length()).map {
         val value = array.getJSONObject(it)
         require(value.keys().asSequence().toSet() == axisKeys)
         VisionGridAxis(
             index = strictInt(value, "index") ?: error("index"),
             start = number(value, "start") ?: error("start"),
             end = number(value, "end") ?: error("end"),
-            source = value.getString("source")
+            source = strictString(value, "source")
         )
+    }
+
+    }
+
+    private fun strictString(value: JSONObject, key: String): String {
+        val item = value.get(key)
+        require(item is String)
+        return item
     }
 
     private fun strings(array: JSONArray): List<String> = (0 until array.length()).map {
@@ -95,8 +106,10 @@ object VisionResponseParser {
         val array = value.getJSONArray(key)
         return (0 until array.length()).map {
             val item = array.get(it)
-            require(item is Number && item.toDouble() % 1.0 == 0.0)
-            item.toInt()
+            require(item is Number)
+            val number = item.toDouble()
+            require(number.isFinite() && number in 1.0..60.0 && number % 1.0 == 0.0)
+            number.toInt()
         }
     }
 
@@ -110,7 +123,7 @@ object VisionResponseParser {
         val item = value.get(key)
         if (item !is Number) return null
         val double = item.toDouble()
-        return double.takeIf { it.isFinite() && it % 1.0 == 0.0 }?.toInt()
+        return double.takeIf { it.isFinite() && it in Int.MIN_VALUE.toDouble()..Int.MAX_VALUE.toDouble() && it % 1.0 == 0.0 }?.toInt()
     }
 
     private fun nullableNumber(value: JSONObject, key: String): Double? =

@@ -122,6 +122,11 @@ internal fun CampusLifeChoiceDialog(onEnable: () -> Unit, onSkip: () -> Unit) {
 
 /** 覆盖安装后每个版本只展示一次的更新说明；版本名来自 BuildConfig，路线图是唯一详情入口。 */
 internal fun updateHighlightsFor(version: String): List<String> = when {
+    version == "8.3.0-rc.28" -> listOf(
+        "课表审核会保留完整色块的跨节范围，缺少坐标时按网格位置提示需要检查。",
+        "重复任务暂停或停止后会清除残留弹性时间，图片导入会在读取时限制文件大小。",
+        "快速入门正文沿用弹窗卡片材质，不再重复铺页面图片或渐变。"
+    )
     version == "8.3.0-rc.27" -> listOf(
         "快速入门正文现在跟随弹窗卡片材质，不再在内容区重复铺页面图片或渐变。",
         "章节切换保留动画与各章滚动位置；关闭动画时直接切换。"
