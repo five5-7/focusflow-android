@@ -67,7 +67,7 @@ class VisionResponseParserTest {
     @Test
     fun diagnostics_exposes_shape_without_response_values() {
         val summary = VisionResponseDiagnostics.summarize(response())
-        assertTrue(summary.contains("rootKeys=[geometry,candidates]"))
+        assertTrue(summary.contains("rootKeys=[candidates,geometry]"))
         assertTrue(summary.contains("candidates=array:1"))
         assertFalse(summary.contains("数学"))
         assertTrue(summary.contains("sha256="))
