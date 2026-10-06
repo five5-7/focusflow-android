@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$Repo = (Get-Location).Path,
     [string]$Branch = "stage9/regression-freeze",
     [string]$Apk = "",
@@ -14,21 +14,35 @@ param(
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 function Stop-Test([string]$Message) { Write-Error $Message; exit 2 }
-function Run-Git([string[]]$Args) {
-    $out = & git -C $script:repo @Args 2>&1
-    if ($LASTEXITCODE -ne 0) { Stop-Test ("git " + ($Args -join " ") + " 失败：" + [Environment]::NewLine + ($out -join [Environment]::NewLine)) }
+function Run-Git([string[]]$CommandArgs) {
+    $previousEap = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = "Continue"
+        $out = & git -C $script:repo @CommandArgs 2>&1
+        $exitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $previousEap
+    }
+    if ($exitCode -ne 0) { Stop-Test ("git " + ($CommandArgs -join " ") + " 失败：" + [Environment]::NewLine + ($out -join [Environment]::NewLine)) }
     return @($out)
 }
-function Invoke-Adb([string[]]$Args) {
-    $all = @($script:adbPrefix) + @($Args)
-    $out = & $script:adbPath @all 2>&1
-    if ($LASTEXITCODE -ne 0) { Stop-Test ("adb " + ($all -join " ") + " 失败：" + [Environment]::NewLine + ($out -join [Environment]::NewLine)) }
+function Invoke-Adb([string[]]$CommandArgs) {
+    $all = @($script:adbPrefix) + @($CommandArgs)
+    $previousEap = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = "Continue"
+        $out = & $script:adbPath @all 2>&1
+        $exitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $previousEap
+    }
+    if ($exitCode -ne 0) { Stop-Test ("adb " + ($all -join " ") + " 失败：" + [Environment]::NewLine + ($out -join [Environment]::NewLine)) }
     return @($out)
 }
 function Save-Evidence([string]$Name, [object]$Value) {
     $path = Join-Path $script:evidenceDir $Name
     if ($Value -is [byte[]]) { [IO.File]::WriteAllBytes($path, $Value) }
-    else { [IO.File]::WriteAllText($path, (($Value | Out-String).Trim() + [Environment]::NewLine), [Text.Encoding]::UTF8) }
+    else { [IO.File]::WriteAllText($path, (($Value | Out-String).Trim() + [Environment]::NewLine), [Text.UTF8Encoding]::new($false)) }
 }
 function Need-File([string]$Path, [string]$Description) {
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { Stop-Test ("缺少" + $Description + "：" + $Path) }
@@ -80,8 +94,16 @@ Save-Evidence "static-version.txt" @("versionName=$($report.versionName)","versi
 # C. 可选聚焦单测；默认关闭，快速批次不等待 Gradle。
 if ($RunGradle) {
     $log = Join-Path $script:evidenceDir "gradle-test.log"
-    & (Join-Path $script:repo "gradlew.bat") --no-daemon :app:testDebugUnitTest --rerun-tasks *> $log
-    if ($LASTEXITCODE -ne 0) { Stop-Test ("Debug 聚焦单测失败，详见 " + $log) }
+    $previousEap = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = "Continue"
+        $gradleOutput = & (Join-Path $script:repo "gradlew.bat") --no-daemon :app:testDebugUnitTest --rerun-tasks 2>&1
+        $gradleExitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $previousEap
+    }
+    [IO.File]::WriteAllText($log, (($gradleOutput | Out-String).Trim() + [Environment]::NewLine), [Text.UTF8Encoding]::new($false))
+    if ($gradleExitCode -ne 0) { Stop-Test ("Debug 聚焦单测失败，详见 " + $log) }
 }
 
 # D. adb 设备和稳定签名 APK。
@@ -104,14 +126,16 @@ $report.manufacturer = (Invoke-Adb @("shell","getprop","ro.product.manufacturer"
 $report.model = (Invoke-Adb @("shell","getprop","ro.product.model")) -join ""
 $report.android = (Invoke-Adb @("shell","getprop","ro.build.version.release")) -join ""
 Save-Evidence "adb-devices.txt" $devices
+$deviceSize = (Invoke-Adb @("shell","wm","size")) -join " "
+$deviceDensity = (Invoke-Adb @("shell","wm","density")) -join " "
 Save-Evidence "device-properties.txt" @(
     "serial=$Serial"
     "manufacturer=$($report.manufacturer)"
     "model=$($report.model)"
     "android=$($report.android)"
     "fingerprint=$((Invoke-Adb @("shell","getprop","ro.build.fingerprint")) -join "")"
-    "size=$((Invoke-Adb @("shell","wm","size")) -join " ")"
-    "density=$((Invoke-Adb @("shell","wm","density")) -join " ")"
+    "size=$deviceSize"
+    "density=$deviceDensity"
 )
 
 $apkPath = $Apk
@@ -130,8 +154,20 @@ $bt = Join-Path $env:LOCALAPPDATA "Android\Sdk\build-tools"
 $signer = Get-ChildItem $bt -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -in @("apksigner.bat","apksigner") } | Sort-Object FullName | Select-Object -Last 1
 if (-not $signer) { Stop-Test "找不到 apksigner，拒绝把 APK 当成稳定包" }
 $signLog = Join-Path $script:evidenceDir "apk-signing.txt"
-& $signer.FullName verify --verbose --print-certs $apkPath *> $signLog
-if ($LASTEXITCODE -ne 0) { Stop-Test "APK 签名校验失败" }
+$previousEap = $ErrorActionPreference
+try {
+    $ErrorActionPreference = "Continue"
+    $signOutput = & $signer.FullName verify --verbose --print-certs $apkPath 2>&1
+    $signExitCode = $LASTEXITCODE
+} finally {
+    $ErrorActionPreference = $previousEap
+}
+[IO.File]::WriteAllText(
+    $signLog,
+    (($signOutput | Out-String).Trim() + [Environment]::NewLine),
+    [Text.UTF8Encoding]::new($false)
+)
+if ($signExitCode -ne 0) { Stop-Test "APK 签名校验失败" }
 if ((Get-Content $signLog -Raw -Encoding UTF8) -notmatch "650a17f2bbc6d3cf7ac436e3ce7d4cbc1381cfd29052d6a8e06e70361ef48e8e") {
     Stop-Test "APK 证书不是 FocusFlow 稳定证书，停止安装"
 }

@@ -135,3 +135,52 @@ object VisionResponseParser {
         return item.toDouble().takeIf { it.isFinite() }
     }
 }
+
+
+/**
+ * 失败诊断只保留形状信息，不保留模型原文、课程名、地点、key 或图片内容。
+ * 用于真机把“模型没有遵守 schema”和“客户端解析形状不匹配”区分开。
+ */
+internal object VisionResponseDiagnostics {
+    fun summarize(content: String): String {
+        val bytes = content.toByteArray(Charsets.UTF_8)
+        val digest = java.security.MessageDigest.getInstance("SHA-256")
+            .digest(bytes)
+            .joinToString("") { "%02x".format(it.toInt() and 0xff) }
+            .take(12)
+        val cleaned = unwrapFence(content)
+        val syntax = VisionJsonSyntax.valid(cleaned)
+        val root = runCatching { JSONObject(cleaned) }.getOrNull()
+        val shape = when {
+            cleaned.isBlank() -> "empty"
+            !syntax -> "invalid-json"
+            root == null -> "not-object"
+            else -> {
+                val keys = safeKeys(root.keys().asSequence().toList())
+                val geometry = root.optJSONObject("geometry")
+                val geometryKeys = geometry?.let { safeKeys(it.keys().asSequence().toList()) } ?: "-"
+                val candidates = when (val value = root.opt("candidates")) {
+                    is JSONArray -> "array:${value.length()}"
+                    is JSONObject -> "object"
+                    JSONObject.NULL, null -> "missing"
+                    else -> value.javaClass.simpleName.lowercase()
+                }
+                "object rootKeys=[$keys] geometryKeys=[$geometryKeys] candidates=$candidates"
+            }
+        }
+        return "bytes=${bytes.size} sha256=$digest syntax=$syntax $shape"
+    }
+
+    private fun unwrapFence(content: String): String {
+        val trimmed = content.trim()
+        if (!trimmed.startsWith("```")) return trimmed
+        val lines = trimmed.lines()
+        if (lines.size < 2) return trimmed
+        val end = if (lines.last().trim() == "```") lines.lastIndex else lines.size
+        return lines.subList(1, end).joinToString("\n").trim()
+    }
+
+    private fun safeKeys(keys: List<String>): String = keys.take(12).joinToString(",") { key ->
+        if (key.length <= 40 && key.all { it.isLetterOrDigit() || it in "_.-" }) key else "[key]"
+    }
+}

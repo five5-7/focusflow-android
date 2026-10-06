@@ -107,7 +107,7 @@ object CourseVisionRecognizer {
                     is VisionClientResult.Failure -> PreviewResult.Failure(response.message)
                     is VisionClientResult.Text -> {
                         val parsed = VisionResponseParser.parse(response.value)
-                            ?: return@runCatching PreviewResult.Failure("模型没有返回严格的结构化视觉结果")
+                            ?: return@runCatching PreviewResult.Failure("模型没有返回严格的结构化视觉结果（${VisionResponseDiagnostics.summarize(response.value)}）")
                         val preview = VisionGridPipeline.preview(parsed.geometry, parsed.candidates, null)
                         PreviewResult.Success(VisionRecognitionPreview(preview, parsed.candidates, preview.warnings))
                     }

@@ -63,4 +63,20 @@ class VisionResponseParserTest {
         assertNotNull(parsed)
         assertNull(parsed!!.candidates.single().day)
     }
+
+    @Test
+    fun diagnostics_exposes_shape_without_response_values() {
+        val summary = VisionResponseDiagnostics.summarize(response())
+        assertTrue(summary.contains("rootKeys=[geometry,candidates]"))
+        assertTrue(summary.contains("candidates=array:1"))
+        assertFalse(summary.contains("数学"))
+        assertTrue(summary.contains("sha256="))
+    }
+
+    @Test
+    fun diagnostics_redacts_invalid_response_body() {
+        val summary = VisionResponseDiagnostics.summarize("not-json-with-secret-course-name")
+        assertTrue(summary.contains("syntax=false"))
+        assertFalse(summary.contains("secret-course-name"))
+    }
 }
