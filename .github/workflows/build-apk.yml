@@ -220,8 +220,9 @@ jobs:
           $errors = $null
           [System.Management.Automation.Language.Parser]::ParseFile($path, [ref]$tokens, [ref]$errors) | Out-Null
           if ($errors.Count -gt 0) { $errors | Format-List | Out-Host; exit 1 }
-          $text = [System.IO.File]::ReadAllText((Resolve-Path $path))
-          if ([int]$text[0] -ne 0xFEFF) { throw "acceptance script must be UTF-8 BOM for Windows PowerShell 5.1" }
+          $bytes = [System.IO.File]::ReadAllBytes((Resolve-Path $path))
+          if ($bytes.Length -lt 3 -or $bytes[0] -ne 0xEF -or $bytes[1] -ne 0xBB -or $bytes[2] -ne 0xBF) { throw "acceptance script must be UTF-8 BOM for Windows PowerShell 5.1" }
+          $text = [Text.Encoding]::UTF8.GetString($bytes)
           if ($text -match '\$Args\b') { throw "do not use the PowerShell automatic variable name Args as a parameter" }
           if ($text -match '\*>') { throw "native evidence must be written explicitly as UTF-8" }
       - name: Upload dsh acceptance materials

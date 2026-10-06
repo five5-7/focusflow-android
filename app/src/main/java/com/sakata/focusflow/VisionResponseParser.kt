@@ -156,9 +156,9 @@ internal object VisionResponseDiagnostics {
             !syntax -> "invalid-json"
             root == null -> "not-object"
             else -> {
-                val keys = safeKeys(root.keys().asSequence().toList())
+                val keys = safeKeys(root.keys().asSequence().toList().sorted())
                 val geometry = root.optJSONObject("geometry")
-                val geometryKeys = geometry?.let { safeKeys(it.keys().asSequence().toList()) } ?: "-"
+                val geometryKeys = geometry?.let { safeKeys(it.keys().asSequence().toList().sorted()) } ?: "-"
                 val candidates = when (val value = root.opt("candidates")) {
                     is JSONArray -> "array:${value.length()}"
                     is JSONObject -> "object"
