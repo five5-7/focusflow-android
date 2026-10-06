@@ -128,12 +128,13 @@ $report.android = (Invoke-Adb @("shell","getprop","ro.build.version.release")) -
 Save-Evidence "adb-devices.txt" $devices
 $deviceSize = (Invoke-Adb @("shell","wm","size")) -join " "
 $deviceDensity = (Invoke-Adb @("shell","wm","density")) -join " "
+$deviceFingerprint = (Invoke-Adb @("shell","getprop","ro.build.fingerprint")) -join ""
 Save-Evidence "device-properties.txt" @(
     "serial=$Serial"
     "manufacturer=$($report.manufacturer)"
     "model=$($report.model)"
     "android=$($report.android)"
-    "fingerprint=$((Invoke-Adb @("shell","getprop","ro.build.fingerprint")) -join "")"
+    "fingerprint=$deviceFingerprint"
     "size=$deviceSize"
     "density=$deviceDensity"
 )
