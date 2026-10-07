@@ -131,7 +131,7 @@ object CourseVisionRecognizer {
 
     internal fun buildStructuredPrompt(imageWidth: Int = 1000, imageHeight: Int = 800): String = """
         你是课表网格识别助手，只识别课表网格内的课程色块，忽略教师名单、考试、按钮和网格外说明。
-        严格只返回一个 JSON 对象，首字符是{、末字符是}；不要思考过程、代码围栏、解释或额外文字。
+        严格只返回一个 JSON 对象，首字符必须是对象起始符号、末字符必须是对象结束符号；不要思考过程、代码围栏、解释或额外文字。
         字符串必须使用双引号；对象和数组最后一项后不得加逗号；输出前检查括号完整并保证 JSON 语法有效。
         图片已旋转并缩放，上传图宽 $imageWidth 像素、高 $imageHeight 像素。
         使用以下完整格式；示例中的课程名、星期、节次和坐标只是格式，不是识别答案：
