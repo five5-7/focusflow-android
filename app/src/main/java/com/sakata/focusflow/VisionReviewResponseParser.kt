@@ -49,7 +49,8 @@ internal object VisionReviewResponseParser {
             val warnings = mutableListOf<String>()
             val geometryRaw = raw.opt("geometry")
             val geometry = onlyKeys(geometryRaw as? JSONObject ?: JSONObject(), geometryKeys, warnings)
-            var manualGeometry = geometryRaw != null && geometryRaw != JSONObject.NULL && geometryRaw !is JSONObject
+            var manualGeometry = geometryRaw == null || geometryRaw == JSONObject.NULL ||
+                geometryRaw !is JSONObject
             if (geometryRaw == null || geometryRaw == JSONObject.NULL) {
                 warnings += "未返回网格信息，需人工填写星期和节次"
             }
@@ -269,7 +270,12 @@ internal object VisionReviewResponseParser {
         var trimmed = content.trim().removePrefix("\uFEFF").trim()
         trimmed = stripReasoning(trimmed)
         val fenceToken = "\u0060\u0060\u0060"
-        val fenceStart = trimmed.indexOf(fenceToken)
+        val firstObjectInText = trimmed.indexOf('{')
+        val rawFenceStart = trimmed.indexOf(fenceToken)
+        // A fence token inside a quoted course title/note is content, not a markdown wrapper.
+        val fenceStart = rawFenceStart.takeIf {
+            it >= 0 && (firstObjectInText < 0 || it < firstObjectInText)
+        } ?: -1
         val body = if (fenceStart >= 0) {
             val lineEnd = trimmed.indexOf('\n', fenceStart)
             require(lineEnd >= 0)
@@ -298,6 +304,7 @@ internal object VisionReviewResponseParser {
 
         val objectCandidates = body.indices.asSequence()
             .filter { body[it] == '{' }
+            .filter { objectStart -> !hasOpenContainerBefore(body, objectStart) }
             .mapNotNull { objectStart ->
                 val objectEnd = findObjectEnd(body, objectStart)
                 if (objectEnd <= objectStart) null
@@ -405,6 +412,30 @@ internal object VisionReviewResponseParser {
             }
         }
         return output.toString().trim()
+    }
+
+    private fun hasOpenContainerBefore(raw: String, endExclusive: Int): Boolean {
+        var braces = 0
+        var brackets = 0
+        var quoted = false
+        var escaped = false
+        for (index in 0 until endExclusive) {
+            val char = raw[index]
+            if (quoted) {
+                if (escaped) escaped = false
+                else if (char == '\\') escaped = true
+                else if (char == '"') quoted = false
+                continue
+            }
+            when (char) {
+                '"' -> quoted = true
+                '{' -> braces++
+                '}' -> if (braces > 0) braces--
+                '[' -> brackets++
+                ']' -> if (brackets > 0) brackets--
+            }
+        }
+        return braces > 0 || brackets > 0
     }
 
     private fun findObjectEnd(raw: String, start: Int): Int {
