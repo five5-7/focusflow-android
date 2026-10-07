@@ -17,6 +17,28 @@ class VisionReviewResponseParserTest {
     """.trimIndent())
 
     private fun parse(root: JSONObject) = VisionReviewResponseParser.parse(root.toString(), 1200, 900)
+    private fun parse(raw: String) = VisionReviewResponseParser.parse(raw, 1200, 900)
+
+    @Test
+    fun prose_and_markdown_wrappers_with_trailing_commas_are_normalized() {
+        val raw = response().toString().replace("}]}", "},]}")
+        val wrapped = "Here is the JSON result:\n```json\n" + raw + "\n```\nDone."
+        val payload = parse(wrapped)
+        assertNotNull(payload)
+    }
+
+    @Test
+    fun missing_or_nonmanual_axis_source_is_reviewable_but_manual_is_rejected() {
+        val missing = response()
+        missing.getJSONObject("geometry").getJSONArray("weekdays").getJSONObject(0).remove("source")
+        assertNotNull(parse(missing))
+        val renamed = response()
+        renamed.getJSONObject("geometry").getJSONArray("weekdays").getJSONObject(0).put("source", "vision")
+        assertNotNull(parse(renamed))
+        val manual = response()
+        manual.getJSONObject("geometry").getJSONArray("weekdays").getJSONObject(0).put("source", "manual")
+        assertNull(parse(manual))
+    }
 
     @Test fun complete_response_preserves_multi_period_grid_and_actual_image_size() {
         val payload = parse(response())!!
@@ -83,10 +105,38 @@ class VisionReviewResponseParserTest {
         assertTrue(payload.warnings.isNotEmpty())
     }
 
-    @Test fun valid_json_fence_is_accepted_but_prose_is_rejected() {
+    @Test fun valid_json_fence_and_prose_wrappers_are_accepted() {
         val raw = response().toString()
         assertNotNull(VisionReviewResponseParser.parse("```json\n" + raw + "\n```", 1200, 900))
-        assertNull(VisionReviewResponseParser.parse("Here is the result: " + raw, 1200, 900))
+        assertNotNull(VisionReviewResponseParser.parse("Here is the result: " + raw + "\nDone.", 1200, 900))
+    }
+
+    @Test fun bom_and_trailing_commas_preserve_review_content() {
+        val raw = response().toString().replace("}]}", "},]}").dropLast(1) + ",}"
+        val payload = parse("\uFEFF" + raw)!!
+        assertEquals("数学", payload.candidates.single().title)
+        assertEquals(VisionGridCell(2, 3, 4), payload.preview.cells["a"])
+        assertEquals(VisionCandidateState.NEEDS_REVIEW, payload.candidates.single().state)
+    }
+
+    @Test fun braces_and_comma_like_text_inside_strings_are_preserved() {
+        val root = response()
+        val title = "数学 }, ]"
+        val note = "a \"quoted\" value, } with \u0060\u0060\u0060 text"
+        root.getJSONArray("candidates").getJSONObject(0).put("title", title).put("note", note)
+        val payload = parse("Result: " + root.toString() + "\nDone.")!!
+        assertEquals(title, payload.candidates.single().title)
+        assertEquals(note, payload.candidates.single().note)
+    }
+
+    @Test fun malformed_outer_objects_empty_entries_and_multiple_results_are_rejected() {
+        val raw = response().toString()
+        assertNull(parse(raw + "\n" + raw))
+        assertNull(parse("Result: [" + raw + "]"))
+        assertNull(parse("{\"candidates\":[,]}"))
+        assertNull(parse("{\"candidates\":[],,}"))
+        assertNull(parse("{\"outer\":" + raw))
+        assertNull(parse("{\"candidates\":[],\"candidates\":[],\"nested\":" + raw + "}"))
     }
 
     @Test fun invalid_json_duplicate_keys_and_legacy_arrays_remain_rejected() {

@@ -48,8 +48,22 @@ internal object VisionReviewResponseParser {
             val axes = geometry.getJSONArray(key)
             require(axes.length() <= 20)
             for (i in 0 until axes.length()) {
-                // Never accept model claims that a user supplied manual anchors.
-                require(axes.getJSONObject(i).get("source") == "detected")
+                val axis = axes.getJSONObject(i)
+                // A model may omit or rename provenance, but it can never claim a manual anchor.
+                when (val source = axis.opt("source")) {
+                    null, JSONObject.NULL -> {
+                        axis.put("source", "detected")
+                        warnings += "网格轴未标注来源，已按模型检测处理"
+                    }
+                    is String -> when {
+                        source == "manual" -> error("model cannot supply manual anchors")
+                        source != "detected" -> {
+                            axis.put("source", "detected")
+                            warnings += "网格轴来源已规范为模型检测"
+                        }
+                    }
+                    else -> error("invalid axis source")
+                }
             }
         }
         root.put("geometry", geometry)
@@ -97,11 +111,88 @@ internal object VisionReviewResponseParser {
     }.getOrNull()
 
     private fun unwrapFence(content: String): String {
-        val trimmed = content.trim()
-        val lines = trimmed.lines()
-        return if (lines.size >= 3 && lines.first().trim() in setOf("```", "```json", "```JSON") &&
-            lines.last().trim() == "```") {
-            lines.subList(1, lines.lastIndex).joinToString("\n").trim()
+        val trimmed = content.trim().removePrefix("\uFEFF").trim()
+        val fenceStart = trimmed.indexOf("```")
+        val firstStructure = trimmed.indexOfFirst { it == '{' || it == '[' }
+        val body = if (fenceStart >= 0 && (firstStructure < 0 || fenceStart < firstStructure)) {
+            require(trimmed.substring(0, fenceStart).none { it == '{' || it == '[' })
+            val lineEnd = trimmed.indexOf('\n', fenceStart)
+            require(lineEnd >= 0)
+            val fenceEnd = trimmed.lastIndexOf("```")
+            require(fenceEnd > lineEnd)
+            val suffix = trimmed.substring(fenceEnd + 3)
+            require(!suffix.contains("```") && suffix.none { it == '{' || it == '[' })
+            trimmed.substring(lineEnd + 1, fenceEnd).trim().removePrefix("\uFEFF").trim()
         } else trimmed
+        // Extract only the outer object, never salvage an inner object from broken JSON.
+        val start = body.indexOfFirst { it == '{' || it == '[' }
+        require(start >= 0 && body[start] == '{')
+        val end = findObjectEnd(body, start)
+        require(end > start)
+        require(body.substring(end + 1).none { it == '{' || it == '}' || it == '[' || it == ']' })
+        return repairJson(body.substring(start, end + 1))
+    }
+
+    private fun repairJson(raw: String): String {
+        val output = StringBuilder(raw.length)
+        var quoted = false
+        var escaped = false
+        var index = 0
+        while (index < raw.length) {
+            val char = raw[index]
+            if (quoted) {
+                output.append(char)
+                if (escaped) escaped = false
+                else if (char == '\\') escaped = true
+                else if (char == '"') quoted = false
+                index++
+                continue
+            }
+            if (char == '"') {
+                quoted = true
+                output.append(char)
+                index++
+                continue
+            }
+            if (char == ',') {
+                var next = index + 1
+                while (next < raw.length && raw[next].isWhitespace()) next++
+                var previous = index - 1
+                while (previous >= 0 && raw[previous].isWhitespace()) previous--
+                if (previous >= 0 && raw[previous] !in "{[:," &&
+                    next < raw.length && (raw[next] == '}' || raw[next] == ']')
+                ) {
+                    index++
+                    continue
+                }
+            }
+            output.append(char)
+            index++
+        }
+        return output.toString().trim()
+    }
+
+    private fun findObjectEnd(raw: String, start: Int): Int {
+        var depth = 0
+        var quoted = false
+        var escaped = false
+        for (index in start until raw.length) {
+            val char = raw[index]
+            if (quoted) {
+                if (escaped) escaped = false
+                else if (char == '\\') escaped = true
+                else if (char == '"') quoted = false
+                continue
+            }
+            when (char) {
+                '"' -> quoted = true
+                '{' -> depth++
+                '}' -> {
+                    depth--
+                    if (depth == 0) return index
+                }
+            }
+        }
+        return -1
     }
 }

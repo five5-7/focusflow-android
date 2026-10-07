@@ -21,7 +21,7 @@ object RoadmapData {
     /** 已实现版本演进（1.0 → 当前版本），每版本浓缩 1–3 条，与 CHANGELOG.md 对应。 */
     val evolution: List<RoadmapVersion> = listOf(
         RoadmapVersion("8.3.0", listOf(
-            RoadmapEntry("8.3.0-rc.29", "阶段9：真机截图识别修复", "修复视觉响应可选字段缺失时整批拒绝；缺少空间依据的候选进入人工审核，不自动补星期或节次。沿用 rc.28 的脚本兼容性、脱敏诊断、视觉弹窗与外观修复；versionCode 563，当前目标为已升级的 OPPO / ColorOS 17 / Android 17 测试机，待同机复测，Room激活关闭，未发布。", RoadmapStatus.CANDIDATE),
+            RoadmapEntry("8.3.0-rc.30", "阶段9：真机截图识别格式兼容", "兼容视觉模型 JSON 外围解释、代码围栏和尾逗号；缺失空间依据仍进入人工审核，不自动补星期或节次。沿用 rc.29 的可选字段审核修复；versionCode 564，当前目标为已升级的 OPPO / ColorOS 17 / Android 17 测试机，待同机复测，Room激活关闭，未发布。", RoadmapStatus.CANDIDATE),
             RoadmapEntry("8.3.0-rc.27", "阶段9：快速入门弹窗材质修复", "章节内容不再重复铺页面图片或渐变，沿用统一弹窗材质，保留动画与各章滚动位置。versionCode 561，已由rc.28替代，工程门禁与真机验收未完成，Room激活关闭，未发布。", RoadmapStatus.CANDIDATE),
             RoadmapEntry("8.3.0-rc.26", "阶段8 A：可配置视觉服务", "视觉服务配置、加密共享key、能力测试、明确上传目标和可取消识别。新网格管线待后续批次，阶段8真机与在线服务未验证，Room激活关闭，未发布。", RoadmapStatus.CANDIDATE),
             RoadmapEntry("8.3.0-rc.25", "阶段7：持久恢复与整批撤回", "30天回收站、重复规则与计划所选任务成组恢复、课程设置恢复、批量待办和课程合并／拆分持久撤回。真机按用户指示跳过，Room激活关闭，未发布。", RoadmapStatus.CANDIDATE),

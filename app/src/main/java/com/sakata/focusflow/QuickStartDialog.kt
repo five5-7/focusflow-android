@@ -122,6 +122,10 @@ internal fun CampusLifeChoiceDialog(onEnable: () -> Unit, onSkip: () -> Unit) {
 
 /** 覆盖安装后每个版本只展示一次的更新说明；版本名来自 BuildConfig，路线图是唯一详情入口。 */
 internal fun updateHighlightsFor(version: String): List<String> = when {
+    version == "8.3.0-rc.30" -> listOf(
+        "课表识别兼容模型返回的解释文字、代码围栏和尾逗号，减少格式问题造成的审核阻断。",
+        "缺少信息的课程仍需逐条核对；坐标不会自动补齐，未确认内容不会写入课程。"
+    )
     version == "8.3.0-rc.29" -> listOf(
         "课表截图识别遇到缺少地点、周次或坐标时，会保留候选进入人工审核，不会擅自补星期或节次。",
         "识别提示会明确告诉模型课表网格格式；审核页仍可逐条确认、编辑或拒绝，未确认内容不会写入课程。",
