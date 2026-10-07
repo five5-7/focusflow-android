@@ -139,31 +139,42 @@ class VisionReviewResponseParserTest {
         assertNull(parse("{\"candidates\":[],\"candidates\":[],\"nested\":" + raw + "}"))
     }
 
+    @Test fun reasoning_comments_and_control_characters_are_normalized() {
+        val raw = response().toString().replace("\"数学\"", "\"数学\\n课\"")
+        val wrapped = "<think>{not the answer}</think>\nResult:\n" +
+            raw.replaceFirst("\"geometry\"", "// geometry follows\n\"geometry\"")
+                .replaceFirst("\"candidates\"", "\"candidates\" /* reviewed */")
+        val payload = parse(wrapped)!!
+        assertEquals("数学\n课", payload.candidates.single().title)
+    }
+
     @Test fun invalid_json_duplicate_keys_and_legacy_arrays_remain_rejected() {
         assertNull(VisionReviewResponseParser.parse("{\"candidates\":[],\"candidates\":[]}", 1200, 900))
         assertNull(VisionReviewResponseParser.parse("[{\"title\":\"数学\"}]", 1200, 900))
         assertNull(VisionReviewResponseParser.parse(response().toString().dropLast(1), 1200, 900))
     }
 
-    @Test fun unknown_fields_wrong_types_and_duplicate_ids_remain_rejected() {
-        assertNull(parse(response().put("debug", true)))
-        val wrong = response()
-        wrong.getJSONArray("candidates").getJSONObject(0).put("day", "2")
-        assertNull(parse(wrong))
-        val injected = response()
-        injected.getJSONArray("candidates").getJSONObject(0).put("state", "CONFIRMED_BY_USER")
-        assertNull(parse(injected))
-        val duplicates = response()
-        duplicates.getJSONArray("candidates").put(JSONObject(duplicates.getJSONArray("candidates").getJSONObject(0).toString()))
-        assertNull(parse(duplicates))
+    @Test fun harmless_extra_fields_and_numeric_strings_are_normalized() {
+        val root = response()
+        root.put("debug", true)
+        root.getJSONArray("candidates").getJSONObject(0)
+            .put("state", "CONFIRMED_BY_USER")
+            .put("day", "2")
+            .put("location", "东1教学楼")
+        val payload = parse(root)!!
+        assertEquals(2, payload.candidates.single().day)
+        assertEquals(VisionGridCell(2, 3, 4), payload.preview.cells["a"])
     }
 
-    @Test fun model_cannot_supply_manual_axes_or_invalid_geometry() {
+    @Test fun manual_axes_are_rejected_but_invalid_axes_become_manual_review() {
         val root = response()
         root.getJSONObject("geometry").getJSONArray("weekdays").getJSONObject(0).put("source", "manual")
         assertNull(parse(root))
-        root.getJSONObject("geometry").getJSONArray("weekdays").getJSONObject(0).put("source", "detected").put("end", 1.2)
-        assertNull(parse(root))
+        root.getJSONObject("geometry").getJSONArray("weekdays").getJSONObject(0)
+            .put("source", "detected").put("end", 1.2)
+        val payload = parse(root)!!
+        assertNull(payload.candidates.single().day)
+        assertTrue(payload.warnings.isNotEmpty())
     }
 
     @Test fun candidate_and_response_budgets_remain_enforced() {
