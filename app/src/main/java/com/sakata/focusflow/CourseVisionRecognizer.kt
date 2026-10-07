@@ -106,13 +106,8 @@ object CourseVisionRecognizer {
                 when (val response = VisionServiceClient().chat(profile, key.secret, buildStructuredPrompt(image.width, image.height), image.bytes, session)) {
                     is VisionClientResult.Failure -> PreviewResult.Failure(response.message)
                     is VisionClientResult.Text -> {
-                        val outcome = VisionReviewResponseParser.parseDetailed(response.value, image.width, image.height)
-                        val parsed = when (outcome) {
-                            is VisionReviewParseResult.Success -> outcome.value
-                            is VisionReviewParseResult.Failure -> return@runCatching PreviewResult.Failure(
-                                "模型结果无法安全解析：${outcome.stage.label}（${VisionResponseDiagnostics.summarize(response.value)} stage=${outcome.stage.name.lowercase()}）"
-                            )
-                        }
+                        val parsed = VisionReviewResponseParser.parse(response.value, image.width, image.height)
+                            ?: return@runCatching PreviewResult.Failure("模型结果无法安全解析，请重试或更换模型（${VisionResponseDiagnostics.summarize(response.value)}）")
                         if (parsed.candidates.isEmpty()) PreviewResult.Failure("没有识别到课程，请选择能看清课程色块和星期节次的图片")
                         else PreviewResult.Success(parsed)
                     }

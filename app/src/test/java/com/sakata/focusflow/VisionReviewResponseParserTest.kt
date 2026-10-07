@@ -139,6 +139,15 @@ class VisionReviewResponseParserTest {
         assertNull(parse("{\"candidates\":[],\"candidates\":[],\"nested\":" + raw + "}"))
     }
 
+    @Test fun analysis_wrappers_and_trailing_brackets_do_not_trigger_format_failure() {
+        val raw = response().toString()
+        val wrapped = "<analysis>checking the timetable</analysis>\\n" +
+            "Result: " + raw + "\\nThe JSON above is the complete result.]"
+        val payload = parse(wrapped)
+        assertNotNull(payload)
+        assertEquals("数学", payload!!.candidates.single().title)
+    }
+
     @Test fun reasoning_comments_and_control_characters_are_normalized() {
         val raw = response().toString().replace("\"数学\"", "\"数学\\n课\"")
         val wrapped = "<think>{not the answer}</think>\nResult:\n" +
@@ -148,9 +157,15 @@ class VisionReviewResponseParserTest {
         assertEquals("数学\n课", payload.candidates.single().title)
     }
 
-    @Test fun invalid_json_duplicate_keys_and_legacy_arrays_remain_rejected() {
+    @Test fun duplicate_keys_and_truncated_objects_remain_rejected_but_candidate_arrays_are_reviewable() {
         assertNull(VisionReviewResponseParser.parse("{\"candidates\":[],\"candidates\":[]}", 1200, 900))
-        assertNull(VisionReviewResponseParser.parse("[{\"title\":\"数学\"}]", 1200, 900))
+        val payload = VisionReviewResponseParser.parse(
+            "Explanation before result:\n[{\"title\":\"数学\",\"day\":2,\"startPeriod\":3,\"endPeriod\":4}]\nDone.",
+            1200, 900
+        )
+        assertNotNull(payload)
+        assertEquals("数学", payload!!.candidates.single().title)
+        assertNull(payload.candidates.single().day)
         assertNull(VisionReviewResponseParser.parse(response().toString().dropLast(1), 1200, 900))
     }
 

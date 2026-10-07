@@ -270,34 +270,69 @@ internal object VisionReviewResponseParser {
         trimmed = stripReasoning(trimmed)
         val fenceToken = "\u0060\u0060\u0060"
         val fenceStart = trimmed.indexOf(fenceToken)
-        val firstStructure = trimmed.indexOfFirst { it == '{' || it == '[' }
-        val body = if (fenceStart >= 0 && (firstStructure < 0 || fenceStart < firstStructure)) {
-            require(trimmed.substring(0, fenceStart).none { it == '{' || it == '[' })
-            val lineEnd = trimmed.indexOf('\n', fenceStart)
+        val body = if (fenceStart >= 0) {
+            val lineEnd = trimmed.indexOf('\\n', fenceStart)
             require(lineEnd >= 0)
             val fenceEnd = trimmed.lastIndexOf(fenceToken)
             require(fenceEnd > lineEnd)
-            val suffix = trimmed.substring(fenceEnd + fenceToken.length)
-            require(!suffix.contains(fenceToken) && suffix.none { it == '{' || it == '[' })
             trimmed.substring(lineEnd + 1, fenceEnd).trim().removePrefix("\uFEFF").trim()
         } else trimmed
-        val start = body.indexOf('{')
-        require(start >= 0)
-        val end = findObjectEnd(body, start)
-        require(end > start)
-        require(body.substring(end + 1).none { it == '{' || it == '}' || it == '[' || it == ']' })
-        return repairJson(body.substring(start, end + 1))
+
+        val firstObject = body.indexOf('{')
+        val firstArray = body.indexOf('[')
+        if (firstArray >= 0 && (firstObject < 0 || firstArray < firstObject)) {
+            val arrayEnd = findArrayEnd(body, firstArray)
+            require(arrayEnd > firstArray)
+            val array = repairJson(body.substring(firstArray, arrayEnd + 1))
+            require(VisionJsonSyntax.valid(array))
+            val values = JSONArray(array)
+            require(values.length() <= VisionLimits.MAX_CANDIDATES)
+            // An array of complete response objects is ambiguous; candidate arrays are safe because
+            // they still enter the normal manual-review path.
+            require((0 until values.length()).none { index ->
+                val value = values.opt(index)
+                value is JSONObject && (value.has("geometry") || value.has("candidates"))
+            })
+            return JSONObject().put("geometry", JSONObject.NULL).put("candidates", values).toString()
+        }
+
+        val objectCandidates = body.indices.asSequence()
+            .filter { body[it] == '{' }
+            .mapNotNull { objectStart ->
+                val objectEnd = findObjectEnd(body, objectStart)
+                if (objectEnd <= objectStart) null
+                else repairJson(body.substring(objectStart, objectEnd + 1))
+            }
+            .filter { VisionJsonSyntax.valid(it) }
+            .filter { candidate ->
+                runCatching {
+                    val root = JSONObject(candidate)
+                    root.has("geometry") || root.has("candidates")
+                }.getOrDefault(false)
+            }
+            .toList()
+        require(objectCandidates.size <= 1)
+        if (objectCandidates.size == 1) return objectCandidates.single()
+
+        val fallbackStart = body.indexOf('{')
+        require(fallbackStart >= 0)
+        val fallbackEnd = findObjectEnd(body, fallbackStart)
+        require(fallbackEnd > fallbackStart)
+        return repairJson(body.substring(fallbackStart, fallbackEnd + 1))
     }
 
     private fun stripReasoning(raw: String): String {
         var value = raw
-        while (true) {
-            val start = value.indexOf("<think>", ignoreCase = true)
-            if (start < 0) return value
-            val end = value.indexOf("</think>", startIndex = start + 7, ignoreCase = true)
-            if (end < 0) return value.substring(0, start)
-            value = value.removeRange(start, end + 8)
+        for (tag in listOf("think", "analysis", "reasoning")) {
+            while (true) {
+                val start = value.indexOf("<$tag>", ignoreCase = true)
+                if (start < 0) break
+                val end = value.indexOf("</$tag>", startIndex = start + tag.length + 2, ignoreCase = true)
+                value = if (end < 0) value.substring(0, start)
+                    else value.removeRange(start, end + tag.length + 3)
+            }
         }
+        return value
     }
 
     /** Remove comments and trailing commas only outside JSON strings; escape raw control characters in strings. */
@@ -388,6 +423,30 @@ internal object VisionReviewResponseParser {
                 '"' -> quoted = true
                 '{' -> depth++
                 '}' -> {
+                    depth--
+                    if (depth == 0) return index
+                }
+            }
+        }
+        return -1
+    }
+
+    private fun findArrayEnd(raw: String, start: Int): Int {
+        var depth = 0
+        var quoted = false
+        var escaped = false
+        for (index in start until raw.length) {
+            val char = raw[index]
+            if (quoted) {
+                if (escaped) escaped = false
+                else if (char == '\\') escaped = true
+                else if (char == '"') quoted = false
+                continue
+            }
+            when (char) {
+                '"' -> quoted = true
+                '[' -> depth++
+                ']' -> {
                     depth--
                     if (depth == 0) return index
                 }
