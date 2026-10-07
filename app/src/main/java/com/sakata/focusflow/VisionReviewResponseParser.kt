@@ -271,7 +271,7 @@ internal object VisionReviewResponseParser {
         val fenceToken = "\u0060\u0060\u0060"
         val fenceStart = trimmed.indexOf(fenceToken)
         val body = if (fenceStart >= 0) {
-            val lineEnd = trimmed.indexOf('\\n', fenceStart)
+            val lineEnd = trimmed.indexOf('\n', fenceStart)
             require(lineEnd >= 0)
             val fenceEnd = trimmed.lastIndexOf(fenceToken)
             require(fenceEnd > lineEnd)
