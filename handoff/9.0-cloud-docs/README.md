@@ -28,7 +28,9 @@
 已知内容差异（重要，勿按同名视为同一份）：
 
 - `03-status/root-9.0-ai-handoff.md` 与 `03-status/repo-9.0-ai-handoff.md` 内容不同：前者是工作区根目录的 AI 交接单，后者是本仓库已跟踪的 `docs/9.0-ai-handoff.md`
-- `03-status/repo-9.0-stage6-specified-semester-review4.md` 与工作区根目录同名文件内容不同，此处收录的是仓库已跟踪版本
+- `03-status/root-9.0-stage6-specified-semester-review4.md` 与 `03-status/repo-9.0-stage6-specified-semester-review4.md` 内容不同：前者来自工作区根目录，后者来自本仓库 `docs/`，两份都保留（2026-10-07 补漏提交补入前者）
+
+> 补漏说明：本目录首次推送为 `cbf82da`（69 份）。首次归档时漏收工作区根目录版 `9.0-stage6-specified-semester-review4.md`，已由后续补漏提交补入 `03-status/root-9.0-stage6-specified-semester-review4.md`，并把本 README 与 `04-changelog/backup-log.md` 更新到最新。
 
 ## 未包含项（有意排除）
 
