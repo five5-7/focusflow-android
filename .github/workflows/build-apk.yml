@@ -231,6 +231,8 @@ jobs:
           name: FocusFlow-dsh-acceptance-materials-run-${{ github.run_number }}
           path: |
             scripts/dsh-stage9-fast-acceptance.ps1
-            docs/9.0-stage9-dsh-device-acceptance.md
+            docs/9.0-current-status-20261007.md
+            docs/9.0-final-acceptance-20261007.md
+            docs/9.0-cloud-local-continuity-audit-20261007.md
           if-no-files-found: error
           retention-days: 14
