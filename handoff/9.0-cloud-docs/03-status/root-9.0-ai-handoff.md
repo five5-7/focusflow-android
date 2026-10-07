@@ -1,0 +1,105 @@
+# FocusFlow 9.0 AI 交接单（2026-09-26）
+
+## 接手时先确认
+
+- 活跃检出：`agent/focusflow-9.0-audit`（bundle 导入分支为 `handoff/stage6-local`）；制作本交接单前的代码 HEAD 为 `779d013`（阶段 6 新增 3 项测试、修复阶段 5／6 编译阻断，含 Room v5 schema），其后 `d2f12b6` 更新 AGENTS 归档路径、`4708ce0` 记录工作区归档与交接包、`3470386` 修复阶段 5 过期测试并加入 Gradle wrapper、`375e67e` 移除本周回顾页并同步文案；2026-09-27 又提交 `63fbd77`（阶段 5 遗留清理与全量测试证据）、`fd4caa9`（多模型协作配置）、`417f1bc`（L1 烟测记录）、`b579e96`（L2 插件文档）、`37cd784`（L2 烟测结果），再往后是 review-gate 复测的文档提交 `4e8b2be`（2026-09-27 12:47，clean 放行，见下），随后 `89d35e5`（解析修复实景验证提交，clean 放行）与 `09619ff`（验证结果记录，clean 放行），再往后是 `21896a7`（`review_stage` 预审与分片文档，clean 放行）。本交接单提交会再改变 HEAD。接手时必须重新执行 `git status --short --branch` 与 `git log -1 --oneline`，报告实际 HEAD；不要丢弃或回滚这些提交。
+- 远端 `origin/agent/focusflow-9.0-audit` 与本地分叉：本地 `handoff/stage6-local` 领先 56 个提交；本检出的远端跟踪引用为 `a35fe20`（2026-09-25），另有 32 个提交不在本地；2026-09-26 尝试 `git fetch` 刷新被网络重置，未取得更新的远端状态。**仅从 GitHub 克隆无法得到本地阶段 5／6 的完整代码。** 优先在本地活跃检出接手；换机器时先明确传递本地提交并处理远端分叉，再开发。不得按旧远端分支推断功能已完成，不得直接强推、重置或合并。
+- 本次同时备有 `focusflow-9.0-local-handoff-20260926.bundle`（2026-09-26 晚重新导出，包含阶段 6 测试与编译修复、AGENTS 归档路径及本交接单）作为可下载的本地提交包；接收方需先克隆同一个 Git 仓库，再从 bundle `git fetch /path/to/focusflow-9.0-local-handoff-20260926.bundle refs/heads/agent/focusflow-9.0-audit:refs/heads/handoff/stage6-local`，在新分支检出 `handoff/stage6-local`。此操作只导入本地快照，不解决远端分叉提交，也不自动推送。交接包不是签名 APK，不能拿来安装测试。
+- 先读 `AGENTS.md`、`README.md`、`VERSIONING.md`、`CHANGELOG.md`、`app/src/main/java/com/sakata/focusflow/RoadmapData.kt`、`docs/9.0-stage6-checkpoint.md`、`docs/9.0-ai-collaboration.md` 及最新《FocusFlow_9.0_实施计划》。仓库代码为实现事实，计划为状态记录；不要仅凭标题认定完成。
+- 正式版 `8.2.1/534`；本地开发候选 `8.3.0-rc.24/558`。Room 产品激活关闭；PR #51 保持草稿，未经用户确认不合并或发布。不要为了交接改版本号、产品行为或应用内更新说明。
+
+## 当前完成与缺口
+
+| 范围 | 已在本地实现 | 仍需完成或验证 |
+| --- | --- | --- |
+| 阶段 6 课程提醒 | 默认关闭的总开关、按**课次 ID**覆盖；仅用户确认节次表后按实际开始时间提前 10 分钟提醒；旧闹钟回读校验、重启／时间改变后恢复；2026-09-26 新增 3 项回归测试并本机执行课程策略 6 项＋课程存储 5 项全部通过 | 真机通知表现、重复课次收束、稳定课程身份及跨来源导入；`StandaloneRemindersTest`、`QuietHoursTest`、完整套件与双构建未跑 |
+| 本次地点 | 按课次 ID＋发生日期设置临时教室，提醒前读取 | 单次实例模型与手动编辑范围需要后续数据设计 |
+| 独立提醒 | 通知可完成或 10 分钟后提醒；稍后不改原设定时间，拒绝旧通知动作，遵守一次性临时静音 | 自定义提醒剩余可选动作与跨类型调度 |
+| 质量门禁 | 设备检查矩阵已写；2026-09-26 本机执行全量单测 145 类 865 项全部通过（0 失败／错误／跳过），`:app:assembleDebug` 成功且 `apksigner` 证书 SHA-256 为 `650a17f2…`，与稳定签名一致 | CI 双变体单测与双构建、稳定签名 APK 分发、OPPO／ColorOS 16 真机验收均**未执行** |
+
+阶段 6 开发剩余约四组：①稳定课程身份及多课次教务导入；②手动合并／拆分和“单次／该时段后续／整门课程”编辑范围；③跨类型统一调度；④自定义提醒余下动作配置。完整自动验证和真机验收另计。阶段 3 Room 最终激活、阶段 2A 余项、阶段 4／5 真机验收及阶段 7–9 也未结项。
+
+## 本轮本地验证与修复（2026-09-26）
+
+- 环境：仓库仍无 `gradlew`；本机可用 Gradle 8.13（wrapper 发行版）＋ `ANDROID_HOME=%LOCALAPPDATA%\Android\Sdk`（platform android-36、build-tools 36.0.0），Gradle 用户目录 `D:\focusflow\.gradle-home`。
+- 命令与结果：`:app:testDebugUnitTest --tests "com.sakata.focusflow.CourseReminderPolicyTest" --tests "com.sakata.focusflow.CourseReminderStorageTest"` → BUILD SUCCESSFUL（末次 52s）；11 项测试通过，证据 XML 在 `app/build/test-results/testDebugUnitTest/`。
+- 新增测试：`london spring transition rolls the weekly trigger with a 167 hour gap`、`delivered marker is isolated per meeting id`、`same meeting id drops the old alarm and reschedules after a period change`。
+- 编译阻断（首次运行暴露，阶段 5／6 从未被编译）：`MainActivity.kt:1530` 的 `TodayScreen` 调用缺 3 个必填参数（`e99061f` 移除实参未同步签名）；`TaskMissedDigestPolicy.kt:44` 返回 `Sequence` 而非 `List`（`85ee37e`）；4 个阶段 5 测试文件 6 处 `Item` 构造缺必填 `detail`。修复：删除 `TodayScreen` 已无引用的 3 个参数、补 `.toList()`、补 `detail = ""`。
+- 阶段 5 遗留清理（`3470386`、`375e67e`）：修复 6 个阶段 5 过期测试（REVIEW 期望、单活动保护下的 50 条历史用例、Room v2→v5 迁移链）；移除无入口的 `PlanPage.REVIEW` 页面与 `AI 周总结` 设置并同步 README／帮助／使用指南／快速入门；旧偏好 `ai_weekly_summary_*` 保留不删；新增 Gradle wrapper（`local.properties` 被 gitignore，不入库）。
+- 仍未执行：CI 双变体单测与双构建、稳定签名 APK 分发、OPPO／ColorOS 16 真机。本地全量单测与 `assembleDebug`／签名核对已在本机完成。
+- 上述改动（含 Room v5 schema `app/schemas/com.sakata.focusflow.data.FocusFlowDatabase/5.json`）已提交为 `779d013`，尚未推送。
+
+## 工作区归档（2026-09-26）
+
+- 旧快照 `focusflow-android`、`focusflow-android-6.4`、`focusflow-android-8.0.0` 移至 `D:\focusflow\legacy\snapshots\`；`AGENTS.md` 已更新路径（提交 `d2f12b6`）。
+- 根目录旧截图／UI 转储／旧文档／冗余安装包／旧数据备份分别移至 `D:\focusflow\legacy\{screenshots,ui-dumps,docs,installers,backup}`；3.x–5.x 旧 APK 移至 `legacy\backup\apk-old`，`apk\` 保留 6.x 以后。
+- 交接包已在根目录重新导出（含本交接单提交，用 `git bundle list-heads` 核对 tip）；旧包移入 `legacy\backup\`。
+- 全局 git 配置 `safe.directory` 仍指向旧路径，未修改；打开归档 8.0.0 仓库时用 `-c safe.directory=D:/focusflow/legacy/snapshots/focusflow-android-8.0.0`。
+
+## 多模型协作与自动化（2026-09-26）
+
+- 规则、配置位置与角色分工见 `docs/9.0-ai-collaboration.md`：SiliconFlow provider（key 走 `{env:SILICONFLOW_API_KEY}`）、只读审查子代理 `review`（GLM-5.3）与 `review-kimi`（Kimi-K2.7-Code）、内置 `websearch`（`OPENCODE_ENABLE_EXA=1`，免 key）；批量模型暂缓启用。
+- 自动化 L1 已于 2026-09-26 重启后烟测：内置 `websearch` 免 key 可用；`review`（GLM-5.3）与 `review-kimi`（Kimi-K2.7-Code）对 `779d013` 完成只读审查、未改动任何文件，未产生经验证的新缺陷（Kimi 有 1 条可证伪结论 + 1 处行号错位）；细节见 `docs/9.0-ai-collaboration.md` 第 5 节。L2 四项已于 2026-09-27 落地为本地插件（提交前自动审查 `review-gate`、后台任务 `bg_start`/`bg_status`/`bg_stop`、SiliconFlow 模型发现、通知核对），本机 node 桩测试通过；2026-09-27 重启烟测：模型发现（缓存 64 项、`opencode models` 4 白名单一致）与后台任务（start/status/stop；到点通知未观察）通过；`review-gate` 首测暴露仓库路径缺陷（项目目录取暂存差异，仓库在子目录 `focusflow-9.0`），已于 11:05 修复为 `repoDir`＋下一层唯一仓库探测并重新启用。修复后复测：两次 600s 超时 fail-open（记录 11:19:51、11:39:38）；一次缺陷阻止（11:28:34，按缺陷修订）；一次误报（12:24:45，工作树回退不成立）经核验后条目备份至 `backups\review-gate-state-20260927-1230.json` 并移除，审查代理于 12:30 切换为 `review-kimi`；一次 `review-kimi` 判定 CLEAN 但被门禁解析取首个 `REVIEW-VERDICT` 匹配、命中正文引用的 DEFECTS 字样而误判阻止（12:39:52，缓存条目 `95913273…` 的 findings 即该 CLEAN 全文），解析器已修复为取最后一个判定匹配（本机 node 桩测试三点通过）。`timeoutMs` 已由 600000 提至 1500000（11:41）、审查代理切换与解析修复均为重启生效；`git commit` 仍需一次性 `-c` 身份（仓库/全局均未配置 user.name/user.email）。**审查通过放行已于 12:46 取得**：门禁对复测差异写入 clean 条目（session `ses_f1ed36eafffe…`）并放行提交 `4e8b2be`（当时由旧解析进程判定）。2026-09-27 12:52 重启后进程加载解析修复（进程启动晚于插件文件 12:40:48 的最后写入）；第六次实景复测通过——`review-kimi` 对提交 `89d35e5` 的暂存差异返回的审查正文引用 `REVIEW-VERDICT: DEFECTS`、末行判定 `REVIEW-VERDICT: CLEAN`，门禁取末行判定放行（缓存条目 `ae004260…`，session `ses_f1ec89539ffe…`）；随后记录提交两次被同一门禁以“证据不足／自证循环”为由阻止，按意见收紧为冷记录后放行 `09619ff`（缓存条目 `9b3251e1…`）。新增 `review_stage` 预审与按文件分片：`review-gate.js`＋`.opencode/lib/review-gate-shards.js`，配置 `shardBytes`/`maxShards`（默认 120000／4）；预审按当前暂存 diff 哈希缓存并与后续工作并行，提交命中 clean 缓存瞬时放行、命中 defects 阻止、有挂起预审则等待复用它；分片失败整体记 error（放行但不写通过缓存，再次提交会重审）、unparsed 片阻断；每片附完整文件清单并声明跨文件部分无法验证。本机 node 桩测试 12＋5 项通过（`.opencode/test/`），文档随 `21896a7` 提交、clean 放行；**未烟测：需重启 opencode 加载新插件**。L3（自动提交/发布）不允许。
+- 本轮进展（2026-09-27 12:52–13:34）：解析修复已加载并通过实景复测（`89d35e5`）；`review_stage` 预审与分片已实现入库（`21896a7`，桩测试 12＋5 项通过）；bundle `focusflow-9.0-20260927-1334.bundle` 已导出并在 `backup-log.md` 登记；工作区干净，未推送。下一步：**重启 opencode 加载新插件**，然后烟测 `review_stage`——暂存一个小差异 → 预审（可临时用 `shardBytes` 覆盖强制分片）→ 期间并行做其他工作 → `git commit` 命中缓存瞬时放行；另验缺陷阻止与空暂存路径。烟测后按主交接单恢复阶段 6 测试缺口、CI 双构建／稳定签名与 OPPO 真机门禁等工作。`git commit` 仍用一次性 `-c` 身份；推送/合并需用户确认；不得绕过门禁。
+
+## 外部 AI 分流与试跑
+
+目标是减少 **ChatGPT Work／Codex 这个账户**的消耗。此账户内换成 Luna 或 Terra 仍属于同一用量池，不作为节省该账户额度的分流方案。现有实施计划的模型规则用于本账户内必须处理的高风险复核；试跑主体使用另一服务的独立额度。外部服务使用其自己的免费配额或单独计费，可能增加现金成本，需用户自行决定是否接入。
+
+| 来源 | 可交付任务 | 使用限制与回收条件 |
+| --- | --- | --- |
+| Google Antigravity 个人版（若账户地区可用，先试免费额度） | 用独立工作树完成阶段 6 测试缺口、局部 Kotlin 测试或有明确验收的界面改动；自带计划、修改与评审入口 | 免费额度按周刷新且不保证任务数；需 Google 账户与受支持地区，在设置中核对数据收集。不可用其登录凭据驱动 OpenCode 等第三方工具 |
+| DeepSeek API `deepseek-flash`（按量付费首选） | 配合有仓库读写能力的编码工具，在独立 worktree 完成测试矩阵、纯 Kotlin 局部测试或固定边界的界面改动 | API 单独计费；不要假设网页版对话能自动访问本地工作区。涉及身份、Room、通知、导入歧义时先停下交给强模型审定边界 |
+| Google AI Studio 的 Gemini 3.5 Flash-Lite 免费层（仅选用其可用免费配额） | 上传**选定且可分享**的代码片段／交接单，做静态归类、测试用例草稿和文档整理 | 免费层有额度限制且数据可能用于改进产品；不适合直接上传私密数据或要求其自动编辑本地仓库。不要将已停止面向个人账户登录的旧 Gemini CLI 当成免费方案 |
+| 当前账户的 Sol（仅决策与复核） | 审定课程身份／旧数据迁移／通知调度设计，检查外部 AI 的有限差异及关键风险 | 只在外部交付清晰且附证据时复核；边界不明的任务单独委派，不让它重新做全部执行。仍计入本账户用量 |
+
+DeepSeek 官方 API 文档：https://api-docs.deepseek.com/quick_start/pricing/；Google API 价格与免费层：https://ai.google.dev/gemini-api/docs/pricing；Google 个人版 CLI 停止登录说明：https://developers.google.com/gemini-code-assist/docs/deprecations/code-assist-individuals。实际价格、可用性和数据政策以接入当天官方页面为准。
+
+### 按检查点分工
+
+| 任务 | 执行工具与模型 | 交回的证据 |
+| --- | --- | --- |
+| 测试缺口／验收矩阵 | Antigravity 免费额度；若不可用，用 DeepSeek Flash＋OpenCode Plan 或 dsh；仅少量可分享文件可用 Gemini 3.5 Flash-Lite 免费层 | 逐项对应真实测试名、未覆盖输入和真机项 |
+| 单文件策略测试、局部 Compose 文案与布局 | DeepSeek Flash＋OpenCode Build／Antigravity；Aider 适合更小的固定文件修改 | 单项 diff、执行过的测试命令与结果、未跑项目 |
+| 课程身份、Room 迁移、通知调度 | 当前账户 Sol 只审定数据契约与失败回滚；外部工具执行切分后的独立子任务，另一模型只读审查 | ID／旧数据映射、失败用例、CI 双构建与真机门禁；疑点回到设计审定 |
+| 独立差异审查 | 与实现不同提供方的只读模型，或由当前账户 Sol 审查高风险差异 | 仅报可定位的缺陷、复现条件与证据；不让审查模型自行改同一工作树 |
+| 交接记录 | 低价模型根据实际日志整理；用户或负责人核实 | HEAD、工作区、分叉、变更文件、验证与剩余风险 |
+
+编码工具选择：OpenCode 可配置多个 API 提供方与 Plan／Build／只读审查代理，适合建立长期分工；DeepSeek Harness（`dsh`）支持多提供方和计划／委派，但仍是可能破坏兼容性的开发预览；Aider 的 Architect／Editor 双模型模式适合难于直接编辑的小补丁，却会增加调用次数；Claude Code 与 Codex CLI 也有 DeepSeek 官方接入方式，接入前逐次确认实际后端及账单，避免误用当前账户。只按实际工作效果评价，不把多代理数量当成质量指标。
+
+参考：https://antigravity.google/pricing；https://antigravity.google/docs/plans；https://opencode.ai/docs/providers；https://opencode.ai/v2/docs/agents；https://github.com/deepseek-ai/deepseek-harness；https://aider.chat/docs/usage/modes.html。
+
+一次只向一个外部 AI 分配一个明确的任务边界；改代码时使用独立分支／worktree，避免多 AI 同时改同一检出。若外部工具无法得到包含本地提交的完整仓库，先交给它只需交接单和少数文件的静态任务。衡量试跑时记录任务完成、人工返工、测试证据、该账户用量及外部成本；不预设必然节省具体比例。
+
+### 可直接复制的首个外部 AI 试跑任务
+
+> 你接手 FocusFlow 9.0，请先报告分支、HEAD、工作区状态，并阅读 `AGENTS.md`、`docs/9.0-stage6-checkpoint.md` 和最新实施计划。你的任务只限于审查 `app/src/test/java/com/sakata/focusflow/CourseReminderPolicyTest.kt`、`CourseReminderStorageTest.kt`、`StandaloneRemindersTest.kt` 与相应生产逻辑，写出一份“已测／未测／需要真机”的阶段 6 回归矩阵，保存到 `docs/9.0-stage6-test-gaps.md`。每行写具体输入、预期输出、对应现有测试名或缺口，避免把读过的测试当作已执行。禁止修改业务代码、数据模型、版本号或其他文档。运行 `git diff --check`；如果环境无法运行 Gradle／Android 测试，明确写“未执行”，不要称测试通过（本机现可用 Gradle 8.13＋Android SDK android-36）。遇到需求冲突只记录证据并停在文档交付。最后报告变更文件、验证命令结果、剩余风险。
+
+试跑验收：矩阵能对应真实测试名、覆盖默认关闭／节次表未确认／按课次隔离／本次地点／旧广播／稍后及临时静音；无生产行为改动；一次有限范围复核即可决定后续是否交付局部测试补全。
+
+### 高风险任务的设计审定简报（用当前账户时）
+
+> 核对分支和 HEAD，阅读 `AGENTS.md`、最新实施计划、`docs/9.0-stage6-checkpoint.md`、`docs/9.0-stage2-audit.md`。只审定下一开发检查点“稳定课程身份与多课次导入”的可执行设计边界：实查教务返回行的学期、课程／教学班字段及可用性；设计旧 `Course.id` 与一对多课次的可追踪迁移；缺号、冲突、同名不同班保持独立待确认。特别审查 `CourseMeetingRuleEntity.toLegacy(parent)` 父 ID 投影是否覆盖多个课次，以及按课次 ID 存的提醒设置和临时地点如何迁移。给出字段契约、失败回滚、具体测试清单及下一项可交外部 AI 的独立子任务；不以课程标题自动合并，不打开 Room 产品激活。这一轮只交设计和审查结果，避免用本账户再次包揽全部实现。
+
+## 导航与验证交付
+
+- 课程及导入：`CourseReminders.kt`、`PlanCoursesSection.kt`、`CourseImport.kt`、`ZjuTimetableParser.kt`、`CourseSchedule.kt`；通知：`ReminderReceiver.kt`、`StandaloneReminders.kt`。对应测试位于 `app/src/test/java/com/sakata/focusflow/`。
+- 从根目录用 `rg --files` 找 Room 实体及 DAO，以实际文件名为准。关键迁移边界和设备复核表分别在 `docs/9.0-stage2-audit.md` 与 `docs/9.0-stage6-checkpoint.md`。
+- 每项变更至少 `git diff --check`；本机已可用 Gradle 8.13＋Android SDK android-36 运行单测（命令见上节），但完整门禁仍需在 CI 跑双变体单测、`:app:assembleDebug`、`:app:assembleRelease`，校验稳定签名与版本元数据，然后用目标 OPPO／ColorOS 16 真机复核通知、重启和后台场景。未跑的门禁绝不写成通过。
+- 交回时给出：实际 HEAD／分支及本地与远端分叉、变更文件、观察到的测试／构建／设备结果、无法验证的项目、风险与下一检查点。保护现有用户数据与原偏好键；不得输出签名密码、API key 或 keystore 内容。
+
+## 重启后继续（2026-09-27 14:40 会话收尾）
+
+- 工作区 HEAD `eeb4971`（分支 `handoff/stage6-local`，工作区干净，未推送；`818bd74..HEAD` 共 18 个提交）。本批记录提交：`766b585`（`review_stage` 烟测）、`bc30da8`（阶段 6 本地双变体测试＋双构建＋签名）、`eeb4971`（设计审定＋字段证据审计）；bundle `backups\focusflow-9.0-20260927-1439.bundle` 已导出并登记 `backups\backup-log.md`。
+- `review_stage` 预审烟测通过：空暂存提示、缺陷合成样本强制 2 片（两片 DEFECTS、阻止提交）、clean 强制 2 片（两片 CLEAN、提交命中缓存瞬时放行）、`git add && git commit` 拆分拦截；细节见 `docs/9.0-ai-collaboration.md` 第 5 节。
+- 阶段 6 本地验证：debug/release 双变体单测各 145 类 865 项全通过（0 失败／错误／跳过）、`assembleDebug`＋`assembleRelease` 成功（9m24s）、两 APK 稳定签名 `650a17f2…`、release 558／8.3.0-rc.24；CI 双变体与 OPPO 真机仍未执行。
+- 新增 `docs/9.0-stage6-course-identity-design.md`（Sol 设计审定）与 `docs/9.0-stage6-zju-field-evidence.md`（只读审计交付：已实证字段、学年/学期流转、缺失真实证据、本机脱敏采样说明）。**下一步（组①实现前必做）**：由用户按证据文档第 4 节在本机取得真实脱敏样本（同班多课次、同名异班、跨学期各至少一例）并交 Sol 第二次审定；在此之前不得实现教学班/课程号聚合、父记录归组或一对多写入，不得打开 Room 激活。
+- 继续时先执行 `git status --short --branch` 与 `git log --oneline -3` 报告实际 HEAD，再按设计/证据文档推进；推送、合并仍须用户确认，L3 不允许。
+
+## 换 harness 接手（2026-09-27 深夜 · 2026-09-28 更新）
+
+- **最新接手文档**：`D:\focusflow\9.0-harness-handoff-20260927.md`（顶部有当日进度与下一步）。2026-09-28 现状：分支 `handoff/stage6-local` @ `3b2f5d7`（**未推送**）。提交序列：①`4a3d52a`、**②`9d40a12`**、flake 修复 `7a5eb5f`、门禁文档 `97653a4`、Sol review7 修正 `e261a6d`、本地复验修正 `4e96f4f`/`f050b21`、判定件归档 `1fa375d`/`814789e`/`5dd6e0c`/`3b2f5d7`。
+- **小提交②（指定学期两阶段导入）状态：代码复审通过 / 待真实环境验收。** Sol 第八次复审（`docs/9.0-stage6-specified-semester-code-review8.md`）判"本范围通过，可结束这条代码复审循环，移交下一道验收"。历史上共 8 次外部复审 + 5 轮本地独立复核，修掉 5 条阻断级缺陷与多条第二阶缺陷。
+- 换 harness 后先读上一行文档，再执行 `git status --short --branch`、`git log --oneline -8` 核对，**不要 pull/push/merge 或丢弃工作区改动**（推送需用户明确同意；远端 `origin/agent/focusflow-9.0-audit` 已分叉）。
+- 提交前复核按 `D:\focusflow\.tools\REVIEW-POLICY.md` 的风险分档执行（T0 文档免审 / T1 仅测试单席 / T2 高风险两席，每 revision 最多 2 轮）；原 `review-gate` 是 opencode 插件，DSH 下用等价实现的独立只读复核席，不得绕过。
+- **下一步（阶段 6 剩余）**：Sol 指向"稳定课程身份与多课次导入"的设计与独立小提交；真机（OPPO / ColorOS 16 / Android 15）与 CI 验收均未执行。

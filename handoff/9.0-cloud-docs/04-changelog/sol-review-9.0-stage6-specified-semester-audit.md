@@ -1,0 +1,162 @@
+# 阶段 6：浙江大学「指定学期」路径审计与修正方案（只读）
+
+- 日期：2026-09-27
+- 基线：`handoff/stage6-local` @ `d22905c`（工作区干净；`31aa9f0` 及前序提交在历史中）
+- 任务来源：`docs/9.0-stage6-course-identity-review3.md` 第「交给 DeepSeek Flash 的下一项独立任务：指定学期路径审计」
+- 边界：本文件是审计与方案，**未修改任何生产代码、Room schema、提醒键或版本号**；未执行 `pull`/`push`/合并；未上传任何登录响应、账号、Cookie、原始课表或私有标识。本文不是对 `31aa9f0` 代码的逐行验收。文中行号以本基线 `d22905c` 的工作树为准。
+
+## 1. 现状审计
+
+### 1.1 自动读取路径（现状）
+
+| 环节 | 实现 | 位置 |
+| --- | --- | --- |
+| 首页下拉解析 | 取 `<select>` 中 `id` 或 `name` 等于 `xnm`/`xqm` 的下拉；跳过 value 为空白的 option；优先 `selected`，否则取第一个 option | `ZjuTimetableClient.kt:267-283`（`parseSemesterOption`） |
+| 请求代码 | `year.value`、`term.value` 原样写入表单 `xnm`/`xqm` | `ZjuTimetableClient.kt:177-215` |
+| 显示 | `termDisplay = term.value.substringAfter('|', term.text).ifBlank { term.text }`，作为 `xqmmc` | `ZjuTimetableClient.kt:194,204` |
+| 缺失 | 未找到 `xnm`/`xqm` 下拉时返回明确失败（“无法读取当前学年／学期，请改用指定学期重试”） | `ZjuTimetableClient.kt:189-192` |
+
+结论：自动路径已符合「从服务器选项值取得请求代码」的契约；已知风险是 `selected` 缺失时静默取第一个 option（页面通常有 selected，但属未固定的隐含假设）。
+
+### 1.2 指定学期路径（现状）
+
+| 环节 | 实现 | 位置 |
+| --- | --- | --- |
+| 界面 | 「指定学期」开关；年份输入框（4 位数字，支持文案“例如 2026 表示 2026—2027 学年”）；三个学期 chip：秋冬／春夏／短学期 | `ZjuTimetableImportActivity.kt:143-150,468-493` |
+| 请求代码 | `ZjuManualSemester.yearCode = startYear.toString()`（如 `"2026"`）；`ZjuTerm` 固定枚举 `3/12/16` | `ZjuTimetableClient.kt:45-54,177-180` |
+| 显示 | `yearDisplay = "2026-2027"`；`term.display` = 秋冬／春夏／短学期；`xqmmc` 由 `termDisplay` 计算 | `ZjuTimetableClient.kt:49-54,194` |
+| 首页 | **不读取首页下拉**（注释称可直接用硬编码代码请求，缺证据） | `ZjuTimetableClient.kt:178-180` |
+| 校验 | 仅本地范围校验 `startYear in 2000..2100`；无服务端 option 校验，无“所选学期是否存在”的判断 | `ZjuTimetableImportActivity.kt:155-162` |
+
+### 1.3 与真实观察的差异
+
+已取得的脱敏证据（用户本机，2026-09-27）：
+
+- 一次真实的课表查询请求表单值为 **`xnm=2026-2027`、`xqm=1|秋`**（见 `docs/9.0-stage6-zju-selection-key-groups.md` §5）。
+- 响应回显 `xnm=2026-2027`、`xqm` 为单个字符（如“秋”），**不是请求代码**。
+- 首页学期下拉：审计开始时按用户早前口述记为 8 项（秋、冬、短、暑、**寒**、春、夏、短）；2026-09-27 控制台逐项对照（§7）实际为 **7 项且无“寒”**：秋、冬、短、暑、春、夏、短。以 §7 的 7 项为已观察证据；8/7 差异待用户在同一页面核对后更正。
+
+对照结论：
+
+1. 指定学期路径发送 `xnm=2026`，真实格式为 `2026-2027`——**学年值格式不符**。
+2. 指定学期路径发送 `xqm=3/12/16`，真实格式为 `代码|显示`（如 `1|秋`）——**学期值格式不符**；审计当时仅秋季代码已知不能外推，后取得该页 7 项的对照（本次只见 `1`/`2` 两种代码，见 §7；不排除其他页面或时刻存在其他值，不得据此限制代码范围）。
+3. 客户端的「秋冬／春夏／短学期」三档模型与首页按季节分列选项（已观察 7 项）不一致；重复的“短”无法用文字区分（必须按 value）。
+4. 在选项缺失或所选学期不存在时，现有实现可能仍按硬编码发出请求（失败表现为服务端行为，客户端无明确错误），存在**静默改查当前学期**的风险——与第三次审定要求不符。
+
+### 1.4 现有测试锁定的行为
+
+- `ZjuTimetableClientTest.semester parser uses selected real page option`（`ZjuTimetableClientTest.kt:41-50`）：用合成 HTML 验证优先取 `selected`，断言 `xnm=2026-2027`、`xqm=1|冬`——方向正确。
+- `ZjuTimetableClientTest.specified academic year and terms use timetable query codes`（`ZjuTimetableClientTest.kt:52-60`）：断言 `yearCode="2026"`、`term.code=3/12/16`——**把错误假设固化为测试**，修正时需要替换。
+- `ZjuTimetableImportUiTest` 只覆盖进度步骤视觉状态，未覆盖指定学期路径。
+- `MainActivity` 只读取新代码 extras 供候选元数据使用；未从显示名或响应回显反推（与第二次审定边界一致）。
+
+## 2. 修正方案（建议，供 Sol 定范围）
+
+### 2.1 目标契约
+
+1. 请求中的 `xnm`/`xqm` **必须**来自服务端首页下拉 option 的原始 `value`；客户端不得自行拼接年份区间或构造学期代码。
+2. 指定学期 = 在服务端 option 列表中选择某一项；不得以自由输入年份或固定三档替代。
+3. 选项缺失、文本重复无法消歧、或所选选项不存在时**显式失败**，不发出请求、不退回当前学期。
+4. 自动路径行为保持不变（优先 selected），但“无 selected 时取第一个”的隐含回退需要在方案评审中确认或加固。
+5. `xqmmc` 保持现有派生规则（value 中 `|` 之后的部分，否则 option 文本）；不把显示文字当键。
+
+### 2.2 方案 A（推荐）：指定学期也从首页 option 选择
+
+- 指定学期模式下仍读取首页 `xnm`/`xqm` 下拉，用其完整 option 列表（value + text）替换当前的自由年份＋三档学期：
+  - 学年：按 option 展示（如“2026-2027”），选中后使用其 `value`。
+  - 学期：动态展示服务端返回的全部选项（已观察 7 项；**不得固化数量**）；两个“短”按 `value` 区分（必要时在重复文字后附加可读前缀或序号，如“短（1）／短（2）”），选择按 `value`。
+- 若首页读取失败、下拉缺失或 option 为空：显示明确错误（例如“无法读取学期选项，请重试或检查教务页面”），**不发送任何课表请求**。
+- `ZjuManualSemester` 与 `ZjuTerm` 的硬编码模型退役；第四次审定（`docs/9.0-stage6-specified-semester-review4.md`）明确**无需保留未使用的壳**——含义是在流程迁移完成后不再保留：当前 `fetch`/`fetchBlocking` 参数、导入 Activity 的 UI 状态与 Compose 参数、旧测试仍在使用（`ZjuTimetableClient.kt:45-54,74,106`、`ZjuTimetableImportActivity.kt:150,161,281-282,403-404,480`、`ZjuTimetableClientTest.kt:54-59`），必须在提交②中一并迁移后删除，**不得先行删除**。实现时确认无序列化/导航参数依赖（本审计未做完整引用检索）。`ZjuTimetableFetchResult` 的代码/显示字段来源统一为所选 option。
+
+### 2.3 方案 B（不推荐）：保留硬编码短路
+
+- 仅当能证明服务端接受并正确解释 `2026`／`3/12/16` 时才成立；当前证据只有一次秋季请求 `2026-2027`／`1|秋`，且与之矛盾。继续使用会违反审定的“不得外推、不得静默回退”。
+
+### 2.4 错误与回退规则
+
+| 情形 | 行为 |
+| --- | --- |
+| 首页请求失败/超时 | 明确失败；不自动改查当前学期 |
+| `xnm` 或 `xqm` 下拉缺失 | 明确失败（沿用现有文案或更具体） |
+| option 列表为空或 value 空白 | 明确失败 |
+| 学期文字重复（两个“短”） | 按 value 分别列出；仅凭文字选择视为歧义，不得自动择一 |
+| value 也重复 | 明确失败并提示 |
+| 自动路径无 selected | 现状为取第一个；建议要么保持并加测试，要么改为明确失败，由 Sol 定 |
+
+### 2.5 UI 文案
+
+- 进度步骤标签在指定学期模式下当前显示“使用指定学期”（`ZjuTimetableImportActivity.kt:576`）；若指定学期也需要读取首页，应改为如“读取并选择学期选项”，避免“跳过”的误导。
+- 删除或修正“指定学期会跳过读取当前学期页面”的支持文案（`ZjuTimetableImportActivity.kt:489-493`）。
+
+## 3. 合成输入测试矩阵（修正实现时新增/替换）
+
+| 编号 | 合成输入 | 预期 |
+| --- | --- | --- |
+| S1 | `xnm` 下拉含 selected option，`xqm` 同理 | 取 selected 的 value 作请求；文本派生 `xqmmc` 与用户选择一致（现有用例保留） |
+| S2 | `xnm` 无 selected，含多个 option | 现状：取第一个（锁定现状）；若改为失败则断言明确失败。待 Sol 定 |
+| S3 | option `value` 为空白的行 | 被跳过，不进入候选列表 |
+| S4 | 下拉只有 `name`、没有 `id`（或反之） | 仍能定位下拉（现有属性双匹配保留） |
+| S5 | 缺少 `xnm`/`xqm` 下拉 | 明确失败；不发出课表请求 |
+| S6 | 学期下拉含两个文本“短”、value 不同 | 两项都保留；按 value 区分；按文本选择被标歧义 |
+| S7 | 学期 value 含 `|`（如 `1|秋`） | `xqmmc` 取 `|` 后文字；`xqm` 原样使用 value |
+| S8 | 学期 value 不含 `|` | `xqmmc` 取 option 文本 |
+| S9 | 指定学期流程：所选 option 的 value 非空 | 课表请求表单的 `xnm`/`xqm` 与所选 value 逐字一致 |
+| S10 | 指定学期流程：首页读取失败 | 结果 Failure，且**未构造**课表请求（可用注入/桩验证请求未发出） |
+| S11 | 指定学期流程：所选学年 option 在读取后消失 | 明确失败，不退回当前学期 |
+| S12 | 自动路径回归：selected option 存在 | 请求值与现有行为一致（`xnm`/`xqm`/`xqmmc`/`xxqf`/`xsfs`/`captcha_value`） |
+
+测试要求：全部使用合成 HTML/JSON，不引入真实响应；沿用 `ZjuTimetableClientTest` 的纯 JVM 风格（`parseSemesterOption` 可直接单测；请求表单可在客户端内部抽出纯函数后测，若需要抽函数属于修正实现范围，由 Sol 放行）。
+
+## 4. 现有测试影响（修正时）
+
+- `ZjuTimetableClientTest.specified academic year and terms use timetable query codes` 需删除或改写为「所选 option 的 value 原样进入请求」。
+- `ZjuTimetableImportUiTest` 的进度标签断言若涉及“使用指定学期”需同步。
+- 自动路径既有用例保留为回归。
+
+## 5. 真实证据采集状态（2026-09-27）
+
+- **已取得，见 §7**：首页 `xnm`/`xqm` 全部 option 的 `value`/`text`/`selected`，含两个“短”的 value（`1|短` 与 `2|短`）。
+- **仍缺（可选）**：一次真实查询请求的 `xqmmc` 值（用于核对“value 中 `|` 之后”的派生规则）；不影响方案与测试矩阵。
+
+采集方式（只在本机）：打开教务课表查询页，按 F12 → Elements，展开学年/学期 `<select>`，把每个 `<option value="…">文字</option>` 抄到本地文本；或在 Console 运行以下只读命令把对照表复制到剪贴板（不读取 Cookie）：
+
+```js
+copy([...document.querySelectorAll('select')].filter(s => s.id === 'xnm' || s.name === 'xnm' || s.id === 'xqm' || s.name === 'xqm').flatMap(s => [...s.options].map(o => (s.id || s.name) + '	' + o.value + '	' + o.text + '	selected=' + o.selected)).join('\n'))
+```
+
+**不要保存或上传请求头、Cookie、页面截图、账号信息或原始课表**；只提交 value/text 对照（如已取得 `xnm=2026-2027`、`xqm=1|秋`，可只补其余项）。
+
+## 6. 结论
+
+- 指定学期路径当前发送的 `xnm`/`xqm` 与真实格式不符，且缺少数值校验与失败规则；应在下一项行为修正中改为「以服务端 option 为准、缺失即失败、不静默回退」。
+- 自动路径方向正确，保留；仅需确认“无 selected 时取第一个”的隐含行为。
+- 本审计未改任何生产代码；具体修正范围与是否抽取请求构造纯函数，请 Sol 审定后另行放行。
+
+## 7. 真实 option 对照（脱敏证据，2026-09-27）
+
+来源：用户在课表查询页开发者工具「控制台」运行只读命令，记录 `id/name`、`value`、`text`、`selected`；不含账号、Cookie、请求头或原始课表。
+
+```text
+xnm（学年）
+2026-2027 | 2026-2027 | selected
+2025-2026 | 2025-2026
+2024-2025 | 2024-2025
+
+xqm（学期）
+1|秋 | 秋 | selected
+1|冬 | 冬
+1|短 | 短
+1|暑 | 暑
+2|春 | 春
+2|夏 | 夏
+2|短 | 短
+```
+
+对照结论更新：
+
+1. 学年 value 为完整区间文本（`2026-2027` 等），确认指定学期路径的 `xnm=2026` 不符；修正必须使用所选 option 的 value。
+2. 学期 value 为 `代码|显示`，代码只有 `1` 与 `2`；显示文字「短」重复两次，分别对应 `1|短` 与 `2|短`——选择必须按 value，按文本自动择一即歧义；测试矩阵 S6/S7 可直接用本对照构造。
+3. 客户端 `ZjuTerm`（`3/12/16`、秋冬／春夏／短学期）与真实选项无对应关系，退役方向确认。
+4. 自动路径的 `termDisplay` 派生规则（`value.substringAfter('|')`）与本对照一致（`1|秋` → `秋`）。
+5. 待 Sol 按本证据与 §2 的方案定小范围修正边界；修正实现前不改生产代码。
+6. 本次逐项记录共 **7 项、无“寒”**；与 §1.3 早前口述的 8 项不一致，待用户在同一页面核对后更正。动态读取方案不依赖缺失项，测试须允许未来新增选项而不改代码；`1|短`／`2|短` 不等于已涵盖所有“短学期”。
