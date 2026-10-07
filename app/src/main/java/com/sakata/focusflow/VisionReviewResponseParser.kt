@@ -89,9 +89,9 @@ internal object VisionReviewResponseParser {
         if (candidates != parsed.candidates) warnings += "部分星期或节次缺少一致的网格依据，已清空；请人工核对"
         val preview = VisionGridPipeline.preview(parsed.geometry, candidates, null)
         val visibleCells = candidates.associate { candidate ->
-            cells[candidate.id] ?: if (
+            candidate.id to (cells[candidate.id] ?: if (
                 candidate.day != null && candidate.startPeriod != null && candidate.endPeriod != null
-            ) VisionGridCell(candidate.day, candidate.startPeriod, candidate.endPeriod) else null
+            ) VisionGridCell(candidate.day, candidate.startPeriod, candidate.endPeriod) else null)
         }
         VisionRecognitionPreview(preview.copy(cells = visibleCells), candidates, (warnings + preview.warnings).distinct())
     }.getOrNull()
