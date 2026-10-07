@@ -353,7 +353,11 @@ internal object VisionReviewResponseParser {
                 char == ',' -> {
                     var next = index + 1
                     while (next < raw.length && raw[next].isWhitespace()) next++
-                    if (next < raw.length && (raw[next] == '}' || raw[next] == ']')) index++
+                    var previous = index - 1
+                    while (previous >= 0 && raw[previous].isWhitespace()) previous--
+                    if (previous >= 0 && raw[previous] !in "{[:,"
+                        && next < raw.length && (raw[next] == '}' || raw[next] == ']')
+                    ) index++
                     else {
                         output.append(char)
                         index++
