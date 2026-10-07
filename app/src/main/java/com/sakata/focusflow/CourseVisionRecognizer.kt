@@ -102,14 +102,14 @@ object CourseVisionRecognizer {
             val result = runCatching<PreviewResult> {
                 check(store.currentAndReviewable(profile, vault) && !session.cancelled())
                 val key = vault.read(profile.credentialRef) as? VisionCredentialRead.Ready ?: error("key unavailable")
-                val image = compressImage(context, uri) ?: error("image unavailable")
-                when (val response = VisionServiceClient().chat(profile, key.secret, buildStructuredPrompt(), image, session)) {
+                val image = prepareImage(context, uri) ?: error("image unavailable")
+                when (val response = VisionServiceClient().chat(profile, key.secret, buildStructuredPrompt(image.width, image.height), image.bytes, session)) {
                     is VisionClientResult.Failure -> PreviewResult.Failure(response.message)
                     is VisionClientResult.Text -> {
-                        val parsed = VisionResponseParser.parse(response.value)
-                            ?: return@runCatching PreviewResult.Failure("模型没有返回严格的结构化视觉结果（${VisionResponseDiagnostics.summarize(response.value)}）")
-                        val preview = VisionGridPipeline.preview(parsed.geometry, parsed.candidates, null)
-                        PreviewResult.Success(VisionRecognitionPreview(preview, parsed.candidates, preview.warnings))
+                        val parsed = VisionReviewResponseParser.parse(response.value, image.width, image.height)
+                            ?: return@runCatching PreviewResult.Failure("模型结果无法安全解析，请重试或更换模型（${VisionResponseDiagnostics.summarize(response.value)}）")
+                        if (parsed.candidates.isEmpty()) PreviewResult.Failure("没有识别到课程，请选择能看清课程色块和星期节次的图片")
+                        else PreviewResult.Success(parsed)
                     }
                 }
             }.getOrElse { PreviewResult.Failure("图片、凭据或服务不可用，请检查配置后重试") }
@@ -129,14 +129,24 @@ object CourseVisionRecognizer {
         data class Failure(val message: String) : PreviewResult()
     }
 
-    internal fun buildStructuredPrompt(): String = """
-        你是课表网格识别助手，只识别课表网格内的课程色块。
+    internal fun buildStructuredPrompt(imageWidth: Int = 1000, imageHeight: Int = 800): String = """
+        你是课表网格识别助手，只识别课表网格内的课程色块，忽略教师名单、考试、按钮和网格外说明。
         严格只返回一个 JSON 对象，不要代码围栏、解释或额外文字。
-        对象键必须是 geometry 和 candidates。geometry 键必须是 width,height,originalToWorking,weekdays,periods,evidence；
-        weekdays/periods 的每项键必须是 index,start,end,source，source 只能是 detected。
-        candidates 每项键必须是 id,title,day,startPeriod,endPeriod,box,evidence,rawLocation,weeks,note,textConfidence,geometryConfidence；
-        看不清的 day/startPeriod/endPeriod 使用 null，box 使用归一化坐标或 null，不能猜测坐标。
-        geometry 的 originalToWorking 必须是 9 个数字，所有坐标在 0 到 1 之间，候选最多 ${VisionLimits.MAX_CANDIDATES} 条。
+        图片已旋转并缩放，上传图宽 $imageWidth 像素、高 $imageHeight 像素。
+        使用以下完整格式；示例中的课程名、星期、节次和坐标只是格式，不是识别答案：
+        {"geometry":{"width":$imageWidth,"height":$imageHeight,"originalToWorking":[1,0,0,0,1,0,0,0,1],
+        "weekdays":[{"index":1,"start":0.1,"end":0.2,"source":"detected"}],
+        "periods":[{"index":1,"start":0.1,"end":0.2,"source":"detected"}],"evidence":[]},
+        "candidates":[{"id":"c1","title":"示例课程","day":null,"startPeriod":null,"endPeriod":null,
+        "box":null,"evidence":[],"rawLocation":null,"weeks":null,"note":null,
+        "textConfidence":null,"geometryConfidence":null}]}
+        weekdays 是顶部星期列的实际左右边界（x），index 为周一1到周日7；periods 是左侧节次行的实际上下面界（y），index 为1到20。
+        所有边界和 box 都是上传图的归一化坐标：x除以宽度，y除以高度，范围0到1；box键为left,top,right,bottom。
+        同一个跨多节色块只输出一次，startPeriod/endPeriod为覆盖的第一节/最后一节。
+        星期和节次只能来自表头、节次行和色块位置；看不清使用null，绝不能默认填1或从课程文字猜测。
+        看不清网格时对应weekdays/periods使用[]；看不清课程框时box使用null，保留能看清的课程名供人工审核。
+        rawLocation、weeks、note、textConfidence、geometryConfidence没有依据时使用null；evidence没有依据时使用[]。
+        候选id必须唯一，title只含课程名；没有课程返回candidates=[]，不要复制示例，候选最多 ${VisionLimits.MAX_CANDIDATES} 条。
     """.trimIndent()
 
     /** 说明性文字（页脚/备注等）关键词，命中则丢弃，避免把“隐藏课程信息”等当成课程。 */
@@ -302,12 +312,19 @@ object CourseVisionRecognizer {
     }
 
     /** 解码（含 EXIF 旋转、降采样）后压缩为 JPEG base64，避免大图让接口请求过大。 */
-    private fun compressImage(context: Context, uri: Uri): ByteArray? = runCatching {
+    private data class PreparedVisionImage(val bytes: ByteArray, val width: Int, val height: Int)
+
+    private fun compressImage(context: Context, uri: Uri): ByteArray? = prepareImage(context, uri)?.bytes
+
+    private fun prepareImage(context: Context, uri: Uri): PreparedVisionImage? = runCatching {
         val bitmap = CourseScreenshotParser.decodeRotated(context, uri)
         try {
             val output = ByteArrayOutputStream()
             check(bitmap.compress(Bitmap.CompressFormat.JPEG, 85, output))
-            output.toByteArray().also { require(it.size <= VisionLimits.MAX_IMAGE_BYTES) }
+            PreparedVisionImage(
+                output.toByteArray().also { require(it.size <= VisionLimits.MAX_IMAGE_BYTES) },
+                bitmap.width, bitmap.height
+            )
         } finally { if (!bitmap.isRecycled) bitmap.recycle() }
     }.getOrNull()
 }

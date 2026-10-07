@@ -35,7 +35,7 @@
 - 应用内更新说明必须在发版时展示该版本核心变化：为每个新版本在 `QuickStartDialog.updateHighlightsFor` 写 2–3 条用户可感知的变化，禁止落入兜底文案；与 `CHANGELOG.md`、`RoadmapData.kt` 同步。
 - Follow `VERSIONING.md`; a CI `run-N` is not a product version and a successful build is not a release.
 - The current official release is `8.2.1` / versionCode 534 (the fifth formal release). It extends the optional appearance system with acrylic and frosted-glass profiles plus non-destructive image crop controls; rich appearance remains disabled by default.
-- The current development candidate is `8.3.0-rc.28` / versionCode 562: stage 9 regression audit fixes multi-period visual review positioning, clears stale repeat-task windows, bounds image import reads, and routes vision review/service/progress dialogs through the in-page material host; it retains the rc.27 Quick Start surface fix. CI evidence must be renewed. Stage 8 functionality is retained; see `docs/9.0-stage8-batch-a-contract.md`. Device and live-provider validation remain unexecuted; stage 7's device skip does not apply automatically. Room activation remains off. Do not merge or release without separate explicit approval.
+- The current development candidate is `8.3.0-rc.29` / versionCode 563: it fixes strict optional-field rejection in course screenshot review while retaining fail-closed handling for missing spatial evidence, and keeps the rc.28 script, diagnostics, visual surface, notification, and animation fixes. The active Stage 9 target is the maintained OPPO test device upgraded to ColorOS 17 / Android 17; ColorOS 16 / Android 15 is an optional separate compatibility target. Same-device screenshot-import revalidation remains pending; Stage 8 functionality is retained; see `docs/9.0-stage8-batch-a-contract.md`. Room activation remains off. Do not merge or release without separate explicit approval.
 - The previous official release is `8.2.0` / versionCode 525.
 - Do not allocate a new version merely to record an idea; keep uncommitted ideas in the future-candidate section until a coherent scope is frozen.
 - Do not merge a pull request without explicit user confirmation.
@@ -46,7 +46,7 @@
 - Run `:app:testDebugUnitTest` and `:app:assembleDebug` in CI before offering an APK.
 - Use only the stable-signed GitHub Actions artifact for installation testing.
 - 本地构建与 CI 使用同一签名（见 `docs/signing-policy.md`：证书 SHA-256 `650a17f2…`，即 Android 调试证书；仓库 Secrets 持有该 keystore）。本地构建需设置 `FOCUSFLOW_SIGNING_STORE_FILE`/`FOCUSFLOW_SIGNING_STORE_PASSWORD`/`FOCUSFLOW_SIGNING_KEY_ALIAS`/`FOCUSFLOW_SIGNING_KEY_PASSWORD` 四个环境变量，值从维护者本地签名目录读取（如 `signing/passwords.txt`，三行：storePassword/keyAlias/keyPassword；勿入库、勿回显、勿写入日志）。同一签名保证本地包与 GitHub Release 包可互相覆盖安装，应用内「检查更新」依赖这一点。
-- Target-device verification is OPPO / ColorOS 16 / Android 15, especially notification permission, channels, background restrictions, reboot recovery, and meal-dismiss behavior.
+- The active Stage 9 target-device verification is the maintained OPPO test device, upgraded to ColorOS 17 / Android 17, especially notification permission, channels, background restrictions, reboot recovery, and meal-dismiss behavior. ColorOS 16 / Android 15 is a separate optional compatibility target.
 
 ## Agent handoff
 

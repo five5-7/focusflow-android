@@ -122,6 +122,11 @@ internal fun CampusLifeChoiceDialog(onEnable: () -> Unit, onSkip: () -> Unit) {
 
 /** 覆盖安装后每个版本只展示一次的更新说明；版本名来自 BuildConfig，路线图是唯一详情入口。 */
 internal fun updateHighlightsFor(version: String): List<String> = when {
+    version == "8.3.0-rc.29" -> listOf(
+        "课表截图识别遇到缺少地点、周次或坐标时，会保留候选进入人工审核，不会擅自补星期或节次。",
+        "识别提示会明确告诉模型课表网格格式；审核页仍可逐条确认、编辑或拒绝，未确认内容不会写入课程。",
+        "阶段 9 真机验收适配已升级的 OPPO / ColorOS 17 / Android 17 测试设备。"
+    )
     version == "8.3.0-rc.28" -> listOf(
         "课表审核会保留完整色块的跨节范围，缺少坐标时按网格位置提示需要检查。",
         "重复任务暂停或停止后会清除残留弹性时间，图片导入会在读取时限制文件大小。",

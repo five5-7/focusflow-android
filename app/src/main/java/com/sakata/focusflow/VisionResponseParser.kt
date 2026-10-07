@@ -117,7 +117,7 @@ object VisionResponseParser {
         if (value.isNull(key)) null else value.get(key).also { require(it is String) }.toString()
 
     private fun nullableInt(value: JSONObject, key: String): Int? =
-        if (value.isNull(key)) null else strictInt(value, key)
+        if (value.isNull(key)) null else strictInt(value, key).also { require(it != null) }
 
     private fun strictInt(value: JSONObject, key: String): Int? {
         val item = value.get(key)
@@ -127,7 +127,7 @@ object VisionResponseParser {
     }
 
     private fun nullableNumber(value: JSONObject, key: String): Double? =
-        if (value.isNull(key)) null else number(value, key)
+        if (value.isNull(key)) null else number(value, key).also { require(it != null) }
 
     private fun number(value: JSONObject, key: String): Double? {
         val item = value.get(key)
