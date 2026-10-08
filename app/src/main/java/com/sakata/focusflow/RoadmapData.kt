@@ -21,6 +21,7 @@ object RoadmapData {
     /** 已实现版本演进（1.0 → 当前版本），每版本浓缩 1–3 条，与 CHANGELOG.md 对应。 */
     val evolution: List<RoadmapVersion> = listOf(
         RoadmapVersion("8.3.0", listOf(
+            RoadmapEntry("8.3.0-rc.35", "阶段9：UI 与动画精修", "外观折叠卡片补充展开/收起动画；设置进入外观时子页背景与内容同步转场，修复旧页面穿透和背景延迟。versionCode 569，待真机复测，未发布。", RoadmapStatus.CANDIDATE),
             RoadmapEntry("8.3.0-rc.34", "阶段9：快速记录键盘布局修复", "点击底部加号打开快速记录并输入时，键盘只压缩页面和弹窗区域，悬浮导航栏保持在屏幕底部；弹窗关闭仍主动收起输入法。versionCode 568，延续 rc.33，未发布。", RoadmapStatus.CANDIDATE),
             RoadmapEntry("8.3.0-rc.33", "阶段9：候选冻结与真机边界收敛", "完成 rc.33 工程门禁与同机复测记录；真实课表识别仍失败，按维护者决定暂缓新识别链路，保留旧版本实现与 fail-closed 门禁。versionCode 567，Run 573基线通过。", RoadmapStatus.CANDIDATE),
             RoadmapEntry("8.3.0-rc.32", "阶段9：真实课表结果提取修复", "兼容候选数组、思考/分析段和 JSON 后尾随说明；多个并列完整结果仍拒绝，空间范围、网格一致性与人工审核门禁不变。versionCode 566，基于 rc.31 的 stage=format 同机复测反馈，待安装 Run 566 复测，Room激活关闭，未发布。", RoadmapStatus.CANDIDATE),
