@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
@@ -44,6 +45,7 @@ import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -149,6 +151,7 @@ internal fun AppDialogHost(
     val progress = state.progress
     val latestDismiss by rememberUpdatedState(dismiss)
     val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
     LaunchedEffect(open) {
         if (open) {
             progress.snapTo(0f)
@@ -156,6 +159,8 @@ internal fun AppDialogHost(
         } else {
             // 收起/关闭都要把键盘收掉，否则弹窗走了输入法还停在屏幕上。
             // （读 progress.value 在副作用里做，避免组合期每帧取动画值。）
+            // clearFocus 不保证 IME 立即退出；主动 hide 避免 adjustResize 把底栏和弹窗压到屏幕中部。
+            keyboardController?.hide()
             if (progress.value > 0f) focusManager.clearFocus(force = true)
             progress.animateTo(0f, MotionSpec.exit())
             // 只有"真正关掉"才丢内容；单纯收起时保留，等待下一步带回来。
@@ -228,7 +233,8 @@ internal fun AppDialogHost(
                         },
                         // 调用方传的 modifier 作用在卡片上（与 AlertDialog 语义一致）。
                         modifier = modifier
-                            .widthIn(min = 280.dp, max = 560.dp)
+                            .fillMaxWidth()
+                            .widthIn(max = 560.dp)
                             .litShadow(SurfaceLighting.DIALOG_SHADOW, shape)
                     ) {
                         Box {
