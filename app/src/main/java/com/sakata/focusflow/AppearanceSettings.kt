@@ -10,7 +10,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.ExpandMore
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -104,7 +104,7 @@ internal fun AppearanceDisclosure(
                 }
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Icon(
-                        imageVector = Icons.Outlined.ExpandMore,
+                        imageVector = Icons.Filled.KeyboardArrowDown,
                         contentDescription = if (expanded) "收起" else "展开",
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(22.dp).graphicsLayer { rotationZ = arrowRotation }
