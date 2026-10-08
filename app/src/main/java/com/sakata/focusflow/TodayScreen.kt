@@ -2,14 +2,17 @@ package com.sakata.focusflow
 
 import android.app.DatePickerDialog
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -198,13 +201,40 @@ import kotlinx.coroutines.delay
         ) {
             Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                 Text("课程与固定安排 · ${fixed.size}  ›", fontWeight = FontWeight.Bold)
-                fixed.forEach { entry -> Text("${formatMinute(entry.startMinute)} · ${entry.title} — ${entry.subtitle}", style = MaterialTheme.typography.bodySmall) }
+                fixed.forEach { entry ->
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.Top,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Surface(
+                            modifier = Modifier.widthIn(min = 56.dp),
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.secondaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                        ) {
+                            Text(
+                                if (entry.isAllDay) "全天" else formatMinute(entry.startMinute),
+                                Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                style = MaterialTheme.typography.labelMedium,
+                                softWrap = false
+                            )
+                        }
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(entry.title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                            Text(entry.subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
                 if (fixed.isEmpty()) Text("今天没有课程或固定安排", style = MaterialTheme.typography.bodySmall)
             }
         }
         if (tasks.isNotEmpty()) FocusCard(containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
             modifier = Modifier.fillMaxWidth()) {
-            Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            Column(
+                Modifier.fillMaxWidth().animateContentSize(MotionSpec.quick()).padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                     Text("今天已安排 · ${tasks.size}", fontWeight = FontWeight.Bold)
                     if (todaySelectableIds.isNotEmpty()) TextButton(onClick = {
@@ -212,55 +242,85 @@ import kotlinx.coroutines.delay
                     }) { Text(if (todaySelecting) "完成整理" else "整理多项") }
                     else TextButton(onClick = onOpenSchedule) { Text("去日程 ›") }
                 }
-                if (!todaySelecting) tasks.forEach { entry -> Text("${formatMinute(entry.startMinute)} · ${entry.title}",
-                    modifier = Modifier.fillMaxWidth().clickable(onClick = onOpenSchedule), style = MaterialTheme.typography.bodySmall) }
-                else {
-                    Text("已选 ${selectedTodayIds.size} 项 · 计划、重复和关联子任务请单独处理", style = MaterialTheme.typography.bodySmall)
-                    TextButton(onClick = { selectedTodayIds = if (selectedTodayIds == todaySelectableIds) emptySet() else todaySelectableIds }) {
-                        Text(if (selectedTodayIds == todaySelectableIds) "取消全选" else "全选可整理任务")
-                    }
-                    items.filter { it.id in todaySelectableIds }.sortedBy { it.scheduledAt }.forEach { item ->
-                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().clickable {
-                            selectedTodayIds = if (item.id in selectedTodayIds) selectedTodayIds - item.id else selectedTodayIds + item.id
-                        }) {
-                            Checkbox(checked = item.id in selectedTodayIds, onCheckedChange = { checked ->
-                                selectedTodayIds = if (checked) selectedTodayIds + item.id else selectedTodayIds - item.id
-                            })
-                            Text(item.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        }
-                    }
-                    if (selectedTodayIds.isNotEmpty()) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Checkbox(checked = keepTodayBatchTime, onCheckedChange = { keepTodayBatchTime = it })
-                            Text("改期保留原时刻；关闭则仅指定日期", style = MaterialTheme.typography.bodySmall)
-                        }
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            TextButton(onClick = {
-                                val target = java.util.Calendar.getInstance().apply {
-                                    timeInMillis = now; add(java.util.Calendar.DAY_OF_YEAR, 1)
-                                }.timeInMillis
-                                if (onBatchToday(selectedTodayIds, TodoBatchAction.MOVE_DATE, target, keepTodayBatchTime)) {
-                                    todaySelecting = false; selectedTodayIds = emptySet()
+                AnimatedContent(
+                    targetState = todaySelecting,
+                    transitionSpec = {
+                        fadeIn(MotionSpec.quick()) togetherWith fadeOut(MotionSpec.quick())
+                    },
+                    label = "todayBatchMode"
+                ) { selecting ->
+                    if (!selecting) {
+                        tasks.forEach { entry ->
+                            Row(
+                                Modifier.fillMaxWidth().clickable(onClick = onOpenSchedule),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Surface(
+                                    modifier = Modifier.widthIn(min = 56.dp),
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = MaterialTheme.colorScheme.secondaryContainer,
+                                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                                ) {
+                                    Text(
+                                        if (entry.isAllDay) "全天" else formatMinute(entry.startMinute),
+                                        Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                        style = MaterialTheme.typography.labelMedium,
+                                        softWrap = false
+                                    )
                                 }
-                            }) { Text("移到明天") }
-                            TextButton(onClick = {
-                                val calendar = java.util.Calendar.getInstance().apply { timeInMillis = now }
-                                DatePickerDialog(todayContext, { _, year, month, day ->
+                                Text(entry.title, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall,
+                                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
+                    } else {
+                        Text("已选 ${selectedTodayIds.size} 项 · 计划、重复和关联子任务请单独处理", style = MaterialTheme.typography.bodySmall)
+                        TextButton(onClick = { selectedTodayIds = if (selectedTodayIds == todaySelectableIds) emptySet() else todaySelectableIds }) {
+                            Text(if (selectedTodayIds == todaySelectableIds) "取消全选" else "全选可整理任务")
+                        }
+                        items.filter { it.id in todaySelectableIds }.sortedBy { it.scheduledAt }.forEach { item ->
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().clickable {
+                                selectedTodayIds = if (item.id in selectedTodayIds) selectedTodayIds - item.id else selectedTodayIds + item.id
+                            }) {
+                                Checkbox(checked = item.id in selectedTodayIds, onCheckedChange = { checked ->
+                                    selectedTodayIds = if (checked) selectedTodayIds + item.id else selectedTodayIds - item.id
+                                })
+                                Text(item.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
+                        if (selectedTodayIds.isNotEmpty()) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Checkbox(checked = keepTodayBatchTime, onCheckedChange = { keepTodayBatchTime = it })
+                                Text("改期保留原时刻；关闭则仅指定日期", style = MaterialTheme.typography.bodySmall)
+                            }
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                TextButton(onClick = {
                                     val target = java.util.Calendar.getInstance().apply {
-                                        set(year, month, day, 12, 0, 0); set(java.util.Calendar.MILLISECOND, 0)
+                                        timeInMillis = now; add(java.util.Calendar.DAY_OF_YEAR, 1)
                                     }.timeInMillis
                                     if (onBatchToday(selectedTodayIds, TodoBatchAction.MOVE_DATE, target, keepTodayBatchTime)) {
                                         todaySelecting = false; selectedTodayIds = emptySet()
                                     }
-                                }, calendar.get(java.util.Calendar.YEAR), calendar.get(java.util.Calendar.MONTH),
-                                    calendar.get(java.util.Calendar.DAY_OF_MONTH)).show()
-                            }) { Text("选择日期") }
-                        }
-                        TextButton(onClick = {
-                            if (onBatchToday(selectedTodayIds, TodoBatchAction.CLEAR_TIME, null, false)) {
-                                todaySelecting = false; selectedTodayIds = emptySet()
+                                }) { Text("移到明天") }
+                                TextButton(onClick = {
+                                    val calendar = java.util.Calendar.getInstance().apply { timeInMillis = now }
+                                    DatePickerDialog(todayContext, { _, year, month, day ->
+                                        val target = java.util.Calendar.getInstance().apply {
+                                            set(year, month, day, 12, 0, 0); set(java.util.Calendar.MILLISECOND, 0)
+                                        }.timeInMillis
+                                        if (onBatchToday(selectedTodayIds, TodoBatchAction.MOVE_DATE, target, keepTodayBatchTime)) {
+                                            todaySelecting = false; selectedTodayIds = emptySet()
+                                        }
+                                    }, calendar.get(java.util.Calendar.YEAR), calendar.get(java.util.Calendar.MONTH),
+                                        calendar.get(java.util.Calendar.DAY_OF_MONTH)).show()
+                                }) { Text("选择日期") }
                             }
-                        }) { Text("改为未安排") }
+                            TextButton(onClick = {
+                                if (onBatchToday(selectedTodayIds, TodoBatchAction.CLEAR_TIME, null, false)) {
+                                    todaySelecting = false; selectedTodayIds = emptySet()
+                                }
+                            }) { Text("改为未安排") }
+                        }
                     }
                 }
             }
@@ -471,7 +531,11 @@ import kotlinx.coroutines.delay
                                 selectedInboxIds = emptySet()
                             }) { Text(if (inboxSelecting) "完成" else "整理多项") }
                         }
-                        AnimatedVisibility(inboxSelecting) {
+                        AnimatedVisibility(
+                            visible = inboxSelecting,
+                            enter = expandVertically(MotionSpec.quick(), expandFrom = Alignment.Top) + fadeIn(MotionSpec.quick()),
+                            exit = shrinkVertically(MotionSpec.exit(), shrinkTowards = Alignment.Top) + fadeOut(MotionSpec.exit())
+                        ) {
                             FocusCard(containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
                                 Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -768,7 +832,11 @@ private fun StatusChoiceRow(label: String, options: List<String>, selected: Stri
             }
             if (!selecting) Text(if (expanded) "收起" else "展开", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
         }
-        AnimatedVisibility(visible = expanded, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
+        AnimatedVisibility(
+            visible = expanded,
+            enter = expandVertically(MotionSpec.quick(), expandFrom = Alignment.Top) + fadeIn(MotionSpec.quick()),
+            exit = shrinkVertically(MotionSpec.exit(), shrinkTowards = Alignment.Top) + fadeOut(MotionSpec.exit())
+        ) {
             Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 if (item.detail.isNotBlank()) Text(item.detail)
                 if (item.userNote != null && item.userNote.isNotBlank() && item.userNote != item.detail) {
