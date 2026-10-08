@@ -44,7 +44,7 @@ class TabMotionRulesTest {
         assertEquals(TabMotionRules.NO_TAB, TabMotionRules.departingSubpageTab(from, to))
     }
 
-    @Test fun tappingTheSelectedTabAlsoSnapsItsSubpageToTheRoot() {
+    @Test fun tappingTheSelectedTabKeepsTheRootReturnAnimation() {
         val from = settings(SettingsSubPage.APPEARANCE)
         val to = settings()
         // A same-tab nav reselect is an intentional return, so it keeps the reverse animation.
