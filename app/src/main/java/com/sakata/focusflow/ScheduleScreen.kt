@@ -63,14 +63,11 @@ internal fun ScheduleScreen(
     var firstPeriodSetup by remember { mutableStateOf(false) }
 
     ScrollableWithBar(modifier = modifier, scrollState = rememberScrollState()) {
-        Row(
-            Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text("日程", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
-            HelpToggleButton(onClick = { helpOpen = true })
-        }
+        FocusPageHeader(
+            title = "日程",
+            subtitle = "看清今天、未来一周和固定课表",
+            action = { HelpToggleButton(onClick = { helpOpen = true }) }
+        )
         Row(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
