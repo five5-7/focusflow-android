@@ -122,6 +122,16 @@ internal fun CampusLifeChoiceDialog(onEnable: () -> Unit, onSkip: () -> Unit) {
 
 /** 覆盖安装后每个版本只展示一次的更新说明；版本名来自 BuildConfig，路线图是唯一详情入口。 */
 internal fun updateHighlightsFor(version: String): List<String> = when {
+    version == "8.3.0-rc.34" -> listOf(
+        "快速记录时输入法只避让记录弹窗和页面内容，底部导航栏保持在屏幕底部。",
+        "保留原有快速记录与页面输入行为；课表识别和数据门禁没有改变。"
+    )
+
+    version == "8.3.0-rc.33" -> listOf(
+        "阶段 9 候选完成工程门禁与导航、通知、外观和动画回归记录。",
+        "真实课表识别失败会保持无导入；旧版本入口与 fail-closed 数据门禁继续保留。"
+    )
+
     version == "8.3.0-rc.32" -> listOf(
         "课表识别兼容候选数组、思考/分析段和 JSON 后的说明文字，减少模型外围格式差异造成的解析失败。",
         "仍会拒绝多个完整结果；空间不确定的课程继续逐条人工审核，未确认内容不会写入课程。"
