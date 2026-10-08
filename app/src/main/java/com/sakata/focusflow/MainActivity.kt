@@ -723,23 +723,23 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
      * 2) 若这次导航把目标页签的子页**收回主页**，标记"该子页切换不补播动画"。
      * 打开子页（深链/通知/跳转）不抑制——那是用户明确要去的地方，应当从图标放大展开。
      */
-    fun prepareNavigation(next: PageSnapshot, directTabEntry: Boolean = false) {
+    fun prepareNavigation(next: PageSnapshot) {
         val current = pageSnapshot()
         leavingSubpageTab = TabMotionRules.departingSubpageTab(current, next)
-        if (TabMotionRules.destinationSubpageReset(current, next, directTabEntry)) {
+        if (TabMotionRules.destinationSubpageReset(current, next)) {
             pageSnapTab = next.tab
             pageSnapToken++
         }
     }
 
     /** 所有页面级导航统一入口：记录历史并应用新目的地；目的地未变化则忽略。 */
-    fun goTo(next: PageSnapshot, directTabEntry: Boolean = false) {
+    fun goTo(next: PageSnapshot) {
         // 8.1.0 第四轮（用户口径）：弹窗是**当前状态的一部分**，切页不销毁它、只把它收起。
         // 既不会出现"页面切了、弹窗还浮在新页面上"（它不显示），也不会丢掉它：
         // 这次切换把「副页 + 弹窗 + 已填数据」整体压进历史，从别处上一步回来就整包还原。
         // 可见性一律由 history.current.dialogOpen 决定（syncDialogLayer）。
         if (navHistory.goTo(next) == null) return
-        prepareNavigation(next, directTabEntry)
+        prepareNavigation(next)
         applySnapshot(next)
         syncDialogLayer()
     }
@@ -1275,7 +1275,7 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
     fun selectTab(index: Int) {
         // Reset only the destination. The outgoing page must survive its exit animation.
         // 目标页签的副页会被重置回主页；"顺带重置"不补播动画，由 prepareNavigation 统一判定。
-        // 同一页签再次点击也走 directTabEntry：这是“回到主页”的显式导航，不应重播缩小。
+        // 同一页签再次点击也保留正常的主页收回动画；根背景在收回阶段保持稳定。
         lastNavWasJump = false
         goTo(PageSnapshot(
             tab = index,
@@ -1283,7 +1283,7 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
             planPage = if (index == 2) null else planPage,
             settingsSubPage = if (index == 3) null else settingsSubPage,
             settingsBackStack = if (index == 3) emptyList() else settingsBackStack
-        ), directTabEntry = true)
+        ))
     }
     // 8.1.0 两级退出：非今日页主页按返回先回今日主页；今日页主页按返回二次确认退出，可记忆不再提示。
     // 子页返回处理器在本处理器之后组合，子页打开时优先；弹窗宿主也组合在本处理器之后，弹窗打开时返回先关弹窗。
