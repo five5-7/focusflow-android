@@ -6,6 +6,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -39,10 +40,13 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.toPixelMap
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -732,17 +736,39 @@ private fun ImageCropControls(
     val configuration = LocalConfiguration.current
     val screenRatio = (configuration.screenWidthDp.toFloat() / configuration.screenHeightDp.toFloat())
         .coerceIn(0.4f, 0.75f)
+    var previewSize by remember { mutableStateOf(IntSize.Zero) }
     Column(
         modifier = Modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(2.dp)
     ) {
         Text("图片范围", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+        Text(
+            "拖动预览调整主体位置；下方滑块可精细微调",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
         val previewShape = RoundedCornerShape(14.dp)
         Canvas(
             Modifier
-                .fillMaxWidth(0.46f)
+                .fillMaxWidth(0.64f)
                 .aspectRatio(screenRatio)
+                .onSizeChanged { previewSize = it }
+                .pointerInput(normalized, previewSize) {
+                    detectDragGestures { change, dragAmount ->
+                        change.consume()
+                        val width = previewSize.width.toFloat()
+                        val height = previewSize.height.toFloat()
+                        if (width > 0f && height > 0f) {
+                            onCropChange(
+                                normalized.pannedBy(
+                                    deltaXFraction = dragAmount.x / width,
+                                    deltaYFraction = dragAmount.y / height
+                                )
+                            )
+                        }
+                    }
+                }
                 .clip(previewShape)
                 .background(MaterialTheme.colorScheme.surfaceVariant)
                 .border(1.dp, MaterialTheme.colorScheme.outlineVariant, previewShape)
