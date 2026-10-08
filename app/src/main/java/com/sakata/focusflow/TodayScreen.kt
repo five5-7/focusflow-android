@@ -191,8 +191,11 @@ import kotlinx.coroutines.delay
         val agenda = todayAgenda(courses, items, now)
         val fixed = agenda.filter(AgendaEntry::isCourse)
         val tasks = agenda.filterNot(AgendaEntry::isCourse)
-        FocusCard(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
-            modifier = Modifier.fillMaxWidth().clickable(onClick = onOpenSchedule)) {
+        FocusCard(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+            modifier = Modifier.fillMaxWidth(),
+            onClick = onOpenSchedule
+        ) {
             Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                 Text("课程与固定安排 · ${fixed.size}  ›", fontWeight = FontWeight.Bold)
                 fixed.forEach { entry -> Text("${formatMinute(entry.startMinute)} · ${entry.title} — ${entry.subtitle}", style = MaterialTheme.typography.bodySmall) }
