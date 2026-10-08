@@ -30,10 +30,14 @@ internal object TabMotionRules {
      * 只有"收回"属于顺带发生，才不补播动画；反过来，**打开**子页（深链、通知、
      * 快速记录跳转、更新说明跳路线图等）是用户明确要去的地方，照常从底栏图标放大展开。
      */
-    fun destinationSubpageReset(current: PageSnapshot, next: PageSnapshot): Boolean {
-        // Tapping the already-selected bottom-nav item is also a direct entry to
-        // that tab's root. Treat it exactly like tapping the tab from elsewhere:
-        // the subpage is reset without replaying the collapse animation.
+    fun destinationSubpageReset(
+        current: PageSnapshot,
+        next: PageSnapshot,
+        directTabEntry: Boolean = false
+    ): Boolean {
+        // A same-tab reset is special: only the bottom-nav reselect is a
+        // direct entry. System Back still gets the normal reverse animation.
+        if (next.tab == current.tab && !directTabEntry) return false
         return when (next.tab) {
             PageSnapshot.TAB_TODAY -> current.todayInboxOpen && !next.todayInboxOpen
             PageSnapshot.TAB_PLANS -> current.planPage != null && next.planPage == null
