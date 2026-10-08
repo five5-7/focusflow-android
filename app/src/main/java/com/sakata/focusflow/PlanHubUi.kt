@@ -120,15 +120,10 @@ internal fun PlanSubpageFrame(
         scrollState = rememberScrollState(),
         spacing = 10.dp
     ) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                title,
-                style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.weight(1f)
-            )
-            titleAction?.invoke()
-        }
+        FocusPageHeader(
+            title = title,
+            action = titleAction
+        )
         Column(
             Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 32.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
