@@ -44,6 +44,13 @@ class TabMotionRulesTest {
         assertEquals(TabMotionRules.NO_TAB, TabMotionRules.departingSubpageTab(from, to))
     }
 
+    @Test fun tappingTheSelectedTabAlsoSnapsItsSubpageToTheRoot() {
+        val from = settings(SettingsSubPage.APPEARANCE)
+        val to = settings()
+        assertTrue(TabMotionRules.destinationSubpageReset(from, to))
+        assertEquals(TabMotionRules.NO_TAB, TabMotionRules.departingSubpageTab(from, to))
+    }
+
     @Test fun forwardAfterBackDoesNotReplayTheCollapse() {
         // 用户实测序列：设置主页 → 外观 → 今日 → 设置主页 → 上一步 → 下一步
         val hub = settings()
