@@ -1,5 +1,10 @@
 package com.sakata.focusflow
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
@@ -82,11 +87,17 @@ internal fun AppearanceDisclosure(
                     color = MaterialTheme.colorScheme.primary)
             }
         }
-        if (expanded) Column(
-            Modifier.fillMaxWidth().padding(horizontal = 4.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            content = content
-        )
+        AnimatedVisibility(
+            visible = expanded,
+            enter = fadeIn(MotionSpec.quick()) + expandVertically(MotionSpec.quick()),
+            exit = fadeOut(MotionSpec.quick()) + shrinkVertically(MotionSpec.quick())
+        ) {
+            Column(
+                Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                content = content
+            )
+        }
     }
 }
 
