@@ -78,12 +78,16 @@ internal fun Modifier.pageLayerBackground(flatColor: Color): Modifier {
     // 但**层本身仍必须不透明**——否则会退回 8.1.1 修过的"转场时两层互相透出来"。
     // 这里用主题页面底色兜底：内容会盖住它；内容比视口短时下方也是干净的页面底色，
     // 不会露出对不上的渐变。
-    return if (appearance.effectivePageBackdrop == BackdropKind.THEME ||
-        (appearance.effectivePageBackdrop == BackdropKind.GRADIENT && appearance.gradientFollowsContent)
-    ) {
-        background(flatColor)
-    } else {
-        appearanceBackdrop(
+    return when {
+        // The root activity already owns the full-window image background. Repainting
+        // it inside a keyboard-resized subpage would use the shorter child height and
+        // produce a second, visibly different crop during IME and page transitions.
+        appearance.effectivePageBackdrop == BackdropKind.IMAGE -> this
+        appearance.effectivePageBackdrop == BackdropKind.THEME ||
+            (appearance.effectivePageBackdrop == BackdropKind.GRADIENT && appearance.gradientFollowsContent) -> {
+            background(flatColor)
+        }
+        else -> appearanceBackdrop(
             appearance,
             MaterialTheme.colorScheme,
             LocalBackdropBitmap.current,
