@@ -2,6 +2,7 @@ package com.sakata.focusflow
 
 import android.content.Context
 import android.content.SharedPreferences
+import org.json.JSONObject
 import java.util.UUID
 
 sealed class VisionConfigurationRead {
@@ -68,13 +69,40 @@ class VisionServiceStore internal constructor(private val prefs: SharedPreferenc
         if ((read() as? VisionConfigurationRead.Ready)?.configuration != expected) return@synchronized false
         write(expected.copy(profiles = expected.profiles.filterNot { it.id == id }, defaultId = expected.defaultId.takeUnless { it == id }))
     }
+    private fun probeAllowsManualReview(profile: VisionServiceProfile, keyRevision: String): Boolean = runCatching {
+        val raw = prefs.all["probe_" + profile.id] as? String ?: return@runCatching false
+        val record = JSONObject(raw)
+        record.optString("profileRevision") == profile.revision &&
+            record.optString("credentialRevision") == keyRevision &&
+            record.optInt("probeVersion", -1) == VisionLimits.PROBE_VERSION &&
+            record.optBoolean("connected", false) &&
+            record.optBoolean("structured", false)
+    }.getOrDefault(false)
+
     fun verifiedProfiles(vault: VisionCredentialStore): List<VisionServiceProfile> = (read() as? VisionConfigurationRead.Ready)?.configuration?.profiles.orEmpty().filter { p ->
         val key = vault.read(p.credentialRef) as? VisionCredentialRead.Ready
         key != null && p.verified(key.revision)
     }
+
+    /** Profiles may be explicitly selected for review after connection and structured output pass.
+     *  A partial probe never grants default status or automatic import.
+     */
+    fun reviewableProfiles(vault: VisionCredentialStore): List<VisionServiceProfile> = synchronized(VisionCredentialStore.lock) {
+        (read() as? VisionConfigurationRead.Ready)?.configuration?.profiles.orEmpty().filter { p ->
+            val key = vault.read(p.credentialRef) as? VisionCredentialRead.Ready
+            key != null && (p.verified(key.revision) || probeAllowsManualReview(p, key.revision))
+        }
+    }
+
     fun currentAndVerified(profile: VisionServiceProfile, vault: VisionCredentialStore): Boolean = synchronized(VisionCredentialStore.lock) {
         val now = (read() as? VisionConfigurationRead.Ready)?.configuration?.profiles?.find { it.id == profile.id }
         val key = vault.read(profile.credentialRef) as? VisionCredentialRead.Ready
         now == profile && key != null && profile.verified(key.revision)
+    }
+
+    fun currentAndReviewable(profile: VisionServiceProfile, vault: VisionCredentialStore): Boolean = synchronized(VisionCredentialStore.lock) {
+        val now = (read() as? VisionConfigurationRead.Ready)?.configuration?.profiles?.find { it.id == profile.id }
+        val key = vault.read(profile.credentialRef) as? VisionCredentialRead.Ready
+        now == profile && key != null && (profile.verified(key.revision) || probeAllowsManualReview(profile, key.revision))
     }
 }

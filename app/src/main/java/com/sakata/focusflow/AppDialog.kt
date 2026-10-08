@@ -12,6 +12,10 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
@@ -44,6 +48,7 @@ import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -149,6 +154,7 @@ internal fun AppDialogHost(
     val progress = state.progress
     val latestDismiss by rememberUpdatedState(dismiss)
     val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
     LaunchedEffect(open) {
         if (open) {
             progress.snapTo(0f)
@@ -156,6 +162,8 @@ internal fun AppDialogHost(
         } else {
             // 收起/关闭都要把键盘收掉，否则弹窗走了输入法还停在屏幕上。
             // （读 progress.value 在副作用里做，避免组合期每帧取动画值。）
+            // clearFocus 不保证 IME 立即退出；主动 hide 避免 adjustResize 把底栏和弹窗压到屏幕中部。
+            keyboardController?.hide()
             if (progress.value > 0f) focusManager.clearFocus(force = true)
             progress.animateTo(0f, MotionSpec.exit())
             // 只有"真正关掉"才丢内容；单纯收起时保留，等待下一步带回来。
@@ -167,12 +175,13 @@ internal fun AppDialogHost(
     val body = retained.value ?: return
     // 卡片从屏幕下方平移进来、再平移回去（用户要求"上下平移进出屏幕"）；
     // 遮罩仍然淡入淡出——跟着一起滑动会显得整个屏幕在晃。
+    val imeInsets = WindowInsets.ime
     val slidePx = with(LocalDensity.current) {
         (LocalConfiguration.current.screenHeightDp * DIALOG_SLIDE_SCREEN_FRACTION).dp.toPx()
     }
     // zIndex(1f)：盖住 StatusBarScrim（同 zIndex 0 的兄弟节点、组合在宿主之后），但仍在底栏（2f）之下。
     Box(
-        Modifier.fillMaxSize().zIndex(1f)
+        Modifier.fillMaxSize().imePadding().zIndex(1f)
             // 收起状态不进无障碍树（卡片已在屏幕外）。
             .then(if (open) Modifier else Modifier.clearAndSetSemantics {})
     ) {
@@ -228,7 +237,8 @@ internal fun AppDialogHost(
                         },
                         // 调用方传的 modifier 作用在卡片上（与 AlertDialog 语义一致）。
                         modifier = modifier
-                            .widthIn(min = 280.dp, max = 560.dp)
+                            .fillMaxWidth()
+                            .widthIn(max = 560.dp)
                             .litShadow(SurfaceLighting.DIALOG_SHADOW, shape)
                     ) {
                         Box {
@@ -276,7 +286,11 @@ internal fun AppDialogHost(
             }
         ) { measurables, constraints ->
             val pad = 24.dp.roundToPx()
-            val inset = bottomInset.roundToPx()
+            // imePadding() already shortens the host to the visible area. Only reserve the
+            // part of the floating bar that remains below that area; otherwise the keyboard
+            // and the bar would be counted twice and leave a large empty gap.
+            val imeBottom = imeInsets.getBottom(this)
+            val inset = (bottomInset.roundToPx() - imeBottom).coerceAtLeast(0)
             val available = (constraints.maxHeight - inset - pad * 2).coerceAtLeast(pad * 2 + 1)
             val placeable = measurables.first().measure(
                 constraints.copy(minWidth = 0, minHeight = 0, maxHeight = available)
