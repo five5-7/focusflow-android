@@ -122,6 +122,11 @@ internal fun CampusLifeChoiceDialog(onEnable: () -> Unit, onSkip: () -> Unit) {
 
 /** 覆盖安装后每个版本只展示一次的更新说明；版本名来自 BuildConfig，路线图是唯一详情入口。 */
 internal fun updateHighlightsFor(version: String): List<String> = when {
+    version == "8.3.0-rc.39" -> listOf(
+        "日程页在日、周、课表之间切换时会平滑过渡，减少整块内容突然替换。",
+        "外观折叠反馈、导航收回动画与稳定图片背景继续保留。"
+    )
+
     version == "8.3.0-rc.38" -> listOf(
         "外观设置的折叠卡片增加箭头旋转和展开态颜色反馈，当前状态更容易看懂。",
         "导航收回动画、稳定图片背景与子页转场优化继续保留。"
