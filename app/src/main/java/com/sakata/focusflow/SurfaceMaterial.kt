@@ -72,7 +72,11 @@ internal val LocalGlassBackdropState = staticCompositionLocalOf<HazeState?> { nu
  * 默认外观下就是原来的纯色（逐像素不变）；非默认外观下每层**各画一遍**同一个背景。
  */
 @Composable
-internal fun Modifier.pageLayerBackground(flatColor: Color): Modifier {
+internal fun Modifier.pageLayerBackground(
+    flatColor: Color,
+    /** Draw the already-decoded root backdrop while a page layer is moving. */
+    includeImageBackdrop: Boolean = false
+): Modifier {
     val appearance = LocalAppearance.current
     // 「渐变跟随内容」时渐变由滚动内容自己按内容高度铺（见 ScrollableWithBar），
     // 但**层本身仍必须不透明**——否则会退回 8.1.1 修过的"转场时两层互相透出来"。
@@ -82,7 +86,10 @@ internal fun Modifier.pageLayerBackground(flatColor: Color): Modifier {
         // The root activity already owns the full-window image background. Repainting
         // it inside a keyboard-resized subpage would use the shorter child height and
         // produce a second, visibly different crop during IME and page transitions.
-        appearance.effectivePageBackdrop == BackdropKind.IMAGE -> this
+        // The root owns the steady-state image to keep IME crops stable. During a
+        // page transition, the moving layer needs the same opaque backdrop from its
+        // first frame so its cards do not float over the outgoing page.
+        appearance.effectivePageBackdrop == BackdropKind.IMAGE && !includeImageBackdrop -> this
         appearance.effectivePageBackdrop == BackdropKind.THEME ||
             (appearance.effectivePageBackdrop == BackdropKind.GRADIENT && appearance.gradientFollowsContent) -> {
             background(flatColor)
