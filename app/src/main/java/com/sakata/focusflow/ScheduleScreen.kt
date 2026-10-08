@@ -1,6 +1,7 @@
 package com.sakata.focusflow
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
@@ -114,7 +115,8 @@ internal fun ScheduleScreen(
         AnimatedContent(
             targetState = scheduleMode,
             transitionSpec = {
-                fadeIn(MotionSpec.quick()) togetherWith fadeOut(MotionSpec.quick())
+                (fadeIn(MotionSpec.quick()) togetherWith fadeOut(MotionSpec.quick()))
+                    .using(SizeTransform { _, _ -> MotionSpec.quick() })
             },
             label = "scheduleModeContent"
         ) { mode ->
