@@ -31,7 +31,9 @@ internal object TabMotionRules {
      * 快速记录跳转、更新说明跳路线图等）是用户明确要去的地方，照常从底栏图标放大展开。
      */
     fun destinationSubpageReset(current: PageSnapshot, next: PageSnapshot): Boolean {
-        if (next.tab == current.tab) return false
+        // Tapping the already-selected bottom-nav item is also a direct entry to
+        // that tab's root. Treat it exactly like tapping the tab from elsewhere:
+        // the subpage is reset without replaying the collapse animation.
         return when (next.tab) {
             PageSnapshot.TAB_TODAY -> current.todayInboxOpen && !next.todayInboxOpen
             PageSnapshot.TAB_PLANS -> current.planPage != null && next.planPage == null
