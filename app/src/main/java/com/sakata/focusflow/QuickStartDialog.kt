@@ -122,6 +122,11 @@ internal fun CampusLifeChoiceDialog(onEnable: () -> Unit, onSkip: () -> Unit) {
 
 /** 覆盖安装后每个版本只展示一次的更新说明；版本名来自 BuildConfig，路线图是唯一详情入口。 */
 internal fun updateHighlightsFor(version: String): List<String> = when {
+    version == "8.3.0-rc.35" -> listOf(
+        "外观设置的折叠卡片现在会平滑展开和收起，页面背景与子页转场同步进入。",
+        "修正设置进入外观时旧文字卡片穿透和背景延迟出现的问题；课程识别门禁保持不变。"
+    )
+
     version == "8.3.0-rc.34" -> listOf(
         "快速记录时输入法只避让记录弹窗和页面内容，底部导航栏保持在屏幕底部。",
         "保留原有快速记录与页面输入行为；课表识别和数据门禁没有改变。"
