@@ -28,13 +28,13 @@ internal object MotionSpec {
     const val MOVE_MS = 260
 
     /** 轻反馈（滚动条、展开收起）。 */
-    const val QUICK_MS = 180
+    const val QUICK_MS = 160
 
     /** 底栏圆瓣形变与选中态。 */
-    const val MORPH_MS = 260
+    const val MORPH_MS = 240
 
     /** 底栏选中底色的目的地回弹。 */
-    const val PULSE_MS = 140
+    const val PULSE_MS = 120
 
     /**
      * 副页收回自己主页的时长。
