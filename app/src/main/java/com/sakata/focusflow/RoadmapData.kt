@@ -21,6 +21,7 @@ object RoadmapData {
     /** 已实现版本演进（1.0 → 当前版本），每版本浓缩 1–3 条，与 CHANGELOG.md 对应。 */
     val evolution: List<RoadmapVersion> = listOf(
         RoadmapVersion("8.3.0", listOf(
+            RoadmapEntry("8.3.0-rc.39", "阶段9：日程模式切换过渡", "日程页日／周／课表模式切换加入淡入淡出过渡；保留外观折叠反馈、导航收回动画与稳定图片背景。versionCode 573，待真机复测，未发布。", RoadmapStatus.CANDIDATE),
             RoadmapEntry("8.3.0-rc.38", "阶段9：外观折叠状态反馈", "外观设置折叠卡片增加箭头旋转与展开态色彩反馈；保留导航收回动画与稳定图片背景修复。versionCode 572，待真机复测，未发布。", RoadmapStatus.CANDIDATE),
             RoadmapEntry("8.3.0-rc.37", "阶段9：保留导航收回动画并修复背景闪帧", "直接点击当前页签导航入口时保留副页收回动画；收回阶段由根背景稳定接管，避免图片背景闪帧。versionCode 571，待真机复测，未发布。", RoadmapStatus.CANDIDATE),
             RoadmapEntry("8.3.0-rc.36", "阶段9：导航收回背景闪帧修复", "点击当前页签导航入口返回主页时直接复位，避免误播副页缩小转场造成图片背景闪帧；保留 rc.35 外观折叠动画与子页背景同步。versionCode 570，待真机复测，未发布。", RoadmapStatus.CANDIDATE),
