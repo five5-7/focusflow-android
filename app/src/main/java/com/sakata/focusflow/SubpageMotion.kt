@@ -81,6 +81,13 @@ internal fun <T : Any> SubpageMotion(
     val states = rememberSaveableStateHolder()
     val transition = updateTransition(page, label = "subpage-state")
     val collapseOrigin = LocalNavCollapseOrigin.current
+    // Keep the backdrop in the same animated layer as the page content. The root
+    // still owns the steady-state image (important for IME); this extra draw exists
+    // only while two destinations are moving, so the incoming cards never reveal
+    // the outgoing page underneath.
+    val movingBackdrop by remember(transition) {
+        derivedStateOf { transition.isRunning }
+    }
     // 页签直达重置副页：这次切换不播任何动画；token 读到后立即消费，避免抑制窗口误伤后续主动打开。
     val snapToken = LocalPageSnapToken.current
     val onSnapConsumed = LocalPageSnapConsumed.current
@@ -129,7 +136,11 @@ internal fun <T : Any> SubpageMotion(
             states.SaveableStateProvider(destination.toString()) {
                 // 每层自带不透明背景：非默认外观（渐变/图片）下各画一遍同一个背景，
                 // 否则放大/缩小时两层会互相透出来（真机复现：副页放大期间画面变成透明）。
-                Box(Modifier.fillMaxSize().pageLayerBackground(containerColor).then(input)) {
+                Box(
+                    Modifier.fillMaxSize()
+                        .pageLayerBackground(containerColor, includeImageBackdrop = movingBackdrop)
+                        .then(input)
+                ) {
                     content(destination)
                 }
             }
