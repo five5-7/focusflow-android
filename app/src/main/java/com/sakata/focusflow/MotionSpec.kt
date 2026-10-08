@@ -31,7 +31,7 @@ internal object MotionSpec {
     const val QUICK_MS = 160
 
     /** 底栏圆瓣形变与选中态。 */
-    const val MORPH_MS = 240
+    const val MORPH_MS = 250
 
     /** 底栏选中底色的目的地回弹。 */
     const val PULSE_MS = 120
