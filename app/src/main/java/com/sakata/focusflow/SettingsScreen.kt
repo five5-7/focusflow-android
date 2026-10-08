@@ -266,7 +266,10 @@ private data class BaselineVariantDraft(val name: String)
         exit = hubExit()
     ) {
     ScrollableWithBar(scrollState = settingsScrollState) {
-        Text("设置", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
+        FocusPageHeader(
+            title = "设置",
+            subtitle = "提醒、外观和低频工具都在这里"
+        )
         var defaultHelpExpanded by remember { mutableStateOf(false) }
         FocusCard(
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
