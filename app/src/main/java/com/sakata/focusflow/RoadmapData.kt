@@ -21,6 +21,7 @@ object RoadmapData {
     /** 已实现版本演进（1.0 → 当前版本），每版本浓缩 1–3 条，与 CHANGELOG.md 对应。 */
     val evolution: List<RoadmapVersion> = listOf(
         RoadmapVersion("8.3.0", listOf(
+            RoadmapEntry("8.3.0-rc.37", "阶段9：保留导航收回动画并修复背景闪帧", "直接点击当前页签导航入口时保留副页收回动画；收回阶段由根背景稳定接管，避免图片背景闪帧。versionCode 571，待真机复测，未发布。", RoadmapStatus.CANDIDATE),
             RoadmapEntry("8.3.0-rc.36", "阶段9：导航收回背景闪帧修复", "点击当前页签导航入口返回主页时直接复位，避免误播副页缩小转场造成图片背景闪帧；保留 rc.35 外观折叠动画与子页背景同步。versionCode 570，待真机复测，未发布。", RoadmapStatus.CANDIDATE),
             RoadmapEntry("8.3.0-rc.35", "阶段9：UI 与动画精修", "外观折叠卡片补充展开/收起动画；设置进入外观时子页背景与内容同步转场，修复旧页面穿透和背景延迟。versionCode 569，待真机复测，未发布。", RoadmapStatus.CANDIDATE),
             RoadmapEntry("8.3.0-rc.34", "阶段9：快速记录键盘布局修复", "点击底部加号打开快速记录并输入时，键盘只压缩页面和弹窗区域，悬浮导航栏保持在屏幕底部；弹窗关闭仍主动收起输入法。versionCode 568，延续 rc.33，未发布。", RoadmapStatus.CANDIDATE),
