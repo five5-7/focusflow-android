@@ -166,10 +166,11 @@ import kotlinx.coroutines.delay
             exit = hubExit()
         ) {
     ScrollableWithBar(scrollState = overviewScrollState) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-            Text("今日概览", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
-            HelpToggleButton(onClick = { helpOpen = true })
-        }
+        FocusPageHeader(
+            title = "今日概览",
+            subtitle = "先看状态，再决定现在最合适的一步",
+            action = { HelpToggleButton(onClick = { helpOpen = true }) }
+        )
         TodayStatusPanel(
             expanded = statusPanelOpen,
             onExpandedChange = {
