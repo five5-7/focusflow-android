@@ -166,10 +166,11 @@ import kotlinx.coroutines.delay
             exit = hubExit()
         ) {
     ScrollableWithBar(scrollState = overviewScrollState) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-            Text("今日概览", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
-            HelpToggleButton(onClick = { helpOpen = true })
-        }
+        FocusPageHeader(
+            title = "今日概览",
+            subtitle = "先看状态，再决定现在最合适的一步",
+            action = { HelpToggleButton(onClick = { helpOpen = true }) }
+        )
         TodayStatusPanel(
             expanded = statusPanelOpen,
             onExpandedChange = {
@@ -190,8 +191,11 @@ import kotlinx.coroutines.delay
         val agenda = todayAgenda(courses, items, now)
         val fixed = agenda.filter(AgendaEntry::isCourse)
         val tasks = agenda.filterNot(AgendaEntry::isCourse)
-        FocusCard(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
-            modifier = Modifier.fillMaxWidth().clickable(onClick = onOpenSchedule)) {
+        FocusCard(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+            modifier = Modifier.fillMaxWidth(),
+            onClick = onOpenSchedule
+        ) {
             Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                 Text("课程与固定安排 · ${fixed.size}  ›", fontWeight = FontWeight.Bold)
                 fixed.forEach { entry -> Text("${formatMinute(entry.startMinute)} · ${entry.title} — ${entry.subtitle}", style = MaterialTheme.typography.bodySmall) }

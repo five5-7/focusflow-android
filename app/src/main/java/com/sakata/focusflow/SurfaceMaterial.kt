@@ -78,12 +78,16 @@ internal fun Modifier.pageLayerBackground(flatColor: Color): Modifier {
     // 但**层本身仍必须不透明**——否则会退回 8.1.1 修过的"转场时两层互相透出来"。
     // 这里用主题页面底色兜底：内容会盖住它；内容比视口短时下方也是干净的页面底色，
     // 不会露出对不上的渐变。
-    return if (appearance.effectivePageBackdrop == BackdropKind.THEME ||
-        (appearance.effectivePageBackdrop == BackdropKind.GRADIENT && appearance.gradientFollowsContent)
-    ) {
-        background(flatColor)
-    } else {
-        appearanceBackdrop(
+    return when {
+        // The root activity already owns the full-window image background. Repainting
+        // it inside a keyboard-resized subpage would use the shorter child height and
+        // produce a second, visibly different crop during IME and page transitions.
+        appearance.effectivePageBackdrop == BackdropKind.IMAGE -> this
+        appearance.effectivePageBackdrop == BackdropKind.THEME ||
+            (appearance.effectivePageBackdrop == BackdropKind.GRADIENT && appearance.gradientFollowsContent) -> {
+            background(flatColor)
+        }
+        else -> appearanceBackdrop(
             appearance,
             MaterialTheme.colorScheme,
             LocalBackdropBitmap.current,
@@ -603,18 +607,11 @@ internal fun backdropColourAt(
 }
 
 /**
- * 底栏该用的**画刷**——**目前恒返回 null，即底栏一律走 Surface 的单色填充路径**。
+ * 底栏使用的水平渐变画刷。
  *
- * 为什么停用（如实记录，别急着再打开）：
- * 为了表达左右渐变，曾让底栏在自己身上画一层水平渐变（并把 Surface 底色置透明）。
- * 真机截图（`v3_sched.png`）逐像素量下来，底栏变成了**三层**：
- * 外圈暗带 `rgb(176..191)`、内层亮胶囊 `x=162..1277 / y=2728..3035` `rgb(218,230,225)`、
- * 而且 x=80..97 与 x=1342..1359 各有一条**18px 纯白带**（背景透出来的）。
- * 也就是自绘的那层没有与 Surface 的形状/尺寸对齐，看起来就是"中间留了个胶囊状空白"。
- *
- * 结论：**单色 + Surface 自身绘制**是唯一被验证过的可靠路径；
- * 左右渐变这个能力要有，但必须先解决"自绘层与 Surface 层如何对齐"，而不是继续在这条路上打补丁。
- * 在解决之前，宁可接受"底栏不跟随左右渐变"，也不要一个视觉坏掉的底栏。
+ * 页面为真实渐变时按 9 个横向采样点计算导航栏颜色，非渐变背景返回 null，
+ * 让底栏继续使用 Surface 的稳定单色路径。画刷会在底栏自身形状内裁剪，
+ * 避免旧版自绘层与 Surface 尺寸不一致造成的白带和空壳。
  */
 internal fun navBarBrushOverBackdrop(
     appearance: AppearanceSpec,

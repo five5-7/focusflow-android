@@ -127,6 +127,11 @@ class VisionCredentialAndStoreTest {
         val p=(store.read() as VisionConfigurationRead.Ready).configuration.profiles.last();val key=v.read("vision-p") as VisionCredentialRead.Ready;assertTrue(store.markVerified(p,key.revision,v))
         val verified=(store.read() as VisionConfigurationRead.Ready).configuration.profiles.last();assertTrue(store.recordProbe(verified,key.revision,VisionCapabilityResult(true,false,true,"static failure"),v));assertTrue(store.verifiedProfiles(v).isEmpty())
         val record=JSONObject(configs.getString("probe_p",null)!!);assertTrue(record.getBoolean("connected"));assertFalse(record.getBoolean("image"));assertTrue(record.getBoolean("structured"));assertTrue(record.getLong("testedAt")>0)
+        val reviewable=(store.read() as VisionConfigurationRead.Ready).configuration.profiles.last()
+        assertEquals(listOf("p"),store.reviewableProfiles(v).map {it.id})
+        assertTrue(store.currentAndReviewable(reviewable,v))
+        assertFalse(store.currentAndVerified(reviewable,v))
+        assertFalse(store.setDefault("p",v))
     }
     @Test fun `corrupt service configuration is preserved and never interpreted as empty`() {
         val prefs=ModelVisionPreferences();val store=VisionServiceStore(prefs,ModelVisionPreferences());prefs.edit().putString("configuration","{ damaged").commit();assertTrue(store.read() is VisionConfigurationRead.Invalid);assertFalse(store.saveProfile(VisionServiceConfiguration(emptyList()),profile()));assertEquals("{ damaged",prefs.disk["configuration"])

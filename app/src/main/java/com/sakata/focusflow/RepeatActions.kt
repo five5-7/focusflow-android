@@ -41,53 +41,65 @@ internal object RepeatActions {
         var current = items
         val events = mutableListOf<TaskEvent>()
         val usedIds = items.mapTo(mutableSetOf()) { it.id }
+        val relatedByTemplate = items.groupBy { it.repeatTemplateId }
+        val courseCache = mutableMapOf<Long, List<Course>>()
+        fun activeCourses(day: Long): List<Course> = courseCache.getOrPut(day) { coursesOn(day, courses) }
         items.filter { it.kind == "重复模板" && !it.repeatPaused && it.repeatStartDay != null &&
             it.repeatFrequency in setOf("daily", "weekly", "class_day") }
             .forEach { template ->
+                var related = relatedByTemplate[template.id].orEmpty()
+                fun applyRelated(transform: (Item) -> Item) {
+                    val updated = related.map(transform)
+                    if (updated == related) return
+                    val byId = updated.associateBy { it.id }
+                    current = current.map { byId[it.id] ?: it }
+                    related = updated
+                }
                 if (template.repeatFrequency == "class_day") {
-                    val inactive = current.filter { it.repeatTemplateId == template.id && it.kind == "任务" && !it.done &&
+                    val inactive = related.filter { it.repeatTemplateId == template.id && it.kind == "任务" && !it.done &&
                         it.repeatOccurrenceDay != null && it.repeatOccurrenceDay >= today &&
                         it.scheduledAt?.let(TaskHistory::dayStartOf) == it.repeatOccurrenceDay &&
-                        coursesOn(it.repeatOccurrenceDay, courses).isEmpty() }
+                        activeCourses(it.repeatOccurrenceDay).isEmpty() }
                     if (inactive.isNotEmpty()) {
                         val ids = inactive.mapTo(mutableSetOf()) { it.id }
-                        current = current.map { item -> if (item.id in ids) item.preservingNote().copy(
+                        applyRelated { item -> if (item.id in ids) item.preservingNote().copy(
                             kind = "重复历史", detail = "当天没有生效课程，条件未满足", scheduledAt = null,
                             dayOnly = false, windowStartAt = null, windowEndAt = null) else item }
                         inactive.forEach { events += TaskRecorder.event(TaskEventType.TASK_UNSCHEDULED,
                             it.id, it.title, extra = "有课日条件不满足", scheduledAt = it.scheduledAt ?: 0L, at = at) }
                     }
                 }
-                val expired = current.filter { it.repeatTemplateId == template.id && it.kind == "任务" && !it.done &&
+                val expired = related.filter { it.repeatTemplateId == template.id && it.kind == "任务" && !it.done &&
                     (it.scheduledAt?.let(TaskHistory::dayStartOf) ?: it.repeatOccurrenceDay ?: today) < today }
                 if (expired.isNotEmpty()) {
-                    current = current.map { item -> if (item.id in expired.map { it.id })
+                    val expiredIds = expired.mapTo(mutableSetOf()) { it.id }
+                    applyRelated { item -> if (item.id in expiredIds)
                         item.preservingNote().copy(kind = "重复历史", detail = "本次未处理", scheduledAt = null,
                             dayOnly = false, windowStartAt = null, windowEndAt = null) else item }
                     expired.forEach { events += TaskRecorder.event(TaskEventType.REPEAT_MISSED,
                         it.id, it.title, scheduledAt = it.scheduledAt ?: it.repeatOccurrenceDay ?: 0L, at = at) }
                 }
-                if (current.any { it.repeatTemplateId == template.id && it.kind == "任务" && !it.done &&
+                if (related.any { it.kind == "任务" && !it.done &&
                     it.scheduledAt?.let(TaskHistory::dayStartOf) == it.repeatOccurrenceDay })
                     return@forEach
                 // Today's completed or skipped occurrence is final; tomorrow's instance appears on its date.
-                if (current.any { it.repeatTemplateId == template.id && it.repeatOccurrenceDay == today })
+                if (related.any { it.repeatOccurrenceDay == today })
                     return@forEach
                 val date = (0..8).asSequence().map { plusDays(today, it) }.firstOrNull { day ->
                     day >= (template.repeatStartDay ?: today) &&
                         (when (template.repeatFrequency) {
                             "daily" -> true
                             "weekly" -> weekday(day) == weekday(requireNotNull(template.repeatStartDay))
-                            else -> coursesOn(day, courses).isNotEmpty()
+                            else -> activeCourses(day).isNotEmpty()
                         }) &&
                         (template.repeatMinute < 0 || occurrenceAt(day, template.repeatMinute) > at) &&
-                        current.none { it.repeatTemplateId == template.id && it.repeatOccurrenceDay == day }
+                        related.none { it.repeatOccurrenceDay == day }
                 } ?: return@forEach
                 var id = newItemId()
                 while (!usedIds.add(id)) id = newItemId()
                 val scheduled = occurrenceAt(date, template.repeatMinute)
                 val courseNames = if (template.repeatFrequency == "class_day")
-                    coursesOn(date, courses).map(Course::title).distinct() else emptyList()
+                    activeCourses(date).map(Course::title).distinct() else emptyList()
                 val scheduleDetail = if (template.repeatMinute >= 0) TaskScheduleText.scheduledDetail(scheduled, template.durationMinutes)
                     else TaskScheduleText.dayOnlyDetail(scheduled)
                 val occurrence = Item(id = id, title = template.title,
@@ -97,6 +109,7 @@ internal object RepeatActions {
                     goalId = template.goalId, durationMinutes = template.durationMinutes,
                     repeatTemplateId = template.id, repeatOccurrenceDay = date)
                 current = listOf(occurrence) + current
+                related = related + occurrence
                 events += TaskRecorder.event(TaskEventType.TASK_CREATED, id, occurrence.title,
                     scheduledAt = scheduled, at = at)
             }
@@ -109,11 +122,12 @@ internal object RepeatActions {
         val pending = if (paused) items.filter { it.kind == "任务" && !it.done && it.repeatTemplateId == template.id }
             else emptyList()
         val missed = pending.filter { RecoveryInsights.missedWindow(it, at) }.mapTo(mutableSetOf()) { it.id }
+        val pendingIds = pending.mapTo(mutableSetOf()) { it.id }
         return RepeatResult(items.map { item -> when {
             item.id == template.id -> item.copy(repeatPaused = paused)
-            item.id in pending.map { it.id } -> item.preservingNote().copy(kind = "重复历史",
+            item.id in pendingIds -> item.preservingNote().copy(kind = "重复历史",
                 detail = if (item.id in missed) "本次未处理" else "暂停时未处理",
-                scheduledAt = null, dayOnly = false)
+                scheduledAt = null, dayOnly = false, windowStartAt = null, windowEndAt = null)
             else -> item
         } }, listOf(TaskRecorder.event(TaskEventType.REPEAT_RULE_CHANGED, template.id, template.title,
             extra = if (paused) "暂停" else "继续", at = at)) + pending.map {
@@ -129,9 +143,10 @@ internal object RepeatActions {
         if (template.kind != "重复模板" || items.none { it == template }) return RepeatResult(items, emptyList())
         val pending = items.filter { it.repeatTemplateId == template.id && it.kind == "任务" && !it.done }
         val missed = pending.filter { RecoveryInsights.missedWindow(it, at) }.mapTo(mutableSetOf()) { it.id }
+        val pendingIds = pending.mapTo(mutableSetOf()) { it.id }
         return RepeatResult(items.map { item -> when {
             item.id == template.id -> item.copy(kind = "已停止重复", repeatPaused = true)
-            item.id in pending.map { it.id } -> item.preservingNote().copy(kind = "重复历史",
+            item.id in pendingIds -> item.preservingNote().copy(kind = "重复历史",
                 detail = if (item.id in missed) "本次未处理" else "规则停止，取消本次",
                 scheduledAt = null, dayOnly = false,
                 windowStartAt = null, windowEndAt = null)

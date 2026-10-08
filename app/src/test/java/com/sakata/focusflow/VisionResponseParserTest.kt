@@ -54,9 +54,29 @@ class VisionResponseParserTest {
         assertNull(VisionResponseParser.parse(duplicate))
     }
 
+    @Test fun non_string_candidate_identity_is_rejected() {
+        assertNull(VisionResponseParser.parse(response().replace("\"id\":\"c1\"", "\"id\":123")))
+    }
+
     @Test fun incomplete_candidate_coordinates_remain_parseable_for_review() {
         val parsed = VisionResponseParser.parse(response().replace("\"day\":1", "\"day\":null").replace("\"startPeriod\":1", "\"startPeriod\":null").replace("\"endPeriod\":1", "\"endPeriod\":null"))
         assertNotNull(parsed)
         assertNull(parsed!!.candidates.single().day)
+    }
+
+    @Test
+    fun diagnostics_exposes_shape_without_response_values() {
+        val summary = VisionResponseDiagnostics.summarize(response())
+        assertTrue(summary.contains("rootKeys=[candidates,geometry]"))
+        assertTrue(summary.contains("candidates=array:1"))
+        assertFalse(summary.contains("数学"))
+        assertTrue(summary.contains("sha256="))
+    }
+
+    @Test
+    fun diagnostics_redacts_invalid_response_body() {
+        val summary = VisionResponseDiagnostics.summarize("not-json-with-secret-course-name")
+        assertTrue(summary.contains("syntax=false"))
+        assertFalse(summary.contains("secret-course-name"))
     }
 }

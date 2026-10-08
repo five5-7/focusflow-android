@@ -406,6 +406,10 @@ internal fun FloatingNavigationBar(
     }
 }
 
+/** 箭头隐藏时保留到形变动画归零，避免图标瞬隐而顶角仍在收缩。 */
+internal fun cornerSymbolShouldRemain(visible: Boolean, progress: Float): Boolean =
+    visible || progress > 0.01f
+
 /** 8.1.0 顶角符号：实心箭头图标（无圆圈底），与形状同一进度淡入；圆形波纹裁剪避免方形阴影。 */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -419,7 +423,7 @@ private fun CornerSymbol(
     tint: Color,
     modifier: Modifier = Modifier
 ) {
-    if (!visible) return
+    if (!cornerSymbolShouldRemain(visible, progress)) return
     val clickModifier = if (onLongPress != null) {
         Modifier.combinedClickable(onClick = onClick, onLongClick = onLongPress)
     } else {

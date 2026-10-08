@@ -48,6 +48,9 @@ class RepeatActionsTest {
         assertTrue(paused.items.first { it.id == template.id }.repeatPaused)
         assertEquals(TaskEventType.REPEAT_RULE_CHANGED, paused.events.first().type)
         assertTrue(paused.items.none { it.kind == "任务" })
+        assertTrue(paused.items.filter { it.kind == "重复历史" }.all {
+            it.windowStartAt == null && it.windowEndAt == null
+        })
         assertTrue(RepeatActions.refresh(paused.items, day(2026, 10, 2)).events.isEmpty())
         val resumed = RepeatActions.pause(paused.items, paused.items.first { it.id == template.id }, false)
         assertEquals(TaskEventType.REPEAT_RULE_CHANGED, resumed.events.single().type)

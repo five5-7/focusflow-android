@@ -128,6 +128,23 @@ internal data class ImageCrop(
         centerY = centerY.takeIf { it.isFinite() }?.coerceIn(0f, 1f) ?: 0.5f,
         zoom = zoom.takeIf { it.isFinite() }?.coerceIn(1f, 4f) ?: 1f
     )
+
+    /**
+     * Move the visible focus in response to a preview drag.
+     *
+     * Dragging the image to the right reveals the left side of the source image, so
+     * the stored focus moves in the opposite direction. Zoom reduces the amount of
+     * focus movement needed for the same gesture and keeps the edge behavior predictable.
+     */
+    fun pannedBy(deltaXFraction: Float, deltaYFraction: Float): ImageCrop {
+        val current = normalized()
+        val dx = deltaXFraction.takeIf { it.isFinite() } ?: 0f
+        val dy = deltaYFraction.takeIf { it.isFinite() } ?: 0f
+        return current.copy(
+            centerX = (current.centerX - dx / current.zoom).coerceIn(0f, 1f),
+            centerY = (current.centerY - dy / current.zoom).coerceIn(0f, 1f)
+        )
+    }
 }
 
 /**

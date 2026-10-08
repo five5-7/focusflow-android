@@ -3,7 +3,6 @@ package com.sakata.focusflow
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
@@ -30,7 +29,7 @@ internal fun VisionReviewDialog(
     val editStart = remember { mutableStateOf("") }
     val editEnd = remember { mutableStateOf("") }
 
-    AlertDialog(
+    AppDialog(
         onDismissRequest = onDismiss,
         title = { Text("检查课表识别") },
         text = {

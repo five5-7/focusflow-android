@@ -1,5 +1,9 @@
 package com.sakata.focusflow
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -9,7 +13,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -57,6 +63,7 @@ internal fun QuickStartDialog(onDismiss: () -> Unit) {
         onDismissRequest = onDismiss,
         title = { Text("快速入门 · ${chapter + 1}/${quickStartChapters.size}") },
         text = {
+            val chapterStates = rememberSaveableStateHolder()
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 LazyRow(state = tabs, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     itemsIndexed(quickStartChapters) { index, section ->
@@ -64,10 +71,20 @@ internal fun QuickStartDialog(onDismiss: () -> Unit) {
                     }
                 }
                 Box(Modifier.fillMaxWidth().height(contentHeight)) {
-                    SubpageMotion(chapter, containerColor = AlertDialogDefaults.containerColor) { index ->
-                        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Text(quickStartChapters[index].title, fontWeight = FontWeight.Bold)
-                            quickStartChapters[index].lines.forEach { Text(it, style = MaterialTheme.typography.bodyMedium) }
+                    // This is dialog content, not a page: do not repaint the page backdrop here.
+                    AnimatedContent(
+                        targetState = chapter,
+                        modifier = Modifier.fillMaxSize().clipToBounds(),
+                        transitionSpec = {
+                            (fadeIn(MotionSpec.enter()) togetherWith fadeOut(MotionSpec.exit())).using(null)
+                        },
+                        label = "quick-start-chapter"
+                    ) { index ->
+                        chapterStates.SaveableStateProvider(index) {
+                            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Text(quickStartChapters[index].title, fontWeight = FontWeight.Bold)
+                                quickStartChapters[index].lines.forEach { Text(it, style = MaterialTheme.typography.bodyMedium) }
+                            }
                         }
                     }
                 }
@@ -105,6 +122,43 @@ internal fun CampusLifeChoiceDialog(onEnable: () -> Unit, onSkip: () -> Unit) {
 
 /** 覆盖安装后每个版本只展示一次的更新说明；版本名来自 BuildConfig，路线图是唯一详情入口。 */
 internal fun updateHighlightsFor(version: String): List<String> = when {
+    version == "8.3.0-rc.34" -> listOf(
+        "快速记录时输入法只避让记录弹窗和页面内容，底部导航栏保持在屏幕底部。",
+        "保留原有快速记录与页面输入行为；课表识别和数据门禁没有改变。"
+    )
+
+    version == "8.3.0-rc.33" -> listOf(
+        "阶段 9 候选完成工程门禁与导航、通知、外观和动画回归记录。",
+        "真实课表识别失败会保持无导入；旧版本入口与 fail-closed 数据门禁继续保留。"
+    )
+
+    version == "8.3.0-rc.32" -> listOf(
+        "课表识别兼容候选数组、思考/分析段和 JSON 后的说明文字，减少模型外围格式差异造成的解析失败。",
+        "仍会拒绝多个完整结果；空间不确定的课程继续逐条人工审核，未确认内容不会写入课程。"
+    )
+
+    version == "8.3.0-rc.31" -> listOf(
+        "真实课表识别兼容模型附加字段、数字字符串和像素坐标框，减少格式差异造成的整批失败。",
+        "坐标仍会检查范围和网格一致性；无法确定位置的课程继续逐条人工审核。"
+    )
+    version == "8.3.0-rc.30" -> listOf(
+        "课表识别兼容模型返回的解释文字、代码围栏和尾逗号，减少格式问题造成的审核阻断。",
+        "缺少信息的课程仍需逐条核对；坐标不会自动补齐，未确认内容不会写入课程。"
+    )
+    version == "8.3.0-rc.29" -> listOf(
+        "课表截图识别遇到缺少地点、周次或坐标时，会保留候选进入人工审核，不会擅自补星期或节次。",
+        "识别提示会明确告诉模型课表网格格式；审核页仍可逐条确认、编辑或拒绝，未确认内容不会写入课程。",
+        "阶段 9 真机验收适配已升级的 OPPO / ColorOS 17 / Android 17 测试设备。"
+    )
+    version == "8.3.0-rc.28" -> listOf(
+        "课表审核会保留完整色块的跨节范围，缺少坐标时按网格位置提示需要检查。",
+        "重复任务暂停或停止后会清除残留弹性时间，图片导入会在读取时限制文件大小。",
+        "快速入门正文沿用弹窗卡片材质，不再重复铺页面图片或渐变。"
+    )
+    version == "8.3.0-rc.27" -> listOf(
+        "快速入门正文现在跟随弹窗卡片材质，不再在内容区重复铺页面图片或渐变。",
+        "章节切换保留动画与各章滚动位置；关闭动画时直接切换。"
+    )
     version == "8.3.0-rc.26" -> listOf(
         "课表识别可以添加自己的兼容视觉服务；先完成图像和结构化能力测试，再选择默认服务。",
         "共享 key 加密保存且不回显；导入前显示上传目标，识别过程中可取消。",
