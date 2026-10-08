@@ -17,8 +17,8 @@ android {
         applicationId = "com.sakata.focusflow"
         minSdk = 26
         targetSdk = 35
-        versionCode = 570
-        versionName = "8.3.0-rc.36"
+        versionCode = 571
+        versionName = "8.3.0-rc.37"
         buildConfigField("String", "CI_RUN_NUMBER", "\"$focusFlowCiRun\"")
     }
 
