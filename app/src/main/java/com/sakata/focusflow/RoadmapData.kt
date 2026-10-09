@@ -21,6 +21,7 @@ object RoadmapData {
     /** 已实现版本演进（1.0 → 当前版本），每版本浓缩 1–3 条，与 CHANGELOG.md 对应。 */
     val evolution: List<RoadmapVersion> = listOf(
         RoadmapVersion("8.3.0", listOf(
+            RoadmapEntry("8.3.0-rc.42", "阶段9：无障碍、动效一致性与渲染开销", "今日状态、收集箱与设置折叠区补充展开状态语义和大字号触控保障；设置折叠统一 MotionSpec；关闭丰富效果或动画时降低玻璃背景捕获采样。versionCode 576，待真机视觉验收，未发布。", RoadmapStatus.CANDIDATE),
             RoadmapEntry("8.3.0-rc.41", "阶段9：状态入口与顶部提示动效", "今日状态入口增加箭头旋转和快速展开；数据保护/加载提示使用统一顶部展开过渡。versionCode 575，待真机视觉验收，未发布。", RoadmapStatus.CANDIDATE),
             RoadmapEntry("8.3.0-rc.40", "阶段9：今日页层级与批量展开反馈", "课程/任务使用时间标签与内容分层；今日状态和收集箱提供箭头与展开反馈，整理模式及日程尺寸过渡遵循 MotionSpec。versionCode 574，待真机视觉验收，未发布。", RoadmapStatus.CANDIDATE),
             RoadmapEntry("8.3.0-rc.39", "阶段9：日程模式切换过渡", "日程页日／周／课表模式切换加入淡入淡出过渡；保留外观折叠反馈、导航收回动画与稳定图片背景。versionCode 573，待真机复测，未发布。", RoadmapStatus.CANDIDATE),
