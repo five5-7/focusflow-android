@@ -29,14 +29,11 @@ internal fun PlanHubScreen(
 ) {
     var helpOpen by remember { mutableStateOf(false) }
     ScrollableWithBar(modifier = modifier, scrollState = scrollState, spacing = 10.dp) {
-        Row(
-            Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text("计划", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
-            HelpToggleButton(onClick = { helpOpen = true })
-        }
+        FocusPageHeader(
+            title = "计划",
+            subtitle = "把课程、待办和目标安排成下一步",
+            action = { HelpToggleButton(onClick = { helpOpen = true }) }
+        )
         // 保留原卡片样式；玻璃下的 elevation 冲突由 FocusCard 统一处理。
         FocusCard(
             containerColor = MaterialTheme.colorScheme.secondaryContainer,
@@ -123,15 +120,10 @@ internal fun PlanSubpageFrame(
         scrollState = rememberScrollState(),
         spacing = 10.dp
     ) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                title,
-                style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.weight(1f)
-            )
-            titleAction?.invoke()
-        }
+        FocusPageHeader(
+            title = title,
+            action = titleAction
+        )
         Column(
             Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 32.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),

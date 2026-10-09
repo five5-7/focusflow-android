@@ -406,6 +406,10 @@ internal fun FloatingNavigationBar(
     }
 }
 
+/** 箭头隐藏时保留到形变动画归零，避免图标瞬隐而顶角仍在收缩。 */
+internal fun cornerSymbolShouldRemain(visible: Boolean, progress: Float): Boolean =
+    visible || progress > 0.01f
+
 /** 8.1.0 顶角符号：实心箭头图标（无圆圈底），与形状同一进度淡入；圆形波纹裁剪避免方形阴影。 */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -419,7 +423,7 @@ private fun CornerSymbol(
     tint: Color,
     modifier: Modifier = Modifier
 ) {
-    if (!visible) return
+    if (!cornerSymbolShouldRemain(visible, progress)) return
     val clickModifier = if (onLongPress != null) {
         Modifier.combinedClickable(onClick = onClick, onLongClick = onLongPress)
     } else {
@@ -490,6 +494,9 @@ private fun FloatingNavigationItem(
 ) {
     // 选中态只驱动图标颜色/缩放；底色块由底栏统一绘制并平移（见 FloatingNavigationBar）。
     val progress by animateFloatAsState(if (selected) 1f else 0f, MotionSpec.move(), label = "navigationSelection")
+    // The indicator glides with the page, while the icon settles a little faster so
+    // a tap receives an immediate visual response without making the bar feel jumpy.
+    val iconProgress by animateFloatAsState(if (selected) 1f else 0f, MotionSpec.quick(), label = "navigationIconSelection")
     val fill = lerp(background, indicator, progress)
     // 8.1.0 副页（空心圆环态）时图标改用与底栏对比的深色；实心态按圆底色取对比色。
     val foreground = if (selected && hasSubpage) navigationContentColor(background) else navigationContentColor(fill)
@@ -513,7 +520,7 @@ private fun FloatingNavigationItem(
         ) {
             Icon(icon, contentDescription = null, tint = animatedForeground,
                 modifier = Modifier.size(24.dp).graphicsLayer {
-                    scaleX = 0.96f + 0.04f * progress
+                    scaleX = 0.95f + 0.05f * iconProgress
                     scaleY = scaleX
                 })
         }

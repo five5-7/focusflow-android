@@ -1,5 +1,9 @@
 package com.sakata.focusflow
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -9,7 +13,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -57,6 +63,7 @@ internal fun QuickStartDialog(onDismiss: () -> Unit) {
         onDismissRequest = onDismiss,
         title = { Text("快速入门 · ${chapter + 1}/${quickStartChapters.size}") },
         text = {
+            val chapterStates = rememberSaveableStateHolder()
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 LazyRow(state = tabs, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     itemsIndexed(quickStartChapters) { index, section ->
@@ -64,10 +71,20 @@ internal fun QuickStartDialog(onDismiss: () -> Unit) {
                     }
                 }
                 Box(Modifier.fillMaxWidth().height(contentHeight)) {
-                    SubpageMotion(chapter, containerColor = AlertDialogDefaults.containerColor) { index ->
-                        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Text(quickStartChapters[index].title, fontWeight = FontWeight.Bold)
-                            quickStartChapters[index].lines.forEach { Text(it, style = MaterialTheme.typography.bodyMedium) }
+                    // This is dialog content, not a page: do not repaint the page backdrop here.
+                    AnimatedContent(
+                        targetState = chapter,
+                        modifier = Modifier.fillMaxSize().clipToBounds(),
+                        transitionSpec = {
+                            (fadeIn(MotionSpec.enter()) togetherWith fadeOut(MotionSpec.exit())).using(null)
+                        },
+                        label = "quick-start-chapter"
+                    ) { index ->
+                        chapterStates.SaveableStateProvider(index) {
+                            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Text(quickStartChapters[index].title, fontWeight = FontWeight.Bold)
+                                quickStartChapters[index].lines.forEach { Text(it, style = MaterialTheme.typography.bodyMedium) }
+                            }
                         }
                     }
                 }
@@ -105,6 +122,84 @@ internal fun CampusLifeChoiceDialog(onEnable: () -> Unit, onSkip: () -> Unit) {
 
 /** 覆盖安装后每个版本只展示一次的更新说明；版本名来自 BuildConfig，路线图是唯一详情入口。 */
 internal fun updateHighlightsFor(version: String): List<String> = when {
+    version == "8.3.0-rc.42" -> listOf(
+        "今日状态、收集箱和设置折叠区能读出当前展开状态，触控区域在大字号下也保持易点。",
+        "设置中的作息、应用分类和通勤预留折叠区统一使用同一套展开/收起过渡。",
+        "关闭丰富效果或动画时，玻璃背景会降低捕获采样开销，滚动和折叠更轻。"
+    )
+
+    version == "8.3.0-rc.41" -> listOf(
+        "今日状态入口增加箭头旋转反馈，展开和收起更容易确认当前状态。",
+        "数据保护和加载提示会平滑出现与收起，页面顶部不会突然跳动。"
+    )
+
+    version == "8.3.0-rc.40" -> listOf(
+        "今日安排和明天预览用独立时间标签展示，课程与任务内容更容易浏览。",
+        "今日状态和收集箱展开时有箭头与状态反馈，整理模式和日程切换跟随动画速度。"
+    )
+
+    version == "8.3.0-rc.39" -> listOf(
+        "日程页在日、周、课表之间切换时会平滑过渡，减少整块内容突然替换。",
+        "外观折叠反馈、导航收回动画与稳定图片背景继续保留。"
+    )
+
+    version == "8.3.0-rc.38" -> listOf(
+        "外观设置的折叠卡片增加箭头旋转和展开态颜色反馈，当前状态更容易看懂。",
+        "导航收回动画、稳定图片背景与子页转场优化继续保留。"
+    )
+
+    version == "8.3.0-rc.37" -> listOf(
+        "直接点击当前页签导航入口时保留收回动画，返回主页的动势不被取消。",
+        "修复收回动画中的图片背景闪帧；外观折叠动画与子页背景同步仍保留。"
+    )
+
+    version == "8.3.0-rc.36" -> listOf(
+        "点击当前页签的导航入口返回主页时直接复位，不再误播缩小转场。",
+        "修复图片背景在导航收回时闪帧；外观折叠动画与子页背景同步仍保留。"
+    )
+
+    version == "8.3.0-rc.35" -> listOf(
+        "外观设置的折叠卡片现在会平滑展开和收起，页面背景与子页转场同步进入。",
+        "修正设置进入外观时旧文字卡片穿透和背景延迟出现的问题；课程识别门禁保持不变。"
+    )
+
+    version == "8.3.0-rc.34" -> listOf(
+        "快速记录时输入法只避让记录弹窗和页面内容，底部导航栏保持在屏幕底部。",
+        "保留原有快速记录与页面输入行为；课表识别和数据门禁没有改变。"
+    )
+
+    version == "8.3.0-rc.33" -> listOf(
+        "阶段 9 候选完成工程门禁与导航、通知、外观和动画回归记录。",
+        "真实课表识别失败会保持无导入；旧版本入口与 fail-closed 数据门禁继续保留。"
+    )
+
+    version == "8.3.0-rc.32" -> listOf(
+        "课表识别兼容候选数组、思考/分析段和 JSON 后的说明文字，减少模型外围格式差异造成的解析失败。",
+        "仍会拒绝多个完整结果；空间不确定的课程继续逐条人工审核，未确认内容不会写入课程。"
+    )
+
+    version == "8.3.0-rc.31" -> listOf(
+        "真实课表识别兼容模型附加字段、数字字符串和像素坐标框，减少格式差异造成的整批失败。",
+        "坐标仍会检查范围和网格一致性；无法确定位置的课程继续逐条人工审核。"
+    )
+    version == "8.3.0-rc.30" -> listOf(
+        "课表识别兼容模型返回的解释文字、代码围栏和尾逗号，减少格式问题造成的审核阻断。",
+        "缺少信息的课程仍需逐条核对；坐标不会自动补齐，未确认内容不会写入课程。"
+    )
+    version == "8.3.0-rc.29" -> listOf(
+        "课表截图识别遇到缺少地点、周次或坐标时，会保留候选进入人工审核，不会擅自补星期或节次。",
+        "识别提示会明确告诉模型课表网格格式；审核页仍可逐条确认、编辑或拒绝，未确认内容不会写入课程。",
+        "阶段 9 真机验收适配已升级的 OPPO / ColorOS 17 / Android 17 测试设备。"
+    )
+    version == "8.3.0-rc.28" -> listOf(
+        "课表审核会保留完整色块的跨节范围，缺少坐标时按网格位置提示需要检查。",
+        "重复任务暂停或停止后会清除残留弹性时间，图片导入会在读取时限制文件大小。",
+        "快速入门正文沿用弹窗卡片材质，不再重复铺页面图片或渐变。"
+    )
+    version == "8.3.0-rc.27" -> listOf(
+        "快速入门正文现在跟随弹窗卡片材质，不再在内容区重复铺页面图片或渐变。",
+        "章节切换保留动画与各章滚动位置；关闭动画时直接切换。"
+    )
     version == "8.3.0-rc.26" -> listOf(
         "课表识别可以添加自己的兼容视觉服务；先完成图像和结构化能力测试，再选择默认服务。",
         "共享 key 加密保存且不回显；导入前显示上传目标，识别过程中可取消。",

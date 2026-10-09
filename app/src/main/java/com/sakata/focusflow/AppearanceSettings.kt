@@ -1,11 +1,20 @@
 package com.sakata.focusflow
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,6 +29,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
@@ -36,13 +46,17 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.toPixelMap
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -57,9 +71,23 @@ internal fun AppearanceDisclosure(
     content: @Composable ColumnScope.() -> Unit
 ) {
     var expanded by rememberSaveable { mutableStateOf(initiallyExpanded) }
+    val headerColor by animateColorAsState(
+        targetValue = if (expanded) {
+            MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.72f)
+        } else {
+            MaterialTheme.colorScheme.surfaceContainerLow
+        },
+        animationSpec = MotionSpec.quick(),
+        label = "appearanceDisclosureHeader"
+    )
+    val arrowRotation by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (expanded) 180f else 0f,
+        animationSpec = MotionSpec.quick(),
+        label = "appearanceDisclosureArrow"
+    )
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         FocusCard(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+            containerColor = headerColor,
             modifier = Modifier.fillMaxWidth(),
             onClick = { expanded = !expanded }
         ) {
@@ -74,15 +102,32 @@ internal fun AppearanceDisclosure(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 2, overflow = TextOverflow.Ellipsis)
                 }
-                Text(if (expanded) "收起" else "展开", style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary)
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(
+                        imageVector = Icons.Filled.KeyboardArrowDown,
+                        contentDescription = if (expanded) "收起" else "展开",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(22.dp).graphicsLayer { rotationZ = arrowRotation }
+                    )
+                    Text(
+                        if (expanded) "收起" else "展开",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
             }
         }
-        if (expanded) Column(
-            Modifier.fillMaxWidth().padding(horizontal = 4.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            content = content
-        )
+        AnimatedVisibility(
+            visible = expanded,
+            enter = fadeIn(MotionSpec.quick()) + expandVertically(MotionSpec.quick()),
+            exit = fadeOut(MotionSpec.quick()) + shrinkVertically(MotionSpec.quick())
+        ) {
+            Column(
+                Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                content = content
+            )
+        }
     }
 }
 
@@ -732,17 +777,39 @@ private fun ImageCropControls(
     val configuration = LocalConfiguration.current
     val screenRatio = (configuration.screenWidthDp.toFloat() / configuration.screenHeightDp.toFloat())
         .coerceIn(0.4f, 0.75f)
+    var previewSize by remember { mutableStateOf(IntSize.Zero) }
     Column(
         modifier = Modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(2.dp)
     ) {
         Text("图片范围", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+        Text(
+            "拖动预览调整主体位置；下方滑块可精细微调",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
         val previewShape = RoundedCornerShape(14.dp)
         Canvas(
             Modifier
-                .fillMaxWidth(0.46f)
+                .fillMaxWidth(0.64f)
                 .aspectRatio(screenRatio)
+                .onSizeChanged { previewSize = it }
+                .pointerInput(normalized, previewSize) {
+                    detectDragGestures { change, dragAmount ->
+                        change.consume()
+                        val width = previewSize.width.toFloat()
+                        val height = previewSize.height.toFloat()
+                        if (width > 0f && height > 0f) {
+                            onCropChange(
+                                normalized.pannedBy(
+                                    deltaXFraction = dragAmount.x / width,
+                                    deltaYFraction = dragAmount.y / height
+                                )
+                            )
+                        }
+                    }
+                }
                 .clip(previewShape)
                 .background(MaterialTheme.colorScheme.surfaceVariant)
                 .border(1.dp, MaterialTheme.colorScheme.outlineVariant, previewShape)

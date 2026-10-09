@@ -16,6 +16,11 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.animation.core.animateFloatAsState
@@ -952,7 +957,7 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
     var selectedVisionService by remember { mutableStateOf<VisionServiceProfile?>(null) }
     var visionSession by remember { mutableStateOf<VisionSession?>(null) }
     var visionReviewPayload by remember { mutableStateOf<VisionRecognitionPreview?>(null) }
-    var verifiedVisionChoices by remember { mutableStateOf<List<VisionServiceProfile>>(emptyList()) }
+    var reviewableVisionChoices by remember { mutableStateOf<List<VisionServiceProfile>>(emptyList()) }
     var visionDefaultId by remember { mutableStateOf<String?>(null) }
     DisposableEffect(Unit) { onDispose { visionSession?.cancel() } }
     val courseScreenshotLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -981,7 +986,7 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
         }
         selectedVisionService = null
     }
-    if (visionServiceChoiceOpen) VisionServiceChoiceDialog(verifiedVisionChoices, visionDefaultId,
+    if (visionServiceChoiceOpen) VisionServiceChoiceDialog(reviewableVisionChoices, visionDefaultId,
         onChoose = { selected -> selectedVisionService = selected; visionServiceChoiceOpen = false; courseScreenshotLauncher.launch(arrayOf("image/*")) },
         onDismiss = { visionServiceChoiceOpen = false })
     visionReviewPayload?.let { payload ->
@@ -998,7 +1003,7 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
             }
         )
     }
-    if (visionSession != null) AlertDialog(onDismissRequest = {}, title = { Text("正在识别课表") },
+    if (visionSession != null) AppDialog(onDismissRequest = {}, title = { Text("正在识别课表") },
         text = { Text(courseImportMessage.orEmpty() + "\n取消后本次结果不会写入课程。") },
         confirmButton = { TextButton(onClick = {
             visionSession?.cancel(); visionSession = null; courseImportRunning = false; globalLoading = false
@@ -1275,6 +1280,7 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
     fun selectTab(index: Int) {
         // Reset only the destination. The outgoing page must survive its exit animation.
         // 目标页签的副页会被重置回主页；"顺带重置"不补播动画，由 prepareNavigation 统一判定。
+        // 同一页签再次点击也保留正常的主页收回动画；根背景在收回阶段保持稳定。
         lastNavWasJump = false
         goTo(PageSnapshot(
             tab = index,
@@ -1439,7 +1445,10 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
         } else {
             Modifier
         }
-        Box(Modifier.fillMaxSize().imePadding().then(startupInteractionModifier)) {
+        // Keep the floating navigation bar at the physical screen bottom while the IME is open.
+        // Page content and dialog host apply their own IME avoidance below; applying it here
+        // would move every sibling, including the bottom navigation bar, above the keyboard.
+        Box(Modifier.fillMaxSize().then(startupInteractionModifier)) {
         // 8.2.0 外观系统：背景层画在最底下（页面渐变/图片）。默认外观下它不新增任何绘制，
         // 因此「默认与 8.1.1 逐像素一致」是结构上成立的，不靠调参。
         Box(
@@ -1471,14 +1480,20 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
         val topSafety = safeContentInsets.asPaddingValues().calculateTopPadding()
         val hasTopNotice = StorageProtection.readOnly || globalLoading
         Scaffold(
+            // Keep inline page editors above the keyboard without changing the floating bar's
+            // physical position. The root Box intentionally does not consume IME insets.
             modifier = if (glassBackdropState != null) {
-                Modifier.hazeSource(glassBackdropState, zIndex = 1f, key = "page-content")
-            } else Modifier,
+                Modifier.imePadding().hazeSource(glassBackdropState, zIndex = 1f, key = "page-content")
+            } else Modifier.imePadding(),
             containerColor = pageContainerColor(),
             contentWindowInsets = safeContentInsets.only(WindowInsetsSides.Horizontal),
             snackbarHost = { SnackbarHost(snackbarHostState, Modifier.padding(bottom = floatingBarHeight)) },
             topBar = {
-                if (hasTopNotice) {
+                AnimatedVisibility(
+                    visible = hasTopNotice,
+                    enter = expandVertically(MotionSpec.quick()) + fadeIn(MotionSpec.quick()),
+                    exit = shrinkVertically(MotionSpec.exit()) + fadeOut(MotionSpec.exit())
+                ) {
                 Column(Modifier.fillMaxWidth().windowInsetsPadding(
                     safeContentInsets.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)
                 )) {
@@ -1946,9 +1961,9 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                             val ready = withContext(Dispatchers.IO) {
                                 val vault = VisionCredentialStore(context); vault.migrateShared()
                                 val profiles = VisionServiceStore(context)
-                                profiles.verifiedProfiles(vault) to (profiles.read() as? VisionConfigurationRead.Ready)?.configuration?.defaultId
+                                profiles.reviewableProfiles(vault) to (profiles.read() as? VisionConfigurationRead.Ready)?.configuration?.defaultId
                             }
-                            verifiedVisionChoices = ready.first; visionDefaultId = ready.second; visionServiceChoiceOpen = true
+                            reviewableVisionChoices = ready.first; visionDefaultId = ready.second; visionServiceChoiceOpen = true
                         }
                     },
                     onImportZju = {
