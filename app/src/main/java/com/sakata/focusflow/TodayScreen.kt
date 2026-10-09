@@ -3,6 +3,7 @@ package com.sakata.focusflow
 import android.app.DatePickerDialog
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.expandVertically
@@ -11,6 +12,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -253,10 +255,12 @@ import kotlinx.coroutines.delay
                 AnimatedContent(
                     targetState = todaySelecting,
                     transitionSpec = {
-                        fadeIn(MotionSpec.quick()) togetherWith fadeOut(MotionSpec.quick())
+                        (fadeIn(MotionSpec.quick()) togetherWith fadeOut(MotionSpec.quick()))
+                            .using(SizeTransform { _, _ -> MotionSpec.quick() })
                     },
                     label = "todayBatchMode"
                 ) { selecting ->
+                    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (!selecting) {
                         tasks.forEach { entry ->
                             Row(
@@ -278,7 +282,7 @@ import kotlinx.coroutines.delay
                                     )
                                 }
                                 Text(entry.title, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall,
-                                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    maxLines = 2, overflow = TextOverflow.Ellipsis)
                             }
                         }
                     } else {
@@ -287,13 +291,14 @@ import kotlinx.coroutines.delay
                             Text(if (selectedTodayIds == todaySelectableIds) "取消全选" else "全选可整理任务")
                         }
                         items.filter { it.id in todaySelectableIds }.sortedBy { it.scheduledAt }.forEach { item ->
-                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().clickable {
-                                selectedTodayIds = if (item.id in selectedTodayIds) selectedTodayIds - item.id else selectedTodayIds + item.id
-                            }) {
-                                Checkbox(checked = item.id in selectedTodayIds, onCheckedChange = { checked ->
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()
+                                .heightIn(min = 48.dp)
+                                .toggleable(value = item.id in selectedTodayIds, role = Role.Checkbox) { checked ->
                                     selectedTodayIds = if (checked) selectedTodayIds + item.id else selectedTodayIds - item.id
-                                })
-                                Text(item.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                }
+                            ) {
+                                Checkbox(checked = item.id in selectedTodayIds, onCheckedChange = null)
+                                Text(item.title, Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis)
                             }
                         }
                         if (selectedTodayIds.isNotEmpty()) {
@@ -301,7 +306,7 @@ import kotlinx.coroutines.delay
                                 Checkbox(checked = keepTodayBatchTime, onCheckedChange = { keepTodayBatchTime = it })
                                 Text("改期保留原时刻；关闭则仅指定日期", style = MaterialTheme.typography.bodySmall)
                             }
-                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                 TextButton(onClick = {
                                     val target = java.util.Calendar.getInstance().apply {
                                         timeInMillis = now; add(java.util.Calendar.DAY_OF_YEAR, 1)
@@ -329,6 +334,7 @@ import kotlinx.coroutines.delay
                                 }
                             }) { Text("改为未安排") }
                         }
+                    }
                     }
                 }
             }
@@ -825,6 +831,7 @@ private fun StatusChoiceRow(label: String, options: List<String>, selected: Stri
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable internal fun InboxItemCard(
     item: Item,
     recordedAt: Long?,
@@ -851,17 +858,19 @@ private fun StatusChoiceRow(label: String, options: List<String>, selected: Stri
     ) { Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp)) {
         Row(
             Modifier.fillMaxWidth()
-                .minimumInteractiveComponentSize()
-                .clickable(role = Role.Button, onClick = onToggle)
-                .semantics {
-                    stateDescription = if (expanded) "已展开；双击收起" else "已收起；双击展开"
-                }
+                .heightIn(min = 48.dp)
+                .then(
+                    if (selecting) Modifier.toggleable(
+                        value = selected, role = Role.Checkbox, onValueChange = { onToggle() }
+                    ) else Modifier.clickable(role = Role.Button, onClick = onToggle)
+                        .semantics { stateDescription = if (expanded) "已展开" else "已收起" }
+                )
                 .padding(vertical = 5.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            if (selecting) Checkbox(checked = selected, onCheckedChange = { onToggle() })
-            Text(item.title, Modifier.weight(1f), fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (selecting) Checkbox(checked = selected, onCheckedChange = null)
+            Text(item.title, Modifier.weight(1f), fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
             recordedAt?.takeIf { it > 0 }?.let {
                 Text(captureAgeLabel(it, now), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
@@ -880,7 +889,7 @@ private fun StatusChoiceRow(label: String, options: List<String>, selected: Stri
                 Text("预计 ${item.durationMinutes} 分钟 · 优先级 ${ItemPriority.fromKey(item.priority).label}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 reviewedAt?.let { Text("上次回顾 ${captureAgeLabel(it, now)}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 if (!item.title.startsWith("重新安排：")) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         if (canQuickConvert) {
                             TextButton(onClick = { onToTodo(item) }) { Text("转待办") }
                             TextButton(onClick = { onToWanted(item) }) { Text("放入想做") }
@@ -897,7 +906,7 @@ private fun StatusChoiceRow(label: String, options: List<String>, selected: Stri
                     }
                 } else {
                     Text("接下来", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         TextButton(onClick = { onPickTime(item) }) { Text("改期") }
                         TextButton(onClick = { onShrink(item) }) { Text("缩短") }
                         TextButton(onClick = { onPause(item) }) { Text("暂停") }
@@ -909,6 +918,7 @@ private fun StatusChoiceRow(label: String, options: List<String>, selected: Stri
     } }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable private fun ProgressCaptureCard(item: Item, activeChild: Item?, onOrganize: (Item) -> Unit, onCreateNextAction: (Item) -> Unit, onRestore: (Item) -> Unit, onDelete: (Item) -> Unit, onComplete: (Item) -> Unit) {
     // 同上：收编进 FocusCard，让"逐步推进"的卡片也吃材质。
     FocusCard(
@@ -931,7 +941,7 @@ private fun StatusChoiceRow(label: String, options: List<String>, selected: Stri
         Button(onClick = { onCreateNextAction(item) }, enabled = activeChild == null && item.nextAction.isNotBlank(), modifier = Modifier.fillMaxWidth()) {
             Text(if (activeChild == null) "将下一步放入收集箱" else "已有未完成的下一步")
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             TextButton(onClick = { onOrganize(item) }, enabled = activeChild == null) { Text("修改") }
             TextButton(onClick = { onRestore(item) }) { Text("退回待整理") }
             TextButton(onClick = { onDelete(item) }, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("删除方向") }
