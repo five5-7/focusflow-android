@@ -17,6 +17,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.horizontalScroll
@@ -276,6 +277,7 @@ private data class BaselineVariantDraft(val name: String)
         var defaultHelpExpanded by remember { mutableStateOf(false) }
         FocusCard(
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+            modifier = Modifier.semantics { stateDescription = if (defaultHelpExpanded) "已展开" else "已收起" },
             elevation = 1.dp,
             onClick = {
                 if (!defaultHelpExpanded) FrameTimingRecorder.recordExpansion("settings_defaults")
@@ -443,7 +445,7 @@ private data class BaselineVariantDraft(val name: String)
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text("已存方案（${baselineVariants.size}）", fontWeight = FontWeight.SemiBold)
+                        Text("已存方案（${baselineVariants.size}）", modifier = Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
                         Text(if (baselineVariantsExpanded) "收起 ▴" else "展开 ▾", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                     }
                     AnimatedVisibility(
@@ -1301,7 +1303,7 @@ private data class BaselineVariantDraft(val name: String)
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Text("已分类应用（${categorizedApps.size}）", fontWeight = FontWeight.SemiBold)
+                            Text("已分类应用（${categorizedApps.size}）", modifier = Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
                             Text(if (categorizedExpanded) "收起 ▴" else "展开 ▾", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                         }
                         AnimatedVisibility(
@@ -1309,6 +1311,7 @@ private data class BaselineVariantDraft(val name: String)
                             enter = fadeIn(MotionSpec.quick()) + expandVertically(MotionSpec.quick()),
                             exit = fadeOut(MotionSpec.exit()) + shrinkVertically(MotionSpec.exit())
                         ) {
+                            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             AppCategory.entries.filter { it != AppCategory.UNKNOWN }.forEach { category ->
                                 val apps = categorizedApps.filter { it.third == category }
                                 if (apps.isNotEmpty()) {
@@ -1339,7 +1342,9 @@ private data class BaselineVariantDraft(val name: String)
                                     }
                                 }
                             }
-                        }
+                        
+                            }
+}
                         val unknownApps = installedApps.filter { it.third == AppCategory.UNKNOWN }
                         if (unknownApps.isNotEmpty()) {
                             Row(
@@ -1350,7 +1355,7 @@ private data class BaselineVariantDraft(val name: String)
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                Text("待分类应用（${unknownApps.size}）", fontWeight = FontWeight.SemiBold)
+                                Text("待分类应用（${unknownApps.size}）", modifier = Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
                                 Text(if (uncategorizedExpanded) "收起 ▴" else "展开 ▾", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                             }
                             AnimatedVisibility(
@@ -1358,6 +1363,7 @@ private data class BaselineVariantDraft(val name: String)
                                 enter = fadeIn(MotionSpec.quick()) + expandVertically(MotionSpec.quick()),
                                 exit = fadeOut(MotionSpec.exit()) + shrinkVertically(MotionSpec.exit())
                             ) {
+                                Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                 Text("没有自动识别出分类；给它们归类后，到点检测才会把它们算作游戏/视频等。", style = MaterialTheme.typography.bodySmall)
                                 unknownApps.forEach { (pkg, label, _) ->
                                     // 收编：无显式底色的 Card → FocusCard，显式保留 Card 默认底色 surfaceContainerHighest。
@@ -1378,7 +1384,9 @@ private data class BaselineVariantDraft(val name: String)
                                         }
                                     }
                                 }
-                            }
+                            
+                                }
+}
                         }
                         if (hiddenApps.isNotEmpty()) {
                             Row(
@@ -1389,7 +1397,7 @@ private data class BaselineVariantDraft(val name: String)
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                Text("已忽略应用（${hiddenApps.size}）", fontWeight = FontWeight.SemiBold)
+                                Text("已忽略应用（${hiddenApps.size}）", modifier = Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
                                 Text(if (hiddenExpanded) "收起 ▴" else "展开 ▾", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                             }
                             AnimatedVisibility(
@@ -1397,6 +1405,7 @@ private data class BaselineVariantDraft(val name: String)
                                 enter = fadeIn(MotionSpec.quick()) + expandVertically(MotionSpec.quick()),
                                 exit = fadeOut(MotionSpec.exit()) + shrinkVertically(MotionSpec.exit())
                             ) {
+                                Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                 hiddenApps.sortedBy { AppLibrary.appLabel(context, it) }.forEach { pkg ->
                                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                                         Column(Modifier.weight(1f)) {
@@ -1406,7 +1415,9 @@ private data class BaselineVariantDraft(val name: String)
                                         TextButton(onClick = { onToggleHiddenApp(pkg) }) { Text("恢复") }
                                     }
                                 }
-                            }
+                            
+                                }
+}
                         }
                         Text("分类会记住你的选择；未设置的应用按内置清单或应用名自动识别。", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
@@ -1536,7 +1547,10 @@ private data class BaselineVariantDraft(val name: String)
 @Composable
 internal fun SettingSwitch(title: String, detail: String, checked: Boolean, onChange: (Boolean) -> Unit) {
     Row(
-        Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        Modifier.fillMaxWidth()
+            .toggleable(value = checked, role = Role.Switch, onValueChange = onChange)
+            .heightIn(min = 48.dp)
+            .padding(vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
@@ -1544,7 +1558,7 @@ internal fun SettingSwitch(title: String, detail: String, checked: Boolean, onCh
             Text(title, fontWeight = FontWeight.SemiBold)
             Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        Switch(checked = checked, onCheckedChange = onChange)
+        Switch(checked = checked, onCheckedChange = null)
     }
 }
 
