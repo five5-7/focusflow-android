@@ -16,6 +16,11 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.animation.core.animateFloatAsState
@@ -1484,7 +1489,11 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
             contentWindowInsets = safeContentInsets.only(WindowInsetsSides.Horizontal),
             snackbarHost = { SnackbarHost(snackbarHostState, Modifier.padding(bottom = floatingBarHeight)) },
             topBar = {
-                if (hasTopNotice) {
+                AnimatedVisibility(
+                    visible = hasTopNotice,
+                    enter = expandVertically(MotionSpec.quick()) + fadeIn(MotionSpec.quick()),
+                    exit = shrinkVertically(MotionSpec.exit()) + fadeOut(MotionSpec.exit())
+                ) {
                 Column(Modifier.fillMaxWidth().windowInsetsPadding(
                     safeContentInsets.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)
                 )) {
