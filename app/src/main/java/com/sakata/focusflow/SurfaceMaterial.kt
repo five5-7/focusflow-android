@@ -1033,8 +1033,15 @@ internal fun Modifier.glassBackdropEffect(
     }
     return clip(shape).hazeEffect(state = state, style = style) {
         blurEnabled = true
-        // 只采样约 44% 的原始像素；模糊后肉眼差异很小，但显著降低滚动时的离屏绘制量。
-        inputScale = HazeInputScale.Fixed(profile.inputScale)
+        // 默认材质保持原始采样质量；关闭丰富效果时降低采样分辨率，
+        // 让滚动与展开动画少一次高成本离屏绘制，视觉上仍保持同一材质。
+        inputScale = HazeInputScale.Fixed(
+            AppearancePerformancePolicy.glassInputScale(
+                profile.inputScale,
+                MotionSettings.richForms,
+                MotionSettings.durationScale
+            )
+        )
     }
 }
 
