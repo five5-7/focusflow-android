@@ -4,6 +4,7 @@ import android.app.DatePickerDialog
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -15,11 +16,14 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.layout.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -676,6 +680,11 @@ private fun TodayStatusPanel(
             else commuteProfile.campusMode
         )
     }.joinToString(" · ")
+    val statusArrowRotation by animateFloatAsState(
+        targetValue = if (expanded) 180f else 0f,
+        animationSpec = MotionSpec.quick(),
+        label = "todayStatusArrow"
+    )
     // 收编：OutlinedCard → FocusCard。显式保留 Material3 OutlinedCard 的默认底色
     // （OutlinedCardTokens.ContainerColor = surface）与默认描边（1dp outlineVariant）。
     FocusCard(
@@ -692,11 +701,22 @@ private fun TodayStatusPanel(
                     Text("今日状态", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                     Text(summary, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                Text(if (expanded) "收起" else "调整", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    Text(if (expanded) "收起" else "调整", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                    Icon(
+                        Icons.Filled.KeyboardArrowDown,
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp).graphicsLayer { rotationZ = statusArrowRotation },
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
             }
             AnimatedVisibility(
                 visible = expanded,
-                enter = expandVertically(animationSpec = MotionSpec.move(), expandFrom = Alignment.Top) + fadeIn(MotionSpec.enter()),
+                enter = expandVertically(animationSpec = MotionSpec.quick(), expandFrom = Alignment.Top) + fadeIn(MotionSpec.quick()),
                 exit = shrinkVertically(animationSpec = MotionSpec.exit(), shrinkTowards = Alignment.Top) + fadeOut(MotionSpec.exit())
             ) {
                 Column(Modifier.fillMaxWidth().padding(top = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
