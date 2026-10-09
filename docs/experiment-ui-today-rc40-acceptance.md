@@ -1,11 +1,11 @@
-# rc.40 今日页 UI 快速验收
+# rc.41 今日页 UI 快速验收
 
-范围：experiment/ui-polish，8.3.0-rc.40 / versionCode 574。只测 UI，不构造课表、识别、提醒或持久化数据。
+范围：experiment/ui-polish，8.3.0-rc.41 / versionCode 575。只测 UI，不构造课表、识别、提醒或持久化数据。
 
 ## 最短路径
 
 1. 用稳定签名 APK 执行 `adb install -r` 覆盖安装；不要卸载、清数据或换签名。先记录原外观、动画速度、深色、字号、背景、卡片材质和课程/任务数量。
-2. 用 `adb shell dumpsys package com.sakata.focusflow` 确认 versionName=8.3.0-rc.40、versionCode=574。
+2. 用 `adb shell dumpsys package com.sakata.focusflow` 确认 versionName=8.3.0-rc.41、versionCode=575。
 3. “今日”页检查：
    - 课程与固定安排：数量独立显示；每条记录左侧有时间标签，右侧有课程名和节次/地点；
    - 今天已安排：任务同样按时间与内容分层，点击任务仍进入日程；
