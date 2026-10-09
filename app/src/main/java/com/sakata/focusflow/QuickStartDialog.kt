@@ -122,6 +122,11 @@ internal fun CampusLifeChoiceDialog(onEnable: () -> Unit, onSkip: () -> Unit) {
 
 /** 覆盖安装后每个版本只展示一次的更新说明；版本名来自 BuildConfig，路线图是唯一详情入口。 */
 internal fun updateHighlightsFor(version: String): List<String> = when {
+    version == "8.3.0-rc.41" -> listOf(
+        "今日状态入口增加箭头旋转反馈，展开和收起更容易确认当前状态。",
+        "数据保护和加载提示会平滑出现与收起，页面顶部不会突然跳动。"
+    )
+
     version == "8.3.0-rc.40" -> listOf(
         "今日安排和明天预览用独立时间标签展示，课程与任务内容更容易浏览。",
         "今日状态和收集箱展开时有箭头与状态反馈，整理模式和日程切换跟随动画速度。"
