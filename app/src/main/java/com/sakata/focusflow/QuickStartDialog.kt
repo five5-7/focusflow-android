@@ -122,6 +122,12 @@ internal fun CampusLifeChoiceDialog(onEnable: () -> Unit, onSkip: () -> Unit) {
 
 /** 覆盖安装后每个版本只展示一次的更新说明；版本名来自 BuildConfig，路线图是唯一详情入口。 */
 internal fun updateHighlightsFor(version: String): List<String> = when {
+    version == "8.3.0-rc.42" -> listOf(
+        "今日状态、收集箱和设置折叠区能读出当前展开状态，触控区域在大字号下也保持易点。",
+        "设置中的作息、应用分类和通勤预留折叠区统一使用同一套展开/收起过渡。",
+        "关闭丰富效果或动画时，玻璃背景会降低捕获采样开销，滚动和折叠更轻。"
+    )
+
     version == "8.3.0-rc.41" -> listOf(
         "今日状态入口增加箭头旋转反馈，展开和收起更容易确认当前状态。",
         "数据保护和加载提示会平滑出现与收起，页面顶部不会突然跳动。"
