@@ -22,6 +22,9 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
@@ -693,7 +696,12 @@ private fun TodayStatusPanel(
     ) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp)) {
             Row(
-                Modifier.fillMaxWidth().clickable { onExpandedChange(!expanded) },
+                Modifier.fillMaxWidth()
+                    .minimumInteractiveComponentSize()
+                    .clickable(role = Role.Button) { onExpandedChange(!expanded) }
+                    .semantics {
+                        stateDescription = if (expanded) "已展开；双击收起" else "已收起；双击展开"
+                    },
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
@@ -842,7 +850,13 @@ private fun StatusChoiceRow(label: String, options: List<String>, selected: Stri
         containerColor = MaterialTheme.colorScheme.surfaceContainerLow
     ) { Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp)) {
         Row(
-            Modifier.fillMaxWidth().clickable(onClick = onToggle).padding(vertical = 5.dp),
+            Modifier.fillMaxWidth()
+                .minimumInteractiveComponentSize()
+                .clickable(role = Role.Button, onClick = onToggle)
+                .semantics {
+                    stateDescription = if (expanded) "已展开；双击收起" else "已收起；双击展开"
+                }
+                .padding(vertical = 5.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
