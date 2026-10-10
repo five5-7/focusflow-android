@@ -23,7 +23,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.rememberTextMeasurer
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -117,46 +121,52 @@ internal fun DailyScheduleTimeline(
             )
         }
     var selected by remember { mutableStateOf<TimelineEvent?>(null) }
+    val edgeSpace = timelineEdgeSpace()
     // 8.2.0「课表/日程表底色」：与课表同一套底板（只动底板，日程块颜色不变）。
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .appearanceBackdrop(
-                spec = LocalAppearance.current,
-                scheme = MaterialTheme.colorScheme,
-                bitmap = LocalBackdropBitmap.current,
-                role = BackdropRole.Timetable
-            ),
-        colors = CardDefaults.cardColors(
-            containerColor = timetableContainerColor(),
-            // 底板让成透明时 contentColorFor(Transparent) 会给 Color.Unspecified，
-            // 深色模式下正文会因此掉回黑色，所以正文色一律显式给。
-            contentColor = MaterialTheme.colorScheme.onSurface
-        )
+    Column(
+        Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 10.dp)) {
-            TimelineTimeAxis()
-            TimelineDayLane(
-                events,
-                Modifier.weight(1f),
-                showLabels = true,
-                compactBlocks = false,
-                onSelect = { selected = it }
+        TimelineLegend()
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .appearanceBackdrop(
+                    spec = LocalAppearance.current,
+                    scheme = MaterialTheme.colorScheme,
+                    bitmap = LocalBackdropBitmap.current,
+                    role = BackdropRole.Timetable
+                ),
+            colors = CardDefaults.cardColors(
+                containerColor = timetableContainerColor(),
+                // 底板让成透明时 contentColorFor(Transparent) 会给 Color.Unspecified，
+                // 深色模式下正文会因此掉回黑色，所以正文色一律显式给。
+                contentColor = MaterialTheme.colorScheme.onSurface
+            )
+        ) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 10.dp)) {
+                TimelineTimeAxis()
+                TimelineDayLane(
+                    events,
+                    Modifier.weight(1f).padding(vertical = edgeSpace),
+                    showLabels = true,
+                    compactBlocks = false,
+                    onSelect = { selected = it }
+                )
+            }
+        }
+        selected?.let {
+            TimelineEventDialog(
+                it,
+                onDismiss = { selected = null },
+                onStartTask = { item -> selected = null; onStartTask(item) },
+                onRescheduleTask = { item -> selected = null; onRescheduleTask(item) },
+                onReturnToInbox = { item -> selected = null; onReturnToInbox(item) },
+                onTaskDone = { item -> selected = null; onTaskDone(item) },
+                onDeleteItem = { item -> selected = null; onDeleteItem(item) }
             )
         }
-    }
-    TimelineLegend()
-    selected?.let {
-        TimelineEventDialog(
-            it,
-            onDismiss = { selected = null },
-            onStartTask = { item -> selected = null; onStartTask(item) },
-            onRescheduleTask = { item -> selected = null; onRescheduleTask(item) },
-            onReturnToInbox = { item -> selected = null; onReturnToInbox(item) },
-            onTaskDone = { item -> selected = null; onTaskDone(item) },
-            onDeleteItem = { item -> selected = null; onDeleteItem(item) }
-        )
     }
 }
 
@@ -178,9 +188,13 @@ internal fun WeeklyScheduleTimeline(
         set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
     }.timeInMillis
     val weekEnd = dayStart + 7 * 24 * 60 * 60_000L
-    val weekdays = (0..6).map { index -> todayWeekday(dayStart + index * 24 * 60 * 60_000L) }
-    val weekDates = (0..6).map { index ->
-        SimpleDateFormat("M/d", Locale.CHINA).format(Date(dayStart + index * 24 * 60 * 60_000L))
+    val weekdays = remember(dayStart) {
+        (0..6).map { index -> todayWeekday(dayStart + index * 24 * 60 * 60_000L) }
+    }
+    val weekDates = remember(dayStart) {
+        (0..6).map { index ->
+            SimpleDateFormat("M/d", Locale.CHINA).format(Date(dayStart + index * 24 * 60 * 60_000L))
+        }
     }
     val taskEvents = items
         .filter { !it.dayOnly && it.scheduledAt?.let { time -> time >= dayStart && time < weekEnd } == true }
@@ -191,136 +205,171 @@ internal fun WeeklyScheduleTimeline(
         }
     var selected by remember { mutableStateOf<TimelineEvent?>(null) }
     var showCourseInfo by remember { mutableStateOf(false) }
-    Row(
+    val edgeSpace = timelineEdgeSpace()
+    val axisWidth = timelineAxisWidth(40.dp)
+    Column(
         Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        Column(Modifier.weight(1f)) {
-            Text("显示课程信息", fontWeight = FontWeight.SemiBold)
-            Text(
-                "色块保持简洁；打开后在表格下方显示课程名称与地点。",
-                style = MaterialTheme.typography.bodySmall
-            )
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text("显示课程信息", fontWeight = FontWeight.SemiBold)
+                Text(
+                    "色块保持简洁；打开后在表格下方显示课程名称与地点。",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+            Switch(checked = showCourseInfo, onCheckedChange = { showCourseInfo = it })
         }
-        Switch(checked = showCourseInfo, onCheckedChange = { showCourseInfo = it })
-    }
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .appearanceBackdrop(
-                spec = LocalAppearance.current,
-                scheme = MaterialTheme.colorScheme,
-                bitmap = LocalBackdropBitmap.current,
-                role = BackdropRole.Timetable
-            ),
-        colors = CardDefaults.cardColors(
-            containerColor = timetableContainerColor(),
-            // 底板让成透明时 contentColorFor(Transparent) 会给 Color.Unspecified，
-            // 深色模式下正文会因此掉回黑色，所以正文色一律显式给。
-            contentColor = MaterialTheme.colorScheme.onSurface
-        )
-    ) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 2.dp, vertical = 10.dp)) {
-            Row(Modifier.fillMaxWidth()) {
-                Spacer(Modifier.width(40.dp))
-                (0..6).forEach { index ->
-                    Surface(
-                        modifier = Modifier.weight(1f).padding(horizontal = 0.5.dp),
-                        color = if (index == 0) {
-                            MaterialTheme.colorScheme.primaryContainer
-                        } else {
-                            Color.Transparent
-                        },
-                        shape = RoundedCornerShape(10.dp)
-                    ) {
-                        Column(
-                            Modifier.padding(vertical = 5.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
+        TimelineLegend()
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .appearanceBackdrop(
+                    spec = LocalAppearance.current,
+                    scheme = MaterialTheme.colorScheme,
+                    bitmap = LocalBackdropBitmap.current,
+                    role = BackdropRole.Timetable
+                ),
+            colors = CardDefaults.cardColors(
+                containerColor = timetableContainerColor(),
+                // 底板让成透明时 contentColorFor(Transparent) 会给 Color.Unspecified，
+                // 深色模式下正文会因此掉回黑色，所以正文色一律显式给。
+                contentColor = MaterialTheme.colorScheme.onSurface
+            )
+        ) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 2.dp, vertical = 10.dp)) {
+                Row(Modifier.fillMaxWidth()) {
+                    Spacer(Modifier.width(axisWidth))
+                    (0..6).forEach { index ->
+                        Surface(
+                            modifier = Modifier.weight(1f).padding(horizontal = 0.5.dp),
+                            color = if (index == 0) {
+                                MaterialTheme.colorScheme.primaryContainer
+                            } else {
+                                Color.Transparent
+                            },
+                            shape = RoundedCornerShape(10.dp)
                         ) {
-                            Text(
-                                weekdayName(weekdays[index]),
-                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                            Text(weekDates[index], style = MaterialTheme.typography.labelSmall)
+                            Column(
+                                Modifier.padding(vertical = 5.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(
+                                    weekdayName(weekdays[index]),
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Text(weekDates[index], style = MaterialTheme.typography.labelSmall)
+                            }
                         }
                     }
                 }
-            }
-            Row(Modifier.fillMaxWidth()) {
-                TimelineTimeAxis(40.dp)
-                (0..6).forEach { index ->
-                    TimelineDayLane(
-                        (courseEvents + taskEvents).filter { it.weekday == weekdays[index] },
-                        Modifier.weight(1f),
-                        showLabels = true,
-                        compactBlocks = true,
-                        labelMode = TimelineLabelMode.TITLE_ONLY,
-                        onSelect = { selected = it }
-                    )
+                Row(Modifier.fillMaxWidth()) {
+                    TimelineTimeAxis(axisWidth)
+                    (0..6).forEach { index ->
+                        TimelineDayLane(
+                            (courseEvents + taskEvents).filter { it.weekday == weekdays[index] },
+                            Modifier.weight(1f).padding(vertical = edgeSpace),
+                            showLabels = true,
+                            compactBlocks = true,
+                            labelMode = TimelineLabelMode.TITLE_ONLY,
+                            onSelect = { selected = it }
+                        )
+                    }
                 }
             }
         }
-    }
-    TimelineLegend()
-    if (showCourseInfo) {
-        // 收编：ElevatedCard → FocusCard，显式保留 surfaceContainerLow 底色与 1dp 默认阴影。
-        // 注意：本节上面那两块**课表/日程表底板**（appearanceBackdrop + BackdropRole.Timetable）
-        // 仍是有意不收编的，底色归「课表与日程表底色」设置管。
-        FocusCard(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-            elevation = 1.dp
-        ) {
-            Column(
-                Modifier.fillMaxWidth().padding(12.dp),
-                verticalArrangement = Arrangement.spacedBy(7.dp)
+        if (showCourseInfo) {
+            // 收编：ElevatedCard → FocusCard，显式保留 surfaceContainerLow 底色与 1dp 默认阴影。
+            // 注意：本节上面那两块**课表/日程表底板**（appearanceBackdrop + BackdropRole.Timetable）
+            // 仍是有意不收编的，底色归「课表与日程表底色」设置管。
+            FocusCard(
+                containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                elevation = 1.dp
             ) {
-                Text("本周课程", fontWeight = FontWeight.Bold)
-                courses.sortedWith(compareBy<Course> { it.weekday }.thenBy { it.startPeriod })
-                    .forEach { course ->
-                        Text(
-                            "${weekdayName(course.weekday)}  " +
-                                "${formatMinute(CourseGapPlanner.periodStart(course.startPeriod))}–" +
-                                "${formatMinute(CourseGapPlanner.periodEnd(course.endPeriod))}  " +
-                                "${course.title} · ${course.building}",
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                    }
+                Column(
+                    Modifier.fillMaxWidth().padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(7.dp)
+                ) {
+                    Text("本周课程", fontWeight = FontWeight.Bold)
+                    courses.sortedWith(compareBy<Course> { it.weekday }.thenBy { it.startPeriod })
+                        .forEach { course ->
+                            Text(
+                                "${weekdayName(course.weekday)}  " +
+                                    "${formatMinute(CourseGapPlanner.periodStart(course.startPeriod))}–" +
+                                    "${formatMinute(CourseGapPlanner.periodEnd(course.endPeriod))}  " +
+                                    "${course.title} · ${course.building}",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                }
             }
         }
-    }
-    selected?.let {
-        TimelineEventDialog(
-            it,
-            onDismiss = { selected = null },
-            onStartTask = { item -> selected = null; onStartTask(item) },
-            onRescheduleTask = { item -> selected = null; onRescheduleTask(item) },
-            onReturnToInbox = { item -> selected = null; onReturnToInbox(item) },
-            onTaskDone = { item -> selected = null; onTaskDone(item) },
-            onDeleteItem = { item -> selected = null; onDeleteItem(item) }
-        )
+        selected?.let {
+            TimelineEventDialog(
+                it,
+                onDismiss = { selected = null },
+                onStartTask = { item -> selected = null; onStartTask(item) },
+                onRescheduleTask = { item -> selected = null; onRescheduleTask(item) },
+                onReturnToInbox = { item -> selected = null; onReturnToInbox(item) },
+                onTaskDone = { item -> selected = null; onTaskDone(item) },
+                onDeleteItem = { item -> selected = null; onDeleteItem(item) }
+            )
+        }
     }
 }
 
 @Composable
 internal fun TimelineTimeAxis(width: Dp = 50.dp) {
-    val totalHeight = timelineHourHeight *
+    val timelineHeight = timelineHourHeight *
         ((TIMELINE_END_MINUTE - TIMELINE_START_MINUTE) / 60).toFloat()
-    Box(Modifier.width(width).height(totalHeight)) {
+    val edgeSpace = timelineEdgeSpace()
+    val totalHeight = timelineHeight + edgeSpace * 2
+    val axisWidth = timelineAxisWidth(width)
+    Box(Modifier.width(axisWidth).height(totalHeight)) {
         (TIMELINE_START_MINUTE / 60..TIMELINE_END_MINUTE / 60).forEach { hour ->
-            Text(
-                "%02d:00".format(hour),
-                Modifier.offset(
-                    y = timelineHourHeight *
-                        (hour - TIMELINE_START_MINUTE / 60).toFloat() - 7.dp
-                ),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            Box(
+                Modifier
+                    .offset(y = timelineHourHeight * (hour - TIMELINE_START_MINUTE / 60).toFloat())
+                    .height(edgeSpace * 2),
+                contentAlignment = Alignment.CenterStart
+            ) {
+                Text(
+                    "%02d:00".format(hour),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    softWrap = false
+                )
+            }
         }
     }
+}
+
+@Composable
+private fun timelineEdgeSpace(): Dp {
+    val lineHeight = MaterialTheme.typography.labelSmall.lineHeight
+        .takeUnless { it == TextUnit.Unspecified } ?: 16.sp
+    return with(LocalDensity.current) { lineHeight.toDp() / 2 + 4.dp }
+}
+
+@Composable
+private fun timelineAxisWidth(minimumWidth: Dp): Dp {
+    val style = MaterialTheme.typography.labelSmall
+    val textMeasurer = rememberTextMeasurer()
+    val density = LocalDensity.current
+    val labelWidth = remember(style, density) {
+        with(density) {
+            textMeasurer.measure("00:00", style = style).size.width.toDp() + 6.dp
+        }
+    }
+    return maxOf(minimumWidth, labelWidth)
 }
 
 @Composable
@@ -333,10 +382,10 @@ internal fun TimelineDayLane(
     gapMarkers: List<GapMarker> = emptyList(),
     labelMode: TimelineLabelMode = TimelineLabelMode.FULL
 ) {
-    val mergedEvents = mergeConflictingCourses(events)
+    val mergedEvents = remember(events) { mergeConflictingCourses(events) }
     val totalHours = (TIMELINE_END_MINUTE - TIMELINE_START_MINUTE) / 60
     val totalHeight = timelineHourHeight * totalHours.toFloat()
-    val layouts = layoutTimelineEvents(mergedEvents)
+    val layouts = remember(events) { layoutTimelineEvents(mergedEvents) }
     val gridColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)
     BoxWithConstraints(
         modifier.height(totalHeight).clip(RoundedCornerShape(8.dp))

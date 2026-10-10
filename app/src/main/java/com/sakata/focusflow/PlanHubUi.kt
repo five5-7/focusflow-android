@@ -72,6 +72,7 @@ internal fun PlanHubItem(title: String, summary: String, onClick: () -> Unit) {
         // 后者的水波纹是**直角**（没按 20dp 圆角裁剪），也缺 Surface 的点击语义
         // （role = Button、48dp 最小触摸区）。2026-09-11 收编复查时发现，改掉。
         onClick = onClick,
+        navigationClick = true,
         shape = RoundedCornerShape(20.dp),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
     ) {
@@ -114,7 +115,8 @@ internal fun PlanSubpageFrame(
     ) {
         FocusPageHeader(
             title = title,
-            action = titleAction
+            action = titleAction,
+            titleStyle = MaterialTheme.typography.headlineMedium
         )
         Column(
             Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 32.dp),

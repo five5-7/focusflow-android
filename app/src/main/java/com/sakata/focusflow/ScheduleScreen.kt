@@ -128,24 +128,44 @@ internal fun ScheduleScreen(
         ) { mode ->
             when (mode) {
                 "日" -> {
-                    if (todayUnslotted.isNotEmpty()) {
-                        FocusCard(
-                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
-                        ) {
-                            Column(
-                                Modifier.padding(12.dp),
-                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                    Column(
+                        Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        if (todayUnslotted.isNotEmpty()) {
+                            FocusCard(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
                             ) {
-                                Text("今日待办 · 未定时间", fontWeight = FontWeight.SemiBold)
-                                todayUnslotted.forEach {
-                                    Text("• ${it.title}", style = MaterialTheme.typography.bodySmall)
+                                Column(
+                                    Modifier.padding(12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Text("今日待办 · 未定时间", fontWeight = FontWeight.SemiBold)
+                                    todayUnslotted.forEach {
+                                        Text("• ${it.title}", style = MaterialTheme.typography.bodySmall)
+                                    }
                                 }
                             }
                         }
+                        DailyScheduleTimeline(
+                            todayCourses,
+                            todaySchedule,
+                            profile,
+                            onStartTask,
+                            onRescheduleTask,
+                            onReturnToInbox,
+                            onTaskDone,
+                            onDeleteItem
+                        )
                     }
-                    DailyScheduleTimeline(
-                        todayCourses,
-                        todaySchedule,
+                }
+                "周" -> Column(
+                    Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    WeeklyScheduleTimeline(
+                        courses.filter { !it.needsConfirmation },
+                        items,
                         profile,
                         onStartTask,
                         onRescheduleTask,
@@ -154,29 +174,24 @@ internal fun ScheduleScreen(
                         onDeleteItem
                     )
                 }
-                "周" -> WeeklyScheduleTimeline(
-                    courses.filter { !it.needsConfirmation },
-                    items,
-                    profile,
-                    onStartTask,
-                    onRescheduleTask,
-                    onReturnToInbox,
-                    onTaskDone,
-                    onDeleteItem
-                )
-                else -> CourseTimetable(
-                    courses = courses,
-                    table = coursePeriodTable,
-                    compactView = courseTimetableCompact,
-                    onCompactViewChange = onCourseTimetableCompactChange,
-                    trailingDaysExpanded = courseTimetableTrailingDaysExpanded,
-                    onTrailingDaysExpandedChange = onCourseTimetableTrailingDaysExpandedChange,
-                    onEditPeriods = {
-                        firstPeriodSetup = false
-                        periodTableOpen = true
-                    },
-                    onEditCourse = onEditCourse
-                )
+                else -> Column(
+                    Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    CourseTimetable(
+                        courses = courses,
+                        table = coursePeriodTable,
+                        compactView = courseTimetableCompact,
+                        onCompactViewChange = onCourseTimetableCompactChange,
+                        trailingDaysExpanded = courseTimetableTrailingDaysExpanded,
+                        onTrailingDaysExpandedChange = onCourseTimetableTrailingDaysExpandedChange,
+                        onEditPeriods = {
+                            firstPeriodSetup = false
+                            periodTableOpen = true
+                        },
+                        onEditCourse = onEditCourse
+                    )
+                }
             }
         }
         if (scheduleMode != "课表" && flexibleItems.isNotEmpty()) {

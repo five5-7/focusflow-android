@@ -205,7 +205,8 @@ import kotlinx.coroutines.delay
         FocusCard(
             containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
             modifier = Modifier.fillMaxWidth(),
-            onClick = onOpenSchedule
+            onClick = onOpenSchedule,
+            navigationClick = true
         ) {
             Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                 FocusSectionHeader("课程与固定安排", fixed.size, action = { Text("›", color = MaterialTheme.colorScheme.primary) })
@@ -335,9 +336,12 @@ import kotlinx.coroutines.delay
                 }
             }
         }
-        if (recoveryCandidates.isNotEmpty()) FocusCard(containerColor = MaterialTheme.colorScheme.surfaceVariant) {
-            Row(Modifier.fillMaxWidth().clickable(onClick = onOpenSchedule).padding(14.dp),
-                horizontalArrangement = Arrangement.SpaceBetween) {
+        if (recoveryCandidates.isNotEmpty()) FocusCard(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+            onClick = onOpenSchedule,
+            navigationClick = true
+        ) {
+            Row(Modifier.fillMaxWidth().padding(14.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text("需要处理 · ${recoveryCandidates.size} 项", fontWeight = FontWeight.Bold)
                 Text("去日程 ›", color = MaterialTheme.colorScheme.primary)
             }
@@ -463,7 +467,9 @@ import kotlinx.coroutines.delay
         val tomorrow = java.util.Calendar.getInstance().apply { timeInMillis = now; add(java.util.Calendar.DAY_OF_YEAR, 1) }.timeInMillis
         val tomorrowAgenda = todayAgenda(courses, items, tomorrow, hideMissed = false)
         FocusCard(containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-            modifier = Modifier.fillMaxWidth().clickable { tomorrowOpen = true }) {
+            modifier = Modifier.fillMaxWidth(),
+            onClick = { tomorrowOpen = true },
+            navigationClick = true) {
             Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("明天预览 · ${tomorrowAgenda.size} 项  ›", fontWeight = FontWeight.Bold)
                 tomorrowAgenda.take(2).forEach { Text("${if (it.isAllDay) "全天" else formatMinute(it.startMinute)} · ${it.title}", style = MaterialTheme.typography.bodySmall) }
@@ -698,6 +704,9 @@ private fun TodayStatusPanel(
     // （OutlinedCardTokens.ContainerColor = surface）与默认描边（1dp outlineVariant）。
     FocusCard(
         containerColor = MaterialTheme.colorScheme.surface,
+        modifier = Modifier.semantics {
+            stateDescription = if (expanded) "已展开；双击收起" else "已收起；双击展开"
+        },
         border = CardDefaults.outlinedCardBorder(),
         elevation = 1.dp,
         onClick = { onExpandedChange(!expanded) }
@@ -705,10 +714,7 @@ private fun TodayStatusPanel(
         Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp)) {
             Row(
                 Modifier.fillMaxWidth()
-                    .minimumInteractiveComponentSize()
-                    .semantics {
-                        stateDescription = if (expanded) "已展开；双击收起" else "已收起；双击展开"
-                    },
+                    .minimumInteractiveComponentSize(),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {

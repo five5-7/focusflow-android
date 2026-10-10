@@ -36,6 +36,9 @@ internal object MotionSpec {
     /** 底栏选中底色的目的地回弹。 */
     const val PULSE_MS = 120
 
+    /** Brief press confirmation before a navigation card leaves the source page. */
+    const val CARD_NAV_FEEDBACK_MS = 64
+
     /**
      * 副页收回自己主页的时长。
      * 用户要求：比"切到其他主页"快、比原来 200ms 慢 —— 240ms。
