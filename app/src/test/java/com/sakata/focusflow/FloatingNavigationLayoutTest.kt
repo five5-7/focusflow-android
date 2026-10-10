@@ -15,9 +15,34 @@ class FloatingNavigationLayoutTest {
         assertEquals(8, FloatingNavigationLayout.horizontalMarginDp(393f, 1f))
     }
     @Test fun narrowPhoneAndLargeTextReduceMargins() {
-        assertEquals(6, FloatingNavigationLayout.horizontalMarginDp(320f, 1f))
-        assertEquals(6, FloatingNavigationLayout.horizontalMarginDp(393f, 1.5f))
+        assertEquals(4, FloatingNavigationLayout.horizontalMarginDp(320f, 1f))
+        assertEquals(4, FloatingNavigationLayout.horizontalMarginDp(393f, 1.5f))
         assertEquals(4, FloatingNavigationLayout.horizontalMarginDp(250f, 2f))
+    }
+    @Test fun phoneArrowsMoveAnotherTwoDpFromDistributedRc2Positions() {
+        for ((width, scale, rc2Left) in listOf(
+            Triple(393f, 1f, 8f), Triple(320f, 1f, 2f), Triple(393f, 1.5f, 2f)
+        )) {
+            val barWidth = minOf(640f, width - FloatingNavigationLayout.horizontalMarginDp(width, scale) * 2)
+            val left = (width - barWidth) / 2f - FloatingNavigationLayout.historyArrowOffsetDp(width, scale)
+            assertEquals(rc2Left - 2f, left, 0f)
+            assertEquals(width - rc2Left + 2f, width - left, 0f)
+        }
+    }
+    @Test fun cappedAndExtremeWidthsStayInsideSafeAreaAndWideningBudget() {
+        // Sweep the cap transition, where a 1dp width change can change the old arrow offset.
+        for (width in (200..1100).map(Int::toFloat)) {
+            for (scale in listOf(1f, 1.29f, 1.3f, 1.5f, 2f)) {
+                val oldMargin = if (width < 280f) 4 else if (width < 360f || scale >= 1.3f) 8 else 16
+                val oldWidth = minOf(640f, width - oldMargin * 2)
+                val newWidth = minOf(640f, width - FloatingNavigationLayout.horizontalMarginDp(width, scale) * 2)
+                val oldLeft = (width - oldWidth) / 2f - 4f
+                val newLeft = (width - newWidth) / 2f - FloatingNavigationLayout.historyArrowOffsetDp(width, scale)
+                assertTrue("$width / $scale crosses safe inset", newLeft >= 0f)
+                val movement = oldLeft - newLeft
+                assertTrue("$width / $scale exceeds widening", movement >= 0f && movement <= (newWidth - oldWidth) / 2f)
+            }
+        }
     }
     @Test fun historyArrowTotalMovementNeverExceedsAddedWidthOnEitherSide() {
         for ((width, scale, oldMargin) in listOf(

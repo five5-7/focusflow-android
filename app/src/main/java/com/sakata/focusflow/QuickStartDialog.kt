@@ -122,6 +122,12 @@ internal fun CampusLifeChoiceDialog(onEnable: () -> Unit, onSkip: () -> Unit) {
 
 /** 覆盖安装后每个版本只展示一次的更新说明；版本名来自 BuildConfig，路线图是唯一详情入口。 */
 internal fun updateHighlightsFor(version: String): List<String> = when {
+    version == "9.0.0" -> listOf(
+        "收集箱可整理为待办或计划，重复安排、活动记录与回收站恢复串成日常流程。",
+        "课程按独立课次管理，连续课程展示、教务学期选择与课程提醒更易维护。",
+        "优化选项换行、标题帮助与导航反馈，启用流动丝带图标；改进更新下载、无空档改期和快速记录恢复。"
+    )
+
     version == "9.0.0-rc.2" -> listOf(
         "新增待办的重复选项和安排弹窗按钮按可用宽度换行，收集箱标题与查看全部同行。",
         "底部导航更宽，左右与底部留白一致；历史箭头适度外移，仍保留系统安全区。",

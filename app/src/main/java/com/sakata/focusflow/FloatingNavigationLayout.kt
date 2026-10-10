@@ -18,24 +18,39 @@ internal object FloatingNavigationLayout {
         else -> 16
     }
 
-    /** 同一安全区内左右和底部使用相同留白；小屏保留触控空间。 */
-    fun horizontalMarginDp(availableWidthDp: Float, fontScale: Float): Int = when {
+    private fun rc2MarginDp(availableWidthDp: Float, fontScale: Float): Int = when {
         availableWidthDp < 280f -> 4
         availableWidthDp < 360f || fontScale >= 1.3f -> 6
         else -> 8
     }
 
+    /** 同一安全区内左右和底部使用相同留白；小屏多让出 2dp，保留箭头触控边界。 */
+    fun horizontalMarginDp(availableWidthDp: Float, fontScale: Float): Int = when {
+        availableWidthDp < 280f -> 4
+        availableWidthDp < 360f || fontScale >= 1.3f -> 4
+        else -> 8
+    }
+
     /**
-     * 箭头锚点会随胶囊边缘一起外移，不能再叠加超出拓宽量的偏移。
-     * 相对旧 4dp 偏移，每边总外移 min(4, 单边拓宽量)，而不是两次外移。
+     * 相对已分发的 rc.2，每边再外移 2dp；按屏幕绝对坐标计算，包含胶囊锚点变化。
+     * 旧箭头在胶囊边缘外 4dp，因此新箭头最多仍在新边缘外 4dp：总移动不超过拓宽量。
+     * 极窄窗口不能出安全区，平板限宽不能虚算拓宽；这些边界按实际余量限幅。
      */
-    fun historyArrowOffsetDp(availableWidthDp: Float, fontScale: Float): Int {
-        // 大屏胶囊受最大宽度约束；只跟随真实边缘移动，不叠加手机偏移补偿。
-        if (availableWidthDp > MAX_BAR_WIDTH_DP + 2 * horizontalMarginDp(availableWidthDp, fontScale)) {
-            return 4
+    fun historyArrowOffsetDp(availableWidthDp: Float, fontScale: Float): Float {
+        val priorMargin = rc2MarginDp(availableWidthDp, fontScale)
+        val margin = horizontalMarginDp(availableWidthDp, fontScale)
+        val priorBarWidth = minOf(MAX_BAR_WIDTH_DP.toFloat(), availableWidthDp - priorMargin * 2)
+        val barWidth = minOf(MAX_BAR_WIDTH_DP.toFloat(), availableWidthDp - margin * 2)
+        val priorEdge = (availableWidthDp - priorBarWidth) / 2f
+        val edge = (availableWidthDp - barWidth) / 2f
+        val priorAddedWidth = previousMarginDp(availableWidthDp, fontScale) - priorMargin
+        val priorOffset = if (availableWidthDp > MAX_BAR_WIDTH_DP + 2 * priorMargin) {
+            4f
+        } else {
+            (4 + minOf(4, priorAddedWidth) - priorAddedWidth).toFloat()
         }
-        val addedWidth = previousMarginDp(availableWidthDp, fontScale) -
-            horizontalMarginDp(availableWidthDp, fontScale)
-        return 4 + minOf(4, addedWidth) - addedWidth
+        val requestedLeft = priorEdge - priorOffset - 2f
+        val minimumLeft = maxOf(0f, edge - 4f)
+        return edge - maxOf(requestedLeft, minimumLeft)
     }
 }

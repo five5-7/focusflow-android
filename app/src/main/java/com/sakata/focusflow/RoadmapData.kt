@@ -21,8 +21,9 @@ object RoadmapData {
     /** 已实现版本演进（1.0 → 当前版本），每版本浓缩 1–3 条，与 CHANGELOG.md 对应。 */
     val evolution: List<RoadmapVersion> = listOf(
         RoadmapVersion("9.0.0", listOf(
-            RoadmapEntry("9.0.0-rc.2", "选项排版、底栏与图标细节", "待办重复/日期与安排按钮自适应换行，收集箱查看全部与标题同行；底栏安全区内等距留白，箭头外移不超过单边拓宽；桌面图标增加光影层次。versionCode 580，新UI待真机观察，未发布。", RoadmapStatus.CANDIDATE),
-            RoadmapEntry("9.0.0-rc.1", "发布前稳定性与实用性审计", "修复启动读取、快速记录受限恢复、候选更新与半包下载、无空档改期、崩溃日志及日历边界；保留日常流程和最近 UI 修订。versionCode 579，待最终候选验证与手动真机审核，未发布。", RoadmapStatus.CANDIDATE)
+            RoadmapEntry("9.0.0", "记录、安排与恢复", "收集箱整理、待办与计划、每日/每周重复和活动安排保留日常闭环；删除确认、回收站与撤回支持恢复，历史继续保留。", RoadmapStatus.DONE),
+            RoadmapEntry("9.0.0", "课程与稳定性", "教务学期选择、连续课程展示、稳定课程身份与独立课次提醒；更新下载、快速记录、无空档改期与启动诊断完成发布前修订。Room激活关闭，新识别方案暂缓。", RoadmapStatus.DONE),
+            RoadmapEntry("9.0.0", "排版、反馈与流动丝带图标", "有课日及同类选项自适应换行，收集箱操作同行，帮助问号保留标题右侧；底栏等距留白，上一步/下一步再外移2dp并受安全边界限幅。采用维护者选定的B1流动丝带图标，保留主题单色图标。", RoadmapStatus.DONE)
         )),
         RoadmapVersion("8.3.0", listOf(
             RoadmapEntry("8.3.0-rc.44", "阶段9：补齐帮助问号布局", "设置分区问号在窄屏和大字号下仍保留在标题右侧；补齐提醒、免打扰、通勤、教程搜索和应用检测副页标题帮助槽；校园地点来源复用帮助按钮。versionCode 578，待真机验收，未发布。", RoadmapStatus.CANDIDATE),

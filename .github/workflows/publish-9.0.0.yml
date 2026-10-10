@@ -1,0 +1,201 @@
+name: Publish FocusFlow 9.0.0
+
+on:
+  workflow_run:
+    workflows: ["Build FocusFlow APK"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      build_run_id:
+        description: Successful main build run ID for this exact commit
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: release-v9.0.0
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: >-
+      github.repository == 'five5-7/focusflow-android' &&
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.head_branch == 'main' &&
+        github.event.workflow_run.head_sha == github.sha))
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SOURCE_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+      RUN_ID: ${{ github.event.workflow_run.id || inputs.build_run_id }}
+    steps:
+      - name: Check out exact release source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Bind successful main build and frozen version
+        id: source
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const gradle = fs.readFileSync('app/build.gradle.kts', 'utf8');
+            const name = gradle.match(/versionName\s*=\s*"([^"]+)"/)[1];
+            const code = Number(gradle.match(/versionCode\s*=\s*(\d+)/)[1]);
+            if (name !== '9.0.0' || code !== 581) {
+              if (context.eventName === 'workflow_dispatch') throw new Error('Source is not frozen 9.0.0 / 581');
+              core.setOutput('eligible', 'false');
+              return;
+            }
+            const id = Number(process.env.RUN_ID);
+            if (!Number.isSafeInteger(id) || id <= 0) throw new Error('Missing build run ID');
+            const run = (await github.rest.actions.getWorkflowRun({...context.repo, run_id: id})).data;
+            if (run.head_sha !== process.env.SOURCE_SHA || run.head_branch !== 'main' ||
+                run.head_repository.full_name !== 'five5-7/focusflow-android' ||
+                run.path !== '.github/workflows/build-apk.yml' || run.conclusion !== 'success') {
+              throw new Error('Build does not belong to this successful main source');
+            }
+            const main = (await github.rest.git.getRef({...context.repo, ref: 'heads/main'})).data;
+            if (main.object.sha !== process.env.SOURCE_SHA) throw new Error('Main moved after the build');
+            try {
+              const tag = (await github.rest.git.getRef({...context.repo, ref: 'tags/v9.0.0'})).data;
+              if (tag.object.sha !== process.env.SOURCE_SHA) {
+                if (context.eventName === 'workflow_dispatch') throw new Error('9.0.0 is already bound to another source');
+                core.setOutput('eligible', 'false');
+                return;
+              }
+            } catch (error) { if (error.status !== 404) throw error; }
+            core.setOutput('run_number', String(run.run_number));
+            core.setOutput('eligible', 'true');
+
+      - name: Download signed APK
+        if: steps.source.outputs.eligible == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: FocusFlow-9.0.0-run-${{ steps.source.outputs.run_number }}-apk
+          run-id: ${{ env.RUN_ID }}
+          github-token: ${{ github.token }}
+          path: release-artifact
+
+      - name: Download signature evidence
+        if: steps.source.outputs.eligible == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: FocusFlow-verification-run-${{ steps.source.outputs.run_number }}
+          run-id: ${{ env.RUN_ID }}
+          github-token: ${{ github.token }}
+          path: release-evidence
+
+      - name: Download unit test evidence
+        if: steps.source.outputs.eligible == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: FocusFlow-tests-run-${{ steps.source.outputs.run_number }}
+          run-id: ${{ env.RUN_ID }}
+          github-token: ${{ github.token }}
+          path: release-tests
+
+      - name: Verify APK again before publication
+        if: steps.source.outputs.eligible == 'true'
+        env:
+          RUN_NUMBER: ${{ steps.source.outputs.run_number }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk="release-artifact/FocusFlow-9.0.0-run-$RUN_NUMBER.apk"
+          test -f "$apk"
+          build_tools="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          "$build_tools/apksigner" verify --verbose --print-certs "$apk" > release-artifact/apk-verification.txt
+          bash scripts/verify-signing-report.sh release-artifact/apk-verification.txt
+          "$build_tools/aapt" dump badging "$apk" >> release-artifact/apk-verification.txt
+          grep -Fq "package: name='com.sakata.focusflow' versionCode='581' versionName='9.0.0'" release-artifact/apk-verification.txt
+          if grep -q '^application-debuggable' release-artifact/apk-verification.txt; then exit 1; fi
+          sha256sum "$apk" >> release-artifact/apk-verification.txt
+          python3 - <<'PY'
+          import hashlib, json, os, re
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          name = f"FocusFlow-9.0.0-run-{os.environ['RUN_NUMBER']}.apk"
+          apk = Path('release-artifact') / name
+          digest = hashlib.sha256(apk.read_bytes()).hexdigest()
+          earlier = Path('release-evidence/apk-verification.txt').read_text()
+          if digest not in earlier:
+              raise SystemExit('APK does not match original build evidence')
+          summary = json.loads(Path('release-tests/unit-test-summary.json').read_text())
+          for variant in ['Debug', 'Release']:
+              claimed = summary[variant]
+              files = list(Path('release-tests').rglob(f'test{variant}UnitTest/*.xml'))
+              actual = dict(suites=len(files), tests=0, failures=0, errors=0, skipped=0)
+              for file in files:
+                  suite = ET.parse(file).getroot()
+                  for key in ['tests', 'failures', 'errors', 'skipped']:
+                      actual[key] += int(suite.get(key, '0'))
+              if actual != claimed or actual['tests'] < 1486 or any(actual[k] for k in ['failures', 'errors', 'skipped']):
+                  raise SystemExit(f'{variant} tests did not meet release gates: {actual}')
+          current = Path('release-artifact/apk-verification.txt').read_text()
+          cert = re.search(r'certificate SHA-256 digest:\s*([0-9a-f]+)', current).group(1)
+          proof = dict(version='9.0.0', versionCode=581, source_sha=os.environ['SOURCE_SHA'],
+                       build_run_id=os.environ['RUN_ID'], run_number=os.environ['RUN_NUMBER'],
+                       apk=name, size_bytes=apk.stat().st_size, sha256=digest,
+                       certificate_sha256=cert, debuggable=False, unit_tests=summary)
+          Path('release-artifact/release-verification.json').write_text(json.dumps(proof, indent=2) + '\n')
+          Path('release-artifact/SHA256SUMS.txt').write_text(f'{digest}  {name}\n')
+          PY
+
+      - name: Publish verified stable release
+        if: steps.source.outputs.eligible == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const crypto = require('crypto');
+            const proof = JSON.parse(fs.readFileSync('release-artifact/release-verification.json', 'utf8'));
+            const source = process.env.SOURCE_SHA;
+            const tag = 'v9.0.0';
+            const main = (await github.rest.git.getRef({...context.repo, ref: 'heads/main'})).data;
+            if (main.object.sha !== source || proof.source_sha !== source) throw new Error('Release source changed');
+            try {
+              const ref = (await github.rest.git.getRef({...context.repo, ref: 'tags/' + tag})).data;
+              if (ref.object.type !== 'commit' || ref.object.sha !== source) throw new Error('Existing tag points elsewhere');
+            } catch (error) { if (error.status !== 404) throw error; }
+            let release;
+            try { release = (await github.rest.repos.getReleaseByTag({...context.repo, tag})).data; }
+            catch (error) { if (error.status !== 404) throw error; }
+            if (release && release.target_commitish !== source) throw new Error('Existing release belongs to another commit');
+            const buildUrl = 'https://github.com/five5-7/focusflow-android/actions/runs/' + proof.build_run_id;
+            const counts = proof.unit_tests;
+            const evidence = `正式包构建：[Run ${proof.run_number}](${buildUrl})；Debug ${counts.Debug.tests} 项、Release ${counts.Release.tests} 项，失败/错误/跳过均 0。稳定签名与不可调试核验通过。\n\nAPK SHA-256：\`${proof.sha256}\`。`;
+            const notes = fs.readFileSync('docs/9.0-release-notes.md', 'utf8').replace('<!-- BUILD_EVIDENCE -->', evidence);
+            if (!release) release = (await github.rest.repos.createRelease({...context.repo,
+              tag_name: tag, target_commitish: source, name: 'FocusFlow 9.0 · 第六个正式版',
+              body: notes, draft: true, prerelease: false})).data;
+            const existing = await github.paginate(github.rest.repos.listReleaseAssets,
+              {...context.repo, release_id: release.id});
+            for (const name of [proof.apk, 'SHA256SUMS.txt', 'apk-verification.txt', 'release-verification.json']) {
+              const bytes = fs.readFileSync('release-artifact/' + name);
+              const digest = 'sha256:' + crypto.createHash('sha256').update(bytes).digest('hex');
+              let asset = existing.find(a => a.name === name);
+              if (!asset) asset = (await github.rest.repos.uploadReleaseAsset({...context.repo,
+                release_id: release.id, name, data: bytes,
+                headers: {'content-type': name.endsWith('.apk') ? 'application/vnd.android.package-archive' : 'application/octet-stream',
+                          'content-length': bytes.length}})).data;
+              if (asset.state !== 'uploaded' || asset.size !== bytes.length || asset.digest !== digest) {
+                throw new Error('Remote asset content mismatch: ' + name);
+              }
+            }
+            if (release.draft) release = (await github.rest.repos.updateRelease({...context.repo,
+              release_id: release.id, body: notes, draft: false, prerelease: false, make_latest: 'true'})).data;
+            if (release.draft || release.prerelease || !release.published_at) throw new Error('Release is not public/stable');
+            const ref = (await github.rest.git.getRef({...context.repo, ref: 'tags/' + tag})).data;
+            if (ref.object.sha !== source) throw new Error('Published tag source mismatch');
+            await core.summary.addHeading('FocusFlow 9.0 published')
+              .addLink('Release', release.html_url).addBreak().addRaw(evidence).write();
