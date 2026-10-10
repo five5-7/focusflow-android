@@ -30,6 +30,10 @@ internal object FloatingNavigationLayout {
      * 相对旧 4dp 偏移，每边总外移 min(4, 单边拓宽量)，而不是两次外移。
      */
     fun historyArrowOffsetDp(availableWidthDp: Float, fontScale: Float): Int {
+        // 大屏胶囊受最大宽度约束；只跟随真实边缘移动，不叠加手机偏移补偿。
+        if (availableWidthDp > MAX_BAR_WIDTH_DP + 2 * horizontalMarginDp(availableWidthDp, fontScale)) {
+            return 4
+        }
         val addedWidth = previousMarginDp(availableWidthDp, fontScale) -
             horizontalMarginDp(availableWidthDp, fontScale)
         return 4 + minOf(4, addedWidth) - addedWidth
