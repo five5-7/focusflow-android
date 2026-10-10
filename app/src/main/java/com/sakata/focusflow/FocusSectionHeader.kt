@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -24,10 +25,13 @@ internal fun FocusSectionHeader(
     title: String,
     count: Int? = null,
     modifier: Modifier = Modifier,
+    keepActionInline: Boolean = false,
     action: (@Composable () -> Unit)? = null
 ) {
     BoxWithConstraints(modifier.fillMaxWidth()) {
-        val stackAction = action != null &&
+        // Compact help actions stay beside their title even on narrow screens.
+        // Text actions can still move below the title to keep their labels readable.
+        val stackAction = action != null && !keepActionInline &&
             (maxWidth < 380.dp || LocalDensity.current.fontScale >= 1.3f)
         if (stackAction) {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -42,10 +46,24 @@ internal fun FocusSectionHeader(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                FocusSectionTitle(title, count, Modifier.weight(1f))
+                FocusSectionTitle(
+                    title,
+                    count,
+                    Modifier.weight(1f),
+                    maxLines = if (keepActionInline) Int.MAX_VALUE else 2
+                )
                 if (action != null) {
                     Spacer(Modifier.width(8.dp))
-                    action.invoke()
+                    if (keepActionInline) {
+                        Box(
+                            Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp),
+                            contentAlignment = Alignment.CenterEnd
+                        ) {
+                            action.invoke()
+                        }
+                    } else {
+                        action.invoke()
+                    }
                 }
             }
         }
@@ -53,7 +71,12 @@ internal fun FocusSectionHeader(
 }
 
 @Composable
-private fun FocusSectionTitle(title: String, count: Int?, modifier: Modifier = Modifier) {
+private fun FocusSectionTitle(
+    title: String,
+    count: Int?,
+    modifier: Modifier = Modifier,
+    maxLines: Int = 2
+) {
     Text(
         buildString {
             append(title)
@@ -62,7 +85,7 @@ private fun FocusSectionTitle(title: String, count: Int?, modifier: Modifier = M
         modifier = modifier,
         style = MaterialTheme.typography.titleMedium,
         fontWeight = FontWeight.Bold,
-        maxLines = 2,
+        maxLines = maxLines,
         overflow = TextOverflow.Ellipsis
     )
 }

@@ -22,7 +22,6 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -561,14 +560,22 @@ private data class BaselineVariantDraft(val name: String)
         }
     }) { current ->
         if (current != null) {
+            val titleHelpBlock = when (current) {
+                SettingsSubPage.APPEARANCE -> SettingsBlock.APPEARANCE
+                SettingsSubPage.CUSTOM_THEME -> SettingsBlock.CUSTOM_THEME
+                SettingsSubPage.ACTIVITY_REMINDERS -> SettingsBlock.ACTIVITY_REMINDERS
+                SettingsSubPage.QUIET_HOURS -> SettingsBlock.QUIET_HOURS
+                SettingsSubPage.COMMUTE_PLACES -> SettingsBlock.COMMUTE_PLACES
+                SettingsSubPage.TUTORIAL_SEARCH -> SettingsBlock.TUTORIAL_SEARCH
+                SettingsSubPage.APP_DETECTION -> SettingsBlock.APP_DETECTION
+                else -> null
+            }
             PlanSubpageFrame(
                 Modifier.fillMaxSize(), current.title,
-                // 外观与自定义主题页的问号放在标题行右侧，避免单独一行悬在内容上方。
-                titleAction = when (current) {
-                    SettingsSubPage.APPEARANCE -> { { HelpToggleButton(onClick = { helpBlock = SettingsBlock.APPEARANCE }) } }
-                    SettingsSubPage.CUSTOM_THEME -> { { HelpToggleButton(onClick = { helpBlock = SettingsBlock.CUSTOM_THEME }) } }
-                    else -> null
-                }
+                // 所有已有副页帮助入口共用标题右侧操作槽，不再另占正文一行。
+                titleAction = if (titleHelpBlock != null) {
+                    { HelpToggleButton(onClick = { helpBlock = titleHelpBlock }) }
+                } else null
             ) {
                 when (current) {
                     SettingsSubPage.ADVANCED -> {
@@ -747,9 +754,6 @@ private data class BaselineVariantDraft(val name: String)
                         )
                     }
                     SettingsSubPage.ACTIVITY_REMINDERS -> {
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                            HelpToggleButton(onClick = { helpBlock = SettingsBlock.ACTIVITY_REMINDERS })
-                        }
                         // 权限状态随前台恢复刷新：从系统设置页返回后立即更新文案。
                         val lifecycleOwner = LocalLifecycleOwner.current
                         var notificationHealth by remember { mutableStateOf(NotificationChannelSettings.health(context)) }
@@ -936,9 +940,6 @@ private data class BaselineVariantDraft(val name: String)
                         }
                     }
                     SettingsSubPage.QUIET_HOURS -> {
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                            HelpToggleButton(onClick = { helpBlock = SettingsBlock.QUIET_HOURS })
-                        }
                         SettingSwitch(
                             "免打扰时段",
                             "时段内静音状态询问、饭点提醒与睡前减速；活动到点和任务提醒保持时间敏感，不静音",
@@ -968,9 +969,6 @@ private data class BaselineVariantDraft(val name: String)
                         }
                     }
                     SettingsSubPage.COMMUTE_PLACES -> {
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                            HelpToggleButton(onClick = { helpBlock = SettingsBlock.COMMUTE_PLACES })
-                        }
                         SettingSwitch("校园生活", "控制校内出行、地点包和手动位置工具；关闭不会删除已有数据", campusLifeEnabled, onCampusLifeEnabledChange)
                         if (campusLifeEnabled) {
                             // 收编：ElevatedCard → FocusCard，显式保留 surfaceContainerLow 底色与 1dp 默认阴影。
@@ -1074,13 +1072,9 @@ private data class BaselineVariantDraft(val name: String)
                             ) {
                                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                        Text("校园地点来源", fontWeight = FontWeight.SemiBold)
-                                        OutlinedButton(
-                                            onClick = { campusMapHelpOpen = true },
-                                            modifier = Modifier.size(30.dp),
-                                            shape = CircleShape,
-                                            contentPadding = PaddingValues(0.dp)
-                                        ) { Text("?", fontWeight = FontWeight.Bold) }
+                                        Text("校园地点来源", fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                                        Spacer(Modifier.width(8.dp))
+                                        HelpToggleButton(onClick = { campusMapHelpOpen = true })
                                     }
                                     Text(
                                         campusMapPackage?.let { "高级地点包：${it.name} · ${it.places.size} 个地点" } ?: "已自动使用内置紫金港目录 · ${ZijingangTravel.places.size} 个地点",
@@ -1175,9 +1169,6 @@ private data class BaselineVariantDraft(val name: String)
                         }
                     }
                     SettingsSubPage.TUTORIAL_SEARCH -> {
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                            HelpToggleButton(onClick = { helpBlock = SettingsBlock.TUTORIAL_SEARCH })
-                        }
                         SettingSwitch(
                             "教程联网搜索",
                             "为学习目标从网上搜集候选教程并比较来源；使用你填写的硅基流动 key，仅发往 api.siliconflow.cn",
@@ -1233,9 +1224,6 @@ private data class BaselineVariantDraft(val name: String)
                     }
                     SettingsSubPage.APP_DETECTION -> {
                         val context = LocalContext.current
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                            HelpToggleButton(onClick = { helpBlock = SettingsBlock.APP_DETECTION })
-                        }
                         // 从系统“使用情况访问”设置页返回后刷新状态。
                         val lifecycleOwner = LocalLifecycleOwner.current
                         var usageGranted by remember { mutableStateOf(AppLibrary.hasUsageAccess(context)) }
