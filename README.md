@@ -1,8 +1,8 @@
 # FocusFlow
 
-当前版本：**9.0.0**（versionCode 581，第六个正式版发布准备）。基于已分发 rc.2，采用维护者定稿的 B1 流动丝带图标，上一步/下一步箭头各再外移 2dp，窄屏、大字号和限宽场景仍受安全边界约束。
+当前版本：**9.0.0**（versionCode 581，第六个正式版，已发布）。基于已分发 rc.2，采用维护者定稿的 B1 流动丝带图标，上一步/下一步箭头各再外移 2dp，窄屏、大字号和限宽场景仍受安全边界约束。
 
-维护者已于 2026-10-11 授权完成修改后发布。正式状态以 [v9.0.0 Release](https://github.com/five5-7/focusflow-android/releases/tag/v9.0.0) 为准；发布工作流只接受同一 main 提交的完整通过构建，核验附件后公开。当前已公开的历史稳定版为 8.2.1。
+维护者已于 2026-10-11 授权完成修改后发布。已建立 [v9.0.0 Release](https://github.com/five5-7/focusflow-android/releases/tag/v9.0.0)，并标为最新正式版。[Run670](https://github.com/five5-7/focusflow-android/actions/runs/38068211831) 完整通过，Debug/Release 各191套件、1486项，失败/错误/跳过均0；正式附件版本、稳定签名、不可调试与公开下载摘要均已核验。前一正式版为8.2.1。
 
 发布资料：[9.0 更新说明](docs/9.0-release-notes.md) · [本轮转正与验证记录](docs/9.0-publication-20261011.md) · [发布前审计](docs/9.0-release-audit-20261010.md) · [上一候选 UI 记录](docs/9.0-ui-refinement-20261010.md)。历史通知项按维护者决定接受，未完成/受阻的真机场景原样留档，不写成通过。
 
@@ -10,7 +10,7 @@ Room 激活继续关闭，新的识别方案暂缓；导入 dsh 和假期调课�
 
 本地优先的 Android 日程与执行辅助应用（`com.sakata.focusflow`）。核心目标不是维护一张完整日历，而是**降低记录压力、按当前状态调整提醒、在错过计划后帮助恢复**。
 
-发布入口为 [9.0.0](https://github.com/five5-7/focusflow-android/releases/tag/v9.0.0)，建立公开 Release 后标为正式发布。版本规则见 [VERSIONING.md](VERSIONING.md)，更新记录见 [CHANGELOG.md](CHANGELOG.md)。
+发布入口为 [9.0.0](https://github.com/five5-7/focusflow-android/releases/tag/v9.0.0)，已建立公开正式 Release。版本规则见 [VERSIONING.md](VERSIONING.md)，更新记录见 [CHANGELOG.md](CHANGELOG.md)。
 
 > 数据原则：只用你确认过的数据生成建议，数据不足时不打扰、不假装精确。数据只保存在本机。
 
