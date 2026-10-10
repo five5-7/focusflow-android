@@ -24,7 +24,7 @@ class FocusFlowStartupSnapshotTest {
         context.getSharedPreferences("focusflow", Context.MODE_PRIVATE).edit().clear().commit()
         store = PrototypeStore(context)
         repository = LegacyCoreDataRepository(store)
-        store.saveItems(listOf(Item(42L, "保留的记录", "", "收集箱")))
+        assertTrue(repository.replaceTasks(listOf(Item(42L, "保留的记录", "", "收集箱")), emptyList()).applied)
     }
 
     @Test fun failedReadAfterRuntimeResolutionBlocksStartupWithoutDeletingData() {

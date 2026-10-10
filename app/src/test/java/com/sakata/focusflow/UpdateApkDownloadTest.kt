@@ -32,7 +32,7 @@ class UpdateApkDownloadTest {
     }
 
     @Test fun interruptedDownloadRemovesPartialFileAndPreservesPreviouslyDownloadedApk() {
-        val dir = File(dir, "updates").apply { mkdirs() }
+        val dir = File(this.dir, "updates").apply { mkdirs() }
         val previous = File(dir, "FocusFlow-9.0.0-rc.1.apk").apply { writeText("previous valid download") }
         val connection = FakeConnection(apkBytes(), expectedExtraBytes = 5)
         expectFailure { UpdateApkDownload.download(this.dir, "9.0.0-rc.1", "https://example.com/app.apk") { connection } }

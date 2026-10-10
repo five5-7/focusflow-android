@@ -831,7 +831,7 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                 return@launch
             }
             if (silent) {
-                updateCheckState = UpdateCheckState(latestFormal = latest, message = if (newer) "发现新$kind ${release.versionName}" else "已是最新$kind ${release.versionName}")
+                updateCheckState = UpdateCheckState(latestFormal = latest, message = if (newer) "发现新$kind ${release.versionName}" else "未发现更新；当前 ${BuildConfig.VERSION_NAME}，可用$kind ${release.versionName}")
                 if (newer) {
                     val result = snackbarHostState.showSnackbar(
                         message = "发现新$kind ${release.versionName}，可到 设置 → 检查更新 下载安装",
@@ -845,7 +845,7 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                 return@launch
             }
             if (!newer) {
-                updateCheckState = UpdateCheckState(latestFormal = latest, message = "当前已是最新$kind ${release.versionName}")
+                updateCheckState = UpdateCheckState(latestFormal = latest, message = "未发现更新；当前 ${BuildConfig.VERSION_NAME}，可用$kind ${release.versionName}")
                 return@launch
             }
             val apkUrl = release.apkUrl
