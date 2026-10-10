@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+
 package com.sakata.focusflow
 
 import android.app.DatePickerDialog
@@ -53,9 +55,13 @@ internal fun TodoCreateDialog(onDismiss: () -> Unit, onSave: (String, Long?, Boo
                 Checkbox(checked = asChecklist, onCheckedChange = { asChecklist = it })
                 Text("把后续行作为第一项待办的检查项")
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+            FlowRow(
+                Modifier.fillMaxWidth(), maxItemsInEachRow = 2,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
                 listOf("" to "不重复", "daily" to "每天", "weekly" to "每周", "class_day" to "有课日").forEach { (key, label) ->
-                    FilterChip(selected = repeatFrequency == key, onClick = { repeatFrequency = key }, label = { Text(label) })
+                    FilterChip(selected = repeatFrequency == key, onClick = { repeatFrequency = key }, label = { Text(label, maxLines = 1) })
                 }
             }
             if (repeatFrequency.isNotEmpty()) {
@@ -77,7 +83,11 @@ internal fun TodoCreateDialog(onDismiss: () -> Unit, onSave: (String, Long?, Boo
                     TextButton(onClick = { repeatMinute = -1 }) { Text("取消到点提醒") }
                 }
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            FlowRow(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
                 listOf("不指定" to null, "今天" to 0, "明天" to 1).forEach { (label, offset) ->
                     val chosen = offset?.let { TaskHistory.dayStartOf(dateAt(it, 12)) }
                     FilterChip(selected = dateOnlyAt == chosen, onClick = { dateOnlyAt = chosen; persist() }, label = { Text(label) })

@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+
 package com.sakata.focusflow
 
 import android.app.TimePickerDialog
@@ -55,7 +57,7 @@ private data class ActivityTransitionDraft(val extensionMinutes: Int, val reason
             listOf(
                 listOf("新建待办" to onAddTodo, "新建计划" to onAddPlan),
                 listOf("新建日程" to onAddSchedule, "新建提醒" to onAddReminder)
-            ).forEach { row -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            ).forEach { row -> FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 row.forEach { (label, action) ->
                     OutlinedButton(onClick = action, modifier = Modifier.weight(1f).heightIn(min = 52.dp)) { Text(label) }
                 }
@@ -111,7 +113,7 @@ internal fun activityTitleLabel(category: String): String = when (category) {
                 }
             }
             OutlinedTextField(value = title, onValueChange = { title = it; persist() }, label = { Text(activityTitleLabel(category)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 listOf("30", "60", "90").forEach { value ->
                     FilterChip(selected = duration == value, onClick = { duration = value; persist() }, label = { Text("$value 分钟") })
                 }
@@ -166,7 +168,7 @@ internal fun activityTitleLabel(category: String): String = when (category) {
                     ScheduleOccupation.minuteOfDay(plannedAt),
                     d, courses, items, profile, targetDay = plannedAt
                 ) else null
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     freeSlot?.let { slot ->
                         OutlinedButton(enabled = durationOk, onClick = {
                             vault.clear(draftKey)
@@ -234,7 +236,7 @@ internal fun activityTitleLabel(category: String): String = when (category) {
                     FilterChip(selected = category == label, onClick = { category = label; persist() }, label = { Text(label) })
                 }
                 if (category == "自定义" || preset != null) OutlinedTextField(value = customName, onValueChange = { customName = it; persist() }, label = { Text("活动名称") }, singleLine = true)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     FilterChip(selected = timeMode == "时长", onClick = { timeMode = "时长"; persist() }, label = { Text("预计时长") })
                     FilterChip(selected = timeMode == "截至", onClick = { timeMode = "截至"; persist() }, label = { Text("直到时间") })
                 }
@@ -247,10 +249,10 @@ internal fun activityTitleLabel(category: String): String = when (category) {
                         }
                     }
                     OutlinedTextField(value = minutes, onValueChange = { minutes = it.filter(Char::isDigit).take(3); persist() }, label = { Text("分钟") }, singleLine = true)
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         listOf(15, 30, 60).forEach { value -> FilterChip(selected = minutes == value.toString(), onClick = { minutes = value.toString(); persist() }, label = { Text("$value 分") }) }
                     }
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         listOf(90, 120).forEach { value -> FilterChip(selected = minutes == value.toString(), onClick = { minutes = value.toString(); persist() }, label = { Text("$value 分") }) }
                     }
                 } else {
@@ -310,7 +312,7 @@ internal fun activityTitleLabel(category: String): String = when (category) {
                 Text("${session.name} · 原定 ${formatTime(session.endsAt)} 结束", fontWeight = FontWeight.SemiBold)
                 if (System.currentTimeMillis() > session.endsAt + 60_000L) {
                     Text("实际什么时候结束？")
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         FilterChip(selected = endTimeChoice == "现在", onClick = { endTimeChoice = "现在"; persist() }, label = { Text("刚刚") })
                         FilterChip(selected = endTimeChoice == "预计", onClick = { endTimeChoice = "预计"; persist() }, label = { Text("按预计时间") })
                     }
@@ -326,7 +328,7 @@ internal fun activityTitleLabel(category: String): String = when (category) {
                 }
                 HorizontalDivider()
                 Text("需要更多时间")
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     listOf(10, 20, 30).forEach { value -> FilterChip(selected = extensionMinutes == value, onClick = { extensionMinutes = value; persist() }, label = { Text("$value 分钟") }) }
                 }
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {

@@ -201,8 +201,9 @@ internal fun FloatingNavigationBar(
         contentAlignment = Alignment.Center
     ) {
         val margin = FloatingNavigationLayout.horizontalMarginDp(maxWidth.value, LocalDensity.current.fontScale).dp
+        val arrowOffset = FloatingNavigationLayout.historyArrowOffsetDp(maxWidth.value, LocalDensity.current.fontScale).dp
         Box(
-            Modifier.padding(horizontal = margin, vertical = 8.dp)
+            Modifier.padding(horizontal = margin, vertical = margin)
                 .widthIn(max = FloatingNavigationLayout.MAX_BAR_WIDTH_DP.dp)
                 .fillMaxWidth()
         ) {
@@ -404,8 +405,7 @@ internal fun FloatingNavigationBar(
                 onLongPress = onLongPressBack,
                 description = "回退到上一个页面；长按查看历史",
                 tint = navigationContentColor(background),
-                // 再向两侧各移动 2dp，减少与中间导航项的视觉拥挤。
-                modifier = Modifier.align(Alignment.TopStart).offset(x = (-4).dp, y = 0.dp)
+                modifier = Modifier.align(Alignment.TopStart).offset(x = -arrowOffset, y = 0.dp)
             )
             CornerSymbol(
                 visible = canGoForward,
@@ -415,7 +415,7 @@ internal fun FloatingNavigationBar(
                 onLongPress = null,
                 description = "折返到后一个页面",
                 tint = navigationContentColor(background),
-                modifier = Modifier.align(Alignment.TopEnd).offset(x = 4.dp, y = 0.dp)
+                modifier = Modifier.align(Alignment.TopEnd).offset(x = arrowOffset, y = 0.dp)
             )
         }
     }

@@ -5,9 +5,24 @@
     <path android:pathData="M0,0 H108 V108 H0 Z">
         <aapt:attr name="android:fillColor">
             <gradient android:type="linear" android:startX="8" android:startY="0"
-                android:endX="100" android:endY="108"
-                android:startColor="#083D49" android:endColor="#147D88" />
+                android:endX="100" android:endY="108">
+                <item android:offset="0" android:color="#146571" />
+                <item android:offset="0.55" android:color="#0C4B5A" />
+                <item android:offset="1" android:color="#082D3C" />
+            </gradient>
         </aapt:attr>
     </path>
-    <path android:fillColor="#0CF0FFFA" android:pathData="M0,83 Q30,47 66,75 Q87,91 108,56 L108,108 H0 Z" />
+    <!-- A soft upper light and lower reflected wave remain behind the focus mark. -->
+    <path android:fillColor="#1679E1DE" android:pathData="M0,0 H108 V24 Q76,45 44,29 Q20,15 0,36 Z" />
+    <path android:fillColor="#1238B7C3" android:pathData="M0,88 Q30,64 63,81 Q86,96 108,68 V108 H0 Z" />
+    <!-- Inset tile: offset shadow, a directional surface and a thin upper highlight. -->
+    <path android:fillColor="#24001B29" android:pathData="M39,29 H71 Q85,29 85,43 V73 Q85,87 71,87 H39 Q25,87 25,73 V43 Q25,29 39,29 Z" />
+    <path android:pathData="M39,25 H69 Q83,25 83,39 V69 Q83,83 69,83 H39 Q25,83 25,69 V39 Q25,25 39,25 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient android:type="linear" android:startX="26" android:startY="25" android:endX="82" android:endY="83"
+                android:startColor="#2D8792" android:endColor="#104555" />
+        </aapt:attr>
+    </path>
+    <path android:fillColor="#00000000" android:strokeColor="#3874D8D3" android:strokeWidth="1"
+        android:strokeLineCap="round" android:pathData="M26,48 V39 Q26,26 39,26 H68" />
 </vector>

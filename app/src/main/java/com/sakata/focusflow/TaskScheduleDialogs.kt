@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+
 package com.sakata.focusflow
 
 import android.app.DatePickerDialog
@@ -82,7 +84,11 @@ private data class QuickCaptureEditorDraft(
                 )
             }
             Text("优先级", fontWeight = FontWeight.SemiBold)
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            FlowRow(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
                 ItemPriority.entries.forEach { entry ->
                     FilterChip(
                         selected = priority == entry.storageKey,
@@ -340,7 +346,11 @@ internal fun scheduleModeColumns(widthDp: Int, fontScale: Float): Int = when {
                     }
                     else -> {
                         Text("选择一个明确时间后，任务会写入日程并创建提醒。", style = MaterialTheme.typography.bodySmall)
-                        Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                        FlowRow(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(5.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
                             listOf("明早 9:00" to dateAt(1, 9), "明晚 18:00" to dateAt(1, 18)).forEach { option ->
                                 FilterChip(selected = exactTime == option.second, onClick = { exactTime = option.second; persist() }, label = { Text(option.first) })
                             }
@@ -376,7 +386,11 @@ internal fun scheduleModeColumns(widthDp: Int, fontScale: Float): Int = when {
                     )
                 }
                 Text("优先级", fontWeight = FontWeight.SemiBold)
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                FlowRow(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
                     ItemPriority.entries.forEach { entry ->
                         FilterChip(
                             selected = priority == entry.storageKey,
@@ -399,7 +413,11 @@ internal fun scheduleModeColumns(widthDp: Int, fontScale: Float): Int = when {
                             ScheduleOccupation.minuteOfDay(chosen),
                             duration, courses, items, profile, excludeId = item.id, targetDay = chosen
                         )
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        FlowRow(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
                             freeSlot?.let { slot ->
                                 OutlinedButton(enabled = durationValid, onClick = {
                                     vault.clear(draftKey)
@@ -484,7 +502,11 @@ internal fun scheduleModeColumns(widthDp: Int, fontScale: Float): Int = when {
                 )
             }
             Text("优先级", fontWeight = FontWeight.SemiBold)
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            FlowRow(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
                 ItemPriority.entries.forEach { entry ->
                     FilterChip(
                         selected = priority == entry.storageKey,
@@ -504,7 +526,11 @@ internal fun scheduleModeColumns(widthDp: Int, fontScale: Float): Int = when {
                     ?: onSave(options[selected].second, duration, "${options[selected].third} · ${duration}分钟", priority)
             }
             if (advice != null) {
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                FlowRow(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
                     freeSlot?.let { slot ->
                         OutlinedButton(enabled = durationValid, onClick = {
                             vault.clear(draftKey)
@@ -597,7 +623,11 @@ internal fun GoalScheduleDialog(
                 // 过去时间不允许保存：改期弹窗也未必能救回，直接禁用。
                 Button(enabled = false, onClick = original) { Text("确认安排") }
             } else if (advice != null) {
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                FlowRow(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
                     freeSlot?.let { slot ->
                         OutlinedButton(onClick = {
                             vault.clear(draftKey)
@@ -861,7 +891,11 @@ internal fun quickCaptureDetail(draft: QuickCaptureDraft): String {
                     }
                 }
                 Text("精确时间", fontWeight = FontWeight.SemiBold)
-                Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                FlowRow(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
                     listOf("明早 9:00" to dateAt(1, 9), "明晚 18:00" to dateAt(1, 18)).forEach { option ->
                         FilterChip(selected = effectiveExact == option.second, onClick = { exactOverride = if (effectiveExact == option.second) null else option.second; persist() }, label = { Text(option.first) })
                     }
@@ -882,7 +916,11 @@ internal fun quickCaptureDetail(draft: QuickCaptureDraft): String {
             }
         } },
         confirmButton = {
-            if (!tomorrow && effectiveExact != null) Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            if (!tomorrow && effectiveExact != null) FlowRow(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
                 OutlinedButton(enabled = text.isNotBlank(), onClick = { vault.clear(draftKey); onSave(draft(), false) }) { Text("稍后决定") }
                 Button(enabled = text.isNotBlank() && durationValid, onClick = { vault.clear(draftKey); onDirectSchedule(draft(), effectiveExact) }) { Text("直接安排") }
             } else Button(enabled = text.isNotBlank(), onClick = { vault.clear(draftKey); onSave(draft(), tomorrow) }) { Text("保存") }

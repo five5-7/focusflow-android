@@ -12,12 +12,27 @@ class FloatingNavigationLayoutTest {
         assertTrue(FloatingNavigationLayout.MIN_ITEM_HEIGHT_DP >= 48)
     }
     @Test fun regularPhoneKeepsFloatingMargins() {
-        assertEquals(16, FloatingNavigationLayout.horizontalMarginDp(393f, 1f))
+        assertEquals(8, FloatingNavigationLayout.horizontalMarginDp(393f, 1f))
     }
     @Test fun narrowPhoneAndLargeTextReduceMargins() {
-        assertEquals(8, FloatingNavigationLayout.horizontalMarginDp(320f, 1f))
-        assertEquals(8, FloatingNavigationLayout.horizontalMarginDp(393f, 1.5f))
+        assertEquals(6, FloatingNavigationLayout.horizontalMarginDp(320f, 1f))
+        assertEquals(6, FloatingNavigationLayout.horizontalMarginDp(393f, 1.5f))
         assertEquals(4, FloatingNavigationLayout.horizontalMarginDp(250f, 2f))
+    }
+    @Test fun historyArrowTotalMovementNeverExceedsAddedWidthOnEitherSide() {
+        for ((width, scale, oldMargin) in listOf(
+            Triple(393f, 1f, 16), Triple(320f, 1f, 8),
+            Triple(393f, 1.5f, 8), Triple(250f, 2f, 4)
+        )) {
+            val margin = FloatingNavigationLayout.horizontalMarginDp(width, scale)
+            val addedWidth = oldMargin - margin
+            // Compare absolute screen positions, including movement of the bar anchor.
+            val oldLeft = oldMargin - 4
+            val newLeft = margin - FloatingNavigationLayout.historyArrowOffsetDp(width, scale)
+            val totalMovement = oldLeft - newLeft
+            assertTrue(totalMovement in 0..addedWidth)
+            assertEquals(totalMovement.toFloat(), (width - newLeft) - (width - oldLeft), 0f)
+        }
     }
     @Test fun minimumWidthKeepsFiveTouchTargetsUsable() {
         assertTrue(FloatingNavigationLayout.MIN_CONTENT_WIDTH_DP >= 5 * 48)

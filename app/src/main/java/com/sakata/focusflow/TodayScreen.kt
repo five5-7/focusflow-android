@@ -352,6 +352,7 @@ import kotlinx.coroutines.delay
                     FocusSectionHeader(
                         "收集箱",
                         inboxItems.size,
+                        keepActionInline = true,
                         action = { TextButton(onClick = { onInboxOpenChange(true) }) { Text("查看全部 ›") } }
                     )
                 }
