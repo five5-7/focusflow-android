@@ -20,6 +20,9 @@ data class RoadmapVersion(val version: String, val entries: List<RoadmapEntry>)
 object RoadmapData {
     /** 已实现版本演进（1.0 → 当前版本），每版本浓缩 1–3 条，与 CHANGELOG.md 对应。 */
     val evolution: List<RoadmapVersion> = listOf(
+        RoadmapVersion("9.0.0", listOf(
+            RoadmapEntry("9.0.0-rc.1", "发布前稳定性与实用性审计", "修复启动读取、快速记录受限恢复、候选更新与半包下载、无空档改期、崩溃日志及日历边界；保留日常流程和最近 UI 修订。versionCode 579，待最终候选验证与手动真机审核，未发布。", RoadmapStatus.CANDIDATE)
+        )),
         RoadmapVersion("8.3.0", listOf(
             RoadmapEntry("8.3.0-rc.44", "阶段9：补齐帮助问号布局", "设置分区问号在窄屏和大字号下仍保留在标题右侧；补齐提醒、免打扰、通勤、教程搜索和应用检测副页标题帮助槽；校园地点来源复用帮助按钮。versionCode 578，待真机验收，未发布。", RoadmapStatus.CANDIDATE),
             RoadmapEntry("8.3.0-rc.43", "阶段9：日程布局与卡片按压反馈", "日程图例独立占位并为首末小时保留安全边距；标题行保留帮助操作槽，副页长标题可换行；导航和展开卡片使用随卡片尺寸变化的按压反馈。仅调整 UI，Run 662 工程验证通过；真机发现问号布局遗漏，由 rc.44 补齐。未发布。versionCode 577。", RoadmapStatus.CANDIDATE),
@@ -445,14 +448,15 @@ object RoadmapData {
 
     /** 后续候选（“想玩游戏拓展”“自律类目标”“空挡建议进阶”已随 5.6/5.7/5.8.2 落地；正式理财已评估移除）。 */
     val future: List<RoadmapEntry> = listOf(
+        RoadmapEntry("后续", "导入 dsh", "支持范围与输入格式尚待明确。", RoadmapStatus.PLANNED),
+        RoadmapEntry("后续", "假期调课", "假期与临时调课的处理规则、操作及验收条件后续确定。", RoadmapStatus.PLANNED),
         RoadmapEntry("后续", "统一设计语言", "建立颜色、字号、间距、圆角、阴影、图标、组件状态与转场令牌；统一主页面、子页面、卡片、弹窗和悬浮导航，覆盖全面屏、普通屏、深色模式、大字体及减少动画设置", RoadmapStatus.CANDIDATE),
-        RoadmapEntry("后续", "渐变主题与自选背景", "主题从单色升级为渐变：主色→副色渐变可用于选中色块、进度条、顶栏与强调卡，内置主题各配一套渐变（不再是纯色）；背景支持自选——纯色／渐变／本地图片，图片走模糊+主题遮罩保证正文对比度不低于现有水平；深色模式单独一套渐变与遮罩参数；自选背景只影响外观层，不改数据契约。落地前先量对比度与掉帧（图片模糊在低端机上的开销）", RoadmapStatus.CANDIDATE),
         RoadmapEntry("后续", "导航组件化与 Predictive Back", "把页面导航迁入 Navigation Compose（NavHost）以获得系统级返回动画与跨进程状态恢复；8.1.0 采用会话内历史栈实现回退／折返，迁移时需重建折返语义，仅作为长期方向记录", RoadmapStatus.CANDIDATE),
         RoadmapEntry("后续", "任意表格识别自动配置计划", "识别课表之外的各类表格（如锻炼计划、阅读计划）自动生成计划（用户澄清 4.4 学习机制提案后重定向，之后讨论）", RoadmapStatus.CANDIDATE),
         RoadmapEntry("后续", "高德地图 SDK 集成", "可视化地图、POI 点选、以设备定位为中心的搜索；代价：包体积增加、SDK key 绑定包名与签名、需要定位权限", RoadmapStatus.CANDIDATE),
         RoadmapEntry("后续", "云同步与多设备备份", "所有数据目前只在本机，无任何云端能力", RoadmapStatus.CANDIDATE),
         RoadmapEntry("后续", "主屏幕小组件", "今日概览／下一步等小组件（用户评估常驻通知已部分替代，暂不优先）", RoadmapStatus.CANDIDATE),
-        RoadmapEntry("后续", "应用商店级稳定性（剩余）", "崩溃上报已上线（5.8）；剩余：自动化测试、商店发布流程", RoadmapStatus.CANDIDATE)
+        RoadmapEntry("后续", "扩展设备验证与商店发布", "已有本地崩溃记录和自动回归；更多设备/系统兼容性及商店上架流程另行评估", RoadmapStatus.CANDIDATE)
     )
 }
 
@@ -463,10 +467,10 @@ fun RoadmapSubpageContent() {
         FocusCard(containerColor = MaterialTheme.colorScheme.primaryContainer) {
             Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("当前版本 ${BuildConfig.VERSION_NAME}", fontWeight = FontWeight.Bold)
-                Text("每次功能更新递增 0.1；更新记录见版本演进。", style = MaterialTheme.typography.bodySmall)
+                Text("按版本范围发布候选与正式版；更新记录见版本演进。", style = MaterialTheme.typography.bodySmall)
             }
         }
-        Text("版本演进（1.0 → 8.3）", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Text("版本演进（1.0 → ${BuildConfig.VERSION_NAME.substringBefore("-")}）", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         RoadmapData.evolution.forEach { version ->
             Text(version.version, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
             version.entries.forEach { entry ->

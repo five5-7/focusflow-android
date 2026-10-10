@@ -122,6 +122,12 @@ internal fun CampusLifeChoiceDialog(onEnable: () -> Unit, onSkip: () -> Unit) {
 
 /** 覆盖安装后每个版本只展示一次的更新说明；版本名来自 BuildConfig，路线图是唯一详情入口。 */
 internal fun updateHighlightsFor(version: String): List<String> = when {
+    version == "9.0.0-rc.1" -> listOf(
+        "检查更新能识别更高候选序号，下载失败会清理半包，当前与可用版本分别显示。",
+        "今天和明天都没有空档时，改期会进入手动选择，不再指定可能冲突的时间。",
+        "快速记录受系统限制时保留开关并在回到应用后重试；启动数据异常显示诊断，记录仍保留。"
+    )
+
     version == "8.3.0-rc.44" -> listOf(
         "设置分区的帮助问号固定在标题行右侧，窄屏和大字号下也不再另占一行。",
         "提醒、免打扰、通勤、教程搜索和应用检测副页的问号移入页面标题行。"
