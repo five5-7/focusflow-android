@@ -250,7 +250,6 @@ import kotlinx.coroutines.delay
                         todaySelecting = !todaySelecting; selectedTodayIds = emptySet()
                     }) { Text(if (todaySelecting) "完成整理" else "整理多项") }
                 }) else ({ TextButton(onClick = onOpenSchedule) { Text("去日程 ›") } }))
-                }
                 AnimatedContent(
                     targetState = todaySelecting,
                     transitionSpec = {
