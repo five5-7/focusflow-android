@@ -39,19 +39,11 @@ internal fun PlanHubScreen(
             containerColor = MaterialTheme.colorScheme.secondaryContainer,
             elevation = 1.dp
         ) {
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        "从结果开始",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-                Button(onClick = onAddGoal) { Text("新增目标") }
+            Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
+                FocusSectionHeader(
+                    "从结果开始",
+                    action = { Button(onClick = onAddGoal) { Text("新增目标") } }
+                )
             }
         }
         entries.forEach { (page, summary) ->

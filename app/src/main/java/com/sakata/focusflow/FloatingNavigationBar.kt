@@ -534,7 +534,7 @@ private fun FloatingNavigationItem(
                 fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
                 style = MaterialTheme.typography.labelMedium,
                 textAlign = TextAlign.Center,
-                maxLines = 1,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
         }

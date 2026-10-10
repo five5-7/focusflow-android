@@ -210,7 +210,7 @@ import kotlinx.coroutines.delay
             onClick = onOpenSchedule
         ) {
             Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                Text("课程与固定安排 · ${fixed.size}  ›", fontWeight = FontWeight.Bold)
+                FocusSectionHeader("课程与固定安排", fixed.size, action = { Text("›", color = MaterialTheme.colorScheme.primary) })
                 fixed.forEach { entry ->
                     Row(
                         Modifier.fillMaxWidth(),
@@ -245,12 +245,11 @@ import kotlinx.coroutines.delay
                 Modifier.fillMaxWidth().animateContentSize(MotionSpec.quick()).padding(14.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Text("今天已安排 · ${tasks.size}", fontWeight = FontWeight.Bold)
-                    if (todaySelectableIds.isNotEmpty()) TextButton(onClick = {
+                FocusSectionHeader("今天已安排", tasks.size, action = if (todaySelectableIds.isNotEmpty()) ({
+                    TextButton(onClick = {
                         todaySelecting = !todaySelecting; selectedTodayIds = emptySet()
                     }) { Text(if (todaySelecting) "完成整理" else "整理多项") }
-                    else TextButton(onClick = onOpenSchedule) { Text("去日程 ›") }
+                }) else ({ TextButton(onClick = onOpenSchedule) { Text("去日程 ›") } }))
                 }
                 AnimatedContent(
                     targetState = todaySelecting,
@@ -349,26 +348,32 @@ import kotlinx.coroutines.delay
         FocusCard(containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
             Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (inboxItems.isNotEmpty()) {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                        Text("收集箱 · ${inboxItems.size}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                        TextButton(onClick = { onInboxOpenChange(true) }) { Text("查看全部 ›") }
-                    }
+                    FocusSectionHeader(
+                        "收集箱",
+                        inboxItems.size,
+                        action = { TextButton(onClick = { onInboxOpenChange(true) }) { Text("查看全部 ›") } }
+                    )
                 }
                 fun saveCapture() {
                     val title = captureText.trim()
                     if (title.isNotEmpty() && onCaptureToInbox(title)) captureText = ""
                 }
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    FlowRow(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        maxItemsInEachRow = 2
+                    ) {
                     OutlinedTextField(
                         value = captureText,
                         onValueChange = { captureText = it },
-                        modifier = Modifier.weight(1f),
+                            modifier = Modifier.weight(1f).widthIn(min = 180.dp),
                         placeholder = { Text("随手记一件事") },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                         keyboardActions = KeyboardActions(onDone = { saveCapture() })
                     )
-                    Button(onClick = { saveCapture() }, enabled = captureText.isNotBlank()) { Text("保存") }
+                        Button(onClick = { saveCapture() }, enabled = captureText.isNotBlank()) { Text("保存") }
                 }
                 if (inboxItems.isNotEmpty()) {
                     pendingInboxItems.sortedWith(compareByDescending<Item> { capturedAt[it.id] ?: Long.MIN_VALUE })
@@ -402,10 +407,7 @@ import kotlinx.coroutines.delay
                 elevation = 1.dp
             ) {
                 Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                        Text("今天的目标", fontWeight = FontWeight.Bold)
-                        TextButton(onClick = onOpenGoals) { Text("目标与执行 ›") }
-                    }
+                    FocusSectionHeader("今天的目标", action = { TextButton(onClick = onOpenGoals) { Text("目标与执行 ›") } })
                     if (todayGoalTasks.isNotEmpty()) {
                         todayGoalTasks.take(3).forEach { task ->
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -431,7 +433,7 @@ import kotlinx.coroutines.delay
                 elevation = 1.dp
             ) {
                 Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                    Text("今日完成记录", fontWeight = FontWeight.Bold)
+                    FocusSectionHeader("今日完成记录")
                     completedTodayItems.take(4).forEach { event ->
                         Text(
                             "${formatTime(event.recordedAt)} · ${event.title}" +
@@ -448,7 +450,7 @@ import kotlinx.coroutines.delay
         if (visibility.windDown) WindDownInsights.advice(baselineProfile, courses, items, checkIns, activityHistory, now)?.let { advice ->
             FocusCard(containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f)) {
                 Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("睡前减速", fontWeight = FontWeight.Bold)
+                    FocusSectionHeader("睡前减速")
                     Text(advice.message, style = MaterialTheme.typography.bodySmall)
                     // "注意休息"是警示语义（明早有早课）：用警示色；"可稍晚收尾"保持主色。
                     advice.note?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = if (advice.alert) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary) }

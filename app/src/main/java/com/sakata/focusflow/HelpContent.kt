@@ -258,8 +258,5 @@ fun BaselineWhereToFindDialog(onDismiss: () -> Unit) {
 
 @Composable
 fun SettingsSectionHeader(title: String, onHelp: () -> Unit) {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-        HelpToggleButton(onClick = onHelp)
-    }
+    FocusSectionHeader(title = title, action = { HelpToggleButton(onClick = onHelp) })
 }
