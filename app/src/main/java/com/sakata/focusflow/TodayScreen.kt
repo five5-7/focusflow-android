@@ -2,20 +2,31 @@ package com.sakata.focusflow
 
 import android.app.DatePickerDialog
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.expandVertically
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.layout.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -166,10 +177,11 @@ import kotlinx.coroutines.delay
             exit = hubExit()
         ) {
     ScrollableWithBar(scrollState = overviewScrollState) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-            Text("今日概览", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
-            HelpToggleButton(onClick = { helpOpen = true })
-        }
+        FocusPageHeader(
+            title = "今日概览",
+            subtitle = "先看状态，再决定现在最合适的一步",
+            action = { HelpToggleButton(onClick = { helpOpen = true }) }
+        )
         TodayStatusPanel(
             expanded = statusPanelOpen,
             onExpandedChange = {
@@ -190,80 +202,146 @@ import kotlinx.coroutines.delay
         val agenda = todayAgenda(courses, items, now)
         val fixed = agenda.filter(AgendaEntry::isCourse)
         val tasks = agenda.filterNot(AgendaEntry::isCourse)
-        FocusCard(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
-            modifier = Modifier.fillMaxWidth().clickable(onClick = onOpenSchedule)) {
+        FocusCard(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+            modifier = Modifier.fillMaxWidth(),
+            onClick = onOpenSchedule,
+            navigationClick = true
+        ) {
             Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                Text("课程与固定安排 · ${fixed.size}  ›", fontWeight = FontWeight.Bold)
-                fixed.forEach { entry -> Text("${formatMinute(entry.startMinute)} · ${entry.title} — ${entry.subtitle}", style = MaterialTheme.typography.bodySmall) }
+                FocusSectionHeader("课程与固定安排", fixed.size, action = { Text("›", color = MaterialTheme.colorScheme.primary) })
+                fixed.forEach { entry ->
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.Top,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Surface(
+                            modifier = Modifier.widthIn(min = 56.dp),
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.secondaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                        ) {
+                            Text(
+                                if (entry.isAllDay) "全天" else formatMinute(entry.startMinute),
+                                Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                style = MaterialTheme.typography.labelMedium,
+                                softWrap = false
+                            )
+                        }
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(entry.title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                            Text(entry.subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
                 if (fixed.isEmpty()) Text("今天没有课程或固定安排", style = MaterialTheme.typography.bodySmall)
             }
         }
         if (tasks.isNotEmpty()) FocusCard(containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
             modifier = Modifier.fillMaxWidth()) {
-            Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Text("今天已安排 · ${tasks.size}", fontWeight = FontWeight.Bold)
-                    if (todaySelectableIds.isNotEmpty()) TextButton(onClick = {
+            Column(
+                Modifier.fillMaxWidth().animateContentSize(MotionSpec.quick()).padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                FocusSectionHeader("今天已安排", tasks.size, action = if (todaySelectableIds.isNotEmpty()) ({
+                    TextButton(onClick = {
                         todaySelecting = !todaySelecting; selectedTodayIds = emptySet()
                     }) { Text(if (todaySelecting) "完成整理" else "整理多项") }
-                    else TextButton(onClick = onOpenSchedule) { Text("去日程 ›") }
-                }
-                if (!todaySelecting) tasks.forEach { entry -> Text("${formatMinute(entry.startMinute)} · ${entry.title}",
-                    modifier = Modifier.fillMaxWidth().clickable(onClick = onOpenSchedule), style = MaterialTheme.typography.bodySmall) }
-                else {
-                    Text("已选 ${selectedTodayIds.size} 项 · 计划、重复和关联子任务请单独处理", style = MaterialTheme.typography.bodySmall)
-                    TextButton(onClick = { selectedTodayIds = if (selectedTodayIds == todaySelectableIds) emptySet() else todaySelectableIds }) {
-                        Text(if (selectedTodayIds == todaySelectableIds) "取消全选" else "全选可整理任务")
-                    }
-                    items.filter { it.id in todaySelectableIds }.sortedBy { it.scheduledAt }.forEach { item ->
-                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().clickable {
-                            selectedTodayIds = if (item.id in selectedTodayIds) selectedTodayIds - item.id else selectedTodayIds + item.id
-                        }) {
-                            Checkbox(checked = item.id in selectedTodayIds, onCheckedChange = { checked ->
-                                selectedTodayIds = if (checked) selectedTodayIds + item.id else selectedTodayIds - item.id
-                            })
-                            Text(item.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        }
-                    }
-                    if (selectedTodayIds.isNotEmpty()) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Checkbox(checked = keepTodayBatchTime, onCheckedChange = { keepTodayBatchTime = it })
-                            Text("改期保留原时刻；关闭则仅指定日期", style = MaterialTheme.typography.bodySmall)
-                        }
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            TextButton(onClick = {
-                                val target = java.util.Calendar.getInstance().apply {
-                                    timeInMillis = now; add(java.util.Calendar.DAY_OF_YEAR, 1)
-                                }.timeInMillis
-                                if (onBatchToday(selectedTodayIds, TodoBatchAction.MOVE_DATE, target, keepTodayBatchTime)) {
-                                    todaySelecting = false; selectedTodayIds = emptySet()
+                }) else ({ TextButton(onClick = onOpenSchedule) { Text("去日程 ›") } }))
+                AnimatedContent(
+                    targetState = todaySelecting,
+                    transitionSpec = {
+                        (fadeIn(MotionSpec.quick()) togetherWith fadeOut(MotionSpec.quick()))
+                            .using(SizeTransform { _, _ -> MotionSpec.quick() })
+                    },
+                    label = "todayBatchMode"
+                ) { selecting ->
+                    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (!selecting) {
+                        tasks.forEach { entry ->
+                            Row(
+                                Modifier.fillMaxWidth().clickable(onClick = onOpenSchedule),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Surface(
+                                    modifier = Modifier.widthIn(min = 56.dp),
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = MaterialTheme.colorScheme.secondaryContainer,
+                                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                                ) {
+                                    Text(
+                                        if (entry.isAllDay) "全天" else formatMinute(entry.startMinute),
+                                        Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                        style = MaterialTheme.typography.labelMedium,
+                                        softWrap = false
+                                    )
                                 }
-                            }) { Text("移到明天") }
-                            TextButton(onClick = {
-                                val calendar = java.util.Calendar.getInstance().apply { timeInMillis = now }
-                                DatePickerDialog(todayContext, { _, year, month, day ->
+                                Text(entry.title, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall,
+                                    maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
+                    } else {
+                        Text("已选 ${selectedTodayIds.size} 项 · 计划、重复和关联子任务请单独处理", style = MaterialTheme.typography.bodySmall)
+                        TextButton(onClick = { selectedTodayIds = if (selectedTodayIds == todaySelectableIds) emptySet() else todaySelectableIds }) {
+                            Text(if (selectedTodayIds == todaySelectableIds) "取消全选" else "全选可整理任务")
+                        }
+                        items.filter { it.id in todaySelectableIds }.sortedBy { it.scheduledAt }.forEach { item ->
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()
+                                .heightIn(min = 48.dp)
+                                .toggleable(value = item.id in selectedTodayIds, role = Role.Checkbox) { checked ->
+                                    selectedTodayIds = if (checked) selectedTodayIds + item.id else selectedTodayIds - item.id
+                                }
+                            ) {
+                                Checkbox(checked = item.id in selectedTodayIds, onCheckedChange = null)
+                                Text(item.title, Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
+                        if (selectedTodayIds.isNotEmpty()) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Checkbox(checked = keepTodayBatchTime, onCheckedChange = { keepTodayBatchTime = it })
+                                Text("改期保留原时刻；关闭则仅指定日期", style = MaterialTheme.typography.bodySmall)
+                            }
+                            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                TextButton(onClick = {
                                     val target = java.util.Calendar.getInstance().apply {
-                                        set(year, month, day, 12, 0, 0); set(java.util.Calendar.MILLISECOND, 0)
+                                        timeInMillis = now; add(java.util.Calendar.DAY_OF_YEAR, 1)
                                     }.timeInMillis
                                     if (onBatchToday(selectedTodayIds, TodoBatchAction.MOVE_DATE, target, keepTodayBatchTime)) {
                                         todaySelecting = false; selectedTodayIds = emptySet()
                                     }
-                                }, calendar.get(java.util.Calendar.YEAR), calendar.get(java.util.Calendar.MONTH),
-                                    calendar.get(java.util.Calendar.DAY_OF_MONTH)).show()
-                            }) { Text("选择日期") }
-                        }
-                        TextButton(onClick = {
-                            if (onBatchToday(selectedTodayIds, TodoBatchAction.CLEAR_TIME, null, false)) {
-                                todaySelecting = false; selectedTodayIds = emptySet()
+                                }) { Text("移到明天") }
+                                TextButton(onClick = {
+                                    val calendar = java.util.Calendar.getInstance().apply { timeInMillis = now }
+                                    DatePickerDialog(todayContext, { _, year, month, day ->
+                                        val target = java.util.Calendar.getInstance().apply {
+                                            set(year, month, day, 12, 0, 0); set(java.util.Calendar.MILLISECOND, 0)
+                                        }.timeInMillis
+                                        if (onBatchToday(selectedTodayIds, TodoBatchAction.MOVE_DATE, target, keepTodayBatchTime)) {
+                                            todaySelecting = false; selectedTodayIds = emptySet()
+                                        }
+                                    }, calendar.get(java.util.Calendar.YEAR), calendar.get(java.util.Calendar.MONTH),
+                                        calendar.get(java.util.Calendar.DAY_OF_MONTH)).show()
+                                }) { Text("选择日期") }
                             }
-                        }) { Text("改为未安排") }
+                            TextButton(onClick = {
+                                if (onBatchToday(selectedTodayIds, TodoBatchAction.CLEAR_TIME, null, false)) {
+                                    todaySelecting = false; selectedTodayIds = emptySet()
+                                }
+                            }) { Text("改为未安排") }
+                        }
+                    }
                     }
                 }
             }
         }
-        if (recoveryCandidates.isNotEmpty()) FocusCard(containerColor = MaterialTheme.colorScheme.surfaceVariant) {
-            Row(Modifier.fillMaxWidth().clickable(onClick = onOpenSchedule).padding(14.dp),
-                horizontalArrangement = Arrangement.SpaceBetween) {
+        if (recoveryCandidates.isNotEmpty()) FocusCard(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+            onClick = onOpenSchedule,
+            navigationClick = true
+        ) {
+            Row(Modifier.fillMaxWidth().padding(14.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text("需要处理 · ${recoveryCandidates.size} 项", fontWeight = FontWeight.Bold)
                 Text("去日程 ›", color = MaterialTheme.colorScheme.primary)
             }
@@ -271,26 +349,32 @@ import kotlinx.coroutines.delay
         FocusCard(containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
             Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (inboxItems.isNotEmpty()) {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                        Text("收集箱 · ${inboxItems.size}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                        TextButton(onClick = { onInboxOpenChange(true) }) { Text("查看全部 ›") }
-                    }
+                    FocusSectionHeader(
+                        "收集箱",
+                        inboxItems.size,
+                        action = { TextButton(onClick = { onInboxOpenChange(true) }) { Text("查看全部 ›") } }
+                    )
                 }
                 fun saveCapture() {
                     val title = captureText.trim()
                     if (title.isNotEmpty() && onCaptureToInbox(title)) captureText = ""
                 }
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    FlowRow(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        maxItemsInEachRow = 2
+                    ) {
                     OutlinedTextField(
                         value = captureText,
                         onValueChange = { captureText = it },
-                        modifier = Modifier.weight(1f),
+                            modifier = Modifier.weight(1f).widthIn(min = 180.dp),
                         placeholder = { Text("随手记一件事") },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                         keyboardActions = KeyboardActions(onDone = { saveCapture() })
                     )
-                    Button(onClick = { saveCapture() }, enabled = captureText.isNotBlank()) { Text("保存") }
+                        Button(onClick = { saveCapture() }, enabled = captureText.isNotBlank()) { Text("保存") }
                 }
                 if (inboxItems.isNotEmpty()) {
                     pendingInboxItems.sortedWith(compareByDescending<Item> { capturedAt[it.id] ?: Long.MIN_VALUE })
@@ -324,10 +408,7 @@ import kotlinx.coroutines.delay
                 elevation = 1.dp
             ) {
                 Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                        Text("今天的目标", fontWeight = FontWeight.Bold)
-                        TextButton(onClick = onOpenGoals) { Text("目标与执行 ›") }
-                    }
+                    FocusSectionHeader("今天的目标", action = { TextButton(onClick = onOpenGoals) { Text("目标与执行 ›") } })
                     if (todayGoalTasks.isNotEmpty()) {
                         todayGoalTasks.take(3).forEach { task ->
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -353,7 +434,7 @@ import kotlinx.coroutines.delay
                 elevation = 1.dp
             ) {
                 Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                    Text("今日完成记录", fontWeight = FontWeight.Bold)
+                    FocusSectionHeader("今日完成记录")
                     completedTodayItems.take(4).forEach { event ->
                         Text(
                             "${formatTime(event.recordedAt)} · ${event.title}" +
@@ -370,7 +451,7 @@ import kotlinx.coroutines.delay
         if (visibility.windDown) WindDownInsights.advice(baselineProfile, courses, items, checkIns, activityHistory, now)?.let { advice ->
             FocusCard(containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f)) {
                 Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("睡前减速", fontWeight = FontWeight.Bold)
+                    FocusSectionHeader("睡前减速")
                     Text(advice.message, style = MaterialTheme.typography.bodySmall)
                     // "注意休息"是警示语义（明早有早课）：用警示色；"可稍晚收尾"保持主色。
                     advice.note?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = if (advice.alert) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary) }
@@ -386,7 +467,9 @@ import kotlinx.coroutines.delay
         val tomorrow = java.util.Calendar.getInstance().apply { timeInMillis = now; add(java.util.Calendar.DAY_OF_YEAR, 1) }.timeInMillis
         val tomorrowAgenda = todayAgenda(courses, items, tomorrow, hideMissed = false)
         FocusCard(containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-            modifier = Modifier.fillMaxWidth().clickable { tomorrowOpen = true }) {
+            modifier = Modifier.fillMaxWidth(),
+            onClick = { tomorrowOpen = true },
+            navigationClick = true) {
             Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("明天预览 · ${tomorrowAgenda.size} 项  ›", fontWeight = FontWeight.Bold)
                 tomorrowAgenda.take(2).forEach { Text("${if (it.isAllDay) "全天" else formatMinute(it.startMinute)} · ${it.title}", style = MaterialTheme.typography.bodySmall) }
@@ -467,7 +550,12 @@ import kotlinx.coroutines.delay
                                 selectedInboxIds = emptySet()
                             }) { Text(if (inboxSelecting) "完成" else "整理多项") }
                         }
-                        AnimatedVisibility(inboxSelecting) {
+                        AnimatedVisibility(
+                            visible = inboxSelecting,
+                            // 批量操作卡含有多行按钮；避免 expandVertically 在玻璃背景上逐帧重排。
+                            enter = fadeIn(MotionSpec.quick()),
+                            exit = fadeOut(MotionSpec.exit())
+                        ) {
                             FocusCard(containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
                                 Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -607,15 +695,26 @@ private fun TodayStatusPanel(
             else commuteProfile.campusMode
         )
     }.joinToString(" · ")
+    val statusArrowRotation by animateFloatAsState(
+        targetValue = if (expanded) 180f else 0f,
+        animationSpec = MotionSpec.quick(),
+        label = "todayStatusArrow"
+    )
     // 收编：OutlinedCard → FocusCard。显式保留 Material3 OutlinedCard 的默认底色
     // （OutlinedCardTokens.ContainerColor = surface）与默认描边（1dp outlineVariant）。
     FocusCard(
         containerColor = MaterialTheme.colorScheme.surface,
-        border = CardDefaults.outlinedCardBorder()
+        modifier = Modifier.semantics {
+            stateDescription = if (expanded) "已展开；双击收起" else "已收起；双击展开"
+        },
+        border = CardDefaults.outlinedCardBorder(),
+        elevation = 1.dp,
+        onClick = { onExpandedChange(!expanded) }
     ) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp)) {
             Row(
-                Modifier.fillMaxWidth().clickable { onExpandedChange(!expanded) },
+                Modifier.fillMaxWidth()
+                    .minimumInteractiveComponentSize(),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
@@ -623,12 +722,24 @@ private fun TodayStatusPanel(
                     Text("今日状态", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                     Text(summary, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                Text(if (expanded) "收起" else "调整", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    Text(if (expanded) "收起" else "调整", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                    Icon(
+                        Icons.Filled.KeyboardArrowDown,
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp).graphicsLayer { rotationZ = statusArrowRotation },
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
             }
             AnimatedVisibility(
                 visible = expanded,
-                enter = expandVertically(animationSpec = MotionSpec.move(), expandFrom = Alignment.Top) + fadeIn(MotionSpec.enter()),
-                exit = shrinkVertically(animationSpec = MotionSpec.exit(), shrinkTowards = Alignment.Top) + fadeOut(MotionSpec.exit())
+                // 今日状态包含多个横向选择器；淡入保留反馈，避免展开动画逐帧重排整页。
+                enter = fadeIn(MotionSpec.quick()),
+                exit = fadeOut(MotionSpec.exit())
             ) {
                 Column(Modifier.fillMaxWidth().padding(top = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     HorizontalDivider()
@@ -728,6 +839,7 @@ private fun StatusChoiceRow(label: String, options: List<String>, selected: Stri
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable internal fun InboxItemCard(
     item: Item,
     recordedAt: Long?,
@@ -753,18 +865,31 @@ private fun StatusChoiceRow(label: String, options: List<String>, selected: Stri
         containerColor = MaterialTheme.colorScheme.surfaceContainerLow
     ) { Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp)) {
         Row(
-            Modifier.fillMaxWidth().clickable(onClick = onToggle).padding(vertical = 5.dp),
+            Modifier.fillMaxWidth()
+                .heightIn(min = 48.dp)
+                .then(
+                    if (selecting) Modifier.toggleable(
+                        value = selected, role = Role.Checkbox, onValueChange = { onToggle() }
+                    ) else Modifier.clickable(role = Role.Button, onClick = onToggle)
+                        .semantics { stateDescription = if (expanded) "已展开" else "已收起" }
+                )
+                .padding(vertical = 5.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            if (selecting) Checkbox(checked = selected, onCheckedChange = { onToggle() })
-            Text(item.title, Modifier.weight(1f), fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (selecting) Checkbox(checked = selected, onCheckedChange = null)
+            Text(item.title, Modifier.weight(1f), fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
             recordedAt?.takeIf { it > 0 }?.let {
                 Text(captureAgeLabel(it, now), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             if (!selecting) Text(if (expanded) "收起" else "展开", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
         }
-        AnimatedVisibility(visible = expanded, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
+        AnimatedVisibility(
+            visible = expanded,
+            // 先完成一次尺寸布局，再淡入内容，避免展开期间反复触发卡片背景捕获。
+            enter = fadeIn(MotionSpec.quick()),
+            exit = fadeOut(MotionSpec.exit())
+        ) {
             Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 if (item.detail.isNotBlank()) Text(item.detail)
                 if (item.userNote != null && item.userNote.isNotBlank() && item.userNote != item.detail) {
@@ -773,7 +898,7 @@ private fun StatusChoiceRow(label: String, options: List<String>, selected: Stri
                 Text("预计 ${item.durationMinutes} 分钟 · 优先级 ${ItemPriority.fromKey(item.priority).label}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 reviewedAt?.let { Text("上次回顾 ${captureAgeLabel(it, now)}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 if (!item.title.startsWith("重新安排：")) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         if (canQuickConvert) {
                             TextButton(onClick = { onToTodo(item) }) { Text("转待办") }
                             TextButton(onClick = { onToWanted(item) }) { Text("放入想做") }
@@ -790,7 +915,7 @@ private fun StatusChoiceRow(label: String, options: List<String>, selected: Stri
                     }
                 } else {
                     Text("接下来", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         TextButton(onClick = { onPickTime(item) }) { Text("改期") }
                         TextButton(onClick = { onShrink(item) }) { Text("缩短") }
                         TextButton(onClick = { onPause(item) }) { Text("暂停") }
@@ -802,6 +927,7 @@ private fun StatusChoiceRow(label: String, options: List<String>, selected: Stri
     } }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable private fun ProgressCaptureCard(item: Item, activeChild: Item?, onOrganize: (Item) -> Unit, onCreateNextAction: (Item) -> Unit, onRestore: (Item) -> Unit, onDelete: (Item) -> Unit, onComplete: (Item) -> Unit) {
     // 同上：收编进 FocusCard，让"逐步推进"的卡片也吃材质。
     FocusCard(
@@ -824,7 +950,7 @@ private fun StatusChoiceRow(label: String, options: List<String>, selected: Stri
         Button(onClick = { onCreateNextAction(item) }, enabled = activeChild == null && item.nextAction.isNotBlank(), modifier = Modifier.fillMaxWidth()) {
             Text(if (activeChild == null) "将下一步放入收集箱" else "已有未完成的下一步")
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             TextButton(onClick = { onOrganize(item) }, enabled = activeChild == null) { Text("修改") }
             TextButton(onClick = { onRestore(item) }) { Text("退回待整理") }
             TextButton(onClick = { onDelete(item) }, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("删除方向") }

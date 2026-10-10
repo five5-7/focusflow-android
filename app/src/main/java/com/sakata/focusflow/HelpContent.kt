@@ -11,6 +11,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
@@ -185,7 +187,7 @@ object HelpCatalog {
 fun HelpToggleButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
     OutlinedButton(
         onClick = onClick,
-        modifier = modifier.size(30.dp),
+        modifier = modifier.size(30.dp).semantics { contentDescription = "帮助" },
         shape = CircleShape,
         contentPadding = PaddingValues(0.dp)
     ) { Text("?", fontWeight = FontWeight.Bold) }
@@ -258,8 +260,9 @@ fun BaselineWhereToFindDialog(onDismiss: () -> Unit) {
 
 @Composable
 fun SettingsSectionHeader(title: String, onHelp: () -> Unit) {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-        HelpToggleButton(onClick = onHelp)
-    }
+    FocusSectionHeader(
+        title = title,
+        keepActionInline = true,
+        action = { HelpToggleButton(onClick = onHelp) }
+    )
 }

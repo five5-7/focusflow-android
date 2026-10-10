@@ -29,32 +29,21 @@ internal fun PlanHubScreen(
 ) {
     var helpOpen by remember { mutableStateOf(false) }
     ScrollableWithBar(modifier = modifier, scrollState = scrollState, spacing = 10.dp) {
-        Row(
-            Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text("计划", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
-            HelpToggleButton(onClick = { helpOpen = true })
-        }
+        FocusPageHeader(
+            title = "计划",
+            subtitle = "把课程、待办和目标安排成下一步",
+            action = { HelpToggleButton(onClick = { helpOpen = true }) }
+        )
         // 保留原卡片样式；玻璃下的 elevation 冲突由 FocusCard 统一处理。
         FocusCard(
             containerColor = MaterialTheme.colorScheme.secondaryContainer,
             elevation = 1.dp
         ) {
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        "从结果开始",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-                Button(onClick = onAddGoal) { Text("新增目标") }
+            Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
+                FocusSectionHeader(
+                    "从结果开始",
+                    action = { Button(onClick = onAddGoal) { Text("新增目标") } }
+                )
             }
         }
         entries.forEach { (page, summary) ->
@@ -83,6 +72,7 @@ internal fun PlanHubItem(title: String, summary: String, onClick: () -> Unit) {
         // 后者的水波纹是**直角**（没按 20dp 圆角裁剪），也缺 Surface 的点击语义
         // （role = Button、48dp 最小触摸区）。2026-09-11 收编复查时发现，改掉。
         onClick = onClick,
+        navigationClick = true,
         shape = RoundedCornerShape(20.dp),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
     ) {
@@ -123,15 +113,11 @@ internal fun PlanSubpageFrame(
         scrollState = rememberScrollState(),
         spacing = 10.dp
     ) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                title,
-                style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.weight(1f)
-            )
-            titleAction?.invoke()
-        }
+        FocusPageHeader(
+            title = title,
+            action = titleAction,
+            titleStyle = MaterialTheme.typography.headlineMedium
+        )
         Column(
             Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 32.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),

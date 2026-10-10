@@ -12,22 +12,23 @@ import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
@@ -266,10 +267,14 @@ private data class BaselineVariantDraft(val name: String)
         exit = hubExit()
     ) {
     ScrollableWithBar(scrollState = settingsScrollState) {
-        Text("设置", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
+        FocusPageHeader(
+            title = "设置",
+            subtitle = "提醒、外观和低频工具都在这里"
+        )
         var defaultHelpExpanded by remember { mutableStateOf(false) }
         FocusCard(
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+            modifier = Modifier.semantics { stateDescription = if (defaultHelpExpanded) "已展开" else "已收起" },
             elevation = 1.dp,
             onClick = {
                 if (!defaultHelpExpanded) FrameTimingRecorder.recordExpansion("settings_defaults")
@@ -286,8 +291,8 @@ private data class BaselineVariantDraft(val name: String)
                 }
                 AnimatedVisibility(
                     visible = defaultHelpExpanded,
-                    enter = fadeIn(MotionSpec.enter()) + expandVertically(MotionSpec.quick()),
-                    exit = fadeOut(MotionSpec.exit()) + shrinkVertically(MotionSpec.quick())
+                    enter = fadeIn(MotionSpec.enter()),
+                    exit = fadeOut(MotionSpec.exit())
                 ) {
                     Text(
                         "核心功能可直接使用；AI、地点和识别均为可选，重要操作需要确认。",
@@ -429,11 +434,23 @@ private data class BaselineVariantDraft(val name: String)
                     Text("完成习惯基线引导（起床、睡觉、餐次）后，可在此把当前作息“另存为方案”，同一生活阶段可存多套并一键切换。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 if (baselineVariants.isNotEmpty()) {
-                    Row(Modifier.fillMaxWidth().clickable { baselineVariantsExpanded = !baselineVariantsExpanded }, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("已存方案（${baselineVariants.size}）", fontWeight = FontWeight.SemiBold)
+                    Row(
+                        Modifier.fillMaxWidth()
+                            .minimumInteractiveComponentSize()
+                            .clickable(role = Role.Button) { baselineVariantsExpanded = !baselineVariantsExpanded }
+                            .semantics { stateDescription = if (baselineVariantsExpanded) "已展开；双击收起" else "已收起；双击展开" },
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("已存方案（${baselineVariants.size}）", modifier = Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
                         Text(if (baselineVariantsExpanded) "收起 ▴" else "展开 ▾", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                     }
-                    if (baselineVariantsExpanded) {
+                    AnimatedVisibility(
+                        visible = baselineVariantsExpanded,
+                        enter = fadeIn(MotionSpec.quick()),
+                        exit = fadeOut(MotionSpec.exit())
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         baselineVariants.forEach { variant ->
                             val isCurrent = baselineProfile.variantName.isNotBlank() && baselineProfile.variantName == variant.variantName
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -455,6 +472,7 @@ private data class BaselineVariantDraft(val name: String)
                                 }
                                 TextButton(onClick = { onDeleteBaselineVariant(variant) }) { Text("删除") }
                             }
+                        }
                         }
                     }
                 }
@@ -542,14 +560,22 @@ private data class BaselineVariantDraft(val name: String)
         }
     }) { current ->
         if (current != null) {
+            val titleHelpBlock = when (current) {
+                SettingsSubPage.APPEARANCE -> SettingsBlock.APPEARANCE
+                SettingsSubPage.CUSTOM_THEME -> SettingsBlock.CUSTOM_THEME
+                SettingsSubPage.ACTIVITY_REMINDERS -> SettingsBlock.ACTIVITY_REMINDERS
+                SettingsSubPage.QUIET_HOURS -> SettingsBlock.QUIET_HOURS
+                SettingsSubPage.COMMUTE_PLACES -> SettingsBlock.COMMUTE_PLACES
+                SettingsSubPage.TUTORIAL_SEARCH -> SettingsBlock.TUTORIAL_SEARCH
+                SettingsSubPage.APP_DETECTION -> SettingsBlock.APP_DETECTION
+                else -> null
+            }
             PlanSubpageFrame(
                 Modifier.fillMaxSize(), current.title,
-                // 外观与自定义主题页的问号放在标题行右侧，避免单独一行悬在内容上方。
-                titleAction = when (current) {
-                    SettingsSubPage.APPEARANCE -> { { HelpToggleButton(onClick = { helpBlock = SettingsBlock.APPEARANCE }) } }
-                    SettingsSubPage.CUSTOM_THEME -> { { HelpToggleButton(onClick = { helpBlock = SettingsBlock.CUSTOM_THEME }) } }
-                    else -> null
-                }
+                // 所有已有副页帮助入口共用标题右侧操作槽，不再另占正文一行。
+                titleAction = if (titleHelpBlock != null) {
+                    { HelpToggleButton(onClick = { helpBlock = titleHelpBlock }) }
+                } else null
             ) {
                 when (current) {
                     SettingsSubPage.ADVANCED -> {
@@ -728,9 +754,6 @@ private data class BaselineVariantDraft(val name: String)
                         )
                     }
                     SettingsSubPage.ACTIVITY_REMINDERS -> {
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                            HelpToggleButton(onClick = { helpBlock = SettingsBlock.ACTIVITY_REMINDERS })
-                        }
                         // 权限状态随前台恢复刷新：从系统设置页返回后立即更新文案。
                         val lifecycleOwner = LocalLifecycleOwner.current
                         var notificationHealth by remember { mutableStateOf(NotificationChannelSettings.health(context)) }
@@ -917,9 +940,6 @@ private data class BaselineVariantDraft(val name: String)
                         }
                     }
                     SettingsSubPage.QUIET_HOURS -> {
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                            HelpToggleButton(onClick = { helpBlock = SettingsBlock.QUIET_HOURS })
-                        }
                         SettingSwitch(
                             "免打扰时段",
                             "时段内静音状态询问、饭点提醒与睡前减速；活动到点和任务提醒保持时间敏感，不静音",
@@ -949,9 +969,6 @@ private data class BaselineVariantDraft(val name: String)
                         }
                     }
                     SettingsSubPage.COMMUTE_PLACES -> {
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                            HelpToggleButton(onClick = { helpBlock = SettingsBlock.COMMUTE_PLACES })
-                        }
                         SettingSwitch("校园生活", "控制校内出行、地点包和手动位置工具；关闭不会删除已有数据", campusLifeEnabled, onCampusLifeEnabledChange)
                         if (campusLifeEnabled) {
                             // 收编：ElevatedCard → FocusCard，显式保留 surfaceContainerLow 底色与 1dp 默认阴影。
@@ -979,7 +996,11 @@ private data class BaselineVariantDraft(val name: String)
                                                 Text(if (transportReservesExpanded) "收起" else "设置")
                                             }
                                         }
-                                        AnimatedVisibility(transportReservesExpanded) {
+                                        AnimatedVisibility(
+                                            visible = transportReservesExpanded,
+                                            enter = fadeIn(MotionSpec.quick()),
+                                            exit = fadeOut(MotionSpec.exit())
+                                        ) {
                                             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                                 Text("楼内进出缓冲另算；实测路线记录优先。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                                 listOf("步行", "自行车", "电动车").forEach { mode ->
@@ -1051,13 +1072,9 @@ private data class BaselineVariantDraft(val name: String)
                             ) {
                                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                        Text("校园地点来源", fontWeight = FontWeight.SemiBold)
-                                        OutlinedButton(
-                                            onClick = { campusMapHelpOpen = true },
-                                            modifier = Modifier.size(30.dp),
-                                            shape = CircleShape,
-                                            contentPadding = PaddingValues(0.dp)
-                                        ) { Text("?", fontWeight = FontWeight.Bold) }
+                                        Text("校园地点来源", fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                                        Spacer(Modifier.width(8.dp))
+                                        HelpToggleButton(onClick = { campusMapHelpOpen = true })
                                     }
                                     Text(
                                         campusMapPackage?.let { "高级地点包：${it.name} · ${it.places.size} 个地点" } ?: "已自动使用内置紫金港目录 · ${ZijingangTravel.places.size} 个地点",
@@ -1152,9 +1169,6 @@ private data class BaselineVariantDraft(val name: String)
                         }
                     }
                     SettingsSubPage.TUTORIAL_SEARCH -> {
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                            HelpToggleButton(onClick = { helpBlock = SettingsBlock.TUTORIAL_SEARCH })
-                        }
                         SettingSwitch(
                             "教程联网搜索",
                             "为学习目标从网上搜集候选教程并比较来源；使用你填写的硅基流动 key，仅发往 api.siliconflow.cn",
@@ -1210,9 +1224,6 @@ private data class BaselineVariantDraft(val name: String)
                     }
                     SettingsSubPage.APP_DETECTION -> {
                         val context = LocalContext.current
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                            HelpToggleButton(onClick = { helpBlock = SettingsBlock.APP_DETECTION })
-                        }
                         // 从系统“使用情况访问”设置页返回后刷新状态。
                         val lifecycleOwner = LocalLifecycleOwner.current
                         var usageGranted by remember { mutableStateOf(AppLibrary.hasUsageAccess(context)) }
@@ -1270,11 +1281,23 @@ private data class BaselineVariantDraft(val name: String)
                         var uncategorizedExpanded by remember { mutableStateOf(false) }
                         var hiddenExpanded by remember { mutableStateOf(false) }
                         val categorizedApps = installedApps.filter { it.third != AppCategory.UNKNOWN }
-                        Row(Modifier.fillMaxWidth().clickable { categorizedExpanded = !categorizedExpanded }, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text("已分类应用（${categorizedApps.size}）", fontWeight = FontWeight.SemiBold)
+                        Row(
+                            Modifier.fillMaxWidth()
+                                .minimumInteractiveComponentSize()
+                                .clickable(role = Role.Button) { categorizedExpanded = !categorizedExpanded }
+                                .semantics { stateDescription = if (categorizedExpanded) "已展开；双击收起" else "已收起；双击展开" },
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("已分类应用（${categorizedApps.size}）", modifier = Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
                             Text(if (categorizedExpanded) "收起 ▴" else "展开 ▾", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                         }
-                        if (categorizedExpanded) {
+                        AnimatedVisibility(
+                            visible = categorizedExpanded,
+                            enter = fadeIn(MotionSpec.quick()),
+                            exit = fadeOut(MotionSpec.exit())
+                        ) {
+                            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             AppCategory.entries.filter { it != AppCategory.UNKNOWN }.forEach { category ->
                                 val apps = categorizedApps.filter { it.third == category }
                                 if (apps.isNotEmpty()) {
@@ -1305,14 +1328,28 @@ private data class BaselineVariantDraft(val name: String)
                                     }
                                 }
                             }
-                        }
+                        
+                            }
+}
                         val unknownApps = installedApps.filter { it.third == AppCategory.UNKNOWN }
                         if (unknownApps.isNotEmpty()) {
-                            Row(Modifier.fillMaxWidth().clickable { uncategorizedExpanded = !uncategorizedExpanded }, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text("待分类应用（${unknownApps.size}）", fontWeight = FontWeight.SemiBold)
+                            Row(
+                                Modifier.fillMaxWidth()
+                                    .minimumInteractiveComponentSize()
+                                    .clickable(role = Role.Button) { uncategorizedExpanded = !uncategorizedExpanded }
+                                    .semantics { stateDescription = if (uncategorizedExpanded) "已展开；双击收起" else "已收起；双击展开" },
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("待分类应用（${unknownApps.size}）", modifier = Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
                                 Text(if (uncategorizedExpanded) "收起 ▴" else "展开 ▾", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                             }
-                            if (uncategorizedExpanded) {
+                            AnimatedVisibility(
+                                visible = uncategorizedExpanded,
+                                enter = fadeIn(MotionSpec.quick()),
+                                exit = fadeOut(MotionSpec.exit())
+                            ) {
+                                Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                 Text("没有自动识别出分类；给它们归类后，到点检测才会把它们算作游戏/视频等。", style = MaterialTheme.typography.bodySmall)
                                 unknownApps.forEach { (pkg, label, _) ->
                                     // 收编：无显式底色的 Card → FocusCard，显式保留 Card 默认底色 surfaceContainerHighest。
@@ -1333,14 +1370,28 @@ private data class BaselineVariantDraft(val name: String)
                                         }
                                     }
                                 }
-                            }
+                            
+                                }
+}
                         }
                         if (hiddenApps.isNotEmpty()) {
-                            Row(Modifier.fillMaxWidth().clickable { hiddenExpanded = !hiddenExpanded }, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text("已忽略应用（${hiddenApps.size}）", fontWeight = FontWeight.SemiBold)
+                            Row(
+                                Modifier.fillMaxWidth()
+                                    .minimumInteractiveComponentSize()
+                                    .clickable(role = Role.Button) { hiddenExpanded = !hiddenExpanded }
+                                    .semantics { stateDescription = if (hiddenExpanded) "已展开；双击收起" else "已收起；双击展开" },
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("已忽略应用（${hiddenApps.size}）", modifier = Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
                                 Text(if (hiddenExpanded) "收起 ▴" else "展开 ▾", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                             }
-                            if (hiddenExpanded) {
+                            AnimatedVisibility(
+                                visible = hiddenExpanded,
+                                enter = fadeIn(MotionSpec.quick()),
+                                exit = fadeOut(MotionSpec.exit())
+                            ) {
+                                Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                 hiddenApps.sortedBy { AppLibrary.appLabel(context, it) }.forEach { pkg ->
                                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                                         Column(Modifier.weight(1f)) {
@@ -1350,7 +1401,9 @@ private data class BaselineVariantDraft(val name: String)
                                         TextButton(onClick = { onToggleHiddenApp(pkg) }) { Text("恢复") }
                                     }
                                 }
-                            }
+                            
+                                }
+}
                         }
                         Text("分类会记住你的选择；未设置的应用按内置清单或应用名自动识别。", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
@@ -1480,7 +1533,10 @@ private data class BaselineVariantDraft(val name: String)
 @Composable
 internal fun SettingSwitch(title: String, detail: String, checked: Boolean, onChange: (Boolean) -> Unit) {
     Row(
-        Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        Modifier.fillMaxWidth()
+            .toggleable(value = checked, role = Role.Switch, onValueChange = onChange)
+            .heightIn(min = 48.dp)
+            .padding(vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
@@ -1488,7 +1544,7 @@ internal fun SettingSwitch(title: String, detail: String, checked: Boolean, onCh
             Text(title, fontWeight = FontWeight.SemiBold)
             Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        Switch(checked = checked, onCheckedChange = onChange)
+        Switch(checked = checked, onCheckedChange = null)
     }
 }
 
@@ -1516,8 +1572,8 @@ internal fun CollapsibleSettingsDetails(
             }
             AnimatedVisibility(
                   visible = expanded,
-                  enter = fadeIn(MotionSpec.enter()) + expandVertically(MotionSpec.quick()),
-                  exit = fadeOut(MotionSpec.exit()) + shrinkVertically(MotionSpec.quick())
+                  enter = fadeIn(MotionSpec.enter()),
+                  exit = fadeOut(MotionSpec.exit())
               ) {
                 Column(Modifier.padding(top = 4.dp), verticalArrangement = Arrangement.spacedBy(8.dp), content = content)
             }

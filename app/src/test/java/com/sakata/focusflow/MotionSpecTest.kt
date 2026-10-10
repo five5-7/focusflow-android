@@ -80,6 +80,12 @@ class MotionSpecTest {
         assertEquals(0f, MotionSettings.durationScale, 0.0001f)
     }
 
+    @Test fun lightweightFeedbackStaysFasterThanPageMotion() {
+        assertTrue(MotionSpec.QUICK_MS < MotionSpec.ENTER_MS)
+        assertTrue(MotionSpec.PULSE_MS < MotionSpec.QUICK_MS)
+        assertTrue(MotionSpec.MORPH_MS < MotionSpec.MOVE_MS)
+    }
+
     @Test fun morphOutlastsEnterWhichOutlastsExit() {
         assertTrue(MotionSpec.MORPH_MS > MotionSpec.ENTER_MS)
         assertTrue(MotionSpec.ENTER_MS > MotionSpec.EXIT_MS)

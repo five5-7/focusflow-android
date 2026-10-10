@@ -5,7 +5,7 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
+    branches: [main, stage8/vision-import]
 
 permissions:
   contents: read
@@ -212,3 +212,27 @@ jobs:
           path: FocusFlow-${{ env.VERSION_NAME }}-run-${{ github.run_number }}.apk
           if-no-files-found: error
           retention-days: 7
+      - name: Validate dsh PowerShell 5.1 compatibility
+        shell: pwsh
+        run: |
+          $path = "scripts/dsh-stage9-fast-acceptance.ps1"
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile($path, [ref]$tokens, [ref]$errors) | Out-Null
+          if ($errors.Count -gt 0) { $errors | Format-List | Out-Host; exit 1 }
+          $bytes = [System.IO.File]::ReadAllBytes((Resolve-Path $path))
+          if ($bytes.Length -lt 3 -or $bytes[0] -ne 0xEF -or $bytes[1] -ne 0xBB -or $bytes[2] -ne 0xBF) { throw "acceptance script must be UTF-8 BOM for Windows PowerShell 5.1" }
+          $text = [Text.Encoding]::UTF8.GetString($bytes)
+          if ($text -match '\$Args\b') { throw "do not use the PowerShell automatic variable name Args as a parameter" }
+          if ($text -match '\*>') { throw "native evidence must be written explicitly as UTF-8" }
+      - name: Upload dsh acceptance materials
+        uses: actions/upload-artifact@v4
+        with:
+          name: FocusFlow-dsh-acceptance-materials-run-${{ github.run_number }}
+          path: |
+            scripts/dsh-stage9-fast-acceptance.ps1
+            docs/9.0-current-status-20261007.md
+            docs/9.0-final-acceptance-20261007.md
+            docs/9.0-cloud-local-continuity-audit-20261007.md
+          if-no-files-found: error
+          retention-days: 14

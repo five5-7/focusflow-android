@@ -79,6 +79,18 @@ class AppearanceSpecTest {
     }
 
     @Test
+    fun imageCropPanningMovesFocusOppositeToDragAndClamps() {
+        val moved = ImageCrop(centerX = 0.5f, centerY = 0.5f, zoom = 2f)
+            .pannedBy(deltaXFraction = 0.4f, deltaYFraction = -0.4f)
+        assertEquals(0.3f, moved.centerX, 0.0001f)
+        assertEquals(0.7f, moved.centerY, 0.0001f)
+
+        val clamped = ImageCrop(centerX = 0f, centerY = 1f).pannedBy(2f, 2f)
+        assertEquals(0f, clamped.centerX, 0.0001f)
+        assertEquals(0f, clamped.centerY, 0.0001f)
+    }
+
+    @Test
     fun gradientStrengthDefaultsAndClamps() {
         assertEquals(100, AppearanceSpec.DEFAULT.gradientStrength)
         assertEquals(1f, AppearanceSpec.DEFAULT.gradientScale, 0.0001f)

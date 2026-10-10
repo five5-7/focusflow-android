@@ -1,6 +1,9 @@
 package com.sakata.focusflow
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.indication
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -8,14 +11,26 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.LocalRippleConfiguration
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /**
  * 8.2.0 的统一卡片：把「卡片材质」集中在一处实现（见 docs/8.2.0-appearance-plan.md）。
@@ -31,6 +46,7 @@ import androidx.compose.ui.graphics.Shape
  * 那次之所以要补收 45 处，是因为早先的盘点用带括号的 `Card(` grep，
  * **漏掉了尾随 lambda 写法** `ElevatedCard {` / `Card {`。
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun FocusCard(
     containerColor: Color,
@@ -39,6 +55,7 @@ internal fun FocusCard(
     border: BorderStroke? = null,
     elevation: androidx.compose.ui.unit.Dp = androidx.compose.ui.unit.Dp(0f),
     onClick: (() -> Unit)? = null,
+    navigationClick: Boolean = false,
     content: @Composable ColumnScope.() -> Unit
 ) {
     val appearance = LocalAppearance.current
@@ -57,11 +74,16 @@ internal fun FocusCard(
     // 玻璃由背景模糊与自身亮边表达层级，不再叠 Material elevation；其他材质原样保留。
     val effectiveElevation = cardElevationForMaterial(material, elevation)
     val elevationSpec = CardDefaults.cardElevation(defaultElevation = effectiveElevation)
+    val parentRippleConfiguration = LocalRippleConfiguration.current
+    val interactionSource = if (onClick != null) remember { MutableInteractionSource() } else null
+    val feedbackModifier = if (interactionSource != null) {
+        Modifier.indication(interactionSource, CardPressIndication(colors.contentColor))
+    } else Modifier
     fun body(): @Composable () -> Unit = {
         if (material == CardMaterial.TONAL) {
-            Column(content = content)
+            Column(modifier = feedbackModifier, content = content)
         } else {
-            Box {
+            Box(modifier = feedbackModifier) {
                 if (material.samplesPageBackdrop) {
                     if (shouldUseRealGlassBackdrop(
                             material,
@@ -106,14 +128,48 @@ internal fun FocusCard(
         }
     }
     if (onClick != null) {
-        Card(
-            onClick = onClick,
-            modifier = modifier,
-            shape = shape,
-            colors = colors,
-            elevation = elevationSpec,
-            border = effectiveBorder
-        ) { body()() }
+        val scope = rememberCoroutineScope()
+        val currentOnClick by rememberUpdatedState(onClick)
+        var navigationPending by remember { mutableStateOf(false) }
+        // Material's circular ripple caches its radius at press time. The custom indication
+        // is drawn inside the card and therefore follows disclosure size changes.
+        CompositionLocalProvider(LocalRippleConfiguration provides null) {
+            Card(
+                onClick = {
+                    if (!navigationClick || !MotionSpec.animationsEnabled) {
+                        currentOnClick?.invoke()
+                    } else if (!navigationPending) {
+                        navigationPending = true
+                        scope.launch {
+                            val press = PressInteraction.Press(Offset.Zero)
+                            try {
+                                requireNotNull(interactionSource).emit(press)
+                                // A quick tap in a scroll container can emit press+release together.
+                                // Keep a short visible confirmation before the source page disappears.
+                                withFrameNanos { }
+                                delay(motionMillis(MotionSpec.CARD_NAV_FEEDBACK_MS).toLong())
+                                currentOnClick?.invoke()
+                            } finally {
+                                interactionSource?.tryEmit(PressInteraction.Release(press))
+                                navigationPending = false
+                            }
+                        }
+                    }
+                },
+                interactionSource = interactionSource,
+                modifier = modifier,
+                shape = shape,
+                colors = colors,
+                elevation = elevationSpec,
+                border = effectiveBorder
+            ) {
+                // Suppress only the card ripple; nested chips, switches and buttons
+                // retain the surrounding theme's own interaction feedback.
+                CompositionLocalProvider(LocalRippleConfiguration provides parentRippleConfiguration) {
+                    body()()
+                }
+            }
+        }
     } else {
         Card(
             modifier = modifier,

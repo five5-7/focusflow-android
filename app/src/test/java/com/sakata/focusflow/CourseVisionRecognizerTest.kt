@@ -9,6 +9,16 @@ import org.junit.Test
 
 class CourseVisionRecognizerTest {
     @Test
+    fun structured_prompt_template_passes_review_parser_and_uses_uploaded_dimensions() {
+        val prompt = CourseVisionRecognizer.buildStructuredPrompt(1200, 900)
+        val example = prompt.substring(prompt.indexOf("{"), prompt.lastIndexOf("}") + 1)
+        assertNotNull(VisionReviewResponseParser.parse(example, 1200, 900))
+        assertTrue(prompt.contains("宽 1200 像素、高 900 像素"))
+        assertTrue(prompt.contains("绝不能默认填1"))
+        assertTrue(prompt.contains("不要复制示例"))
+    }
+
+    @Test
     fun `prompt requires coordinates from the grid and forbids defaulting to one`() {
         val prompt = CourseVisionRecognizer.buildPrompt(emptyList())
 
