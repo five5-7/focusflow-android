@@ -6,6 +6,8 @@ import org.junit.Before
 import org.junit.Test
 import java.io.File
 import java.nio.file.Files
+import java.nio.charset.CodingErrorAction
+import java.nio.ByteBuffer
 
 class CrashReporterTest {
     private lateinit var dir: File
@@ -46,6 +48,7 @@ class CrashReporterTest {
         assertTrue(text.contains("after-trim"))
         // 超限触发压缩：旧内容前段已被裁掉（最长保留尾巴 50 字节，5 段前缀共 70 字节必不在）
         assertTrue(!text.contains("PRE-FILL-XYZZY".repeat(5)))
+        assertTrue(file.length() <= 1000)
     }
 
     @Test fun trim_keepsTailFromEntryBoundary() {
@@ -57,4 +60,38 @@ class CrashReporterTest {
         assertTrue(text.contains("===="))
         assertTrue(!text.contains("AAAA"))
     }
+
+    @Test fun appendCrash_singleHugeUnicodeEntryRespectsHardByteLimit() {
+        val file = File(dir, "crash.log")
+        CrashReporter.appendCrash(file, IllegalStateException("异常😀".repeat(20_000)), maxBytes = 1024)
+        assertTrue(file.length() <= 1024)
+        val text = decodeStrict(file)
+        assertTrue(text.contains("IllegalStateException"))
+        assertTrue(text.contains("已截断"))
+    }
+
+    @Test fun trim_oversizedUnicodeHistoryDoesNotSplitUtf8Characters() {
+        val file = File(dir, "crash.log")
+        file.writeText("旧记录😀".repeat(200_000), Charsets.UTF_8)
+        CrashReporter.trim(file, 997)
+        assertTrue(file.length() <= 997)
+        assertTrue(decodeStrict(file).contains("旧记录"))
+    }
+
+    @Test fun concurrentCrashEntriesStayWithinLimitAndKeepLatestEntry() {
+        val file = File(dir, "crash.log")
+        val threads = (1..8).map { index ->
+            Thread { repeat(10) { CrashReporter.appendCrash(file, IllegalStateException("worker-$index-${"字".repeat(80)}"), 2048) } }
+        }
+        threads.forEach(Thread::start)
+        threads.forEach(Thread::join)
+        CrashReporter.appendCrash(file, IllegalStateException("last-entry"), 2048)
+        assertTrue(file.length() <= 2048)
+        assertTrue(decodeStrict(file).contains("last-entry"))
+    }
+
+    private fun decodeStrict(file: File): String = Charsets.UTF_8.newDecoder()
+        .onMalformedInput(CodingErrorAction.REPORT)
+        .onUnmappableCharacter(CodingErrorAction.REPORT)
+        .decode(ByteBuffer.wrap(file.readBytes())).toString()
 }

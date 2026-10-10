@@ -107,10 +107,14 @@ object ScheduleAdjuster {
     ): DayAdjustment {
         val weekday = ScheduleOccupation.weekdayOf(now)
         val tomorrowWeekday = if (weekday == 7) 1 else weekday + 1
-        // 明早 8:00 起找；找不到就给 9:00 兜底（此后时间轴标红提醒）。
+        // 明早 8:00 起找；没有空档时交给用户重新安排，不能凭空指定一个冲突时段。
         val slot = ScheduleOccupation.nextFreeSlot(
             tomorrowWeekday, 8 * 60, duration, courses, items, profile, excludeId = candidate.item.id, targetDay = atMinute(now, 0, 1)
-        ) ?: 9 * 60
+        ) ?: return DayAdjustment(
+            candidate, AdjustAction.REARRANGE,
+            "今天和明天都没有合适空档；请重新选择日期或时间。",
+            durationMinutes = duration
+        )
         return DayAdjustment(
             candidate, AdjustAction.TOMORROW,
             "明天 ${formatClock(slot)} 再做（今天已无合适空档）。",

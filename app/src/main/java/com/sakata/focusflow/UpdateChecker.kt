@@ -1,6 +1,8 @@
 package com.sakata.focusflow
 
 import org.json.JSONArray
+import java.io.ByteArrayOutputStream
+import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -29,71 +31,104 @@ internal data class FormalRelease(
 
 internal object UpdateChecker {
     const val REPO = "five5-7/focusflow-android"
-    private val VERSION_TAG = Regex("""^v(\d+)\.(\d+)\.(\d+)(-rc\.\d+)?$""")
+    private val VERSION_NAME = Regex("""^(\d+)\.(\d+)\.(\d+)(?:-rc\.(\d+))?$""")
+    private const val MAX_RESPONSE_BYTES = 2 * 1024 * 1024
+
+    private data class Version(val major: Int, val minor: Int, val patch: Int, val rc: Int?) : Comparable<Version> {
+        override fun compareTo(other: Version): Int {
+            val base = compareValuesBy(this, other, Version::major, Version::minor, Version::patch)
+            if (base != 0) return base
+            if (rc == other.rc) return 0
+            if (rc == null) return 1
+            if (other.rc == null) return -1
+            return rc.compareTo(other.rc)
+        }
+    }
 
     /** tag 是否符合本仓库版本约定（正式或候选）。 */
-    fun isKnownTag(tag: String): Boolean = VERSION_TAG.matches(tag)
+    fun isKnownTag(tag: String): Boolean = tag.startsWith("v") && parseVersion(tag.drop(1)) != null
 
     /** 正式版判定：tag 为 vX.Y.Z 且非 prerelease/draft。 */
     fun isFormalTag(tag: String, prerelease: Boolean): Boolean =
-        !prerelease && Regex("""^v(\d+)\.(\d+)\.(\d+)$""").matches(tag)
+        !prerelease && isKnownTag(tag) && !tag.contains("-rc.")
 
     /**
-     * 当前版本是否应升级到该候选：基号更高则升级；同基号时仅「正式包覆盖候选包」。
+     * 按基号、候选序号、正式状态比较；同基号正式用户不接收候选降级。
      */
     fun isNewer(currentVersionName: String, candidateVersionName: String, candidateIsFormal: Boolean): Boolean {
-        val curBase = parseVersion(currentVersionName.substringBefore("-")) ?: return false
-        val candBase = parseVersion(candidateVersionName.substringBefore("-")) ?: return false
-        val cmp = compareVersion(curBase, candBase)
-        if (cmp != 0) return cmp < 0
-        return candidateIsFormal && currentVersionName.contains("-rc")
+        val current = parseVersion(currentVersionName) ?: return false
+        val candidate = parseVersion(candidateVersionName) ?: return false
+        if (candidateIsFormal != (candidate.rc == null)) return false
+        return candidate > current
     }
 
-    private fun parseVersion(v: String): Triple<Int, Int, Int>? = runCatching {
-        val parts = v.trim().split(".")
-        Triple(parts[0].toInt(), parts[1].toInt(), parts.getOrElse(2) { "0" }.toInt())
-    }.getOrNull()
-
-    private fun compareVersion(a: Triple<Int, Int, Int>, b: Triple<Int, Int, Int>): Int = when {
-        a.first != b.first -> a.first - b.first
-        a.second != b.second -> a.second - b.second
-        else -> a.third - b.third
+    private fun parseVersion(value: String): Version? {
+        val match = VERSION_NAME.matchEntire(value) ?: return null
+        val major = match.groupValues[1].toIntOrNull() ?: return null
+        val minor = match.groupValues[2].toIntOrNull() ?: return null
+        val patch = match.groupValues[3].toIntOrNull() ?: return null
+        val rcText = match.groupValues[4]
+        val rc = if (rcText.isEmpty()) null else rcText.toIntOrNull() ?: return null
+        return Version(major, minor, patch, rc)
     }
 
     /**
      * 拉取 GitHub Releases（只信任本仓库来源），返回最新版本。
-     * includePrerelease=false 时跳过一切候选（含 draft）。
+     * 草稿永不作为更新源；选择最高版本，不依赖 GitHub 按发布时间排列的顺序。
      */
     fun fetchLatest(includePrerelease: Boolean): FormalRelease? {
-        val conn = URL("https://api.github.com/repos/$REPO/releases").openConnection() as HttpURLConnection
+        val conn = URL("https://api.github.com/repos/$REPO/releases?per_page=100").openConnection() as HttpURLConnection
         conn.connectTimeout = 15000
         conn.readTimeout = 30000
         conn.setRequestProperty("Accept", "application/vnd.github+json")
         conn.setRequestProperty("User-Agent", "FocusFlow")
-        val text = conn.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+        return try {
+            val text = conn.inputStream.use { input ->
+                val output = ByteArrayOutputStream()
+                val buffer = ByteArray(8192)
+                while (true) {
+                    val count = input.read(buffer)
+                    if (count < 0) break
+                    if (output.size() + count > MAX_RESPONSE_BYTES) throw IOException("release response exceeds limit")
+                    output.write(buffer, 0, count)
+                }
+                output.toString("UTF-8")
+            }
+            latestFromJson(text, includePrerelease)
+        } finally {
+            conn.disconnect()
+        }
+    }
+
+    internal fun latestFromJson(text: String, includePrerelease: Boolean): FormalRelease? {
         val arr = JSONArray(text)
+        var latest: FormalRelease? = null
+        var latestVersion: Version? = null
         for (i in 0 until arr.length()) {
-            val rel = arr.getJSONObject(i)
+            val rel = arr.optJSONObject(i) ?: continue
+            if (rel.optBoolean("draft", false)) continue
             val tag = rel.optString("tag_name", "")
             if (!isKnownTag(tag)) continue
-            val prerelease = rel.optBoolean("prerelease", false) || rel.optBoolean("draft", false)
+            val versionName = tag.drop(1)
+            val version = parseVersion(versionName) ?: continue
+            val prerelease = rel.optBoolean("prerelease", false)
             val isFormal = isFormalTag(tag, prerelease)
-            if (!includePrerelease && !isFormal) continue
-            if (prerelease && !includePrerelease) continue
-            val versionName = tag.removePrefix("v")
+            if (!isFormal && (!includePrerelease || version.rc == null)) continue
+            if (latestVersion?.let { version <= it } == true) continue
             val assets = rel.optJSONArray("assets")
             var apkUrl: String? = null
             if (assets != null) {
                 for (j in 0 until assets.length()) {
-                    val asset = assets.getJSONObject(j)
-                    if (asset.optString("name", "").endsWith(".apk")) {
-                        apkUrl = asset.optString("browser_download_url", null)
+                    val asset = assets.optJSONObject(j) ?: continue
+                    if (asset.optString("name", "").endsWith(".apk", ignoreCase = true)) {
+                        apkUrl = asset.optString("browser_download_url", "").takeIf { it.isNotBlank() }
                         break
                     }
                 }
             }
-            return FormalRelease(versionName, tag, isFormal, rel.optString("html_url", ""), apkUrl)
+            latest = FormalRelease(versionName, tag, isFormal, rel.optString("html_url", ""), apkUrl)
+            latestVersion = version
         }
-        return null
+        return latest
     }
 }

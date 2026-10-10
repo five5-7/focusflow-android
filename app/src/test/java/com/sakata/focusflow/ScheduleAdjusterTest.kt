@@ -71,6 +71,20 @@ class ScheduleAdjusterTest {
     }
 
     @Test
+    fun `full today and tomorrow require manual rearrangement without a conflicting target`() {
+        val item = task("不能强塞", at(10, 0), 60, priority = "high")
+        val tomorrowBlocks = fullDayBlocks().map { it.copy(id = newItemId(), scheduledAt = it.scheduledAt!! + 24 * 60 * 60_000L) }
+        val adjustment = ScheduleAdjuster.suggest(
+            candidate(item), fullDayBlocks() + tomorrowBlocks, emptyList(), null, now = at(12, 0)
+        )
+
+        assertEquals(AdjustAction.REARRANGE, adjustment?.action)
+        assertNull(adjustment?.targetTime)
+        assertEquals(60, adjustment?.durationMinutes)
+        assertTrue(adjustment!!.reason.contains("今天和明天"))
+    }
+
+    @Test
     fun `activity kinds only get rearrange`() {
         val game = task("打一局", at(9, 0), 60, kind = "游戏")
         val activity = task("晚间放松", at(9, 0), 60, kind = "活动")

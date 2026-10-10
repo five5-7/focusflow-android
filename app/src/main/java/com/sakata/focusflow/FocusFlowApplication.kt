@@ -11,6 +11,8 @@ class FocusFlowApplication : Application(), CoreDataRuntimeOwner {
 
     override fun onCreate() {
         super.onCreate()
+        // 开机广播/提醒可先于 Activity 启动，进程创建时就安装本地崩溃记录器。
+        CrashReporter.init(this)
         coreDataRuntime = AndroidCoreDataRuntimeFactory.create(this)
         NotificationChannelSettings.ensureManagedChannels(this)
     }

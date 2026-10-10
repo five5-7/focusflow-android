@@ -6,6 +6,11 @@ import com.sakata.focusflow.data.CoreDataReadResult
 import com.sakata.focusflow.data.CoreDataRepository
 import com.sakata.focusflow.data.CoreDataRepositoryOperations
 
+internal sealed interface FocusFlowStartupLoad {
+    data class Ready(val snapshot: FocusFlowStartupSnapshot) : FocusFlowStartupLoad
+    data class Blocked(val reason: String) : FocusFlowStartupLoad
+}
+
 /**
  * 首次组合需要的较重本地数据。核心任务快照通过统一 Repository 读取，其他设置域仍由 Store 提供。
  */
@@ -80,10 +85,13 @@ internal data class FocusFlowStartupSnapshot(
             store: PrototypeStore,
             coreDataRepository: CoreDataRepository,
             shadowReader: (() -> CoreDataReadResult)? = null
-        ): FocusFlowStartupSnapshot {
+        ): FocusFlowStartupLoad {
             // 恢复错过目标可能追加任务事件，必须先于 taskEvents 读取。
-            val coreData = (CoreDataRepositoryOperations.recoverMissedGoalTasks(coreDataRepository)
-                as CoreDataReadResult.Ready).snapshot
+            val coreData = when (val read = CoreDataRepositoryOperations.recoverMissedGoalTasks(coreDataRepository)) {
+                is CoreDataReadResult.Ready -> read.snapshot
+                is CoreDataReadResult.Invalid -> return FocusFlowStartupLoad.Blocked(read.reason)
+                is CoreDataReadResult.NotReady -> return FocusFlowStartupLoad.Blocked(read.reason)
+            }
             val consistency = shadowReader?.invoke()?.let { room ->
                 CoreDataConsistencyChecker.compare(coreData, room)
             }
@@ -91,7 +99,7 @@ internal data class FocusFlowStartupSnapshot(
             val themeOption = store.loadTheme()
             val featureIntroShown = store.loadFeatureIntroShown()
             val campusLifeChoiceShown = store.loadCampusLifeChoiceShown()
-            return FocusFlowStartupSnapshot(
+            return FocusFlowStartupLoad.Ready(FocusFlowStartupSnapshot(
                 gameSessions = store.loadGameSessions(),
                 gameDetectionEnabled = store.loadGameDetectionEnabled(),
                 foregroundDetectionTrace = store.loadForegroundDetectionTrace(),
@@ -158,7 +166,7 @@ internal data class FocusFlowStartupSnapshot(
                 acceptRcUpdates = store.loadAcceptRcUpdates(),
                 lastUpdateCheckDay = store.loadLastUpdateCheckDay(),
                 exitConfirmDisabled = store.loadExitConfirmDisabled()
-            )
+            ))
         }
     }
 }

@@ -108,7 +108,6 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        CrashReporter.init(applicationContext)
         FrameTimingRecorder.install(window)
         statusCheckInRequested = intent.getBooleanExtra(ReminderReceiver.EXTRA_OPEN_STATUS_CHECK_IN, false) &&
             PrototypeStore(this).loadStatusCheckInSettings().enabled
@@ -155,7 +154,7 @@ class MainActivity : ComponentActivity() {
                 CourseMergeOperation.recover(this@MainActivity, coreDataRepository) &&
                     CourseSplitOperation.recover(this@MainActivity, coreDataRepository)
             }
-            val startupSnapshot = withContext(Dispatchers.IO) {
+            val startupLoad = withContext(Dispatchers.IO) {
                 FocusFlowStartupSnapshot.load(
                     store = startupStore,
                     coreDataRepository = coreDataRepository,
@@ -164,6 +163,20 @@ class MainActivity : ComponentActivity() {
                     } else null
                 )
             }
+            if (startupLoad is FocusFlowStartupLoad.Blocked) {
+                FrameTimingRecorder.endStartupSnapshot()
+                FrameTimingRecorder.recordStartupFrames()
+                setContent {
+                    LaunchedEffect(Unit) { startupBackFallback.isEnabled = false }
+                    CoreDataBlockedScreen(runtime.decision.copy(
+                        source = CoreDataRuntimeSource.NONE,
+                        status = com.sakata.focusflow.data.CoreDataActivationStatus.BLOCKED_RUNTIME_ASSEMBLY,
+                        message = startupLoad.reason
+                    ))
+                }
+                return@launch
+            }
+            val startupSnapshot = (startupLoad as FocusFlowStartupLoad.Ready).snapshot
             // 图片背景在首个 Compose 树建立前完成后台解码。旧路径先显示主题底色，再把整屏位图
             // 塞进已组合好的页面与全部亚克力卡片，首次 GPU 上传会正好撞上用户的第一个动画。
             val startupPageBackdropBitmap = withContext(Dispatchers.IO) {
@@ -333,6 +346,9 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
     val appLifecycleOwner = LocalLifecycleOwner.current
     // 初始值保证冷启动也检查；后续每次回到前台再递增。
     var notificationForegroundCheck by remember { mutableIntStateOf(1) }
+    LaunchedEffect(notificationForegroundCheck) {
+        if (quickCaptureEnabled) QuickCaptureService.start(context)
+    }
     // 注册观察器时 Lifecycle 会把当前 STARTED 状态补发一次；初始状态已经从 store 读取，不能立即再读整批数据。
     var initialStartObserved by remember(appLifecycleOwner) { mutableStateOf(false) }
     DisposableEffect(appLifecycleOwner) {
@@ -686,6 +702,7 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
     var autoCheckUpdates by remember { mutableStateOf(startup.autoCheckUpdates) }
     var acceptRcUpdates by remember { mutableStateOf(startup.acceptRcUpdates) }
     var downloadedUpdate by remember { mutableStateOf<File?>(null) }
+    var updateRequestToken by remember { mutableIntStateOf(0) }
     // 8.1.0 导航历史与草稿保险箱（会话内）：页面目的地变化统一记录，回退/折返键恢复快照。
     val navHistory = remember { NavHistory() }
     val draftVault = remember { DraftVault() }
@@ -793,25 +810,19 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
         runCatching { context.startActivity(intent) }
     }
 
-    fun downloadUpdate(url: String, versionName: String): File {
-        val dir = File(context.cacheDir, "updates").apply { mkdirs() }
-        val file = File(dir, "FocusFlow-$versionName.apk")
-        val conn = URL(url).openConnection() as java.net.HttpURLConnection
-        conn.connectTimeout = 20000
-        conn.readTimeout = 120000
-        conn.inputStream.use { input -> file.outputStream().use { output -> input.copyTo(output) } }
-        return file
-    }
-
     /** 检查 GitHub 正式版；silent 时静默（自动检查），发现新正式版只提示一次、不下载。 */
     fun checkForUpdate(silent: Boolean = false) {
+        if (updateCheckState.checking) return
         if (!silent && downloadedUpdate != null) {
             installUpdate(downloadedUpdate!!)
             return
         }
+        val includeRc = acceptRcUpdates
+        val requestToken = ++updateRequestToken
+        updateCheckState = UpdateCheckState(checking = true, message = "正在检查 GitHub 更新…")
         scope.launch {
-            updateCheckState = UpdateCheckState(checking = true, message = "正在检查 GitHub 更新…")
-            val release = withContext(Dispatchers.IO) { runCatching { UpdateChecker.fetchLatest(includePrerelease = acceptRcUpdates) }.getOrNull() }
+            val release = withContext(Dispatchers.IO) { runCatching { UpdateChecker.fetchLatest(includePrerelease = includeRc) }.getOrNull() }
+            if (requestToken != updateRequestToken) return@launch
             val latest = release?.versionName
             val newer = latest != null && UpdateChecker.isNewer(BuildConfig.VERSION_NAME, latest, release.isFormal)
             val kind = if (release?.isFormal == true) "正式版" else "候选版"
@@ -844,7 +855,10 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                 return@launch
             }
             updateCheckState = UpdateCheckState(checking = true, latestFormal = latest, message = "正在下载 ${release.versionName}…")
-            val file = withContext(Dispatchers.IO) { runCatching { downloadUpdate(apkUrl, release.versionName) }.getOrNull() }
+            val file = withContext(Dispatchers.IO) {
+                runCatching { UpdateApkDownload.download(context.cacheDir, release.versionName, apkUrl) }.getOrNull()
+            }
+            if (requestToken != updateRequestToken) return@launch
             if (file == null) {
                 updateCheckState = UpdateCheckState(latestFormal = latest, message = "下载失败，请稍后重试")
             } else {
@@ -2297,7 +2311,11 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                 }, quickCaptureEnabled = quickCaptureEnabled, onQuickCaptureEnabledChange = { enabled ->
                     quickCaptureEnabled = enabled
                     store.saveQuickCaptureEnabled(enabled)
-                    if (enabled) QuickCaptureService.start(context) else QuickCaptureService.stop(context)
+                    if (enabled) {
+                        if (!QuickCaptureService.start(context)) scope.launch {
+                            snackbarHostState.showSnackbar("快速记录通知暂时无法开启；请检查通知权限，回到应用后会重试。")
+                        }
+                    } else QuickCaptureService.stop(context)
                 }, onWindDownEnabledChange = { enabled ->
                     windDownEnabled = enabled
                     store.saveWindDownEnabled(enabled)
@@ -2377,6 +2395,9 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                     onAcceptRcUpdatesChange = { enabled ->
                         acceptRcUpdates = enabled
                         store.saveAcceptRcUpdates(enabled)
+                        updateRequestToken++
+                        downloadedUpdate = null
+                        updateCheckState = UpdateCheckState()
                     },
                     updateCheckState = updateCheckState,
                     onCheckUpdate = { checkForUpdate() },
