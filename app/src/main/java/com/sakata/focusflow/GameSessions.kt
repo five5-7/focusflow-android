@@ -18,8 +18,13 @@ data class GameSessionRecord(
 
 /** 空闲活动自律统计：只做数据式汇总，不假装精确。 */
 object GameStats {
-    fun thisWeek(records: List<GameSessionRecord>, weekKey: Long = GoalPlanner.currentWeekKey()): List<GameSessionRecord> =
-        records.filter { it.plannedStartAt >= weekKey && it.plannedStartAt < weekKey + 7 * 24 * 60 * 60 * 1000L }
+    fun thisWeek(records: List<GameSessionRecord>, weekKey: Long = GoalPlanner.currentWeekKey()): List<GameSessionRecord> {
+        val end = java.util.Calendar.getInstance().apply {
+            timeInMillis = weekKey
+            add(java.util.Calendar.DAY_OF_YEAR, 7)
+        }.timeInMillis
+        return records.filter { it.plannedStartAt >= weekKey && it.plannedStartAt < end }
+    }
 
     /** 汇总文案；本周无记录返回 null。 */
     fun summary(records: List<GameSessionRecord>, weekKey: Long = GoalPlanner.currentWeekKey()): String? {

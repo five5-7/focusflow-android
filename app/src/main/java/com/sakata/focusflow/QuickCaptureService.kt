@@ -12,6 +12,7 @@ import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 
@@ -24,6 +25,11 @@ class QuickCaptureService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // 被系统重建的旧服务也要尊重用户已经关闭的开关。
+        if (!PrototypeStore(this).loadQuickCaptureEnabled()) {
+            stopSelf()
+            return START_NOT_STICKY
+        }
         // 无通知权限时通知不可见，常驻“快速记录入口”无从点击：不启动前台服务（快速记录入口本身仍可用）。
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
@@ -32,10 +38,20 @@ class QuickCaptureService : Service() {
             return START_NOT_STICKY
         }
         // Android 14+ 要求前台服务声明并传入类型（specialUse），否则抛 MissingForegroundServiceTypeException。
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            startForeground(NOTIFICATION_ID, buildNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
-        } else {
-            startForeground(NOTIFICATION_ID, buildNotification())
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                startForeground(NOTIFICATION_ID, buildNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+            } else {
+                startForeground(NOTIFICATION_ID, buildNotification())
+            }
+        } catch (error: IllegalStateException) {
+            Log.w("QuickCaptureService", "foreground promotion denied: ${error.javaClass.simpleName}")
+            stopSelf()
+            return START_NOT_STICKY
+        } catch (error: SecurityException) {
+            Log.w("QuickCaptureService", "foreground promotion denied: ${error.javaClass.simpleName}")
+            stopSelf()
+            return START_NOT_STICKY
         }
         return START_STICKY
     }
@@ -76,8 +92,21 @@ class QuickCaptureService : Service() {
         private const val CHANNEL_ID = "focusflow_quick_capture_v1"
         private const val NOTIFICATION_ID = 2_900_010
 
-        fun start(context: Context) {
-            ContextCompat.startForegroundService(context, Intent(context, QuickCaptureService::class.java))
+        /** 后台启动可能被系统拒绝；保留开关，回到前台后再尝试，不中断其他提醒恢复。 */
+        fun start(context: Context): Boolean {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+            ) return false
+            return try {
+                ContextCompat.startForegroundService(context, Intent(context, QuickCaptureService::class.java))
+                true
+            } catch (error: IllegalStateException) {
+                Log.w("QuickCaptureService", "service start denied: ${error.javaClass.simpleName}")
+                false
+            } catch (error: SecurityException) {
+                Log.w("QuickCaptureService", "service start denied: ${error.javaClass.simpleName}")
+                false
+            }
         }
 
         fun stop(context: Context) {

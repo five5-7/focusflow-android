@@ -5,191 +5,205 @@ import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
-import android.util.Base64
 import org.json.JSONArray
 import org.json.JSONObject
-import java.io.BufferedReader
 import java.io.ByteArrayOutputStream
-import java.io.InputStreamReader
-import java.io.OutputStream
-import java.net.HttpURLConnection
-import java.net.URL
 
-/** 课表识别默认视觉模型：硅基流动在线的免费视觉模型（Qwen3-VL-8B，替代已下线的 Qwen2.5-VL-7B）。 */
+/** 原硅基流动默认模型 ID；实际能力与可用性由用户发起的测试确认。 */
 const val DEFAULT_COURSE_VISION_MODEL = "Qwen/Qwen3-VL-8B-Instruct"
 
 /** 课表识别可选的预设视觉模型（模型 ID 到展示名），设置页一键选择，不用手打。 */
 val VISION_MODEL_PRESETS: List<Pair<String, String>> = listOf(
-    "Qwen/Qwen3-VL-8B-Instruct" to "Qwen3-VL-8B（免费）",
+    "Qwen/Qwen3-VL-8B-Instruct" to "Qwen3-VL-8B",
     "Qwen/Qwen3-VL-32B-Instruct" to "Qwen3-VL-32B",
     "Qwen/Qwen3-VL-30B-A3B-Instruct" to "Qwen3-VL-30B-A3B",
     "PaddlePaddle/PaddleOCR-VL-1.5" to "PaddleOCR-VL（OCR 专用）"
 )
 
-/** 课表截图用硅基流动视觉模型识别的设置。key 与教程搜索共用同一把“硅基流动 API key”。 */
+/** 保留旧用户的视觉启用状态；服务与凭据由独立配置管理。 */
 data class CourseVisionSettings(
     val enabled: Boolean = false,
     val model: String = DEFAULT_COURSE_VISION_MODEL
 )
 
-/**
- * 硅基流动视觉模型客户端：把课表截图压缩为 JPEG base64 后走 OpenAI 兼容的
- * chat/completions 多模态接口，要求模型返回结构化课程 JSON。
- * key 仅存本机、只发往 api.siliconflow.cn；识别结果仍是待确认课程。
- */
+internal data class ParseReport(
+    val courses: List<Course>,
+    val warnings: List<String> = emptyList(),
+    val rejectionReason: String? = null
+)
+
+data class VisionRecognitionPreview(
+    val preview: VisionGridPreview,
+    val candidates: List<VisionCandidate>,
+    val warnings: List<String> = emptyList()
+)
+
+/** 可替换的视觉服务识别入口；批次 A 沿用待确认课程解析。 */
 object CourseVisionRecognizer {
-    private const val ENDPOINT = "https://api.siliconflow.cn/v1/chat/completions"
-    private const val JPEG_QUALITY = 85
-    private const val MAX_TOKENS = 4096
-    private const val MAX_BYTES = 256 * 1024
-
-    sealed class RecognizeResult {
-        class Success(val courses: List<Course>, val newPlaces: List<String> = emptyList()) : RecognizeResult()
-        class Error(val message: String) : RecognizeResult()
-    }
-
     fun recognize(
-        context: Context,
-        uri: Uri,
-        apiKey: String,
-        model: String,
-        places: List<CampusPlace>,
-        onSuccess: (List<Course>) -> Unit,
-        onFailure: (String) -> Unit,
-        onNewPlaces: (List<String>) -> Unit = {}
+        context: Context, uri: Uri, profile: VisionServiceProfile, session: VisionSession,
+        places: List<CampusPlace>, onSuccess: (CourseImportBatch) -> Unit, onFailure: (String) -> Unit
     ) {
-        // 网络请求 + 图片压缩耗时，放后台线程避免主线程卡顿。
         Thread {
-            val result = runCatching { request(context, uri, apiKey, model, places) }
-                .getOrElse { RecognizeResult.Error(it.message ?: "网络不可用") }
-            Handler(Looper.getMainLooper()).post {
-                when (result) {
-                    is RecognizeResult.Success -> {
-                        onSuccess(result.courses)
-                        if (result.newPlaces.isNotEmpty()) onNewPlaces(result.newPlaces)
-                    }
-                    is RecognizeResult.Error -> onFailure(result.message)
-                }
-            }
-        }.start()
-    }
-
-    private fun request(context: Context, uri: Uri, apiKey: String, model: String, places: List<CampusPlace>): RecognizeResult {
-        val imageBase64 = compressToBase64(context, uri)
-            ?: return RecognizeResult.Error("无法读取这张图片，请换一张清晰的课表截图。")
-        val placeNames = places.map { it.name }.distinct().take(80).joinToString("、")
-        val prompt = buildString {
-            append("你是课表识别助手。这张图片是课程表截图。只识别课表网格里的课程格子，忽略页面其他文字（页脚、备注、提示、按钮文字等，例如“隐藏课程信息”“学分”“教师名单”）。")
-            append("只返回一个 JSON 数组，不要输出其他任何内容（不要代码围栏、不要解释）。数组每个元素格式：{\"name\":\"课程名称\",\"day\":1,\"startPeriod\":1,\"endPeriod\":2,\"location\":\"教室或楼名\"}。")
-            append("规则：name 只填课程名称文字（如“高等数学”），不要包含教室、楼名、教师、时间；day 用 1-7 表示周一至周日；")
-            append("startPeriod、endPeriod 用数字表示第几节，截图里只给一个节次时 endPeriod 与 startPeriod 相同；")
-            append("location 只填教室或楼名（如“东1B-213”“西2教学楼”），照抄截图文字，没有就留空字符串；只写截图里明确出现的信息，不要推测、不要补全。")
-            if (placeNames.isNotBlank()) append("location 可优先使用以下地点名：$placeNames。")
-        }
-        val content = JSONArray().apply {
-            put(JSONObject().apply {
-                put("type", "image_url")
-                put("image_url", JSONObject().put("url", "data:image/jpeg;base64,$imageBase64"))
-            })
-            put(JSONObject().apply { put("type", "text"); put("text", prompt) })
-        }
-        val request = JSONObject().apply {
-            put("model", model)
-            put("temperature", 0.1)
-            put("max_tokens", MAX_TOKENS)
-            put("messages", JSONArray().apply {
-                put(JSONObject().apply { put("role", "user"); put("content", content) })
-            })
-        }
-        val connection = try {
-            (URL(ENDPOINT).openConnection() as HttpURLConnection).apply {
-                requestMethod = "POST"
-                connectTimeout = 15_000
-                readTimeout = 60_000
-                setRequestProperty("Content-Type", "application/json")
-                setRequestProperty("Authorization", "Bearer $apiKey")
-                doOutput = true
-            }
-        } catch (e: Exception) {
-            return RecognizeResult.Error("网络不可用")
-        }
-        try {
-            connection.outputStream.use { stream: OutputStream ->
-                stream.write(request.toString().toByteArray(Charsets.UTF_8))
-            }
-            val status = connection.responseCode
-            if (status !in 200..299) {
-                val body = readBody(connection).trim().take(120)
-                return RecognizeResult.Error(
-                    when (status) {
-                        401 -> "API key 无效，请检查设置页的 key"
-                        429 -> "请求过于频繁，稍后再试"
-                        else -> {
-                            val message = runCatching { JSONObject(body).optString("message", "") }.getOrNull() ?: body
-                            val text = message.ifBlank { body }.take(120)
-                            when {
-                                text.isBlank() -> "请求失败（$status）"
-                                text.contains("odel", ignoreCase = true) -> "$text（模型可能不可用，去设置页换一个模型名）"
-                                else -> text
+            val store = VisionServiceStore(context)
+            val vault = VisionCredentialStore(context)
+            val result = runCatching {
+                check(store.currentAndReviewable(profile, vault) && !session.cancelled())
+                val key = vault.read(profile.credentialRef) as? VisionCredentialRead.Ready ?: error("key unavailable")
+                val image = compressImage(context, uri) ?: error("image unavailable")
+                check(!session.cancelled())
+                when (val response = VisionServiceClient().chat(profile, key.secret, buildPrompt(places), image, session)) {
+                    is VisionClientResult.Failure -> response
+                    is VisionClientResult.Text -> {
+                        if (VisionResponseParser.parse(response.value) != null) {
+                            VisionClientResult.Failure("结构化视觉结果需要先在审核页确认，未直接写入课程")
+                        } else {
+                            val parsed = parseCourses(response.value, places)
+                            if (parsed.rejectionReason != null) VisionClientResult.Failure(parsed.rejectionReason)
+                            else if (parsed.courses.isEmpty() || parsed.courses.size > VisionLimits.MAX_CANDIDATES) {
+                                VisionClientResult.Failure("没有可导入课程或超过 200 条上限")
+                            } else {
+                                val newPlaces = parsed.courses.map { it.building }.filter { building ->
+                                    building != "地点待确认" && places.none { place ->
+                                        val p = CourseScreenshotParser.normalize(place.name)
+                                        CourseScreenshotParser.normalize(building) == p ||
+                                            CourseScreenshotParser.normalize(building).contains(p)
+                                    }
+                                }.distinct()
+                                CourseImportBatch(
+                                    CourseImportSource.VISION_SCREENSHOT,
+                                    parsed.courses,
+                                    newPlaces = newPlaces,
+                                    warnings = parsed.warnings
+                                )
                             }
                         }
                     }
-                )
-            }
-            val body = readBody(connection)
-            val message = runCatching { JSONObject(body).optJSONArray("choices")?.optJSONObject(0)?.optJSONObject("message") }.getOrNull()
-            val contentText = when (val value = message?.opt("content")) {
-                is String -> value
-                is JSONArray -> buildString {
-                    for (index in 0 until value.length()) {
-                        value.optJSONObject(index)?.optString("text", "")?.takeIf { it.isNotBlank() }?.let(::append)
-                    }
                 }
-                else -> ""
-            }
-            if (contentText.isBlank()) return RecognizeResult.Error("没有返回内容，请检查模型名或稍后再试")
-            val courses = parseCourses(contentText, places)
-            if (courses.isEmpty()) return RecognizeResult.Error("模型没有解析出课程，请换一张能看清课程名称、星期和节次的截图")
-            // 识别出的新地点（不在已有地点目录里的教室/楼名文字）交给调用方记入“地点待用”。
-            val newPlaces = courses.map { it.building }
-                .filter { building ->
-                    building != "地点待确认" && places.none { place ->
-                        val p = CourseScreenshotParser.normalize(place.name)
-                        CourseScreenshotParser.normalize(building) == p || CourseScreenshotParser.normalize(building).contains(p)
+            }.getOrElse { VisionClientResult.Failure("图片、凭据或服务不可用，请检查配置后重试") }
+            Handler(Looper.getMainLooper()).post {
+                if (!session.cancelled() && store.currentAndReviewable(profile, vault)) {
+                    when (result) {
+                        is CourseImportBatch -> onSuccess(result)
+                        is VisionClientResult.Failure -> onFailure(result.message)
                     }
-                }
-                .distinct()
-            return RecognizeResult.Success(courses, newPlaces)
-        } catch (e: Exception) {
-            return RecognizeResult.Error(e.message ?: "网络不可用")
-        } finally {
-            connection.disconnect()
-        }
+                } else onFailure("已取消、超时或服务配置发生变化，本次未导入")
+            }
+        }.apply { name = "course-vision" }.start()
     }
+
+    fun recognizePreview(
+        context: Context, uri: Uri, profile: VisionServiceProfile, session: VisionSession,
+        onSuccess: (VisionRecognitionPreview) -> Unit, onFailure: (String) -> Unit
+    ) {
+        Thread {
+            val store = VisionServiceStore(context)
+            val vault = VisionCredentialStore(context)
+            val result = runCatching<PreviewResult> {
+                check(store.currentAndReviewable(profile, vault) && !session.cancelled())
+                val key = vault.read(profile.credentialRef) as? VisionCredentialRead.Ready ?: error("key unavailable")
+                val image = prepareImage(context, uri) ?: error("image unavailable")
+                when (val response = VisionServiceClient().chat(profile, key.secret, buildStructuredPrompt(image.width, image.height), image.bytes, session)) {
+                    is VisionClientResult.Failure -> PreviewResult.Failure(response.message)
+                    is VisionClientResult.Text -> {
+                        val outcome = VisionReviewResponseParser.parseDetailed(response.value, image.width, image.height)
+                        val parsed = when (outcome) {
+                            is VisionReviewParseResult.Success -> outcome.value
+                            is VisionReviewParseResult.Failure -> return@runCatching PreviewResult.Failure(
+                                "模型结果无法安全解析：${outcome.stage.label}（${VisionResponseDiagnostics.summarize(response.value)} stage=${outcome.stage.name.lowercase()}）"
+                            )
+                        }
+                        if (parsed.candidates.isEmpty()) PreviewResult.Failure("没有识别到课程，请选择能看清课程色块和星期节次的图片")
+                        else PreviewResult.Success(parsed)
+                    }
+                }
+            }.getOrElse { PreviewResult.Failure("图片、凭据或服务不可用，请检查配置后重试") }
+            Handler(Looper.getMainLooper()).post {
+                if (!session.cancelled() && store.currentAndReviewable(profile, vault)) {
+                    when (result) {
+                        is PreviewResult.Success -> onSuccess(result.value)
+                        is PreviewResult.Failure -> onFailure(result.message)
+                    }
+                } else onFailure("已取消、超时或服务配置发生变化，本次未导入")
+            }
+        }.apply { name = "course-vision-preview" }.start()
+    }
+
+    private sealed class PreviewResult {
+        data class Success(val value: VisionRecognitionPreview) : PreviewResult()
+        data class Failure(val message: String) : PreviewResult()
+    }
+
+    internal fun buildStructuredPrompt(imageWidth: Int = 1000, imageHeight: Int = 800): String = """
+        你是课表网格识别助手，只识别课表网格内的课程色块，忽略教师名单、考试、按钮和网格外说明。
+        严格只返回一个 JSON 对象，首字符必须是对象起始符号、末字符必须是对象结束符号；不要思考过程、代码围栏、解释或额外文字。
+        字符串必须使用双引号；对象和数组最后一项后不得加逗号；输出前检查括号完整并保证 JSON 语法有效。
+        图片已旋转并缩放，上传图宽 $imageWidth 像素、高 $imageHeight 像素。
+        使用以下完整格式；示例中的课程名、星期、节次和坐标只是格式，不是识别答案：
+        {"geometry":{"width":$imageWidth,"height":$imageHeight,"originalToWorking":[1,0,0,0,1,0,0,0,1],
+        "weekdays":[{"index":1,"start":0.1,"end":0.2,"source":"detected"}],
+        "periods":[{"index":1,"start":0.1,"end":0.2,"source":"detected"}],"evidence":[]},
+        "candidates":[{"id":"c1","title":"示例课程","day":null,"startPeriod":null,"endPeriod":null,
+        "box":null,"evidence":[],"rawLocation":null,"weeks":null,"note":null,
+        "textConfidence":null,"geometryConfidence":null}]}
+        weekdays 是顶部星期列的实际左右边界（x），index 为周一1到周日7；periods 是左侧节次行的实际上下面界（y），index 为1到20。
+        所有边界和 box 都是上传图的归一化坐标：x除以宽度，y除以高度，范围0到1；box键为left,top,right,bottom。
+        同一个跨多节色块只输出一次，startPeriod/endPeriod为覆盖的第一节/最后一节。
+        星期和节次只能来自表头、节次行和色块位置；看不清使用null，绝不能默认填1或从课程文字猜测。
+        看不清网格时对应weekdays/periods使用[]；看不清课程框时box使用null，保留能看清的课程名供人工审核。
+        rawLocation、weeks、note、textConfidence、geometryConfidence没有依据时使用null；evidence没有依据时使用[]。
+        候选id必须唯一，title只含课程名；没有课程返回candidates=[]，不要复制示例，候选最多 ${VisionLimits.MAX_CANDIDATES} 条。
+    """.trimIndent()
 
     /** 说明性文字（页脚/备注等）关键词，命中则丢弃，避免把“隐藏课程信息”等当成课程。 */
     private val noiseKeywords = listOf("隐藏课程信息", "课程信息", "学分", "备注", "说明", "教师", "老师", "节次")
 
-    /** 剥 ```json 围栏后取首个 [ 到末个 ] 再解析为待确认课程。 */
-    private fun parseCourses(content: String, places: List<CampusPlace>): List<Course> = runCatching {
+    internal fun buildPrompt(places: List<CampusPlace>): String {
+        val placeNames = places.map { it.name }.distinct().take(80).joinToString("、")
+        return buildString {
+            append("你是课表网格识别助手。图片可能有透视、摩尔纹或很小的文字。只识别课表网格内的课程色块，忽略考试时间、备注、教师名单、按钮和网格外说明。")
+            append("先根据顶部的星期表头确定列：周一到周日分别输出 day=1 到 day=7；再根据最左侧的节次标号确定行。")
+            append("课程色块跨越多行时，startPeriod 是色块覆盖的第一节，endPeriod 是最后一节；同一个合并色块只输出一次。")
+            append("day、startPeriod、endPeriod 必须来自色块在网格中的位置，不能从课程文字、周次、考试日期或上一门课推测。看不清表头或节次的课程直接省略，绝不能默认填 1。")
+            append("只返回一个 JSON 数组，不要代码围栏、解释或额外对象。每项严格使用：{\"name\":\"课程名称\",\"day\":1,\"startPeriod\":1,\"endPeriod\":2,\"location\":\"教室或楼名\"}。")
+            append("name 只含课程名；location 只抄图片中明确出现的地点，没有则填空字符串。所有数字必须是 JSON 整数，范围为 day 1-7、节次 1-20，且 endPeriod 不小于 startPeriod。")
+            append("如果无法可靠看清星期列和节次行，返回 []，不要生成看似完整的猜测结果。")
+            if (placeNames.isNotBlank()) append("可用于规范地点的已有名称：$placeNames。")
+        }
+    }
+
+    /** 剥 JSON 围栏后解析；未知坐标不再钳制成第 1 节，并拒绝明显塌缩到同一格的整批结果。 */
+    internal fun parseCourses(content: String, places: List<CampusPlace>): ParseReport = runCatching {
         val cleaned = content.trim()
             .removePrefix("```json").removePrefix("```")
             .removeSuffix("```")
             .trim()
         val start = cleaned.indexOf('[')
         val end = cleaned.lastIndexOf(']')
-        if (start < 0 || end <= start) emptyList()
+        if (start < 0 || end <= start) ParseReport(emptyList(), rejectionReason = "模型返回的不是课程数组，已停止导入。")
         else {
             val values = JSONArray(cleaned.substring(start, end + 1))
-            List(values.length()) { index ->
-                val value = values.optJSONObject(index) ?: return@List null
-                val day = value.optInt("day", 0)
-                if (day !in 1..7) return@List null
+            var invalidCoordinates = 0
+            var invalidContents = 0
+            val parsed = List(values.length()) { index ->
+                val value = values.optJSONObject(index) ?: run {
+                    invalidContents += 1
+                    return@List null
+                }
+                val day = value.strictInteger("day")
+                val startPeriod = value.strictInteger("startPeriod")
+                val endPeriod = value.strictInteger("endPeriod")
+                if (day == null || day !in 1..7 || startPeriod == null || startPeriod !in 1..20 ||
+                    endPeriod == null || endPeriod !in 1..20 || endPeriod < startPeriod
+                ) {
+                    invalidCoordinates += 1
+                    return@List null
+                }
                 val title = value.optString("name", "").trim()
-                if (title.length < 2) return@List null
-                if (noiseKeywords.any { title.contains(it) }) return@List null
-                val startPeriod = value.optInt("startPeriod", 0).coerceIn(1, 13)
-                val endPeriod = value.optInt("endPeriod", startPeriod).coerceIn(startPeriod, 13)
+                if (title.length < 2 || title.length > 80 || noiseKeywords.any { title.contains(it) }) {
+                    invalidContents += 1
+                    return@List null
+                }
                 val (building, zone) = matchLocation(value.optString("location", ""), places)
                 Course(
                     title = title,
@@ -201,10 +215,42 @@ object CourseVisionRecognizer {
                     needsConfirmation = true
                 )
             }.filterNotNull()
-                .distinctBy { Triple(it.weekday, it.startPeriod, it.title) }
+
+            val distinct = parsed
+                .distinctBy { listOf(it.weekday, it.startPeriod, it.endPeriod, it.title) }
                 .sortedWith(compareBy<Course> { it.weekday }.thenBy { it.startPeriod })
+            val collapsed = distinct.groupBy { Triple(it.weekday, it.startPeriod, it.endPeriod) }
+                .values
+                .firstOrNull { group -> group.map { it.title.trim() }.distinct().size >= 3 }
+            val mostlyUnknown = values.length() >= 3 && invalidCoordinates * 2 >= values.length()
+            when {
+                collapsed != null -> ParseReport(
+                    emptyList(),
+                    rejectionReason = "识别结果把 ${collapsed.size} 门不同课程放在同一个星期和节次，坐标明显异常，已停止导入。请换更清晰、能完整看到星期表头和左侧节次的截图，或更换视觉模型。"
+                )
+                mostlyUnknown -> ParseReport(
+                    emptyList(),
+                    rejectionReason = "模型返回的 ${values.length()} 条结果中有 $invalidCoordinates 条缺少可靠的星期或节次，已停止导入，避免错误课程进入待确认列表。"
+                )
+                else -> ParseReport(
+                    courses = distinct,
+                    warnings = buildList {
+                        if (invalidCoordinates > 0) add("$invalidCoordinates 条课程缺少可靠的星期或节次，未导入")
+                        if (invalidContents > 0) add("$invalidContents 条非课程或课程名异常的内容，未导入")
+                    }
+                )
+            }
         }
-    }.getOrDefault(emptyList())
+    }.getOrElse { ParseReport(emptyList(), rejectionReason = "无法解析模型返回的课程 JSON，已停止导入。") }
+
+    private fun JSONObject.strictInteger(key: String): Int? = when (val value = opt(key)) {
+        is Byte, is Short, is Int, is Long -> (value as Number).toLong()
+            .takeIf { it >= Int.MIN_VALUE.toLong() && it <= Int.MAX_VALUE.toLong() }
+            ?.toInt()
+        is Float, is Double -> (value as Number).toDouble().takeIf { it.isFinite() && it % 1.0 == 0.0 }?.toInt()
+        is String -> value.trim().toIntOrNull()
+        else -> null
+    }
 
     /**
      * 地点匹配：先剥校区前缀（“紫金港东1A-213”→“东1A-213”），再按楼级归并（“东1A-213”→“东1教学楼”），
@@ -232,28 +278,59 @@ object CourseVisionRecognizer {
         return (if (detected == "地点待确认") location.trim() else detected) to zone
     }
 
-    /** 解码（含 EXIF 旋转、降采样）后压缩为 JPEG base64，避免大图让接口请求过大。 */
-    private fun compressToBase64(context: Context, uri: Uri): String? = runCatching {
-        val bitmap = CourseScreenshotParser.decodeRotated(context, uri)
-        val output = ByteArrayOutputStream()
-        bitmap.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, output)
-        if (!bitmap.isRecycled) bitmap.recycle()
-        Base64.encodeToString(output.toByteArray(), Base64.NO_WRAP)
-    }.getOrNull()
-
-    private fun readBody(connection: HttpURLConnection): String {
-        val stream = if (connection.responseCode in 200..299) connection.inputStream else connection.errorStream
-        val reader = BufferedReader(InputStreamReader(stream, "UTF-8"))
-        val buffer = StringBuilder()
-        val chunk = CharArray(8192)
-        var total = 0
-        while (total < MAX_BYTES) {
-            val count = reader.read(chunk, 0, minOf(8192, MAX_BYTES - total))
-            if (count < 0) break
-            buffer.append(chunk, 0, count)
-            total += count
-        }
-        reader.close()
-        return buffer.toString()
+    /**
+     * Converts only explicitly confirmed candidates to the existing import batch.
+     * Policy.prepare remains the final normalization and persistence boundary.
+     */
+    internal fun importReviewedCandidates(
+        result: VisionReviewResult,
+        places: List<CampusPlace>
+    ): CourseImportBatch {
+        val courses = result.candidates
+            .filter { it.state == VisionCandidateState.CONFIRMED_BY_USER }
+            .mapNotNull { candidate ->
+                val day = candidate.day ?: return@mapNotNull null
+                val start = candidate.startPeriod ?: return@mapNotNull null
+                val end = candidate.endPeriod ?: return@mapNotNull null
+                val (building, zone) = matchLocation(candidate.rawLocation.orEmpty(), places)
+                Course(
+                    title = candidate.title.trim(),
+                    weekday = day,
+                    startPeriod = start,
+                    endPeriod = end,
+                    building = building,
+                    zone = zone,
+                    needsConfirmation = true
+                )
+            }
+        val distinct = courses.distinctBy { listOf(it.weekday, it.startPeriod, it.endPeriod, it.title) }
+        val newPlaces = distinct.map { it.building }.filter { building ->
+            building != "地点待确认" && places.none { place ->
+                CourseScreenshotParser.normalize(building).contains(CourseScreenshotParser.normalize(place.name))
+            }
+        }.distinct()
+        return CourseImportPolicy.prepare(CourseImportBatch(
+            source = CourseImportSource.VISION_SCREENSHOT,
+            courses = distinct,
+            newPlaces = newPlaces,
+            warnings = result.warnings + result.unresolvedIds.map { "候选 $it 仍需确认，未导入" }
+        ))
     }
+
+    /** 解码（含 EXIF 旋转、降采样）后压缩为 JPEG base64，避免大图让接口请求过大。 */
+    private data class PreparedVisionImage(val bytes: ByteArray, val width: Int, val height: Int)
+
+    private fun compressImage(context: Context, uri: Uri): ByteArray? = prepareImage(context, uri)?.bytes
+
+    private fun prepareImage(context: Context, uri: Uri): PreparedVisionImage? = runCatching {
+        val bitmap = CourseScreenshotParser.decodeRotated(context, uri)
+        try {
+            val output = ByteArrayOutputStream()
+            check(bitmap.compress(Bitmap.CompressFormat.JPEG, 85, output))
+            PreparedVisionImage(
+                output.toByteArray().also { require(it.size <= VisionLimits.MAX_IMAGE_BYTES) },
+                bitmap.width, bitmap.height
+            )
+        } finally { if (!bitmap.isRecycled) bitmap.recycle() }
+    }.getOrNull()
 }

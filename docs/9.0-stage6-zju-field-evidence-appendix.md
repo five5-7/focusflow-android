@@ -1,0 +1,349 @@
+# 阶段 6 组① 附录：本机 ZJU 教务脱敏采样结果（2026-09-27）
+
+- 日期：2026-09-27
+- 来源：用户本机已登录教务会话采样；AI 未接触账号、Cookie、请求头或原始响应文件
+- 脱敏工具：仓库外 `D:\focusflow\.tmp\zju-evidence-20260927\sanitize.js`（v1.0.0，Node 只读本地文件；随机盐仅存内存）
+- 运行命令：`node sanitize.js --a raw-kb-260927.json --b new.json --c raw-kb-260927-2.json --semester raw-semester-260927-2.json`
+- 采样文件（仓库外，未提交，永不提交）：
+  - A `raw-kb-260927.json`：2026-2027 第一次
+  - B `new.json`：2026-2027 同学期二次导入（用户确认是在页面内重新查询后出现的**新请求**上保存）
+  - C `raw-kb-260927-2.json`：2025-2026 跨学期样本
+  - `raw-semester-260927-2.json`：学期备注（只覆盖 2026-2027）
+- 脱敏规则：只输出键名、类型、计数、长度分桶、布尔判断与内存盐哈希一致性；所有非 ASCII 内容一律替换为 `[nonASCII:n]` 计数，不保留转义形式；学期记录只回显 `xnm/xqm/xqmmc/option/selected` 行，其余丢弃；输出前做中文、8 位以上连续数字、邮箱、电话样式自扫描。**用户学期记录中 1 行含个人信息的非结构内容已被脚本丢弃，未进入本附录。**
+- 边界声明：本附录是脱敏样本的证据记录，不是实现、测试通过或真机验收；未改业务代码、Room schema、版本号；未打开 Room 产品激活。
+- 第二次审定：2026-09-27，结论与许可边界见 `docs/9.0-stage6-course-identity-review2.md`；本附录已按其意见更正 §1 与 §2.2 的措辞与分桶事实。
+- 选择键分组与语义计数证据（第二次审定后补充）：见 `docs/9.0-stage6-zju-selection-key-groups.md`。
+
+## 1. 先读结论
+
+1. **本次 `kbList` 键集合与现有解析器／合成 fixture 差异很大**：真实行固定 19 个键（三个样本一致），其中**没有** `kcmc`、`cdmc`、`jcs`、`jxb_id`、`kch` 等键；标题、周次、教师、地点只能从 `kcb` 的 4 段拆分得到。本次 `kbList` 顶层没有已证实语义的独立课程、教学班或课次键；`queryModel`、`userModel` 等嵌套对象未展开核对，不能断言响应整体没有其他身份字段。
+2. **同学期二次导入成立（A vs B）**：B 是用户确认的新查询请求；两份响应体**字节级一致**（本地 SHA-256 相同），19 键全部 `same=16 / diff=0`、多重集合一致。说明教务对同一未改动请求返回确定性内容，`xkkh` 等字段在未改变状态下相同；这不等于稳定性已证实——尚未覆盖课程被修改后重导入，也不能把「0 次课程变动」当作稳定性测试。
+3. **跨学期对比成立（A vs C）**：A = `2026-2027`（16 行）、C = `2025-2026`（19 行），`xnm` 回显不同。跨学期零共享值的字段：`kcb`、`xkkh`、`jszgh`、`xxq`（`both=0`）；共享的只有枚举类值：`djj`（6 值）、`skcd`（3 值）、`xqj`（5/6 值）。
+4. **`kcb` 结构**：三个样本都是 4 段；`zwf` 均出现在末段；A/B 全部 16 行以 `zwf` 结尾，C 只有 9/19 行以 `zwf` 结尾（另 10 行在 `zwf` 后还有内容）。现有解析器 `substringBefore("zwf")` 会丢弃这 10 行 `zwf` 之后的内容；三个样本中截断都没有整段消失（末段结构保留）。用户本机核对与追加统计见 `docs/9.0-stage6-zju-selection-key-groups.md` §1.3、§5：`zwf` 是分隔符，用户已确认首个 `zwf` 前的内容为地点（解析器取它正确）；其后为「日期+时间」与「地点」字段，当前被丢弃，是否保留待复审。
+5. **`dsz` 随学期变化**：A/B 只有 1 个不同值、C 有 2 个；用户本机核对（见 `docs/9.0-stage6-zju-selection-key-groups.md` §5）实际值为 2=常规整周、1=分单双周课程。解析器仍把 `0` 与 `1` 都当作非整周；**`0` 的语义未证实**，若真实数据出现 `0`，必须先复核该判断再依赖其结果。
+6. **无任何键逐行唯一**。`xkkh`（A/B 16 行 9 值、C 19 行 12 值）的重复次数与「一个外部号对应多个课次」的假设相符，但也可能是其他分组，不足以证明它就是教学班稳定标识；`jszgh`（9/12 值）是教师维度，同样不唯一。
+7. 顶层个人信息字段 `xh/xm/xy/xzb/zy` 在三个样本中都存在，导入契约必须忽略、绝不落库；用户读到真实请求表单值 `xnm=2026-2027`、`xqm=1|秋`，而响应回显的 `xqm` 是单个非 ASCII 字符——批次学期必须使用请求代码（自动路径的 option value），不能用响应回显或显示文字（详见 groups 文档 §5）。
+8. 第二次审定（2026-09-27）已放行**一项限定实现**：贯通客户端实际请求的学年/学期代码，并在解析结果中增加只读、仅内存的逐行候选元数据（行序号、请求代码、`xkkh` 非空候选值、可解析时段）；**仍不允许**按 `xkkh` 自动归组、更新已确认课次或改一对多 Room 数据，Room 激活保持关闭。缺首页 option 列表与 `xkkh`/`zwf`/`dsz` 值级语义时，不得进入自动归组。
+
+## 2. 本次证据要点
+
+### 2.1 响应顶层
+
+- 三个样本顶层同为 15 键：`fKbList`(array,0) `jxkList`(array,0) `kbList`(array,A=16/B=16/C=19) `kbcdList`(array,3) `sjkList`(array,0) `xh`(string) `xkkg`(boolean) `xm`(string) `xnm`(string) `xqm`(string) `xskList`(array,0) `xy`(string) `xzb`(string) `ywkList`(array,0) `zy`(string)；`captcha_error` 不存在。
+- 学期回显：A/B `xnm = 2026-2027`；C `xnm = 2025-2026`；三个样本 `xqm` 都是单个非 ASCII 字符（掩码 `[nonASCII:1]`）。
+- 学期记录文件只覆盖 2026-2027（`xnm:"2026-2027"`、`xqm:"[nonASCII:1]"`）；C 的请求 option 未记录。
+
+### 2.2 `kbList` 行键（三个样本均为 19 键）
+
+A/B（16 行，两者一致）：`completeAnswer`(boolean,1) `djj`(string,6) `dsz`(1) `jgpxzd`(1) `jszgh`(9) `kcb`(10) `listnav`(1) `localeKey`(1) `pageable`(boolean,1) `queryModel`(object,1) `rangeable`(boolean,1) `rsdzjs`(number,1) `sfqd`(1) `skcd`(3) `totalResult`(1) `userModel`(object,1) `xkkh`(9) `xqj`(5) `xxq`(2)。
+
+C（19 行）：同键集合；`dsz` 2 值、`jszgh` 12、`kcb` 16、`xkkh` 12、`xqj` 6，其余 distinct 与 A/B 相同（样板字段仍为 1 值）。
+
+- 全部行键 100% 非空、无 `null`；`kcb` 全部为 11 字符以上（A/B 与 C 各为 2 行 11–50，其余 >50）；`xkkh` 全部为 11–50 字符。
+- 样板字段：`completeAnswer`(boolean)、`pageable`、`rangeable`；固定值字符串 `listnav`、`localeKey`、`totalResult`、`jgpxzd`、`sfqd`；`rsdzjs`(number)；`queryModel`、`userModel` 为对象（内容未展开、未输出）。
+- 含 `<br>` 的只有 `kcb`。
+
+### 2.3 `kcb` 结构
+
+A/B：16 行、原始 `<br>` 段数 4–4；`zwf` 出现于 16/16 行、行尾 16/16；`substringBefore("zwf")` 不丢段（0/16），截断后 4–4 段。
+
+C：19 行、原始段数 4–4；`zwf` 出现于 19/19 行、行尾 9/19；截断不丢段（0/19），截断后 4–4 段。
+
+段位分类（原始、截断前；「教师样」为 6 字内纯中文、「周次样」含周或数字范围）：
+
+| 段位 | A/B：行数 / 教师样 / 周次样 / 其他 | C：行数 / 教师样 / 周次样 / 其他 |
+| --- | --- | --- |
+| 0 | 16 / 12 / 0 / 4 | 19 / 5 / 0 / 14 |
+| 1 | 16 / 0 / 16 / 0 | 19 / 0 / 19 / 0 |
+| 2 | 16 / 16 / 0 / 0 | 19 / 17 / 0 / 2 |
+| 3 | 16 / 0 / 0 / 16（全部行为行尾 `zwf`） | 19 / 0 / 0 / 9 行尾 `zwf` + 10 其他 |
+
+结论：段 1 稳定为周次文本、段 2 基本为教师短文本（C 有 2 行不符）、段 3 总是包含 `zwf`；解析器取首个 `zwf` 前的内容作为地点（用户已确认，见 `docs/9.0-stage6-zju-selection-key-groups.md` §5），`zwf` 不一定在行尾；段 0 的分类启发式不可靠（长标题会落入「其他」）。
+
+### 2.4 A vs B（同学期二次导入）
+
+- 全部 19 键 `same=16 / diff=0 / missing=0`，`multiset=yes`，`both` 等于各自 distinct 数，`onlyA=onlyB=0`。
+- 两个响应体字节级一致（本地 SHA-256 比对相同）；用户确认 B 取自页面内重新查询后出现的新请求。
+- 结论：同一未改动请求的内容是确定性的，`xkkh` 等在未改变状态下相同；只覆盖重复查询，不覆盖课程增删改后的重导入，**不能视为身份稳定性已验证**。
+
+### 2.5 A vs C（跨学期）
+
+- 逐行对齐的 `same/diff` 因两样本行数与顺序不同而无跨学期含义，只看多重集合与共享值。
+- 零共享值（`both=0`）：`kcb`（A/B 10 值 / C 16 值）、`xkkh`（9/12）、`jszgh`（9/12）、`xxq`（2/2）。
+- 共享枚举：`djj` 6 值全共享、`skcd` 3 值全共享、`xqj` 5/6 值（C 多 1 个）、`dsz` A/B 的唯一值在 C 中仍出现。
+- `kcb` 的不同值数始终大于 `xkkh` 的不同值数（10>9、16>12）：与「同一教学班多课次、不同周次/地点会产生不同 `kcb`」的假设一致，属待证伪观察。
+
+### 2.6 采样过程说明
+
+- 15:12 首次保存的 `-2` 文件实际是同学期同响应的再次保存（文件头带 3 行学期备注），已作废；15:22 用户替换为真实跨学期响应（`xnm=2025-2026`、19 行）。
+- 重复原因（用户确认）：**刷新页面会跳回原学期**；切换学期不会刷新页面，只会产生额外的查询请求。首次保存取到的是刷新后旧请求的响应，需保存切换学期后新出现的请求响应。
+- 15:25 的 `new.json` 为 2026-2027 的同学期二次导入样本（用户确认新请求）；其响应体与 A 字节级一致。
+- 原始响应文件、脚本、脱敏中间产物全部留在仓库外本机临时目录；本附录只含脚本输出。
+
+## 3. 待补证据（交用户执行）
+
+1. **首页/请求 option**：`xnm`/`xqm` 下拉的全部 option（value+text+是否 selected），含 2025-2026 那次请求的记录。
+2. **值级本地核对**（用户执行、结果不需上传原文）：C 中 10 行 `zwf` 之后的内容性质（地点后缀/备注/其他）；数据中同名不同班、同班多课次的例子可否人工标注一例。
+3. **可选：课程修改后的重导入**：修改一条课程时间或地点后重新查询，验证「可变内容不改变稳定身份」；当前 A/B 只覆盖未改动课程的重复查询。
+
+## 4. 交给 Sol 第二次审定的问题
+
+以下问题已由 2026-09-27 第二次审定回答，结论与许可边界见 `docs/9.0-stage6-course-identity-review2.md`；原文保留便于对照。
+
+1. `xkkh` 作为教学班/课程聚合候选键还缺什么值级证据（同班多课次重复、同名异班不同值、改动课程后是否保持同值、跨学期是否延续）；`jszgh` 的辅助角色如何界定。当前 A/B 只证明「相同响应可复现」。
+2. 真实响应没有课程号/教学班号独立字段：字段契约是否收缩为「`xkkh` + `kcb` 结构 + 学期」，还是继续等待更多样本；`kcb` distinct > `xkkh` distinct 的现象如何写入契约（可变内容与稳定身份的分离）。
+3. `substringBefore("zwf")` 只在 A/B 全部、C 9/19 行恰收在行尾：解析器丢弃 `zwf` 后内容是否会丢失地点信息；是否应改为只裁掉 `zwf` 本身及固定后缀，并补充回归测试。
+4. `dsz` 1→2 值的语义；`xqm` 单字符回显与请求代码（`1|秋` 类）的关系需要 option 记录才能定论。
+5. 顶层个人信息字段（`xh`/`xm`/`xy`/`xzb`/`zy`）的忽略与不落库是否加入测试固定。
+
+## 5. sanitize.js 输出原文
+
+```text
+# Sanitized ZJU timetable structure (generated)
+
+- Tool: sanitize.js v1.0.0 (local read-only; no network; salt kept in memory only)
+- Generated (UTC): 2026-09-27T07:26:20.629Z
+- Inputs: A=raw-kb-260927.json, B=new.json, C=raw-kb-260927-2.json
+- Note: this document contains only key names, types, counts, buckets and booleans. No raw value, course name, place, teacher name, student ID, account or cookie data is present.
+
+## Sample A
+
+Top-level keys (15):
+- fKbList: array length=0
+- jxkList: array length=0
+- kbList: array length=16
+- kbcdList: array length=3
+- sjkList: array length=0
+- xh: string
+- xkkg: boolean
+- xm: string
+- xnm: string
+- xqm: string
+- xskList: array length=0
+- xy: string
+- xzb: string
+- ywkList: array length=0
+- zy: string
+captcha_error present: no
+response xnm = 2026-2027 (non-ASCII masked)
+response xqm = [nonASCII:1] (non-ASCII masked)
+
+kbList rows: 16; non-object rows: 0
+
+### Key overview
+
+| key | present/rows | types | null | empty | len0 | 1-10 | 11-50 | >50 | br | digits | pipe | comma | distinct |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| completeAnswer | 16/16 | boolean=16 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 1 |
+| djj | 16/16 | string=16 | 0 | 0 | 0 | 16 | 0 | 0 | 0 | 16 | 0 | 0 | 6 |
+| dsz | 16/16 | string=16 | 0 | 0 | 0 | 16 | 0 | 0 | 0 | 16 | 0 | 0 | 1 |
+| jgpxzd | 16/16 | string=16 | 0 | 0 | 0 | 16 | 0 | 0 | 0 | 16 | 0 | 0 | 1 |
+| jszgh | 16/16 | string=16 | 0 | 0 | 0 | 16 | 0 | 0 | 0 | 16 | 0 | 0 | 9 |
+| kcb | 16/16 | string=16 | 0 | 0 | 0 | 0 | 2 | 14 | 16 | 0 | 16 | 0 | 10 |
+| listnav | 16/16 | string=16 | 0 | 0 | 0 | 16 | 0 | 0 | 0 | 0 | 0 | 0 | 1 |
+| localeKey | 16/16 | string=16 | 0 | 0 | 0 | 16 | 0 | 0 | 0 | 0 | 0 | 0 | 1 |
+| pageable | 16/16 | boolean=16 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 1 |
+| queryModel | 16/16 | object=16 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 1 |
+| rangeable | 16/16 | boolean=16 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 1 |
+| rsdzjs | 16/16 | number=16 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 1 |
+| sfqd | 16/16 | string=16 | 0 | 0 | 0 | 16 | 0 | 0 | 0 | 16 | 0 | 0 | 1 |
+| skcd | 16/16 | string=16 | 0 | 0 | 0 | 16 | 0 | 0 | 0 | 16 | 0 | 0 | 3 |
+| totalResult | 16/16 | string=16 | 0 | 0 | 0 | 16 | 0 | 0 | 0 | 16 | 0 | 0 | 1 |
+| userModel | 16/16 | object=16 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 1 |
+| xkkh | 16/16 | string=16 | 0 | 0 | 0 | 0 | 16 | 0 | 0 | 0 | 0 | 0 | 9 |
+| xqj | 16/16 | string=16 | 0 | 0 | 0 | 16 | 0 | 0 | 0 | 16 | 0 | 0 | 5 |
+| xxq | 16/16 | string=16 | 0 | 0 | 0 | 16 | 0 | 0 | 0 | 0 | 0 | 0 | 2 |
+
+### kcb structure
+
+kcb rows: 16; raw <br> segment count range: 4-4
+zwf present anywhere: 16/16; raw kcb ends with zwf (case-insensitive): 16/16; substringBefore(zwf) removes one or more non-empty segments: 0/16; segments after truncation range: 4-4
+| segment index (raw, before zwf truncation) | rows | empty | endsZwf | digitsOnly | teacherLike | weekLike | other |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 0 | 16 | 0 | 0 | 0 | 12 | 0 | 4 |
+| 1 | 16 | 0 | 0 | 0 | 0 | 16 | 0 |
+| 2 | 16 | 0 | 0 | 0 | 16 | 0 | 0 |
+| 3 | 16 | 0 | 16 | 0 | 0 | 0 | 0 |
+
+## Sample B
+
+Top-level keys (15):
+- fKbList: array length=0
+- jxkList: array length=0
+- kbList: array length=16
+- kbcdList: array length=3
+- sjkList: array length=0
+- xh: string
+- xkkg: boolean
+- xm: string
+- xnm: string
+- xqm: string
+- xskList: array length=0
+- xy: string
+- xzb: string
+- ywkList: array length=0
+- zy: string
+captcha_error present: no
+response xnm = 2026-2027 (non-ASCII masked)
+response xqm = [nonASCII:1] (non-ASCII masked)
+
+kbList rows: 16; non-object rows: 0
+
+### Key overview
+
+| key | present/rows | types | null | empty | len0 | 1-10 | 11-50 | >50 | br | digits | pipe | comma | distinct |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| completeAnswer | 16/16 | boolean=16 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 1 |
+| djj | 16/16 | string=16 | 0 | 0 | 0 | 16 | 0 | 0 | 0 | 16 | 0 | 0 | 6 |
+| dsz | 16/16 | string=16 | 0 | 0 | 0 | 16 | 0 | 0 | 0 | 16 | 0 | 0 | 1 |
+| jgpxzd | 16/16 | string=16 | 0 | 0 | 0 | 16 | 0 | 0 | 0 | 16 | 0 | 0 | 1 |
+| jszgh | 16/16 | string=16 | 0 | 0 | 0 | 16 | 0 | 0 | 0 | 16 | 0 | 0 | 9 |
+| kcb | 16/16 | string=16 | 0 | 0 | 0 | 0 | 2 | 14 | 16 | 0 | 16 | 0 | 10 |
+| listnav | 16/16 | string=16 | 0 | 0 | 0 | 16 | 0 | 0 | 0 | 0 | 0 | 0 | 1 |
+| localeKey | 16/16 | string=16 | 0 | 0 | 0 | 16 | 0 | 0 | 0 | 0 | 0 | 0 | 1 |
+| pageable | 16/16 | boolean=16 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 1 |
+| queryModel | 16/16 | object=16 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 1 |
+| rangeable | 16/16 | boolean=16 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 1 |
+| rsdzjs | 16/16 | number=16 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 1 |
+| sfqd | 16/16 | string=16 | 0 | 0 | 0 | 16 | 0 | 0 | 0 | 16 | 0 | 0 | 1 |
+| skcd | 16/16 | string=16 | 0 | 0 | 0 | 16 | 0 | 0 | 0 | 16 | 0 | 0 | 3 |
+| totalResult | 16/16 | string=16 | 0 | 0 | 0 | 16 | 0 | 0 | 0 | 16 | 0 | 0 | 1 |
+| userModel | 16/16 | object=16 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 1 |
+| xkkh | 16/16 | string=16 | 0 | 0 | 0 | 0 | 16 | 0 | 0 | 0 | 0 | 0 | 9 |
+| xqj | 16/16 | string=16 | 0 | 0 | 0 | 16 | 0 | 0 | 0 | 16 | 0 | 0 | 5 |
+| xxq | 16/16 | string=16 | 0 | 0 | 0 | 16 | 0 | 0 | 0 | 0 | 0 | 0 | 2 |
+
+### kcb structure
+
+kcb rows: 16; raw <br> segment count range: 4-4
+zwf present anywhere: 16/16; raw kcb ends with zwf (case-insensitive): 16/16; substringBefore(zwf) removes one or more non-empty segments: 0/16; segments after truncation range: 4-4
+| segment index (raw, before zwf truncation) | rows | empty | endsZwf | digitsOnly | teacherLike | weekLike | other |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 0 | 16 | 0 | 0 | 0 | 12 | 0 | 4 |
+| 1 | 16 | 0 | 0 | 0 | 0 | 16 | 0 |
+| 2 | 16 | 0 | 0 | 0 | 16 | 0 | 0 |
+| 3 | 16 | 0 | 16 | 0 | 0 | 0 | 0 |
+
+## Sample C
+
+Top-level keys (15):
+- fKbList: array length=0
+- jxkList: array length=0
+- kbList: array length=19
+- kbcdList: array length=3
+- sjkList: array length=0
+- xh: string
+- xkkg: boolean
+- xm: string
+- xnm: string
+- xqm: string
+- xskList: array length=0
+- xy: string
+- xzb: string
+- ywkList: array length=0
+- zy: string
+captcha_error present: no
+response xnm = 2025-2026 (non-ASCII masked)
+response xqm = [nonASCII:1] (non-ASCII masked)
+
+kbList rows: 19; non-object rows: 0
+
+### Key overview
+
+| key | present/rows | types | null | empty | len0 | 1-10 | 11-50 | >50 | br | digits | pipe | comma | distinct |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| completeAnswer | 19/19 | boolean=19 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 1 |
+| djj | 19/19 | string=19 | 0 | 0 | 0 | 19 | 0 | 0 | 0 | 19 | 0 | 0 | 6 |
+| dsz | 19/19 | string=19 | 0 | 0 | 0 | 19 | 0 | 0 | 0 | 19 | 0 | 0 | 2 |
+| jgpxzd | 19/19 | string=19 | 0 | 0 | 0 | 19 | 0 | 0 | 0 | 19 | 0 | 0 | 1 |
+| jszgh | 19/19 | string=19 | 0 | 0 | 0 | 19 | 0 | 0 | 0 | 19 | 0 | 0 | 12 |
+| kcb | 19/19 | string=19 | 0 | 0 | 0 | 0 | 2 | 17 | 19 | 0 | 19 | 0 | 16 |
+| listnav | 19/19 | string=19 | 0 | 0 | 0 | 19 | 0 | 0 | 0 | 0 | 0 | 0 | 1 |
+| localeKey | 19/19 | string=19 | 0 | 0 | 0 | 19 | 0 | 0 | 0 | 0 | 0 | 0 | 1 |
+| pageable | 19/19 | boolean=19 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 1 |
+| queryModel | 19/19 | object=19 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 1 |
+| rangeable | 19/19 | boolean=19 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 1 |
+| rsdzjs | 19/19 | number=19 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 1 |
+| sfqd | 19/19 | string=19 | 0 | 0 | 0 | 19 | 0 | 0 | 0 | 19 | 0 | 0 | 1 |
+| skcd | 19/19 | string=19 | 0 | 0 | 0 | 19 | 0 | 0 | 0 | 19 | 0 | 0 | 3 |
+| totalResult | 19/19 | string=19 | 0 | 0 | 0 | 19 | 0 | 0 | 0 | 19 | 0 | 0 | 1 |
+| userModel | 19/19 | object=19 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 1 |
+| xkkh | 19/19 | string=19 | 0 | 0 | 0 | 0 | 19 | 0 | 0 | 0 | 0 | 0 | 12 |
+| xqj | 19/19 | string=19 | 0 | 0 | 0 | 19 | 0 | 0 | 0 | 19 | 0 | 0 | 6 |
+| xxq | 19/19 | string=19 | 0 | 0 | 0 | 19 | 0 | 0 | 0 | 0 | 0 | 0 | 2 |
+
+### kcb structure
+
+kcb rows: 19; raw <br> segment count range: 4-4
+zwf present anywhere: 19/19; raw kcb ends with zwf (case-insensitive): 9/19; substringBefore(zwf) removes one or more non-empty segments: 0/19; segments after truncation range: 4-4
+| segment index (raw, before zwf truncation) | rows | empty | endsZwf | digitsOnly | teacherLike | weekLike | other |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 0 | 19 | 0 | 0 | 0 | 5 | 0 | 14 |
+| 1 | 19 | 0 | 0 | 0 | 0 | 19 | 0 |
+| 2 | 19 | 0 | 0 | 0 | 17 | 0 | 2 |
+| 3 | 19 | 0 | 9 | 0 | 0 | 0 | 10 |
+
+## Comparison A vs B (expected same semester)
+
+Aligned by row index (max 16 rows). Counts only; no value is printed.
+| key | same | diff | missing | multiset | distinctA | distinctB | both | onlyA | onlyB | uniquePerRow |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| completeAnswer | 16 | 0 | 0 | yes | 1 | 1 | 1 | 0 | 0 | A=no B=no |
+| djj | 16 | 0 | 0 | yes | 6 | 6 | 6 | 0 | 0 | A=no B=no |
+| dsz | 16 | 0 | 0 | yes | 1 | 1 | 1 | 0 | 0 | A=no B=no |
+| jgpxzd | 16 | 0 | 0 | yes | 1 | 1 | 1 | 0 | 0 | A=no B=no |
+| jszgh | 16 | 0 | 0 | yes | 9 | 9 | 9 | 0 | 0 | A=no B=no |
+| kcb | 16 | 0 | 0 | yes | 10 | 10 | 10 | 0 | 0 | A=no B=no |
+| listnav | 16 | 0 | 0 | yes | 1 | 1 | 1 | 0 | 0 | A=no B=no |
+| localeKey | 16 | 0 | 0 | yes | 1 | 1 | 1 | 0 | 0 | A=no B=no |
+| pageable | 16 | 0 | 0 | yes | 1 | 1 | 1 | 0 | 0 | A=no B=no |
+| queryModel | 16 | 0 | 0 | yes | 1 | 1 | 1 | 0 | 0 | A=no B=no |
+| rangeable | 16 | 0 | 0 | yes | 1 | 1 | 1 | 0 | 0 | A=no B=no |
+| rsdzjs | 16 | 0 | 0 | yes | 1 | 1 | 1 | 0 | 0 | A=no B=no |
+| sfqd | 16 | 0 | 0 | yes | 1 | 1 | 1 | 0 | 0 | A=no B=no |
+| skcd | 16 | 0 | 0 | yes | 3 | 3 | 3 | 0 | 0 | A=no B=no |
+| totalResult | 16 | 0 | 0 | yes | 1 | 1 | 1 | 0 | 0 | A=no B=no |
+| userModel | 16 | 0 | 0 | yes | 1 | 1 | 1 | 0 | 0 | A=no B=no |
+| xkkh | 16 | 0 | 0 | yes | 9 | 9 | 9 | 0 | 0 | A=no B=no |
+| xqj | 16 | 0 | 0 | yes | 5 | 5 | 5 | 0 | 0 | A=no B=no |
+| xxq | 16 | 0 | 0 | yes | 2 | 2 | 2 | 0 | 0 | A=no B=no |
+
+## Comparison A vs C (expected different semester; values need not match)
+
+Aligned by row index (max 19 rows). Counts only; no value is printed.
+| key | same | diff | missing | multiset | distinctA | distinctB | both | onlyA | onlyB | uniquePerRow |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| completeAnswer | 16 | 0 | 3 | yes | 1 | 1 | 1 | 0 | 0 | A=no B=no |
+| djj | 4 | 12 | 3 | yes | 6 | 6 | 6 | 0 | 0 | A=no B=no |
+| dsz | 16 | 0 | 3 | no | 1 | 2 | 1 | 0 | 1 | A=no B=no |
+| jgpxzd | 16 | 0 | 3 | yes | 1 | 1 | 1 | 0 | 0 | A=no B=no |
+| jszgh | 0 | 16 | 3 | no | 9 | 12 | 0 | 9 | 12 | A=no B=no |
+| kcb | 0 | 16 | 3 | no | 10 | 16 | 0 | 10 | 16 | A=no B=no |
+| listnav | 16 | 0 | 3 | yes | 1 | 1 | 1 | 0 | 0 | A=no B=no |
+| localeKey | 16 | 0 | 3 | yes | 1 | 1 | 1 | 0 | 0 | A=no B=no |
+| pageable | 16 | 0 | 3 | yes | 1 | 1 | 1 | 0 | 0 | A=no B=no |
+| queryModel | 16 | 0 | 3 | yes | 1 | 1 | 1 | 0 | 0 | A=no B=no |
+| rangeable | 16 | 0 | 3 | yes | 1 | 1 | 1 | 0 | 0 | A=no B=no |
+| rsdzjs | 16 | 0 | 3 | yes | 1 | 1 | 1 | 0 | 0 | A=no B=no |
+| sfqd | 16 | 0 | 3 | yes | 1 | 1 | 1 | 0 | 0 | A=no B=no |
+| skcd | 5 | 11 | 3 | yes | 3 | 3 | 3 | 0 | 0 | A=no B=no |
+| totalResult | 16 | 0 | 3 | yes | 1 | 1 | 1 | 0 | 0 | A=no B=no |
+| userModel | 16 | 0 | 3 | yes | 1 | 1 | 1 | 0 | 0 | A=no B=no |
+| xkkh | 0 | 16 | 3 | no | 9 | 12 | 0 | 9 | 12 | A=no B=no |
+| xqj | 8 | 8 | 3 | no | 5 | 6 | 5 | 0 | 1 | A=no B=no |
+| xxq | 0 | 16 | 3 | no | 2 | 2 | 0 | 2 | 2 | A=no B=no |
+
+## Semester request record
+
+Semester record: 4 non-empty lines; only lines mentioning xnm/xqm/xqmmc/option/selected are echoed; all other lines are omitted; non-ASCII runs are masked.
+- xnm:"2026-2027"
+- xqm:"[nonASCII:1]"
+- xqmmc [nonASCII:6] xnm/xqm [nonASCII:5] option[nonASCII:1]value+text[nonASCII:3] selected[nonASCII:8]
+Kept lines: 3; omitted lines (unrecognized, may contain personal text): 1.
+```
+
+## 6. 本次已执行与未执行
+
+- 已执行：脚本加载最外层 `{...}` 回退（首次重复文件）、学期记录白名单回显与非 ASCII 掩码、`zwf`/截断布尔统计；三次脱敏运行（两样本、替换跨学期后、加入 `new.json` 后）；A vs B 字节级一致性核对（本地 SHA-256）与用户对新请求的确认；输出自扫描 PASS。用户姓名行等 1 行非结构内容被丢弃。
+- 未执行：首页 option 记录；`xkkh`/`zwf`/`dsz` 值级核对；课程修改后的重导入样本；真机；CI；任何身份实现。
+- 合规：原始响应、账号、Cookie、个人信息均未进入仓库；本文件不含任何课程名、地点、教师姓名、学号或原始 ID 值。

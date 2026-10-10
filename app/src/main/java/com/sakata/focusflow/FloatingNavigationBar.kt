@@ -72,6 +72,21 @@ internal fun navigationIndicatorColor(background: Color, primary: Color): Color 
     if (contrastRatio(background, primary) >= 1.5) primary.copy(alpha = 1f) else navigationContentColor(background)
 
 /**
+ * 副页标题可以很长，但底部导航的标签是固定宽度的触控提示。
+ * 页面标题仍使用完整名称；这里只把高频副页收敛成短别名，避免导航项被挤成两行。
+ */
+private fun navigationShortLabel(destinationKey: String): String = when (destinationKey) {
+    "日程与活动提醒" -> "提醒"
+    "提醒打扰控制" -> "免打扰"
+    "教程联网搜索" -> "教程"
+    "使用说明书" -> "说明"
+    "版本路线图" -> "路线"
+    "通勤与地点" -> "通勤"
+    "校园地点" -> "地点"
+    else -> destinationKey
+}
+
+/**
  * 8.1.0 底栏形变形状：平时为完整胶囊（四角半径=高度一半）；
  * 每个上角独立按 progress 动画收缩为小圆角（18dp），对应各自图标的出现/消失。
  * 下两角始终为大圆角；左右竖直、上下平直。
@@ -186,8 +201,9 @@ internal fun FloatingNavigationBar(
         contentAlignment = Alignment.Center
     ) {
         val margin = FloatingNavigationLayout.horizontalMarginDp(maxWidth.value, LocalDensity.current.fontScale).dp
+        val arrowOffset = FloatingNavigationLayout.historyArrowOffsetDp(maxWidth.value, LocalDensity.current.fontScale).dp
         Box(
-            Modifier.padding(horizontal = margin, vertical = 8.dp)
+            Modifier.padding(horizontal = margin, vertical = margin)
                 .widthIn(max = FloatingNavigationLayout.MAX_BAR_WIDTH_DP.dp)
                 .fillMaxWidth()
         ) {
@@ -389,9 +405,7 @@ internal fun FloatingNavigationBar(
                 onLongPress = onLongPressBack,
                 description = "回退到上一个页面；长按查看历史",
                 tint = navigationContentColor(background),
-                // 维护者口径：继续向角落收（横向 0dp→-2dp、纵向 4dp→0dp）。
-                // -2dp 只会吃掉圆点自身的 5dp 内边距，图标仍在胶囊内部。
-                modifier = Modifier.align(Alignment.TopStart).offset(x = (-2).dp, y = 0.dp)
+                modifier = Modifier.align(Alignment.TopStart).offset(x = -arrowOffset, y = 0.dp)
             )
             CornerSymbol(
                 visible = canGoForward,
@@ -401,11 +415,15 @@ internal fun FloatingNavigationBar(
                 onLongPress = null,
                 description = "折返到后一个页面",
                 tint = navigationContentColor(background),
-                modifier = Modifier.align(Alignment.TopEnd).offset(x = 2.dp, y = 0.dp)
+                modifier = Modifier.align(Alignment.TopEnd).offset(x = arrowOffset, y = 0.dp)
             )
         }
     }
 }
+
+/** 箭头隐藏时保留到形变动画归零，避免图标瞬隐而顶角仍在收缩。 */
+internal fun cornerSymbolShouldRemain(visible: Boolean, progress: Float): Boolean =
+    visible || progress > 0.01f
 
 /** 8.1.0 顶角符号：实心箭头图标（无圆圈底），与形状同一进度淡入；圆形波纹裁剪避免方形阴影。 */
 @OptIn(ExperimentalFoundationApi::class)
@@ -420,7 +438,7 @@ private fun CornerSymbol(
     tint: Color,
     modifier: Modifier = Modifier
 ) {
-    if (!visible) return
+    if (!cornerSymbolShouldRemain(visible, progress)) return
     val clickModifier = if (onLongPress != null) {
         Modifier.combinedClickable(onClick = onClick, onLongClick = onLongPress)
     } else {
@@ -491,6 +509,9 @@ private fun FloatingNavigationItem(
 ) {
     // 选中态只驱动图标颜色/缩放；底色块由底栏统一绘制并平移（见 FloatingNavigationBar）。
     val progress by animateFloatAsState(if (selected) 1f else 0f, MotionSpec.move(), label = "navigationSelection")
+    // The indicator glides with the page, while the icon settles a little faster so
+    // a tap receives an immediate visual response without making the bar feel jumpy.
+    val iconProgress by animateFloatAsState(if (selected) 1f else 0f, MotionSpec.quick(), label = "navigationIconSelection")
     val fill = lerp(background, indicator, progress)
     // 8.1.0 副页（空心圆环态）时图标改用与底栏对比的深色；实心态按圆底色取对比色。
     val foreground = if (selected && hasSubpage) navigationContentColor(background) else navigationContentColor(fill)
@@ -514,12 +535,12 @@ private fun FloatingNavigationItem(
         ) {
             Icon(icon, contentDescription = null, tint = animatedForeground,
                 modifier = Modifier.size(24.dp).graphicsLayer {
-                    scaleX = 0.96f + 0.04f * progress
+                    scaleX = 0.95f + 0.05f * iconProgress
                     scaleY = scaleX
                 })
         }
         // 8.1.0 副页表示：选中且处于子页时，标签替换为子页名（如「设置」→「外观」）。
-        val displayLabel = if (selected && hasSubpage) destinationKey else label
+        val displayLabel = if (selected && hasSubpage) navigationShortLabel(destinationKey) else label
         // 8.1.0 第三轮：页签名与子页名之间交叉淡入，替代原来的瞬时替换。
         Crossfade(targetState = displayLabel, animationSpec = MotionSpec.move(), label = "navigationLabel") { text ->
             Text(
@@ -528,7 +549,7 @@ private fun FloatingNavigationItem(
                 fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
                 style = MaterialTheme.typography.labelMedium,
                 textAlign = TextAlign.Center,
-                maxLines = 1,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
         }

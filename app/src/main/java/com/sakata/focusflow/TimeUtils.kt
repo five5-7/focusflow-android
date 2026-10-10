@@ -72,7 +72,7 @@ internal fun minuteOfDay(time: Long): Int = Calendar.getInstance().apply {
 
 internal fun isInCurrentWeek(time: Long): Boolean {
     val weekStart = GoalPlanner.currentWeekKey()
-    val weekEnd = weekStart + 7 * 24 * 60 * 60_000L
+    val weekEnd = Calendar.getInstance().apply { timeInMillis = weekStart; add(Calendar.DAY_OF_YEAR, 7) }.timeInMillis
     return time >= weekStart && time < weekEnd
 }
 
@@ -94,11 +94,11 @@ private fun calendarWeekday(calendar: Calendar): Int =
 
 /** 某时刻所在自然日的 [start, end) 毫秒范围。 */
 internal fun dayRange(millis: Long): LongRange {
-    val start = java.util.Calendar.getInstance().apply {
-        timeInMillis = millis
-        set(java.util.Calendar.HOUR_OF_DAY, 0); set(java.util.Calendar.MINUTE, 0); set(java.util.Calendar.SECOND, 0); set(java.util.Calendar.MILLISECOND, 0)
-    }.timeInMillis
-    return start until (start + 24 * 60 * 60 * 1000L)
+    val zone = java.time.ZoneId.systemDefault()
+    val date = java.time.Instant.ofEpochMilli(millis).atZone(zone).toLocalDate()
+    val start = date.atStartOfDay(zone).toInstant().toEpochMilli()
+    val end = date.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
+    return start until end
 }
 
 internal fun weekdayOf(millis: Long): Int {

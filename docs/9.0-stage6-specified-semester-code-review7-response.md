@@ -1,0 +1,63 @@
+# 对 Sol 第七次复审（增量）的修正回执
+
+日期：2026-09-28。输入：`9.0-stage6-specified-semester-code-review7.md`（Sol 判定：第六次的到期竞态**已闭合**；新阻断——`loggedOut=true` 时正文仍能推翻登出结论）。
+本回执说明该阻断的修法、可证伪反例与证据。**复核结论以 Sol 再审为准。**
+
+## 一、Sol 的阻断：已知登出被正文覆盖 → 已修
+
+**问题（Sol 原文要点）**：`loggedOut` 是传输层根据最终跳转域名得出的**已知登出**信号；解析器却把它排在空正文/大小/JSON 分支之后，且要求 `looksLikeHtml`——因此 `loggedOut=true` + 能解析出 `kbList` 的 JSON 会返回 `Success`；空正文只报"没有返回课表数据"，不是明确的重新认证提示。
+
+**修法（最小改动）**：把 `loggedOut` 提升为 `parse()` 的**第一判据**——在空正文、大小、HTML 特征、JSON 解析之前，只要 `loggedOut=true` 就直接 `Failure("教务登录已失效，请重新完成统一身份认证。", SESSION_LOST)`。传输层已经证明最终地址不是课表页，正文格式不得推翻该结论。
+
+**保留**：未登出且无登录特征的 502 HTML 仍归 `MALFORMED`（可原地重试）——上一个用例继续守着这条边界。
+
+**按 Sol 要求新增的可证伪反例**：
+
+| 用例 | 构造 | 断言 |
+| --- | --- | --- |
+| `a logged-out response with a valid timetable body is still a session loss` | `loggedOut=true` + **含可解析 `kbList` 的 JSON**（该样本只有 `kbList`，不带 `xnm`/`xqm` 回显） | 必须 `Failure`、文案为登录失效、`sessionInvalid=true`、原句柄不可复用、课表 POST 仍为 1 |
+| `a logged-out response with an empty body reports a session loss` | `loggedOut=true` + **空正文** | 必须是"教务登录已失效…"而非"没有返回课表数据…"、`sessionInvalid=true` |
+
+（现有登出用例只传 HTML，确实抓不到这个问题——Sol 的判断成立。）
+
+## 二、同一轮顺手修掉的本地复验项（D1–D6）
+
+第三轮定向复验点名 D1–D7。**第四轮复验复核后指出：其中三条我当时的说法不成立**，现已按它的结论改掉做法或表述，逐条如实登记如下。
+
+- **D1（错误提示）** ✅ 正确：成功尝试遇到 `pending.isVoid()` 时按 `pending.canceled` 区分文案——用户主动取消报"导入已取消。"，到期才报"本次登录已过期…"。**并且补上了此前零覆盖的 cancelled 分支用例**（`a cancel that lands after the response is reported as canceled, not expired`）。
+- **D2（用户可见）** ✅ 追加已改为条件判断：文案自身含"重新登录/重新完成统一身份认证"时不再拼接，消除 EXPIRED 路径的重复句。**更正一处失实表述**：验证码文案（`CAPTCHA_REQUIRED`，Parser 中不含这两个短语）仍会被追加后缀，原文"消除验证码路径的自相矛盾"不成立——实际效果只是"不重复追加"，不是"消除矛盾"。**并补上 `applyFetchFailure` 的 ViewModel 层用例**（此前零引用）：验证失效清选项、后缀只追加一次、可重试失败保留选项。
+- **D3（锁范围）** ⚠️ 我上一版**只改了注释、没改代码**（`transport.cancel()` 仍在 `synchronized(restoreLock)` 内），第四轮复验据此判"注释与代码相反"。**现已真正修掉**：确认路径改为 `prepareConfirm(...)` 返回密封结果（`Ready`/`Expired`/`Rejected`），锁内只做"摘表 + 置标志 + 登记在途"，**不投递回调、不 disconnect**；早退时把传输带出来，在锁外 `dispatch` 与 `cancel()`。这也顺带消掉了锁内 return 与锁内回调。
+- **D4（兜底 catch）** ⚠️ 理由不成立（第四轮复验结论）：`finalizeAttempt` 的 `restorable && !isVoid()` 本就**不可能**复活已作废句柄，改前也复活不了。该改动方向无害（更保守），**但不是"修复回填"**，如实更正。
+- **D5（不变式）** ✅ 正确：`beginSessionBlocking` 调 `cancelTransportLocked` 补显式加锁，断开在锁外。
+- **D6（A1 对称性）** ⚠️ 我上一版**构造性无效**（第四轮复验结论）：从 `EXTRA_TERM_CODE` 反推显示文字，对全部输入恒等于解析器原有回退，`expectedDisplay` 逐字节不变 ⇒ 既不会新增误判，也**没修任何东西**。**现已真正同源**：导入页把自己送出的 `outcome.semester`（即 `termDisplayOf(term)`）通过 `EXTRA_SEMESTER` 交给 MainActivity，复解析直接用它，不再从 code 反推。
+- 覆盖缺口：新增 `logged-out host detection only fires on the identity provider or domain root` 钉住 `isLoggedOutRedirect`（此前只有静态依据）；删除无人调用的测试助手 `confirmWithIgnoredCancel`。
+
+## 三、仍未闭合（如实登记）
+
+- **`!stillValid` 的 canceled 侧仍无用例**（第五轮复验指出的覆盖缺口，已更正原来"已补覆盖"的说法）：该分支只在"响应已到达、解析期间条目被作废"时可达，而 `parse` 内的阶段没有注入点，无法确定性构造。新增的取消用例摆的是"POST 在途时取消"，走的是 POST 返回后的取消复查（该分支也真实存在且此前无覆盖）。**同一位置的到期侧**由 Sol 指定的两个用例覆盖。
+- **锁内定序缺一个独立可证伪用例**：变异分析显示，只改坏 `finalizeAttempt` 的 `isVoid` 复查（或只改坏 POST 后的复查）时现有用例仍绿，**两处同时改坏才红**。
+- **`HttpSession` 重定向链 → `loggedOut` 的接线无用例**：只有纯函数被直测。
+- **`MainActivity` 复解析路径零测试**：其成立性依赖"同一个 Intent 携带 payload 与 `EXTRA_SEMESTER`"这一静态等式（复验已逐条核对为真）。
+- **D4 按复验结论保留现状**（更保守），但不再声称它修了回填。
+- 真机与 CI 未执行；不把双变体单测当真机验收。
+- `EMPTY_PAYLOAD` 的可重试性 true→false 是**上一轮**的状态，不是 review7 轮改动——更正一处归属错误。
+- 到期后"等待选择"的界面仍显示旧选项，直到用户下一次点击才清掉（Sol 已认作可暂留的体验项）。
+
+## 四、证据（本地）
+
+- `:app:testDebugUnitTest` 与 `:app:testReleaseUnitTest` → **各 150 类 951 项，0 失败/错误/跳过**（`--rerun-tasks` 真跑）
+- 精确计数：`ZjuTimetableSessionTest` **40 项**、`ZjuTimetableImportActivityTest` **4 项**（更正此前误写的 41 项）
+- `git diff --check` clean
+- 本轮真实增量：客户端锁范围重构 + MainActivity 同源改写 + 两个新用例（4 文件，见 `commit6.diff`）
+- 未做：真机与 CI 验收（不把双变体单测当真机验收）
+
+## 五、复核链（可追溯）
+
+| 轮次 | 谁 | 结论 |
+| --- | --- | --- |
+| Sol review5 | 外部 | 3 阻断 + 1 待核实 → 已修 |
+| Sol review6 | 外部 | 4 条主路径已修；1 阻断（到期与在途并发）→ 已修 |
+| 定向复验 1–2 | 本地独立席 | 抓出"到期条目被回填"等确证缺陷 → 已修 |
+| Sol review7 | 外部 | 上一阻断**已闭合**；新阻断（known logout 被正文覆盖）→ 已修 |
+| 定向复验 3 | 本地独立席 | 确认 review7 阻断闭合；点名 D1–D6 → 本轮处理 |
+| 定向复验 4 | 本地独立席 | 再次确认 review7 阻断闭合；指出 D3 未真修、D4/D6 无效、D1/D2 零覆盖 → **本轮全部处理**（见 §二、§三） |

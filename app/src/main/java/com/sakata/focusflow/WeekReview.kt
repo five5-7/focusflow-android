@@ -4,7 +4,6 @@ import java.util.Calendar
 
 /** 每周目标回顾：本周进度 + 近几周完成趋势（历史来自完成反馈记录）。 */
 object WeekReview {
-    private const val WEEK_MILLIS = 7L * 24 * 60 * 60 * 1000
 
     /** 所在周（周一 00:00）的起始毫秒，与 GoalPlanner.currentWeekKey 同一定义。 */
     fun weekStartOf(millis: Long): Long {
@@ -22,15 +21,19 @@ object WeekReview {
      */
     fun history(goal: Goal, feedback: List<TaskFeedback>, weeks: Int = 4): List<Int> {
         val current = GoalPlanner.currentWeekKey()
-        val start = current - (weeks - 1) * WEEK_MILLIS
+        val keys = weekStarts(current, weeks)
+        val start = keys.firstOrNull() ?: return emptyList()
         val byWeek = feedback.filter { it.goalId == goal.id && it.createdAt >= start }
             .groupingBy { weekStartOf(it.createdAt) }.eachCount()
-        return (0 until weeks).map { offset ->
-            val key = current - offset * WEEK_MILLIS
+        return keys.map { key ->
             if (key == current) GoalPlanner.completedThisWeek(goal) + GoalPlanner.minimumCompletedThisWeek(goal)
             else byWeek[key] ?: 0
-        }.reversed()
+        }
     }
+
+    internal fun weekStarts(current: Long, weeks: Int): List<Long> = (0 until weeks).map { offset ->
+        Calendar.getInstance().apply { timeInMillis = current; add(Calendar.WEEK_OF_YEAR, -offset) }.timeInMillis
+    }.reversed()
 
     /** 周起点简写（如 "8/11"），用于趋势图例。 */
     fun weekLabel(weekStart: Long): String {

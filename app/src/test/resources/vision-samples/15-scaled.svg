@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="820" viewBox="0 0 960 820">
+<rect width="960" height="820" fill="white"/>
+<g transform="translate(80 65) scale(0.8)" font-family="sans-serif" font-size="17">
+<path d="M120 100V776" stroke="#444"/>
+<path d="M230 100V776" stroke="#444"/>
+<path d="M340 100V776" stroke="#444"/>
+<path d="M450 100V776" stroke="#444"/>
+<path d="M560 100V776" stroke="#444"/>
+<path d="M670 100V776" stroke="#444"/>
+<path d="M780 100V776" stroke="#444"/>
+<path d="M890 100V776" stroke="#444"/>
+<path d="M120 100H890" stroke="#444"/>
+<path d="M120 152H890" stroke="#444"/>
+<path d="M120 204H890" stroke="#444"/>
+<path d="M120 256H890" stroke="#444"/>
+<path d="M120 308H890" stroke="#444"/>
+<path d="M120 360H890" stroke="#444"/>
+<path d="M120 412H890" stroke="#444"/>
+<path d="M120 464H890" stroke="#444"/>
+<path d="M120 516H890" stroke="#444"/>
+<path d="M120 568H890" stroke="#444"/>
+<path d="M120 620H890" stroke="#444"/>
+<path d="M120 672H890" stroke="#444"/>
+<path d="M120 724H890" stroke="#444"/>
+<path d="M120 776H890" stroke="#444"/>
+<text x="150" y="75">周一</text>
+<text x="260" y="75">周二</text>
+<text x="370" y="75">周三</text>
+<text x="480" y="75">周四</text>
+<text x="590" y="75">周五</text>
+<text x="700" y="75">周六</text>
+<text x="810" y="75">周日</text>
+<text x="70" y="130">1</text>
+<text x="70" y="182">2</text>
+<text x="70" y="234">3</text>
+<text x="70" y="286">4</text>
+<text x="70" y="338">5</text>
+<text x="70" y="390">6</text>
+<text x="70" y="442">7</text>
+<text x="70" y="494">8</text>
+<text x="70" y="546">9</text>
+<text x="70" y="598">10</text>
+<text x="70" y="650">11</text>
+<text x="70" y="702">12</text>
+<text x="70" y="754">13</text>
+<rect x="122" y="102" width="106" height="100" rx="4" fill="#d7e9ff"/>
+<text x="126" y="130" font-size="13">数学</text>
+<text x="126" y="152" font-size="12">东1-101</text>
+<rect x="342" y="206" width="106" height="100" rx="4" fill="#d7e9ff"/>
+<text x="346" y="234" font-size="13">有机化学</text>
+<text x="346" y="256" font-size="12">西2-209</text>
+<rect x="562" y="362" width="106" height="152" rx="4" fill="#d7e9ff"/>
+<text x="566" y="390" font-size="13">大学物理实验</text>
+<text x="566" y="412" font-size="12">东4-212</text>
+<rect x="782" y="622" width="106" height="152" rx="4" fill="#d7e9ff"/>
+<text x="786" y="650" font-size="13">中国改革开放史</text>
+<text x="786" y="672" font-size="12">蒙民伟-225</text>
+<text x="130" y="810" font-size="12">备注：教师、学分、考试日期不得识别为课程</text></g>
+</svg>

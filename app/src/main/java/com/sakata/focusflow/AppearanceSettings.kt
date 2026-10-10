@@ -1,24 +1,35 @@
 package com.sakata.focusflow
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
@@ -31,19 +42,115 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.toPixelMap
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+/** Collapsed groups keep the active value visible and avoid composing expensive previews offscreen. */
+@Composable
+internal fun AppearanceDisclosure(
+    title: String,
+    summary: String,
+    initiallyExpanded: Boolean = false,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    var expanded by rememberSaveable { mutableStateOf(initiallyExpanded) }
+    val headerColor by animateColorAsState(
+        targetValue = if (expanded) {
+            MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.72f)
+        } else {
+            MaterialTheme.colorScheme.surfaceContainerLow
+        },
+        animationSpec = MotionSpec.quick(),
+        label = "appearanceDisclosureHeader"
+    )
+    val arrowRotation by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (expanded) 180f else 0f,
+        animationSpec = MotionSpec.quick(),
+        label = "appearanceDisclosureArrow"
+    )
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        FocusCard(
+            containerColor = headerColor,
+            modifier = Modifier.fillMaxWidth(),
+            onClick = { expanded = !expanded }
+        ) {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(title, fontWeight = FontWeight.SemiBold)
+                    Text(summary, style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2, overflow = TextOverflow.Ellipsis)
+                }
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(
+                        imageVector = Icons.Filled.KeyboardArrowDown,
+                        contentDescription = if (expanded) "收起" else "展开",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(22.dp).graphicsLayer { rotationZ = arrowRotation }
+                    )
+                    Text(
+                        if (expanded) "收起" else "展开",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+        }
+        AnimatedVisibility(
+            visible = expanded,
+            enter = fadeIn(MotionSpec.quick()) + expandVertically(MotionSpec.quick()),
+            exit = fadeOut(MotionSpec.quick()) + shrinkVertically(MotionSpec.quick())
+        ) {
+            Column(
+                Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                content = content
+            )
+        }
+    }
+}
+
+private fun pageBackdropSummary(appearance: AppearanceSpec): String {
+    fun name(kind: BackdropKind) = when (kind) {
+        BackdropKind.THEME -> "跟随主题"
+        BackdropKind.GRADIENT -> "主题渐变"
+        BackdropKind.COLOR -> "固定颜色"
+        BackdropKind.IMAGE -> "图片"
+        BackdropKind.TRANSPARENT -> "透明"
+    }
+    val effective = appearance.effectivePageBackdrop
+    return if (effective == appearance.pageBackdrop) "当前：${name(effective)}"
+        else "当前：${name(effective)} · 已保留${name(appearance.pageBackdrop)}设置"
+}
+
+private fun timetableBackdropSummary(kind: BackdropKind): String = when (kind) {
+    BackdropKind.THEME -> "跟随主题"
+    BackdropKind.TRANSPARENT -> "透明"
+    BackdropKind.COLOR -> "选颜色"
+    BackdropKind.IMAGE -> "图片"
+    BackdropKind.GRADIENT -> "主题渐变"
+}
 
 /**
  * 8.2.0「设置 → 外观」这一段。
@@ -60,27 +167,32 @@ import kotlinx.coroutines.withContext
 internal fun AppearanceSettingsSection(
     appearance: AppearanceSpec,
     onAppearanceChange: (AppearanceSpec) -> Unit,
-    onApplyExtractedTheme: (FocusFlowThemeColors) -> Unit
+    onApplyExtractedTheme: (FocusFlowThemeColors) -> Unit,
+    extractedAppliedNote: String = "已按图片抽色并应用"
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        PageBackdropControls(
-            appearance = appearance,
-            onAppearanceChange = onAppearanceChange,
-            onApplyExtractedTheme = onApplyExtractedTheme
-        )
+        AppearanceDisclosure("页面背景", pageBackdropSummary(appearance)) {
+            PageBackdropControls(
+                appearance = appearance,
+                onAppearanceChange = onAppearanceChange,
+                onApplyExtractedTheme = onApplyExtractedTheme,
+                extractedAppliedNote = extractedAppliedNote
+            )
+        }
         // 关掉「丰富的动画与外观效果」时，卡片材质与课表底色**完全不参与渲染**
         // （effectiveCardMaterial 回落 TONAL、effectiveTimetableBackdrop 回落 THEME）。
         // AGENTS.md 明确要求"界面里不存在承诺了却不生效的开关"，所以这时把它们收起来，
         // 并写清"设置还在、重开即可恢复"，而不是留一堆点了没反应的控件。
         if (appearance.richEffects) {
-            HorizontalDivider()
-            CardMaterialControls(appearance = appearance, onAppearanceChange = onAppearanceChange)
-            HorizontalDivider()
-            TimetableBaseControls(appearance = appearance, onAppearanceChange = onAppearanceChange)
+            AppearanceDisclosure("卡片材质", "当前：${appearance.cardMaterial.label()}") {
+                CardMaterialControls(appearance = appearance, onAppearanceChange = onAppearanceChange)
+            }
+            AppearanceDisclosure("课表与日程表底色", "当前：${timetableBackdropSummary(appearance.timetableBackdrop)}") {
+                TimetableBaseControls(appearance = appearance, onAppearanceChange = onAppearanceChange)
+            }
         } else {
-            HorizontalDivider()
             Text(
-                "丰富外观已关闭：卡片材质和课表底色暂不生效，已选内容会保留，重新开启即可恢复。",
+                "丰富外观已关闭：已保留${appearance.cardMaterial.label()}卡面与${timetableBackdropSummary(appearance.timetableBackdrop)}底色，重新开启即可恢复。",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -131,8 +243,7 @@ internal fun PageBackdropControls(
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        // 用 FlowRow 而不是 Row：真机上四个标签排一行会把"图片"挤掉（8.2.0 真机发现），
-        // 窄屏/大字体下应该自动换行。
+        // 四项等宽排成 2×2；窄屏和大字体回流，避免自然换行形成 3＋1。
         //
         // 关掉「丰富效果」时只留"跟随主题 / 固定颜色"：渐变与图片那两档此时**不参与渲染**
         // （effectivePageBackdrop 会把它们回落成 THEME），留着就是"承诺了却不生效"的开关。
@@ -148,32 +259,24 @@ internal fun PageBackdropControls(
                 BackdropKind.TRANSPARENT -> "透明"
             }
         }
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            offered.forEach { (kind, label) ->
-                FilterChip(
-                    selected = appearance.effectivePageBackdrop == kind,
-                    onClick = {
-                        // 关掉丰富效果时如果用户点"跟随主题"，顺手把原始档位也归位，
-                        // 否则原始值会一直停在 GRADIENT，重新打开开关时"突然又变了"，很困惑。
-                        onAppearanceChange(
-                            if (!appearance.richEffects && kind == BackdropKind.THEME) {
-                                appearance.copy(pageBackdrop = kind, gradientTop = 0, gradientBottom = 0)
-                            } else {
-                                appearance.copy(pageBackdrop = kind)
-                            }
-                        )
-                    },
-                    label = { Text(label) }
+        EqualOptionGrid(
+            options = offered,
+            selected = appearance.effectivePageBackdrop,
+            onSelect = { kind ->
+                // 关掉丰富效果时选跟随主题，同时复位原始档位。
+                onAppearanceChange(
+                    if (!appearance.richEffects && kind == BackdropKind.THEME) {
+                        appearance.copy(pageBackdrop = kind, gradientTop = 0, gradientBottom = 0)
+                    } else {
+                        appearance.copy(pageBackdrop = kind)
+                    }
                 )
             }
-        }
+        )
         if (!appearance.richEffects) {
             Text(
                 "已暂停渐变与图片背景（跟随主题／固定颜色不受影响）。" +
-                    "在下面重新打开「丰富的动画与外观效果」即可恢复你之前选过的那一套。",
+                    "重新开启「丰富的动画与外观效果」即可恢复你之前选过的那一套。",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -481,30 +584,40 @@ internal fun GradientStopsControls(
 
 /** 卡片材质五档（默认 = 原来的纯色卡片，逐像素不变）。 */
 @Composable
-@OptIn(ExperimentalLayoutApi::class)
 internal fun CardMaterialControls(
     appearance: AppearanceSpec,
     onAppearanceChange: (AppearanceSpec) -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("卡片材质", fontWeight = FontWeight.SemiBold)
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            CardMaterial.entries.forEach { material ->
-                FilterChip(
-                    selected = appearance.cardMaterial == material,
-                    onClick = { onAppearanceChange(appearance.copy(cardMaterial = material)) },
-                    label = { Text(material.label()) }
-                )
-            }
-        }
+        EqualOptionGrid(
+            options = CardMaterial.entries.map { it to it.label() },
+            selected = appearance.cardMaterial,
+            onSelect = { onAppearanceChange(appearance.copy(cardMaterial = it)) }
+        )
         Text(
             "亚克力轻度模糊、无描边；毛玻璃模糊更强、有圆角亮边。",
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
+        if (appearance.cardMaterial.samplesPageBackdrop) {
+            val selectedOpacity = glassSurfaceOpacityPercent(appearance.cardMaterial, appearance.glassSurfaceOpacity)
+            Text("玻璃卡面不透明度 $selectedOpacity%", style = MaterialTheme.typography.labelMedium)
+            Slider(
+                value = selectedOpacity.toFloat(),
+                onValueChange = { value ->
+                    onAppearanceChange(appearance.copy(glassSurfaceOpacity = value.toInt().coerceIn(
+                        GLASS_SURFACE_OPACITY_MIN, GLASS_SURFACE_OPACITY_MAX
+                    )))
+                },
+                valueRange = GLASS_SURFACE_OPACITY_MIN.toFloat()..GLASS_SURFACE_OPACITY_MAX.toFloat(),
+                modifier = Modifier.fillMaxWidth()
+            )
+            Text(
+                "卡片、弹窗和底栏共用；只调整玻璃卡面的染色层，不改变背景图片的不透明度。",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
         // 卡片渐变方向（维护者口径：卡片的渐变要能选上→下 / 下→上）。
         // 只在柔光下有意义——渐变材质的走向是主题派生的，不跟这个开关。
         // 「卡面渐变方向」只对**真正有方向**的两档显示：渐变（上/下染色）与柔光（顶亮底沉）。
@@ -563,21 +676,16 @@ internal fun TimetableBaseControls(
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("课表与日程表底色", fontWeight = FontWeight.SemiBold)
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            listOf(
+        EqualOptionGrid(
+            options = listOf(
                 BackdropKind.THEME to "跟随主题",
                 BackdropKind.TRANSPARENT to "透明",
                 BackdropKind.COLOR to "选颜色",
                 BackdropKind.IMAGE to "图片"
-            ).forEach { (kind, label) ->
-                FilterChip(
-                    selected = appearance.timetableBackdrop == kind,
-                    onClick = { onAppearanceChange(appearance.copy(timetableBackdrop = kind)) },
-                    label = { Text(label) }
-                )
-            }
-        }
+            ),
+            selected = appearance.timetableBackdrop,
+            onSelect = { onAppearanceChange(appearance.copy(timetableBackdrop = it)) }
+        )
 
         if (appearance.timetableBackdrop == BackdropKind.COLOR) {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -669,17 +777,39 @@ private fun ImageCropControls(
     val configuration = LocalConfiguration.current
     val screenRatio = (configuration.screenWidthDp.toFloat() / configuration.screenHeightDp.toFloat())
         .coerceIn(0.4f, 0.75f)
+    var previewSize by remember { mutableStateOf(IntSize.Zero) }
     Column(
         modifier = Modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(2.dp)
     ) {
         Text("图片范围", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+        Text(
+            "拖动预览调整主体位置；下方滑块可精细微调",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
         val previewShape = RoundedCornerShape(14.dp)
         Canvas(
             Modifier
-                .fillMaxWidth(0.46f)
+                .fillMaxWidth(0.64f)
                 .aspectRatio(screenRatio)
+                .onSizeChanged { previewSize = it }
+                .pointerInput(normalized, previewSize) {
+                    detectDragGestures { change, dragAmount ->
+                        change.consume()
+                        val width = previewSize.width.toFloat()
+                        val height = previewSize.height.toFloat()
+                        if (width > 0f && height > 0f) {
+                            onCropChange(
+                                normalized.pannedBy(
+                                    deltaXFraction = dragAmount.x / width,
+                                    deltaYFraction = dragAmount.y / height
+                                )
+                            )
+                        }
+                    }
+                }
                 .clip(previewShape)
                 .background(MaterialTheme.colorScheme.surfaceVariant)
                 .border(1.dp, MaterialTheme.colorScheme.outlineVariant, previewShape)

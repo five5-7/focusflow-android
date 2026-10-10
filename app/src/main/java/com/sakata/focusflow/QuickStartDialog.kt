@@ -1,5 +1,9 @@
 package com.sakata.focusflow
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -9,14 +13,16 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
 internal val quickStartChapters = listOf(
     HelpSection("先做三件事", listOf(
-        "1. 想到一件事就点底部＋ → 快速记录；先写下来，不必先填时间、分类或目标。",
+        "1. 想到一件事可直接在今日页收集箱输入并保存，或点底部＋ → 快速记录；先写下来，不必先填时间、分类或目标。",
         "2. 回到今日页的收集箱：能定时间的就“安排”，暂时说不清的想法可整理为“逐步推进”，资料或备忘可整理为“参考”。",
         "3. 安排后到日程查看；完成、改期或放回收集箱都由你决定。错过不等于失败，应用会保留记录并提供恢复入口。"
     )),
@@ -38,7 +44,7 @@ internal val quickStartChapters = listOf(
         "长期目标再创建目标；课表识别、AI 学习路径、地图地点搜索与应用检测都不是日常使用的前提。"
     )),
     HelpSection("页面与功能速查", listOf(
-        "今日用于收集与当前状态；日程用于看时间轴；计划用于课程、目标和回顾；设置用于默认值、提醒与可选工具。",
+        "今日用于收集与当前状态；日程用于看时间轴；计划用于课程和目标；设置用于默认值、提醒与可选工具。",
         "外观都在 设置 → 外观：七套主题、页面背景（跟随主题／渐变／固定颜色／自选图片）、卡片材质、课表与日程表底色（可设「透明」露出页面背景）。全部可选，不选就是默认样子。",
         "底栏中间是＋快速记录；走过页面后两端会出现「上一步／下一步」，长按上一步可看本次会话的页面历史。今日页按返回会先提示，4 秒内再按才退出。",
         "想知道某项功能的完整用法、默认设置或常见问题，可到 设置 → 使用说明书；它不会自动展示。",
@@ -57,6 +63,7 @@ internal fun QuickStartDialog(onDismiss: () -> Unit) {
         onDismissRequest = onDismiss,
         title = { Text("快速入门 · ${chapter + 1}/${quickStartChapters.size}") },
         text = {
+            val chapterStates = rememberSaveableStateHolder()
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 LazyRow(state = tabs, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     itemsIndexed(quickStartChapters) { index, section ->
@@ -64,10 +71,20 @@ internal fun QuickStartDialog(onDismiss: () -> Unit) {
                     }
                 }
                 Box(Modifier.fillMaxWidth().height(contentHeight)) {
-                    SubpageMotion(chapter, containerColor = AlertDialogDefaults.containerColor) { index ->
-                        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Text(quickStartChapters[index].title, fontWeight = FontWeight.Bold)
-                            quickStartChapters[index].lines.forEach { Text(it, style = MaterialTheme.typography.bodyMedium) }
+                    // This is dialog content, not a page: do not repaint the page backdrop here.
+                    AnimatedContent(
+                        targetState = chapter,
+                        modifier = Modifier.fillMaxSize().clipToBounds(),
+                        transitionSpec = {
+                            (fadeIn(MotionSpec.enter()) togetherWith fadeOut(MotionSpec.exit())).using(null)
+                        },
+                        label = "quick-start-chapter"
+                    ) { index ->
+                        chapterStates.SaveableStateProvider(index) {
+                            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Text(quickStartChapters[index].title, fontWeight = FontWeight.Bold)
+                                quickStartChapters[index].lines.forEach { Text(it, style = MaterialTheme.typography.bodyMedium) }
+                            }
                         }
                     }
                 }
@@ -105,6 +122,192 @@ internal fun CampusLifeChoiceDialog(onEnable: () -> Unit, onSkip: () -> Unit) {
 
 /** 覆盖安装后每个版本只展示一次的更新说明；版本名来自 BuildConfig，路线图是唯一详情入口。 */
 internal fun updateHighlightsFor(version: String): List<String> = when {
+    version == "9.0.0" -> listOf(
+        "收集箱可整理为待办或计划，重复安排、活动记录与回收站恢复串成日常流程。",
+        "课程按独立课次管理，连续课程展示、教务学期选择与课程提醒更易维护。",
+        "优化选项换行、标题帮助与导航反馈，启用流动丝带图标；改进更新下载、无空档改期和快速记录恢复。"
+    )
+
+    version == "9.0.0-rc.2" -> listOf(
+        "新增待办的重复选项和安排弹窗按钮按可用宽度换行，收集箱标题与查看全部同行。",
+        "底部导航更宽，左右与底部留白一致；历史箭头适度外移，仍保留系统安全区。",
+        "桌面图标保留聚焦框与流动 F，增加渐变、柔和阴影和高光层次。"
+    )
+
+    version == "9.0.0-rc.1" -> listOf(
+        "检查更新能识别更高候选序号，下载失败会清理半包，当前与可用版本分别显示。",
+        "今天和明天都没有空档时，改期会进入手动选择，不再指定可能冲突的时间。",
+        "快速记录受系统限制时保留开关并在回到应用后重试；启动数据异常显示诊断，记录仍保留。"
+    )
+
+    version == "8.3.0-rc.44" -> listOf(
+        "设置分区的帮助问号固定在标题行右侧，窄屏和大字号下也不再另占一行。",
+        "提醒、免打扰、通勤、教程搜索和应用检测副页的问号移入页面标题行。"
+    )
+
+    version == "8.3.0-rc.43" -> listOf(
+        "日程图例和时间轴分开排布，今日未定时间安排不再压住图表。",
+        "副页长标题可在帮助按钮左侧换行，说明文字移到标题下方。",
+        "导航和展开卡片的按压反馈会跟随卡片实际大小显示。"
+    )
+
+    version == "8.3.0-rc.42" -> listOf(
+        "今日状态、收集箱和设置折叠区能读出当前展开状态，触控区域在大字号下也保持易点。",
+        "设置中的作息、应用分类和通勤预留折叠区统一使用同一套展开/收起过渡。",
+        "关闭丰富效果或动画时，玻璃背景会降低捕获采样开销，滚动和折叠更轻。"
+    )
+
+    version == "8.3.0-rc.41" -> listOf(
+        "今日状态入口增加箭头旋转反馈，展开和收起更容易确认当前状态。",
+        "数据保护和加载提示会平滑出现与收起，页面顶部不会突然跳动。"
+    )
+
+    version == "8.3.0-rc.40" -> listOf(
+        "今日安排和明天预览用独立时间标签展示，课程与任务内容更容易浏览。",
+        "今日状态和收集箱展开时有箭头与状态反馈，整理模式和日程切换跟随动画速度。"
+    )
+
+    version == "8.3.0-rc.39" -> listOf(
+        "日程页在日、周、课表之间切换时会平滑过渡，减少整块内容突然替换。",
+        "外观折叠反馈、导航收回动画与稳定图片背景继续保留。"
+    )
+
+    version == "8.3.0-rc.38" -> listOf(
+        "外观设置的折叠卡片增加箭头旋转和展开态颜色反馈，当前状态更容易看懂。",
+        "导航收回动画、稳定图片背景与子页转场优化继续保留。"
+    )
+
+    version == "8.3.0-rc.37" -> listOf(
+        "直接点击当前页签导航入口时保留收回动画，返回主页的动势不被取消。",
+        "修复收回动画中的图片背景闪帧；外观折叠动画与子页背景同步仍保留。"
+    )
+
+    version == "8.3.0-rc.36" -> listOf(
+        "点击当前页签的导航入口返回主页时直接复位，不再误播缩小转场。",
+        "修复图片背景在导航收回时闪帧；外观折叠动画与子页背景同步仍保留。"
+    )
+
+    version == "8.3.0-rc.35" -> listOf(
+        "外观设置的折叠卡片现在会平滑展开和收起，页面背景与子页转场同步进入。",
+        "修正设置进入外观时旧文字卡片穿透和背景延迟出现的问题；课程识别门禁保持不变。"
+    )
+
+    version == "8.3.0-rc.34" -> listOf(
+        "快速记录时输入法只避让记录弹窗和页面内容，底部导航栏保持在屏幕底部。",
+        "保留原有快速记录与页面输入行为；课表识别和数据门禁没有改变。"
+    )
+
+    version == "8.3.0-rc.33" -> listOf(
+        "阶段 9 候选完成工程门禁与导航、通知、外观和动画回归记录。",
+        "真实课表识别失败会保持无导入；旧版本入口与 fail-closed 数据门禁继续保留。"
+    )
+
+    version == "8.3.0-rc.32" -> listOf(
+        "课表识别兼容候选数组、思考/分析段和 JSON 后的说明文字，减少模型外围格式差异造成的解析失败。",
+        "仍会拒绝多个完整结果；空间不确定的课程继续逐条人工审核，未确认内容不会写入课程。"
+    )
+
+    version == "8.3.0-rc.31" -> listOf(
+        "真实课表识别兼容模型附加字段、数字字符串和像素坐标框，减少格式差异造成的整批失败。",
+        "坐标仍会检查范围和网格一致性；无法确定位置的课程继续逐条人工审核。"
+    )
+    version == "8.3.0-rc.30" -> listOf(
+        "课表识别兼容模型返回的解释文字、代码围栏和尾逗号，减少格式问题造成的审核阻断。",
+        "缺少信息的课程仍需逐条核对；坐标不会自动补齐，未确认内容不会写入课程。"
+    )
+    version == "8.3.0-rc.29" -> listOf(
+        "课表截图识别遇到缺少地点、周次或坐标时，会保留候选进入人工审核，不会擅自补星期或节次。",
+        "识别提示会明确告诉模型课表网格格式；审核页仍可逐条确认、编辑或拒绝，未确认内容不会写入课程。",
+        "阶段 9 真机验收适配已升级的 OPPO / ColorOS 17 / Android 17 测试设备。"
+    )
+    version == "8.3.0-rc.28" -> listOf(
+        "课表审核会保留完整色块的跨节范围，缺少坐标时按网格位置提示需要检查。",
+        "重复任务暂停或停止后会清除残留弹性时间，图片导入会在读取时限制文件大小。",
+        "快速入门正文沿用弹窗卡片材质，不再重复铺页面图片或渐变。"
+    )
+    version == "8.3.0-rc.27" -> listOf(
+        "快速入门正文现在跟随弹窗卡片材质，不再在内容区重复铺页面图片或渐变。",
+        "章节切换保留动画与各章滚动位置；关闭动画时直接切换。"
+    )
+    version == "8.3.0-rc.26" -> listOf(
+        "课表识别可以添加自己的兼容视觉服务；先完成图像和结构化能力测试，再选择默认服务。",
+        "共享 key 加密保存且不回显；导入前显示上传目标，识别过程中可取消。",
+        "仍需逐项确认识别课程；新的网格定位和修正预览将在后续批次加入。"
+    )
+    version == "8.3.0-rc.25" -> listOf(
+        "数据与恢复现在集中列出回收项、计划、重复规则与课程；默认保留 30 天，永久清除前需确认。",
+        "删除计划时可选择一并删除的普通任务；课程恢复会带回通知设置和本次地点。",
+        "批量待办、课程合并或拆分支持跨会话整批撤回；有后续修改时会提示冲突。"
+    )
+    version == "8.3.0-rc.24" -> listOf(
+        "今日页先显示课程和已安排待办，再提示需要处理的事项；明天可快速预览。",
+        "待办详情的更多中可选开始计时，同一时刻只保留一段活动，历史汇总到待办。",
+        "重复规则现在可暂停、停止或恢复性删除；旧活动记录继续保留。"
+    )
+    version == "8.3.0-rc.23" -> listOf(
+        "收集箱、待办与计划可批量整理；多行待办、检查清单和到点提醒可快速创建。",
+        "每日或每周重复任务支持暂停和跳过；全局加号可单独设置提醒。",
+        "普通待办与收集箱删除后可立即撤回，或在设置的数据与恢复中找回。"
+    )
+    version == "8.3.0-rc.22" -> listOf(
+        "完整收集箱按真实记录时间区分最近和之前内容，旧记录不会被误标为过时。",
+        "待整理事项默认只显示单行标题，点击展开一条后再查看详情和操作。",
+        "编辑和删除收进更多菜单；今日页仍可直接记录新内容。"
+    )
+    version == "8.3.0-rc.21" -> listOf(
+        "今日页收集箱可直接输入标题保存，保存成功后继续记录下一件事。",
+        "最近两条收集箱内容以单行标题显示，点击进入完整列表查看和整理。",
+        "延续已验收的课程连续节次与周五至周日收纳摘要。"
+    )
+    version == "8.3.0-rc.20" -> listOf(
+        "同一天同地点、节次紧邻的同名课程会连成一个时段，原有每段仍能编辑。",
+        "缩小课表收纳周五至周日且时段不重叠时，会显示课程名称、星期和节次。",
+        "课程保存改走统一数据源入口，保存失败时保留原有课程记录。"
+    )
+    version == "8.3.0-rc.19" -> listOf(
+        "课程待确认列表可一键确认无冲突时段；同名课程排在一起，仍能逐个编辑。",
+        "缩小课表的周五至周日格可展开查看真实星期与节次，周五早课不会混在错误的位置。",
+        "安排时间的模式选项按可用宽度和字体大小排列，保留已选模式的填写内容。"
+    )
+    version == "8.3.0-rc.18" -> listOf(
+        "浙江大学教务课表可指定学年和秋冬、春夏或短学期，跳过卡住的当前学期页面。",
+        "自动读取当前学期超过时限会提示重试或指定学期，不再一直停在第五阶段。",
+        "延续外观页分组收纳与五档卡片材质的均衡排列。"
+    )
+    version == "8.3.0-rc.17" -> listOf(
+        "外观页把主题配色、页面背景、卡片材质和课表底色分组收纳，先显示当前选择摘要。",
+        "卡片材质的五个选项改成均衡排列，常见手机宽度下会自动排成 2+3，窄屏和大字体会继续回流。",
+        "自定义主题编辑器共用同一套外观控件，禁用丰富外观时仍会说明已保存的卡片和课表底色设置。"
+    )
+    version == "8.3.0-rc.16" -> listOf(
+        "历史记录批量管理把已选数量、全选当前和删除所选放在同一个卡片中。",
+        "进入或退出批量管理时，勾选区与按钮平滑切换；关闭动画时会立即切换。",
+        "延续 rc.15 已验收的页面背景与动画速度均衡排列。"
+    )
+    version == "8.3.0-rc.15" -> listOf(
+        "设置中的页面背景与动画速度选项改为均衡排列，窄屏和大字体下会自动回流。",
+        "延续 rc.14 的教务导入页外观与今日页统一确认框，以及玻璃卡面调节。"
+    )
+    version == "8.3.0-rc.14" -> listOf(
+        "今日页“权限与提醒”选择“不再提示”时，确认框使用统一弹窗，仍可取消或返回。",
+        "浙江大学教务导入页的背景与卡片跟随外观设置，亚克力和毛玻璃也使用你选择的卡面不透明度。",
+        "延续 rc.13 的 40%–95% 玻璃卡面调节与课表截图识别防错，旧外观设置继续保持原效果。"
+    )
+    version == "8.3.0-rc.13" -> listOf(
+        "外观设置可调节亚克力和毛玻璃卡面不透明度（40%–95%），卡片、弹窗和悬浮底栏保持一致。",
+        "旧设置仍使用亚克力 60%、毛玻璃 48% 的原默认值；页面背景和课表底板的透明度设置不变。",
+        "延续 rc.12 的课表截图识别校验：星期和节次坐标异常时会阻止导入，降低整张课表错位的风险。"
+    )
+    version.startsWith("8.3.0") -> listOf(
+        "权限与提醒集中到一个页面；系统无法读取的 ColorOS 横幅、自启动和后台开关会明确提示手动确认。",
+        "课程页可从“从教务网导入 → 浙江大学”自动获取课表；新的主题化导入页会逐步显示认证、会话和解析状态，凭据不保存；新课进入候选，唯一匹配的已有课程会更新。",
+        "课表截图会校验星期和节次，拒绝明显错位的整批结果；完全重叠的不同课程需逐门编辑确认。同时修复收集箱卡片宽度跳变、加号弹窗无法重开和课程编辑空白。"
+    )
+    version.startsWith("8.2.2") -> listOf(
+        "通勤可分别设置步行、自行车和电动车的路上预留时间。",
+        "玻璃卡片在深色主题下会使用浅色正文，避免黑字看不清。",
+        "权限提示放在今日“开始活动”下方；关闭后仍可从设置查看并恢复。"
+    )
     version.startsWith("8.2.1") -> listOf(
         "新增亚克力和毛玻璃：亚克力无描边，毛玻璃保留完整圆角亮边。",
         "底栏和弹窗可透出并模糊下方内容，文字与按钮保持清晰。",

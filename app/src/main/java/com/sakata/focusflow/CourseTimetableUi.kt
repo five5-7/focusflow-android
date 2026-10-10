@@ -106,7 +106,7 @@ internal fun CourseTimetable(
     onEditPeriods: () -> Unit,
     onEditCourse: (Course) -> Unit
 ) {
-    var selected by remember { mutableStateOf<Course?>(null) }
+    var selected by remember { mutableStateOf<ConnectedCourseSpan?>(null) }
     val rowHeight = if (compactView) 42.dp else 70.dp
     val headerHeight = if (compactView) 34.dp else 44.dp
     // 8.2.0「课表底色」：只给课表底板铺一层选定的颜色或图片（跟随主题时这里什么都没加，
@@ -141,7 +141,7 @@ internal fun CourseTimetable(
             if (compactView) {
                 val confirmedCourses = courses.filter { !it.needsConfirmation }
                 val trailingCourses = confirmedCourses.filter { it.weekday in 5..7 }
-                val trailingDaysCollapsible = trailingCourses.size <= 2
+                val trailingDaysCollapsible = trailingDaysCanCollapse(trailingCourses)
                 val trailingDaysCollapsed = trailingDaysCollapsible && !trailingDaysExpanded
                 Row(Modifier.fillMaxWidth()) {
                     TimetablePeriodRail(table, rowHeight, headerHeight, compact = true, modifier = Modifier.width(36.dp))
@@ -165,8 +165,7 @@ internal fun CourseTimetable(
                             rowHeight = rowHeight,
                             headerHeight = headerHeight,
                             modifier = Modifier.weight(if (trailingCourses.isEmpty()) 0.72f else 1.18f),
-                            onExpand = { onTrailingDaysExpandedChange(true) },
-                            onSelect = { selected = it }
+                            onExpand = { onTrailingDaysExpandedChange(true) }
                         )
                     }
                 }
@@ -197,7 +196,8 @@ internal fun CourseTimetable(
         }
     }
     } // 课表底色 Box
-    selected?.let { course ->
+    selected?.let { span ->
+        val course = span.display
         AppDialog(
             onDismissRequest = { selected = null },
             title = { Text(course.title) },
@@ -206,9 +206,22 @@ internal fun CourseTimetable(
                     Text("${weekdayName(course.weekday)} · 第 ${course.startPeriod}–${course.endPeriod} 节")
                     Text("${formatMinute(CourseGapPlanner.periodStart(course.startPeriod))}–${formatMinute(CourseGapPlanner.periodEnd(course.endPeriod))}")
                     Text(if (course.building.isBlank()) "地点未填写" else "地点：${course.building}")
+                    if (span.records.size > 1) Text("相邻时段已合并显示；每段仍可分别编辑。", style = MaterialTheme.typography.bodySmall)
                 }
             },
-            confirmButton = { Button(onClick = { selected = null; onEditCourse(course) }) { Text("编辑课程") } },
+            confirmButton = {
+                if (span.records.size == 1) {
+                    Button(onClick = { selected = null; onEditCourse(span.records.single()) }) { Text("编辑课程") }
+                } else {
+                    Column {
+                        span.records.forEach { original ->
+                            TextButton(onClick = { selected = null; onEditCourse(original) }) {
+                                Text("编辑第 ${original.startPeriod}–${original.endPeriod} 节")
+                            }
+                        }
+                    }
+                }
+            },
             dismissButton = { TextButton(onClick = { selected = null }) { Text("关闭") } }
         )
     }
@@ -221,10 +234,10 @@ private fun TimetableTrailingDaysLane(
     rowHeight: androidx.compose.ui.unit.Dp,
     headerHeight: androidx.compose.ui.unit.Dp,
     modifier: Modifier,
-    onExpand: () -> Unit,
-    onSelect: (Course) -> Unit
+    onExpand: () -> Unit
 ) {
     val scheme = MaterialTheme.colorScheme
+    val visibleCourses = connectedCourseSpans(courses).map(ConnectedCourseSpan::display)
     Column(modifier) {
         Box(
             Modifier.height(headerHeight).fillMaxWidth().background(scheme.surfaceVariant.copy(alpha = 0.45f)).clickable(onClick = onExpand),
@@ -232,44 +245,35 @@ private fun TimetableTrailingDaysLane(
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text("周五–日", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
-                Text(if (courses.isEmpty()) "无课 ›" else "${courses.size} 门 ›", style = MaterialTheme.typography.labelSmall)
+                Text(if (visibleCourses.isEmpty()) "无课 ›" else "${visibleCourses.size} 门 ›", style = MaterialTheme.typography.labelSmall)
             }
         }
-        BoxWithConstraints(
+        Box(
             Modifier
                 .height(rowHeight * periods.toFloat())
                 .fillMaxWidth()
-                .border(BorderStroke(0.5.dp, scheme.outlineVariant)),
+                .border(BorderStroke(0.5.dp, scheme.outlineVariant))
+                .clickable(onClick = onExpand),
             contentAlignment = Alignment.Center
         ) {
             Column(Modifier.matchParentSize()) {
                 repeat(periods) { Box(Modifier.height(rowHeight).fillMaxWidth().border(BorderStroke(0.5.dp, scheme.outlineVariant))) }
             }
-            if (courses.isEmpty()) {
+            if (visibleCourses.isEmpty()) {
                 Text("无课", style = MaterialTheme.typography.labelSmall, color = scheme.onSurfaceVariant)
             } else {
-                courses.filter { it.startPeriod in 1..periods }.forEach { course ->
-                    val overlapping = courses.filter { other ->
-                        course.startPeriod <= other.endPeriod && other.startPeriod <= course.endPeriod
-                    }.sortedBy { it.weekday }
-                    val laneIndex = overlapping.indexOf(course).coerceAtLeast(0)
-                    val laneWidth = maxWidth / overlapping.size.coerceAtLeast(1)
-                    val span = (course.endPeriod.coerceAtMost(periods) - course.startPeriod + 1).coerceAtLeast(1)
-                    val color = listOf(scheme.primaryContainer, scheme.secondaryContainer, scheme.tertiaryContainer)[course.weekday % 3]
-                    Column(
-                        Modifier
-                            .offset(x = laneWidth * laneIndex, y = rowHeight * (course.startPeriod - 1).toFloat())
-                            .width(laneWidth)
-                            .height(rowHeight * span.toFloat())
-                            .padding(2.dp)
-                            .clip(RoundedCornerShape(7.dp))
-                            .background(color)
-                            .clickable { onSelect(course) }
-                            .padding(3.dp),
-                        verticalArrangement = Arrangement.Center
-                    ) {
-                        Text(weekdayName(course.weekday), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, maxLines = 1)
-                        Text(course.title, style = MaterialTheme.typography.labelSmall, maxLines = span.coerceAtMost(2), overflow = TextOverflow.Ellipsis)
+                Column(
+                    Modifier.fillMaxWidth().align(Alignment.TopCenter).padding(3.dp),
+                    verticalArrangement = Arrangement.spacedBy(5.dp)
+                ) {
+                    visibleCourses.sortedWith(courseMeetingOrder).forEach { course ->
+                        Column(
+                            Modifier.fillMaxWidth().clip(RoundedCornerShape(7.dp))
+                                .background(scheme.primaryContainer).padding(4.dp)
+                        ) {
+                            Text("${weekdayName(course.weekday)} ${course.startPeriod}–${course.endPeriod} 节", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, maxLines = 1)
+                            Text(course.title, style = MaterialTheme.typography.labelSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        }
                     }
                 }
             }
@@ -311,7 +315,7 @@ private fun TimetableDayLane(
     rowHeight: androidx.compose.ui.unit.Dp,
     headerHeight: androidx.compose.ui.unit.Dp,
     compactView: Boolean,
-    onSelect: (Course) -> Unit
+    onSelect: (ConnectedCourseSpan) -> Unit
 ) {
     val scheme = MaterialTheme.colorScheme
     val courseColors = listOf(scheme.primaryContainer, scheme.secondaryContainer, scheme.tertiaryContainer, scheme.surfaceVariant)
@@ -324,7 +328,8 @@ private fun TimetableDayLane(
             Column {
                 repeat(periods) { Box(Modifier.height(rowHeight).fillMaxWidth().border(BorderStroke(0.5.dp, scheme.outlineVariant))) }
             }
-            courses.filter { it.startPeriod in 1..periods }.forEach { course ->
+            connectedCourseSpans(courses.filter { it.startPeriod in 1..periods }).forEach { spanGroup ->
+                val course = spanGroup.display
                 val span = (course.endPeriod.coerceAtMost(periods) - course.startPeriod + 1).coerceAtLeast(1)
                 val color = courseColors[(course.title.hashCode() and Int.MAX_VALUE) % courseColors.size]
                 Column(
@@ -335,7 +340,7 @@ private fun TimetableDayLane(
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(9.dp))
                         .background(color)
-                        .clickable { onSelect(course) }
+                        .clickable { onSelect(spanGroup) }
                         .padding(if (compactView) 2.dp else 7.dp),
                     verticalArrangement = if (compactView) Arrangement.Center else Arrangement.spacedBy(2.dp)
                 ) {

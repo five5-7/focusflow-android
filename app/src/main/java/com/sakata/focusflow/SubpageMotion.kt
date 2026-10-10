@@ -81,6 +81,13 @@ internal fun <T : Any> SubpageMotion(
     val states = rememberSaveableStateHolder()
     val transition = updateTransition(page, label = "subpage-state")
     val collapseOrigin = LocalNavCollapseOrigin.current
+    // Keep the backdrop in the same animated layer while entering or switching
+    // between subpages. During collapse to a root (target == null), let the stable
+    // root background remain visible instead of shrinking a second image crop with
+    // the outgoing cards; that hand-off is what caused the one-frame flash.
+    val movingBackdrop by remember(transition) {
+        derivedStateOf { transition.isRunning && transition.targetState != null }
+    }
     // 页签直达重置副页：这次切换不播任何动画；token 读到后立即消费，避免抑制窗口误伤后续主动打开。
     val snapToken = LocalPageSnapToken.current
     val onSnapConsumed = LocalPageSnapConsumed.current
@@ -129,7 +136,11 @@ internal fun <T : Any> SubpageMotion(
             states.SaveableStateProvider(destination.toString()) {
                 // 每层自带不透明背景：非默认外观（渐变/图片）下各画一遍同一个背景，
                 // 否则放大/缩小时两层会互相透出来（真机复现：副页放大期间画面变成透明）。
-                Box(Modifier.fillMaxSize().pageLayerBackground(containerColor).then(input)) {
+                Box(
+                    Modifier.fillMaxSize()
+                        .pageLayerBackground(containerColor, includeImageBackdrop = movingBackdrop)
+                        .then(input)
+                ) {
                     content(destination)
                 }
             }

@@ -72,18 +72,29 @@ internal val LocalGlassBackdropState = staticCompositionLocalOf<HazeState?> { nu
  * 默认外观下就是原来的纯色（逐像素不变）；非默认外观下每层**各画一遍**同一个背景。
  */
 @Composable
-internal fun Modifier.pageLayerBackground(flatColor: Color): Modifier {
+internal fun Modifier.pageLayerBackground(
+    flatColor: Color,
+    /** Draw the already-decoded root backdrop while a page layer is moving. */
+    includeImageBackdrop: Boolean = false
+): Modifier {
     val appearance = LocalAppearance.current
     // 「渐变跟随内容」时渐变由滚动内容自己按内容高度铺（见 ScrollableWithBar），
     // 但**层本身仍必须不透明**——否则会退回 8.1.1 修过的"转场时两层互相透出来"。
     // 这里用主题页面底色兜底：内容会盖住它；内容比视口短时下方也是干净的页面底色，
     // 不会露出对不上的渐变。
-    return if (appearance.effectivePageBackdrop == BackdropKind.THEME ||
-        (appearance.effectivePageBackdrop == BackdropKind.GRADIENT && appearance.gradientFollowsContent)
-    ) {
-        background(flatColor)
-    } else {
-        appearanceBackdrop(
+    return when {
+        // The root activity already owns the full-window image background. Repainting
+        // it inside a keyboard-resized subpage would use the shorter child height and
+        // produce a second, visibly different crop during IME and page transitions.
+        // The root owns the steady-state image to keep IME crops stable. During a
+        // page transition, the moving layer needs the same opaque backdrop from its
+        // first frame so its cards do not float over the outgoing page.
+        appearance.effectivePageBackdrop == BackdropKind.IMAGE && !includeImageBackdrop -> this
+        appearance.effectivePageBackdrop == BackdropKind.THEME ||
+            (appearance.effectivePageBackdrop == BackdropKind.GRADIENT && appearance.gradientFollowsContent) -> {
+            background(flatColor)
+        }
+        else -> appearanceBackdrop(
             appearance,
             MaterialTheme.colorScheme,
             LocalBackdropBitmap.current,
@@ -108,6 +119,30 @@ internal fun pageContainerColor(): Color =
  * 选了底色或底图时让出容器色（透明），由 [Modifier.appearanceBackdrop] 的 Timetable 角色去画；
  * 跟随主题时保持原来的 surface —— 默认外观逐像素不变。
  */
+/**
+ * 页面直接绘制的文字不在 Card 内部，不能依赖透明容器推导颜色。
+ * 图片背景按同一遮罩公式估算平均底色，再选择对比更高的黑/白正文色。
+ */
+@Composable
+internal fun pageBodyContentColor(): Color {
+    val appearance = LocalAppearance.current
+    val scheme = MaterialTheme.colorScheme
+    if (appearance.effectivePageBackdrop != BackdropKind.IMAGE) return scheme.onBackground
+    val luminance = rememberImageLuminance(LocalBackdropBitmap.current)
+    val image = Color(luminance, luminance, luminance)
+    val underScrim = blendSrgb(scheme.background, image, appearance.imageAlpha)
+    val finalBackground = blendSrgb(
+        underScrim,
+        scheme.background,
+        adaptiveScrimAlpha(
+            appearance.imageAlpha,
+            luminance,
+            textIsLight = scheme.onBackground.luminance() > 0.5f
+        )
+    )
+    return onOf(finalBackground)
+}
+
 @Composable
 internal fun timetableContainerColor(): Color =
     if (LocalAppearance.current.effectiveTimetableBackdrop == BackdropKind.THEME) {
@@ -579,18 +614,11 @@ internal fun backdropColourAt(
 }
 
 /**
- * 底栏该用的**画刷**——**目前恒返回 null，即底栏一律走 Surface 的单色填充路径**。
+ * 底栏使用的水平渐变画刷。
  *
- * 为什么停用（如实记录，别急着再打开）：
- * 为了表达左右渐变，曾让底栏在自己身上画一层水平渐变（并把 Surface 底色置透明）。
- * 真机截图（`v3_sched.png`）逐像素量下来，底栏变成了**三层**：
- * 外圈暗带 `rgb(176..191)`、内层亮胶囊 `x=162..1277 / y=2728..3035` `rgb(218,230,225)`、
- * 而且 x=80..97 与 x=1342..1359 各有一条**18px 纯白带**（背景透出来的）。
- * 也就是自绘的那层没有与 Surface 的形状/尺寸对齐，看起来就是"中间留了个胶囊状空白"。
- *
- * 结论：**单色 + Surface 自身绘制**是唯一被验证过的可靠路径；
- * 左右渐变这个能力要有，但必须先解决"自绘层与 Surface 层如何对齐"，而不是继续在这条路上打补丁。
- * 在解决之前，宁可接受"底栏不跟随左右渐变"，也不要一个视觉坏掉的底栏。
+ * 页面为真实渐变时按 9 个横向采样点计算导航栏颜色，非渐变背景返回 null，
+ * 让底栏继续使用 Surface 的稳定单色路径。画刷会在底栏自身形状内裁剪，
+ * 避免旧版自绘层与 Surface 尺寸不一致造成的白带和空壳。
  */
 internal fun navBarBrushOverBackdrop(
     appearance: AppearanceSpec,
@@ -768,7 +796,10 @@ internal fun DrawScope.drawImageCover(
  */
 @Composable
 internal fun cardMaterialBrush(material: CardMaterial): Brush? =
-    materialBrush(material, MaterialTheme.colorScheme.surfaceContainerLow, MaterialTheme.colorScheme)
+    materialBrush(
+        material, MaterialTheme.colorScheme.surfaceContainerLow, MaterialTheme.colorScheme,
+        glassSurfaceOpacity = LocalAppearance.current.glassSurfaceOpacity
+    )
 /**
  * 材质叠层（通用）：给定**底色**，返回该材质要在它上面画的一层；[CardMaterial.TONAL] 返回 null。
  *
@@ -782,7 +813,8 @@ internal fun materialBrush(
     base: Color,
     scheme: ColorScheme,
     /** 柔光渐变方向：false = 上→下（顶亮底沉），true = 下→上。维护者口径的两个方向。 */
-    softReversed: Boolean = false
+    softReversed: Boolean = false,
+    glassSurfaceOpacity: Int? = null
 ): Brush? =
     when (material) {
         CardMaterial.TONAL -> null
@@ -800,8 +832,12 @@ internal fun materialBrush(
         }
         CardMaterial.SOFT -> softLightBrush(base, softReversed)
         // 玻璃类材质的高光固定来自顶部；隐藏的「卡面渐变方向」旧值不能影响它们。
-        CardMaterial.ACRYLIC -> acrylicBrush(base, scheme)
-        CardMaterial.FROSTED -> frostedBrush(base)
+        CardMaterial.ACRYLIC -> acrylicBrush(
+            base, scheme, opacity = glassSurfaceOpacityPercent(material, glassSurfaceOpacity) / 100f
+        )
+        CardMaterial.FROSTED -> frostedBrush(
+            base, opacity = glassSurfaceOpacityPercent(material, glassSurfaceOpacity) / 100f
+        )
     }
 
 /** 材质的内描边宽度（dp）。亚克力靠染色和模糊成边，不画独立描边。 */
@@ -856,7 +892,11 @@ internal const val FROSTED_BAND = 0.18f
  * 把面积补回来，即 `a · band / 2 = b · (1 - band) / 2` ⇒ `b = a · band / (1 - band)`。
  * 于是高光是窄而亮的、压深是宽而浅的——这正是"光泽面"与"整体变暗"的区别。
  */
-internal fun frostedStops(base: Color, reversed: Boolean = false): List<Pair<Float, Color>> {
+internal fun frostedStops(
+    base: Color,
+    reversed: Boolean = false,
+    opacity: Float = FROSTED_LEGACY_OPACITY / 100f
+): List<Pair<Float, Color>> {
     val top = shiftGreyLevels(base, softLightAmplitude(base))
     // **按实际涨幅镜像**（与 softLightStops 同一个道理）：
     // 近白底片的顶站会被纯白夹住，实际涨幅小于 softLightAmplitude；
@@ -870,7 +910,7 @@ internal fun frostedStops(base: Color, reversed: Boolean = false): List<Pair<Flo
     )
     // 毛玻璃使用低染色的白纱：背景结构由 30dp 扩散负责，面层只负责压住杂色与保正文。
     // 透明度刻意低于亚克力，让玻璃更通透；顶部高光和 1dp 内描边负责读出玻璃边缘。
-    val veil = 0.48f
+    val veil = opacity.coerceIn(GLASS_SURFACE_OPACITY_MIN / 100f, GLASS_SURFACE_OPACITY_MAX / 100f)
     val stops = listOf(
         0f to top.copy(alpha = veil),
         FROSTED_BAND to base.copy(alpha = veil),
@@ -880,8 +920,11 @@ internal fun frostedStops(base: Color, reversed: Boolean = false): List<Pair<Flo
     return if (reversed) stops.map { (f, c) -> (1f - f) to c }.reversed() else stops
 }
 
-internal fun frostedBrush(base: Color, reversed: Boolean = false): Brush =
-    Brush.verticalGradient(*frostedStops(base, reversed).toTypedArray())
+internal fun frostedBrush(
+    base: Color,
+    reversed: Boolean = false,
+    opacity: Float = FROSTED_LEGACY_OPACITY / 100f
+): Brush = Brush.verticalGradient(*frostedStops(base, reversed, opacity).toTypedArray())
 
 /**
  * 亚克力：一整块**平**的哑光板 + 顶部极窄的一条环境光，并带一点主题染色。
@@ -893,7 +936,8 @@ internal fun frostedBrush(base: Color, reversed: Boolean = false): Brush =
 internal fun acrylicStops(
     base: Color,
     scheme: ColorScheme,
-    reversed: Boolean = false
+    reversed: Boolean = false,
+    opacity: Float = ACRYLIC_LEGACY_OPACITY / 100f
 ): List<Pair<Float, Color>> {
     // 染色 6% → 10% → **16%**：维护者口径是「亚克力和**渐变**的差别有点小了」。
     // 渐变材质是"7% 主题色 → 底色"的平滑斜坡，平均浓度只有 3.5%；
@@ -906,7 +950,7 @@ internal fun acrylicStops(
     val edge = shiftGreyLevels(tinted, 9f)
     // 亚克力使用较厚的有色塑料板：比毛玻璃染色更强、不透明度更高，同时只做 18dp 模糊，
     // 因而能保留更多背景轮廓，避免两档只换了名字。
-    val veil = 0.60f
+    val veil = opacity.coerceIn(GLASS_SURFACE_OPACITY_MIN / 100f, GLASS_SURFACE_OPACITY_MAX / 100f)
     val stops = listOf(
         0f to edge.copy(alpha = veil),
         0.012f to tinted.copy(alpha = veil),
@@ -915,8 +959,12 @@ internal fun acrylicStops(
     return if (reversed) stops.map { (f, c) -> (1f - f) to c }.reversed() else stops
 }
 
-internal fun acrylicBrush(base: Color, scheme: ColorScheme, reversed: Boolean = false): Brush =
-    Brush.verticalGradient(*acrylicStops(base, scheme, reversed).toTypedArray())
+internal fun acrylicBrush(
+    base: Color,
+    scheme: ColorScheme,
+    reversed: Boolean = false,
+    opacity: Float = ACRYLIC_LEGACY_OPACITY / 100f
+): Brush = Brush.verticalGradient(*acrylicStops(base, scheme, reversed, opacity).toTypedArray())
 
 /**
  * 真背景模糊的性能／光学参数。把数值留在纯 Kotlin 模型里，单测可以直接锁住两种材质的差异，
@@ -985,8 +1033,15 @@ internal fun Modifier.glassBackdropEffect(
     }
     return clip(shape).hazeEffect(state = state, style = style) {
         blurEnabled = true
-        // 只采样约 44% 的原始像素；模糊后肉眼差异很小，但显著降低滚动时的离屏绘制量。
-        inputScale = HazeInputScale.Fixed(profile.inputScale)
+        // 默认材质保持原始采样质量；关闭丰富效果时降低采样分辨率，
+        // 让滚动与展开动画少一次高成本离屏绘制，视觉上仍保持同一材质。
+        inputScale = HazeInputScale.Fixed(
+            AppearancePerformancePolicy.glassInputScale(
+                profile.inputScale,
+                MotionSettings.richForms,
+                MotionSettings.durationScale
+            )
+        )
     }
 }
 
@@ -1019,11 +1074,13 @@ internal fun Modifier.surfaceMaterialFill(
     alpha: Float = 1f
 ): Modifier {
     val scheme = MaterialTheme.colorScheme
-    val reversed = LocalAppearance.current.cardGradientReversed
+    val appearance = LocalAppearance.current
+    val reversed = appearance.cardGradientReversed
+    val glassSurfaceOpacity = appearance.glassSurfaceOpacity
     // 与 FocusCard.cardMaterialFill 同一个理由：渐变画刷必须跨帧复用。
     // 建在 drawBehind 里 = 每帧新建 Brush 并重编 shader（底栏与弹窗都是常驻/频繁重绘的）。
-    val layer = remember(material, base, scheme, reversed) {
-        materialBrush(material, base, scheme, reversed)
+    val layer = remember(material, base, scheme, reversed, glassSurfaceOpacity) {
+        materialBrush(material, base, scheme, reversed, glassSurfaceOpacity)
     }
     // 「玻璃的边」与卡片共用同一份判定：材质是全局的，底栏/弹窗也要有。
     val rim = remember(material, base) { materialRimColor(material, base) }

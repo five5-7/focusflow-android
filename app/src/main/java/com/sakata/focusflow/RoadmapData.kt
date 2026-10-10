@@ -20,6 +20,47 @@ data class RoadmapVersion(val version: String, val entries: List<RoadmapEntry>)
 object RoadmapData {
     /** 已实现版本演进（1.0 → 当前版本），每版本浓缩 1–3 条，与 CHANGELOG.md 对应。 */
     val evolution: List<RoadmapVersion> = listOf(
+        RoadmapVersion("9.0.0", listOf(
+            RoadmapEntry("9.0.0", "记录、安排与恢复", "收集箱整理、待办与计划、每日/每周重复和活动安排保留日常闭环；删除确认、回收站与撤回支持恢复，历史继续保留。", RoadmapStatus.DONE),
+            RoadmapEntry("9.0.0", "课程与稳定性", "教务学期选择、连续课程展示、稳定课程身份与独立课次提醒；更新下载、快速记录、无空档改期与启动诊断完成发布前修订。Room激活关闭，新识别方案暂缓。", RoadmapStatus.DONE),
+            RoadmapEntry("9.0.0", "排版、反馈与流动丝带图标", "有课日及同类选项自适应换行，收集箱操作同行，帮助问号保留标题右侧；底栏等距留白，上一步/下一步再外移2dp并受安全边界限幅。采用维护者选定的B1流动丝带图标，保留主题单色图标。", RoadmapStatus.DONE)
+        )),
+        RoadmapVersion("8.3.0", listOf(
+            RoadmapEntry("8.3.0-rc.44", "阶段9：补齐帮助问号布局", "设置分区问号在窄屏和大字号下仍保留在标题右侧；补齐提醒、免打扰、通勤、教程搜索和应用检测副页标题帮助槽；校园地点来源复用帮助按钮。versionCode 578，待真机验收，未发布。", RoadmapStatus.CANDIDATE),
+            RoadmapEntry("8.3.0-rc.43", "阶段9：日程布局与卡片按压反馈", "日程图例独立占位并为首末小时保留安全边距；标题行保留帮助操作槽，副页长标题可换行；导航和展开卡片使用随卡片尺寸变化的按压反馈。仅调整 UI，Run 662 工程验证通过；真机发现问号布局遗漏，由 rc.44 补齐。未发布。versionCode 577。", RoadmapStatus.CANDIDATE),
+            RoadmapEntry("8.3.0-rc.42", "阶段9：无障碍、动效一致性与渲染开销", "今日状态、收集箱与设置折叠区补充展开状态语义和大字号触控保障；设置折叠统一 MotionSpec；关闭丰富效果或动画时降低玻璃背景捕获采样。versionCode 576，待真机视觉验收，未发布。", RoadmapStatus.CANDIDATE),
+            RoadmapEntry("8.3.0-rc.41", "阶段9：状态入口与顶部提示动效", "今日状态入口增加箭头旋转和快速展开；数据保护/加载提示使用统一顶部展开过渡。versionCode 575，待真机视觉验收，未发布。", RoadmapStatus.CANDIDATE),
+            RoadmapEntry("8.3.0-rc.40", "阶段9：今日页层级与批量展开反馈", "课程/任务使用时间标签与内容分层；今日状态和收集箱提供箭头与展开反馈，整理模式及日程尺寸过渡遵循 MotionSpec。versionCode 574，待真机视觉验收，未发布。", RoadmapStatus.CANDIDATE),
+            RoadmapEntry("8.3.0-rc.39", "阶段9：日程模式切换过渡", "日程页日／周／课表模式切换加入淡入淡出过渡；保留外观折叠反馈、导航收回动画与稳定图片背景。versionCode 573，待真机复测，未发布。", RoadmapStatus.CANDIDATE),
+            RoadmapEntry("8.3.0-rc.38", "阶段9：外观折叠状态反馈", "外观设置折叠卡片增加箭头旋转与展开态色彩反馈；保留导航收回动画与稳定图片背景修复。versionCode 572，待真机复测，未发布。", RoadmapStatus.CANDIDATE),
+            RoadmapEntry("8.3.0-rc.37", "阶段9：保留导航收回动画并修复背景闪帧", "直接点击当前页签导航入口时保留副页收回动画；收回阶段由根背景稳定接管，避免图片背景闪帧。versionCode 571，待真机复测，未发布。", RoadmapStatus.CANDIDATE),
+            RoadmapEntry("8.3.0-rc.36", "阶段9：导航收回背景闪帧修复", "点击当前页签导航入口返回主页时直接复位，避免误播副页缩小转场造成图片背景闪帧；保留 rc.35 外观折叠动画与子页背景同步。versionCode 570，待真机复测，未发布。", RoadmapStatus.CANDIDATE),
+            RoadmapEntry("8.3.0-rc.35", "阶段9：UI 与动画精修", "外观折叠卡片补充展开/收起动画；设置进入外观时子页背景与内容同步转场，修复旧页面穿透和背景延迟。versionCode 569，待真机复测，未发布。", RoadmapStatus.CANDIDATE),
+            RoadmapEntry("8.3.0-rc.34", "阶段9：快速记录键盘布局修复", "点击底部加号打开快速记录并输入时，键盘只压缩页面和弹窗区域，悬浮导航栏保持在屏幕底部；弹窗关闭仍主动收起输入法。versionCode 568，延续 rc.33，未发布。", RoadmapStatus.CANDIDATE),
+            RoadmapEntry("8.3.0-rc.33", "阶段9：候选冻结与真机边界收敛", "完成 rc.33 工程门禁与同机复测记录；真实课表识别仍失败，按维护者决定暂缓新识别链路，保留旧版本实现与 fail-closed 门禁。versionCode 567，Run 573基线通过。", RoadmapStatus.CANDIDATE),
+            RoadmapEntry("8.3.0-rc.32", "阶段9：真实课表结果提取修复", "兼容候选数组、思考/分析段和 JSON 后尾随说明；多个并列完整结果仍拒绝，空间范围、网格一致性与人工审核门禁不变。versionCode 566，基于 rc.31 的 stage=format 同机复测反馈，待安装 Run 566 复测，Room激活关闭，未发布。", RoadmapStatus.CANDIDATE),
+            RoadmapEntry("8.3.0-rc.31", "阶段9：真实课表响应归一化", "兼容模型附加字段、数字字符串、像素/数组坐标框和可选字段缺失；坐标范围与网格一致性仍经校验，缺少空间依据进入人工审核。沿用 rc.30 的 JSON 外围格式兼容；versionCode 565，Run 566工程门禁通过，已由 rc.32 替代，Room激活关闭，未发布。", RoadmapStatus.CANDIDATE),
+            RoadmapEntry("8.3.0-rc.30", "阶段9：真机截图识别格式兼容", "兼容视觉模型 JSON 外围解释、代码围栏和尾逗号；缺失空间依据仍进入人工审核，不自动补星期或节次。沿用 rc.29 的可选字段审核修复；versionCode 564，已由 rc.31 替代，Room激活关闭，未发布。", RoadmapStatus.CANDIDATE),
+            RoadmapEntry("8.3.0-rc.27", "阶段9：快速入门弹窗材质修复", "章节内容不再重复铺页面图片或渐变，沿用统一弹窗材质，保留动画与各章滚动位置。versionCode 561，已由rc.28替代，工程门禁与真机验收未完成，Room激活关闭，未发布。", RoadmapStatus.CANDIDATE),
+            RoadmapEntry("8.3.0-rc.26", "阶段8 A：可配置视觉服务", "视觉服务配置、加密共享key、能力测试、明确上传目标和可取消识别。新网格管线待后续批次，阶段8真机与在线服务未验证，Room激活关闭，未发布。", RoadmapStatus.CANDIDATE),
+            RoadmapEntry("8.3.0-rc.25", "阶段7：持久恢复与整批撤回", "30天回收站、重复规则与计划所选任务成组恢复、课程设置恢复、批量待办和课程合并／拆分持久撤回。真机按用户指示跳过，Room激活关闭，未发布。", RoadmapStatus.CANDIDATE),
+            RoadmapEntry("8.3.0-rc.24", "阶段5：活动与今日页六个检查点", "待办关联计时及历史、单活动保护、重复规则停止与恢复性删除、今日页分组和明天预览。阶段5后续功能仍在实施，Room激活关闭。", RoadmapStatus.CANDIDATE),
+            RoadmapEntry("8.3.0-rc.23", "阶段4：收集箱、待办与计划闭环", "收集箱批量整理、待办与计划、每日／每周重复基础、独立提醒和可恢复删除。Room产品激活关闭，待稳定签名CI与OPPO合并验收。", RoadmapStatus.CANDIDATE),
+            RoadmapEntry("8.3.0-rc.22", "收集箱记录分组与紧凑整理", "完整列表按创建事件区分最近、之前和时间未标记的旧记录；待整理项默认单行，点击只展开一项，编辑删除放入更多。延续rc.21快速输入，已由rc.23替代，未单独验收。", RoadmapStatus.DONE),
+            RoadmapEntry("8.3.0-rc.21", "今日收集箱快速输入", "今日页收集箱共用一个卡面，直接输入标题并保存；显示总数与最近两条单行摘要，点击进入完整列表。Room产品激活关闭；已由rc.22代替，未单独验收。", RoadmapStatus.DONE),
+            RoadmapEntry("8.3.0-rc.20", "连续课程与收纳摘要", "相邻同名同地点课程节次合并展示，原段可逐一编辑；周五至周日无节次重叠时仍显示课程摘要。课程写入经过统一数据源；Run 462与用户验收通过，已由rc.21替代。", RoadmapStatus.DONE),
+            RoadmapEntry("8.3.0-rc.19", "课程确认与课表位置", "无冲突课程时段支持一键确认，同名时段按星期和节次汇集展示；缩小课表的周五至周日展开显示真实位置。安排时间模式选项适应宽度和字体。Run 460与用户验收通过，已由rc.20替代。", RoadmapStatus.DONE),
+            RoadmapEntry("8.3.0-rc.18", "指定教务学期与超时修复", "浙大教务导入可指定学年与学期，跳过当前学期页面；自动读取学期设总时限并提示失败。Run 459 与 OPPO 教务导入验收通过，已由rc.19替代。", RoadmapStatus.DONE),
+            RoadmapEntry("8.3.0-rc.17", "外观页收纳与五项材质", "外观页将主题配色、页面背景、卡片材质与课表底色分组收纳；卡片材质五档使用均衡排列，自定义主题编辑器共用同一套外观控件。Run 456通过；在单独真机验收前由rc.18替代。", RoadmapStatus.DONE),
+            RoadmapEntry("8.3.0-rc.16", "历史批量选择交互", "最近事件的批量选择工具栏共用卡片材质；勾选区、操作按钮与选中态按动画速度过渡。延续 rc.15 的设置布局，已通过 OPPO 真机验收，已由 rc.17 替代。", RoadmapStatus.DONE),
+            RoadmapEntry("8.3.0-rc.15", "设置等权选项布局", "页面背景与动画速度的四项选择改用自适应均衡布局，常见手机宽度 2×2，大字体与窄屏回流。延续 rc.14 的导入页外观与统一确认框，已通过 OPPO 真机验收。", RoadmapStatus.DONE),
+            RoadmapEntry("8.3.0-rc.14", "独立入口外观对齐", "今日页权限提示确认改用统一弹窗；浙江大学教务导入页的背景与卡片跟随外观。延续 rc.13 的玻璃卡面不透明度及课表识别防错，已通过 OPPO 真机验收。", RoadmapStatus.DONE),
+            RoadmapEntry("8.3.0-rc.13", "玻璃卡面不透明度", "延续 rc.12 的课表识别防错；外观设置可统一调节亚克力与毛玻璃卡面不透明度 40%–95%，旧设置仍保留 60%／48% 默认值。已通过 OPPO 真机验收。", RoadmapStatus.DONE),
+            RoadmapEntry("8.3.0-rc.12", "课表截图识别防错", "延续权限中心、浙大课表自动导入、首次动画优化与验收反馈修复；截图识别严格校验网格中的星期和节次，拒绝多数坐标缺失或明显塌缩的整批结果，完全重叠的不同课程必须逐门编辑后确认。已由 rc.13 替代。", RoadmapStatus.DONE)
+        )),
+        RoadmapVersion("8.2.2", listOf(
+            RoadmapEntry("8.2.2-rc.4", "通勤、文字对比与权限提醒", "三种校内出行方式可分别设置预留；玻璃卡片深色文字对比修复；今日页始终显示权限入口，关闭后可在设置中查看和恢复。", RoadmapStatus.CANDIDATE)
+        )),
         RoadmapVersion("8.2.1", listOf(
             RoadmapEntry("8.2.1-rc.7", "亚克力与毛玻璃扩展", "修复玻璃卡片层级冲突与滚动回归；丰富外观默认关闭。", RoadmapStatus.CANDIDATE)
         )),
@@ -409,14 +450,15 @@ object RoadmapData {
 
     /** 后续候选（“想玩游戏拓展”“自律类目标”“空挡建议进阶”已随 5.6/5.7/5.8.2 落地；正式理财已评估移除）。 */
     val future: List<RoadmapEntry> = listOf(
+        RoadmapEntry("后续", "导入 dsh", "支持范围与输入格式尚待明确。", RoadmapStatus.PLANNED),
+        RoadmapEntry("后续", "假期调课", "假期与临时调课的处理规则、操作及验收条件后续确定。", RoadmapStatus.PLANNED),
         RoadmapEntry("后续", "统一设计语言", "建立颜色、字号、间距、圆角、阴影、图标、组件状态与转场令牌；统一主页面、子页面、卡片、弹窗和悬浮导航，覆盖全面屏、普通屏、深色模式、大字体及减少动画设置", RoadmapStatus.CANDIDATE),
-        RoadmapEntry("后续", "渐变主题与自选背景", "主题从单色升级为渐变：主色→副色渐变可用于选中色块、进度条、顶栏与强调卡，内置主题各配一套渐变（不再是纯色）；背景支持自选——纯色／渐变／本地图片，图片走模糊+主题遮罩保证正文对比度不低于现有水平；深色模式单独一套渐变与遮罩参数；自选背景只影响外观层，不改数据契约。落地前先量对比度与掉帧（图片模糊在低端机上的开销）", RoadmapStatus.CANDIDATE),
         RoadmapEntry("后续", "导航组件化与 Predictive Back", "把页面导航迁入 Navigation Compose（NavHost）以获得系统级返回动画与跨进程状态恢复；8.1.0 采用会话内历史栈实现回退／折返，迁移时需重建折返语义，仅作为长期方向记录", RoadmapStatus.CANDIDATE),
         RoadmapEntry("后续", "任意表格识别自动配置计划", "识别课表之外的各类表格（如锻炼计划、阅读计划）自动生成计划（用户澄清 4.4 学习机制提案后重定向，之后讨论）", RoadmapStatus.CANDIDATE),
         RoadmapEntry("后续", "高德地图 SDK 集成", "可视化地图、POI 点选、以设备定位为中心的搜索；代价：包体积增加、SDK key 绑定包名与签名、需要定位权限", RoadmapStatus.CANDIDATE),
         RoadmapEntry("后续", "云同步与多设备备份", "所有数据目前只在本机，无任何云端能力", RoadmapStatus.CANDIDATE),
         RoadmapEntry("后续", "主屏幕小组件", "今日概览／下一步等小组件（用户评估常驻通知已部分替代，暂不优先）", RoadmapStatus.CANDIDATE),
-        RoadmapEntry("后续", "应用商店级稳定性（剩余）", "崩溃上报已上线（5.8）；剩余：自动化测试、商店发布流程", RoadmapStatus.CANDIDATE)
+        RoadmapEntry("后续", "扩展设备验证与商店发布", "已有本地崩溃记录和自动回归；更多设备/系统兼容性及商店上架流程另行评估", RoadmapStatus.CANDIDATE)
     )
 }
 
@@ -427,10 +469,10 @@ fun RoadmapSubpageContent() {
         FocusCard(containerColor = MaterialTheme.colorScheme.primaryContainer) {
             Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("当前版本 ${BuildConfig.VERSION_NAME}", fontWeight = FontWeight.Bold)
-                Text("每次功能更新递增 0.1；更新记录见版本演进。", style = MaterialTheme.typography.bodySmall)
+                Text("按版本范围发布候选与正式版；更新记录见版本演进。", style = MaterialTheme.typography.bodySmall)
             }
         }
-        Text("版本演进（1.0 → 8.1）", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Text("版本演进（1.0 → ${BuildConfig.VERSION_NAME.substringBefore("-")}）", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         RoadmapData.evolution.forEach { version ->
             Text(version.version, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
             version.entries.forEach { entry ->

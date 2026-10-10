@@ -1,10 +1,7 @@
 name: Publish FocusFlow 8.2.0
 
 on:
-  workflow_run:
-    workflows: ["Build FocusFlow APK"]
-    types: [completed]
-    branches: [main]
+  # Historical version-pinned publisher: retain manual recovery only.
   workflow_dispatch:
 
 permissions:

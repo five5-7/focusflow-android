@@ -45,7 +45,9 @@ data class TutorialSearchSettings(
     val enabled: Boolean = false,
     val apiKey: String = "",
     val model: String = DEFAULT_TUTORIAL_MODEL
-)
+) {
+    override fun toString() = "TutorialSearchSettings(enabled=$enabled, apiKey=[redacted], model=$model)"
+}
 
 /** AI 周总结设置：独立开关 + 独立硅基流动 key；key 留空时自动沿用教程搜索 key。 */
 data class AiWeeklySummarySettings(

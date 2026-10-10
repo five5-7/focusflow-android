@@ -31,6 +31,9 @@ internal object TabMotionRules {
      * 快速记录跳转、更新说明跳路线图等）是用户明确要去的地方，照常从底栏图标放大展开。
      */
     fun destinationSubpageReset(current: PageSnapshot, next: PageSnapshot): Boolean {
+        // A same-tab reselect is a real return to the root and must keep the
+        // normal reverse collapse animation. Only a different tab's subpage is
+        // reset as a side effect of switching tabs.
         if (next.tab == current.tab) return false
         return when (next.tab) {
             PageSnapshot.TAB_TODAY -> current.todayInboxOpen && !next.todayInboxOpen

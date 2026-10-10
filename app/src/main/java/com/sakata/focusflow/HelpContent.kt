@@ -11,6 +11,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
@@ -30,7 +32,6 @@ enum class SettingsBlock(val title: String) {
     EXPENSES("个人账目"),
     COMMUTE_PLACES("通勤与地点"),
     TUTORIAL_SEARCH("教程联网搜索"),
-    AI_WEEKLY_SUMMARY("AI 周总结"),
     COURSE_VISION("课表识别（视觉模型）"),
     APP_DETECTION("前台应用检测"),
     IMPROVEMENTS("改进清单")
@@ -74,8 +75,7 @@ object HelpCatalog {
             "AI 搜索只给出候选第一步；找到真实链接或材料并确认后，才从资料工具箱保存。",
             "“按空挡自动排本周目标”：本地判断，把本周未完成的目标次数排进课程空挡（避开课程与已有安排、优先更长空档），结果进入日程，可随时改期或调整。"
         )),
-        HelpSection("本周回顾", listOf("汇总本周计划完成率、改期和待恢复任务；同一时段至少出现两次改期后，才给出缩短任务或预留缓冲的建议。", "创建目标并积累完成记录后，这里还会给出目标调整建议。", "活动统计只使用“安排空闲活动”中由你确认的结束时间；前台检测只增强游戏／视频的收尾提醒，不会自动写入结束时间。")),
-        HelpSection("历史记录", listOf("近 7 天逐日展示完成的计划数、完成率与改期数；下方是最近 50 条任务事件（创建、安排、改期、完成、放回、删除、恢复）。", "统计基于发生过的事件：同一天多次移动只计一天计划；删除或放回不会撤销当日统计；已有数据首次启动会补记可推断的历史。")),
+        HelpSection("历史记录", listOf("近 7 天逐日展示完成的计划数、完成率与改期数；下方是最近 50 条任务事件（创建、安排、改期、完成、放回、删除、恢复）。", "统计基于发生过的事件：同一天多次移动只计一天计划；删除或放回不会撤销当日统计；已有数据首次启动会补记可推断的历史。", "活动统计只使用“安排空闲活动”中由你确认的结束时间；前台检测只增强游戏／视频的收尾提醒，不会自动写入结束时间。")),
         HelpSection("暂停项目", listOf("暂停的任务会集中放在这里，不占用日程。"))
     ))
 
@@ -162,11 +162,6 @@ object HelpCatalog {
             "使用你填写的硅基流动 API key；key 仅保存在本机，只发往 api.siliconflow.cn。关闭开关后“学习路径建议／教程搜索”不再发送请求；视频分析与资料总结是资料工具箱里的独立手动操作，仍会使用已保存的 key。",
             "模型可点预设快速切换（Qwen2.5-7B 免费默认 / DeepSeek-V4-Flash），也可手填其他模型 ID；模型列表变化以硅基流动文档为准。"
         )),
-        SettingsBlock.AI_WEEKLY_SUMMARY to HelpSection("AI 周总结", listOf(
-            "在“计划 → 本周回顾”里，每周按你的真实记录（目标完成、常见阻碍、游戏自律）生成本周 AI 复盘，与各目标的本地建议分开。",
-            "使用你填写的硅基流动 API key，仅发往 api.siliconflow.cn，关闭开关或未填 key 时不会发送任何请求。",
-            "与“学习路径建议”相互独立：key 留空时自动沿用学习路径建议的 key；填写独立 key 可单独管理。"
-        )),
         SettingsBlock.APP_DETECTION to HelpSection("前台应用检测", listOf(
             "此功能默认关闭，配合加号 → “安排空闲活动”的游戏／视频类别使用；它只在到点时识别前台应用并增强收尾文案，不替你记录结束。",
             "需要“使用情况访问”系统特殊权限：在本页点“去系统开启”，到系统设置里允许 FocusFlow 后返回；判断只在本机完成，不上传任何数据。",
@@ -192,7 +187,7 @@ object HelpCatalog {
 fun HelpToggleButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
     OutlinedButton(
         onClick = onClick,
-        modifier = modifier.size(30.dp),
+        modifier = modifier.size(30.dp).semantics { contentDescription = "帮助" },
         shape = CircleShape,
         contentPadding = PaddingValues(0.dp)
     ) { Text("?", fontWeight = FontWeight.Bold) }
@@ -265,8 +260,9 @@ fun BaselineWhereToFindDialog(onDismiss: () -> Unit) {
 
 @Composable
 fun SettingsSectionHeader(title: String, onHelp: () -> Unit) {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-        HelpToggleButton(onClick = onHelp)
-    }
+    FocusSectionHeader(
+        title = title,
+        keepActionInline = true,
+        action = { HelpToggleButton(onClick = onHelp) }
+    )
 }

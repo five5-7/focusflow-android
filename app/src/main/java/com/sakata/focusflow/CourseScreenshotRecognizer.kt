@@ -11,7 +11,7 @@ import android.net.Uri
  * 课表识别的解析与工具。
  *
  * 4.0.1 起不再内置本地 OCR 引擎（ML Kit / Tesseract 效果差，已移除）：
- * 课表导入只走硅基流动视觉模型（CourseVisionRecognizer）。本文件保留
+ * 课表导入使用配置并验证过的兼容视觉服务（CourseVisionRecognizer）。本文件保留
  * 视觉模型客户端复用的工具：图片解码、地点归一（校区前缀剥离、教室号/楼座
  * 归并到楼级、中文数字转阿拉伯）、楼名分区猜测。
  */

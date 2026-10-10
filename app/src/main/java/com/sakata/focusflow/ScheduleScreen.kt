@@ -1,8 +1,14 @@
 package com.sakata.focusflow
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
@@ -63,29 +69,20 @@ internal fun ScheduleScreen(
     var firstPeriodSetup by remember { mutableStateOf(false) }
 
     ScrollableWithBar(modifier = modifier, scrollState = rememberScrollState()) {
+        FocusPageHeader(
+            title = "日程",
+            subtitle = "看清今天、未来一周和固定课表",
+            action = { HelpToggleButton(onClick = { helpOpen = true }) }
+        )
         Row(
             Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Text("日程", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
-            HelpToggleButton(onClick = { helpOpen = true })
-        }
-        Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                when (scheduleMode) {
-                    "日" -> "今天"
-                    "周" -> "未来 7 天"
-                    else -> "固定课表"
-                },
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(
+                Modifier.weight(1f).horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
                 FilterChip(
                     selected = scheduleMode == "日",
                     onClick = { scheduleMode = "日" },
@@ -109,52 +106,96 @@ internal fun ScheduleScreen(
                     label = { Text("课表") }
                 )
             }
+            Text(
+                when (scheduleMode) {
+                    "日" -> "今天"
+                    "周" -> "未来 7 天"
+                    else -> "固定课表"
+                },
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+            )
         }
-        if (scheduleMode == "日") {
-            if (todayUnslotted.isNotEmpty()) {
-FocusCard(
-    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
-) {
+        AnimatedContent(
+            targetState = scheduleMode,
+            transitionSpec = {
+                (fadeIn(MotionSpec.quick()) togetherWith fadeOut(MotionSpec.quick()))
+                    .using(SizeTransform { _, _ -> MotionSpec.quick() })
+            },
+            label = "scheduleModeContent"
+        ) { mode ->
+            when (mode) {
+                "日" -> {
                     Column(
-                        Modifier.padding(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                        Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Text("今日待办 · 未定时间", fontWeight = FontWeight.SemiBold)
-                        todayUnslotted.forEach {
-                            Text("• ${it.title}", style = MaterialTheme.typography.bodySmall)
+                        if (todayUnslotted.isNotEmpty()) {
+                            FocusCard(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
+                            ) {
+                                Column(
+                                    Modifier.padding(12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Text("今日待办 · 未定时间", fontWeight = FontWeight.SemiBold)
+                                    todayUnslotted.forEach {
+                                        Text("• ${it.title}", style = MaterialTheme.typography.bodySmall)
+                                    }
+                                }
+                            }
                         }
+                        DailyScheduleTimeline(
+                            todayCourses,
+                            todaySchedule,
+                            profile,
+                            onStartTask,
+                            onRescheduleTask,
+                            onReturnToInbox,
+                            onTaskDone,
+                            onDeleteItem
+                        )
                     }
                 }
+                "周" -> Column(
+                    Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    WeeklyScheduleTimeline(
+                        courses.filter { !it.needsConfirmation },
+                        items,
+                        profile,
+                        onStartTask,
+                        onRescheduleTask,
+                        onReturnToInbox,
+                        onTaskDone,
+                        onDeleteItem
+                    )
+                }
+                else -> Column(
+                    Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    CourseTimetable(
+                        courses = courses,
+                        table = coursePeriodTable,
+                        compactView = courseTimetableCompact,
+                        onCompactViewChange = onCourseTimetableCompactChange,
+                        trailingDaysExpanded = courseTimetableTrailingDaysExpanded,
+                        onTrailingDaysExpandedChange = onCourseTimetableTrailingDaysExpandedChange,
+                        onEditPeriods = {
+                            firstPeriodSetup = false
+                            periodTableOpen = true
+                        },
+                        onEditCourse = onEditCourse
+                    )
+                }
             }
-            DailyScheduleTimeline(todayCourses, todaySchedule, profile, onStartTask, onRescheduleTask, onReturnToInbox, onTaskDone, onDeleteItem)
-        } else if (scheduleMode == "周") {
-            WeeklyScheduleTimeline(
-                courses.filter { !it.needsConfirmation },
-                items,
-                profile,
-                onStartTask,
-                onRescheduleTask,
-                onReturnToInbox,
-                onTaskDone,
-                onDeleteItem
-            )
-        } else {
-            CourseTimetable(
-                courses = courses,
-                table = coursePeriodTable,
-                compactView = courseTimetableCompact,
-                onCompactViewChange = onCourseTimetableCompactChange,
-                trailingDaysExpanded = courseTimetableTrailingDaysExpanded,
-                onTrailingDaysExpandedChange = onCourseTimetableTrailingDaysExpandedChange,
-                onEditPeriods = {
-                    firstPeriodSetup = false
-                    periodTableOpen = true
-                },
-                onEditCourse = onEditCourse
-            )
         }
         if (scheduleMode != "课表" && flexibleItems.isNotEmpty()) {
-            Text("弹性安排", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            FocusSectionHeader("弹性安排")
             flexibleItems.take(4).forEach { item ->
                 FlexibleScheduleRow(
                     item,
