@@ -9,7 +9,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
@@ -17,9 +16,8 @@ import androidx.compose.ui.unit.dp
  * Shared page heading for the four primary surfaces.
  *
  * The side accent makes the hierarchy visible at a glance while the supporting
- * line gives the page a clear purpose. At narrow widths and large font scales,
- * the trailing action moves below the title so the heading never squeezes its
- * title into an ellipsis.
+ * line gives the page a clear purpose. A trailing help action stays in this
+ * same row so it remains discoverable and never consumes a separate line.
  */
 @Composable
 internal fun FocusPageHeader(
@@ -27,40 +25,14 @@ internal fun FocusPageHeader(
     subtitle: String? = null,
     action: (@Composable () -> Unit)? = null
 ) {
-    BoxWithConstraints(Modifier.fillMaxWidth()) {
-        val stackAction = action != null &&
-            (maxWidth < 380.dp || LocalDensity.current.fontScale >= 1.3f)
-        if (stackAction) {
-            Column(
-                Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Row(
-                    Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.Top,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    FocusPageHeaderAccent()
-                    FocusPageHeaderText(title, subtitle)
-                }
-                Box(
-                    Modifier.fillMaxWidth().padding(start = 16.dp),
-                    contentAlignment = Alignment.CenterEnd
-                ) {
-                    action?.invoke()
-                }
-            }
-        } else {
-            Row(
-                Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.Top,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                FocusPageHeaderAccent()
-                FocusPageHeaderText(title, subtitle)
-                action?.invoke()
-            }
-        }
+    Row(
+        Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.Top,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        FocusPageHeaderAccent()
+        FocusPageHeaderText(title, subtitle)
+        action?.invoke()
     }
 }
 

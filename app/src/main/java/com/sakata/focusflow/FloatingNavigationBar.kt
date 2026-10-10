@@ -72,6 +72,21 @@ internal fun navigationIndicatorColor(background: Color, primary: Color): Color 
     if (contrastRatio(background, primary) >= 1.5) primary.copy(alpha = 1f) else navigationContentColor(background)
 
 /**
+ * 副页标题可以很长，但底部导航的标签是固定宽度的触控提示。
+ * 页面标题仍使用完整名称；这里只把高频副页收敛成短别名，避免导航项被挤成两行。
+ */
+private fun navigationShortLabel(destinationKey: String): String = when (destinationKey) {
+    "日程与活动提醒" -> "提醒"
+    "提醒打扰控制" -> "免打扰"
+    "教程联网搜索" -> "教程"
+    "使用说明书" -> "说明"
+    "版本路线图" -> "路线"
+    "通勤与地点" -> "通勤"
+    "校园地点" -> "地点"
+    else -> destinationKey
+}
+
+/**
  * 8.1.0 底栏形变形状：平时为完整胶囊（四角半径=高度一半）；
  * 每个上角独立按 progress 动画收缩为小圆角（18dp），对应各自图标的出现/消失。
  * 下两角始终为大圆角；左右竖直、上下平直。
@@ -525,7 +540,7 @@ private fun FloatingNavigationItem(
                 })
         }
         // 8.1.0 副页表示：选中且处于子页时，标签替换为子页名（如「设置」→「外观」）。
-        val displayLabel = if (selected && hasSubpage) destinationKey else label
+        val displayLabel = if (selected && hasSubpage) navigationShortLabel(destinationKey) else label
         // 8.1.0 第三轮：页签名与子页名之间交叉淡入，替代原来的瞬时替换。
         Crossfade(targetState = displayLabel, animationSpec = MotionSpec.move(), label = "navigationLabel") { text ->
             Text(

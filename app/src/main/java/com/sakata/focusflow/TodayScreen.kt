@@ -6,10 +6,8 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.selection.toggleable
@@ -548,8 +546,9 @@ import kotlinx.coroutines.delay
                         }
                         AnimatedVisibility(
                             visible = inboxSelecting,
-                            enter = expandVertically(MotionSpec.quick(), expandFrom = Alignment.Top) + fadeIn(MotionSpec.quick()),
-                            exit = shrinkVertically(MotionSpec.exit(), shrinkTowards = Alignment.Top) + fadeOut(MotionSpec.exit())
+                            // 批量操作卡含有多行按钮；避免 expandVertically 在玻璃背景上逐帧重排。
+                            enter = fadeIn(MotionSpec.quick()),
+                            exit = fadeOut(MotionSpec.exit())
                         ) {
                             FocusCard(containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
                                 Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -699,13 +698,14 @@ private fun TodayStatusPanel(
     // （OutlinedCardTokens.ContainerColor = surface）与默认描边（1dp outlineVariant）。
     FocusCard(
         containerColor = MaterialTheme.colorScheme.surface,
-        border = CardDefaults.outlinedCardBorder()
+        border = CardDefaults.outlinedCardBorder(),
+        elevation = 1.dp,
+        onClick = { onExpandedChange(!expanded) }
     ) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp)) {
             Row(
                 Modifier.fillMaxWidth()
                     .minimumInteractiveComponentSize()
-                    .clickable(role = Role.Button) { onExpandedChange(!expanded) }
                     .semantics {
                         stateDescription = if (expanded) "已展开；双击收起" else "已收起；双击展开"
                     },
@@ -731,8 +731,9 @@ private fun TodayStatusPanel(
             }
             AnimatedVisibility(
                 visible = expanded,
-                enter = expandVertically(animationSpec = MotionSpec.quick(), expandFrom = Alignment.Top) + fadeIn(MotionSpec.quick()),
-                exit = shrinkVertically(animationSpec = MotionSpec.exit(), shrinkTowards = Alignment.Top) + fadeOut(MotionSpec.exit())
+                // 今日状态包含多个横向选择器；淡入保留反馈，避免展开动画逐帧重排整页。
+                enter = fadeIn(MotionSpec.quick()),
+                exit = fadeOut(MotionSpec.exit())
             ) {
                 Column(Modifier.fillMaxWidth().padding(top = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     HorizontalDivider()
@@ -879,8 +880,9 @@ private fun StatusChoiceRow(label: String, options: List<String>, selected: Stri
         }
         AnimatedVisibility(
             visible = expanded,
-            enter = expandVertically(MotionSpec.quick(), expandFrom = Alignment.Top) + fadeIn(MotionSpec.quick()),
-            exit = shrinkVertically(MotionSpec.exit(), shrinkTowards = Alignment.Top) + fadeOut(MotionSpec.exit())
+            // 先完成一次尺寸布局，再淡入内容，避免展开期间反复触发卡片背景捕获。
+            enter = fadeIn(MotionSpec.quick()),
+            exit = fadeOut(MotionSpec.exit())
         ) {
             Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 if (item.detail.isNotBlank()) Text(item.detail)

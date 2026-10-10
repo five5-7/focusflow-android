@@ -74,13 +74,15 @@ internal fun ScheduleScreen(
             subtitle = "看清今天、未来一周和固定课表",
             action = { HelpToggleButton(onClick = { helpOpen = true }) }
         )
-        BoxWithConstraints(Modifier.fillMaxWidth()) {
-            val rangeTitle = when (scheduleMode) {
-                "日" -> "今天"
-                "周" -> "未来 7 天"
-                else -> "固定课表"
-            }
-            val modeChips: @Composable RowScope.() -> Unit = {
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                Modifier.weight(1f).horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
                 FilterChip(
                     selected = scheduleMode == "日",
                     onClick = { scheduleMode = "日" },
@@ -104,20 +106,17 @@ internal fun ScheduleScreen(
                     label = { Text("课表") }
                 )
             }
-            if (maxWidth < 430.dp || androidx.compose.ui.platform.LocalDensity.current.fontScale >= 1.3f) {
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    FocusSectionHeader(rangeTitle)
-                    Row(
-                        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) { modeChips() }
-                }
-            } else {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    FocusSectionHeader(rangeTitle, modifier = Modifier.weight(1f))
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) { modeChips() }
-                }
-            }
+            Text(
+                when (scheduleMode) {
+                    "日" -> "今天"
+                    "周" -> "未来 7 天"
+                    else -> "固定课表"
+                },
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+            )
         }
         AnimatedContent(
             targetState = scheduleMode,

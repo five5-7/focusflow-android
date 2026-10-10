@@ -5,6 +5,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -482,11 +484,13 @@ internal val CONFLICT_TEXT_COLOR = Color(0xFFB3261E)
 private val CONFLICT_RED_BG = Color(0xFFB3261E)
 private val CONFLICT_STRIPE_COLOR = Color(0x99FFF3CD)
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun TimelineLegend() {
-    Row(
+    FlowRow(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
-        modifier = Modifier.horizontalScroll(rememberScrollState())
+        verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         ScheduleType.entries.forEach { type ->
             Text(

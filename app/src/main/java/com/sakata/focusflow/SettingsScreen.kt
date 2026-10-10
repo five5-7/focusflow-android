@@ -12,10 +12,8 @@ import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.ScrollState
@@ -294,8 +292,8 @@ private data class BaselineVariantDraft(val name: String)
                 }
                 AnimatedVisibility(
                     visible = defaultHelpExpanded,
-                    enter = fadeIn(MotionSpec.enter()) + expandVertically(MotionSpec.quick()),
-                    exit = fadeOut(MotionSpec.exit()) + shrinkVertically(MotionSpec.quick())
+                    enter = fadeIn(MotionSpec.enter()),
+                    exit = fadeOut(MotionSpec.exit())
                 ) {
                     Text(
                         "核心功能可直接使用；AI、地点和识别均为可选，重要操作需要确认。",
@@ -450,8 +448,8 @@ private data class BaselineVariantDraft(val name: String)
                     }
                     AnimatedVisibility(
                         visible = baselineVariantsExpanded,
-                        enter = fadeIn(MotionSpec.quick()) + expandVertically(MotionSpec.quick()),
-                        exit = fadeOut(MotionSpec.exit()) + shrinkVertically(MotionSpec.exit())
+                        enter = fadeIn(MotionSpec.quick()),
+                        exit = fadeOut(MotionSpec.exit())
                     ) {
                         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         baselineVariants.forEach { variant ->
@@ -1002,8 +1000,8 @@ private data class BaselineVariantDraft(val name: String)
                                         }
                                         AnimatedVisibility(
                                             visible = transportReservesExpanded,
-                                            enter = fadeIn(MotionSpec.quick()) + expandVertically(MotionSpec.quick()),
-                                            exit = fadeOut(MotionSpec.exit()) + shrinkVertically(MotionSpec.exit())
+                                            enter = fadeIn(MotionSpec.quick()),
+                                            exit = fadeOut(MotionSpec.exit())
                                         ) {
                                             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                                 Text("楼内进出缓冲另算；实测路线记录优先。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -1308,8 +1306,8 @@ private data class BaselineVariantDraft(val name: String)
                         }
                         AnimatedVisibility(
                             visible = categorizedExpanded,
-                            enter = fadeIn(MotionSpec.quick()) + expandVertically(MotionSpec.quick()),
-                            exit = fadeOut(MotionSpec.exit()) + shrinkVertically(MotionSpec.exit())
+                            enter = fadeIn(MotionSpec.quick()),
+                            exit = fadeOut(MotionSpec.exit())
                         ) {
                             Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             AppCategory.entries.filter { it != AppCategory.UNKNOWN }.forEach { category ->
@@ -1360,8 +1358,8 @@ private data class BaselineVariantDraft(val name: String)
                             }
                             AnimatedVisibility(
                                 visible = uncategorizedExpanded,
-                                enter = fadeIn(MotionSpec.quick()) + expandVertically(MotionSpec.quick()),
-                                exit = fadeOut(MotionSpec.exit()) + shrinkVertically(MotionSpec.exit())
+                                enter = fadeIn(MotionSpec.quick()),
+                                exit = fadeOut(MotionSpec.exit())
                             ) {
                                 Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                 Text("没有自动识别出分类；给它们归类后，到点检测才会把它们算作游戏/视频等。", style = MaterialTheme.typography.bodySmall)
@@ -1402,8 +1400,8 @@ private data class BaselineVariantDraft(val name: String)
                             }
                             AnimatedVisibility(
                                 visible = hiddenExpanded,
-                                enter = fadeIn(MotionSpec.quick()) + expandVertically(MotionSpec.quick()),
-                                exit = fadeOut(MotionSpec.exit()) + shrinkVertically(MotionSpec.exit())
+                                enter = fadeIn(MotionSpec.quick()),
+                                exit = fadeOut(MotionSpec.exit())
                             ) {
                                 Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                 hiddenApps.sortedBy { AppLibrary.appLabel(context, it) }.forEach { pkg ->
@@ -1586,8 +1584,8 @@ internal fun CollapsibleSettingsDetails(
             }
             AnimatedVisibility(
                   visible = expanded,
-                  enter = fadeIn(MotionSpec.enter()) + expandVertically(MotionSpec.quick()),
-                  exit = fadeOut(MotionSpec.exit()) + shrinkVertically(MotionSpec.quick())
+                  enter = fadeIn(MotionSpec.enter()),
+                  exit = fadeOut(MotionSpec.exit())
               ) {
                 Column(Modifier.padding(top = 4.dp), verticalArrangement = Arrangement.spacedBy(8.dp), content = content)
             }
