@@ -33,6 +33,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -53,6 +54,7 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
+import kotlin.reflect.KProperty
 
 /**
  * 8.1.0 第三轮：把弹窗从"独立窗口"改为**页内浮层**。
@@ -113,6 +115,54 @@ internal class AppDialogHostState {
      */
     internal fun dismissSuspendedOnTakeover() {
         if (isOpen && !visible) onDismiss?.invoke()
+    }
+}
+
+/**
+ * 弹窗打开状态（目标型）。值为 null 表示没有打开。
+ *
+ * 为什么不是裸的可空值：弹窗被"上一步"收起后仍然注册在宿主里（宿主 visible=false），
+ * 调用点的打开状态却还是原来的值。此时再点同一个入口，只是把同一个值再写一遍，
+ * Compose 看不到状态变化，界面就成了死按钮。
+ *
+ * 这里给每次"打开动作"配一个只增不减的请求序号：被收起期间的任何打开写入（包括写入相同的值、
+ * 以及换成另一个目标）都会推进 [requestId]，调用点用 `key(requestId)` 包住弹窗，
+ * 于是弹窗子树重建、重新注册占据宿主（宿主 seq 变大 → 重新进场）。
+ * 弹窗正在显示时写入只更新数据、不推进序号，避免把用户正在填写的表单重建掉。
+ */
+internal class DialogTargetState<T : Any>(
+    private val suspended: () -> Boolean,
+) {
+    private var current by mutableStateOf<T?>(null)
+    private var requests by mutableIntStateOf(0)
+
+    /** 当前打开请求的序号；读它会参与重组，`key(requestId)` 因此能感知新的打开动作。 */
+    val requestId: Int get() = requests
+
+    operator fun getValue(thisRef: Any?, property: KProperty<*>): T? = current
+
+    operator fun setValue(thisRef: Any?, property: KProperty<*>, newValue: T?) {
+        if (newValue != null && suspended()) requests += 1
+        current = newValue
+    }
+}
+
+/** 弹窗打开状态（开关型）。false 表示没有打开，[requestId] 语义同 [DialogTargetState]。 */
+internal class DialogFlagState(
+    private val suspended: () -> Boolean,
+    initial: Boolean = false,
+) {
+    private var open by mutableStateOf(initial)
+    private var requests by mutableIntStateOf(0)
+
+    /** 当前打开请求的序号；读它会参与重组，`key(requestId)` 因此能感知新的打开动作。 */
+    val requestId: Int get() = requests
+
+    operator fun getValue(thisRef: Any?, property: KProperty<*>): Boolean = open
+
+    operator fun setValue(thisRef: Any?, property: KProperty<*>, newValue: Boolean) {
+        if (newValue && suspended()) requests += 1
+        open = newValue
     }
 }
 
@@ -298,9 +348,14 @@ internal fun AppDialogHost(
             layout(constraints.maxWidth, constraints.maxHeight) {
                 val centered = (constraints.maxHeight - placeable.height) / 2
                 val safe = constraints.maxHeight - inset - placeable.height
+                // 8.3.0 修复「弹窗收起后隐形但仍激活」：非在场且退场动画已结束时，把卡片整体
+                // 放到底图之外。收起态只是把卡片画到透明，命中测试仍然有效——不搬走就会
+                // 在页面上留下一块看不见却能吃掉点击/焦点/按键的区域（表现为整页冻住）。
+                val settledClosed = !open && progress.value <= 0.001f
                 placeable.place(
                     x = (constraints.maxWidth - placeable.width) / 2,
-                    y = minOf(centered, safe).coerceAtLeast(0)
+                    y = if (settledClosed) constraints.maxHeight
+                    else minOf(centered, safe).coerceAtLeast(0)
                 )
             }
         }

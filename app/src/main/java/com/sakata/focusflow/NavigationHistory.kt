@@ -61,7 +61,18 @@ internal data class PageSnapshot(
  */
 internal class NavHistory(private val capacity: Int = 30) {
     private val backStack = ArrayDeque<PageSnapshot>()
-    private val forwardStack = ArrayDeque<PageSnapshot>()
+    private val forwardStack = ArrayDeque<ForwardStep>()
+
+    /**
+     * 折返栈里的一步。区分两类回退，才能保证「上一步/下一步」对称：
+     * - [Page]：页面级回退——forward 时要把当前页面补回 backStack；
+     * - [Dialog]：弹窗层回退——页面没动，forward 时只把弹窗层打开，不碰页面栈。
+     */
+    private sealed interface ForwardStep {
+        val snapshot: PageSnapshot
+        data class Page(override val snapshot: PageSnapshot) : ForwardStep
+        data class Dialog(override val snapshot: PageSnapshot) : ForwardStep
+    }
 
     var current: PageSnapshot = PageSnapshot.ROOT
         private set
@@ -94,12 +105,12 @@ internal class NavHistory(private val capacity: Int = 30) {
     }
 
     /**
-     * 弹窗浮层开／关**本身不算一步历史**（用户口径）：
-     * 它是当前状态的属性——「副页 + 弹窗 + 已填数据」是同一个整体，
-     * 因此只就地更新 current，不压栈、不产生折返。
+     * 弹窗浮层开／关**本身不压页面栈**（用户口径）：它是当前状态的属性——
+     * 「副页 + 弹窗 + 已填数据」是同一个整体。
      *
-     * 于是：
-     * - 在副页开着弹窗时按上一步 → 回到上一个页面（这一步本来就存在），弹窗随整体一起收起；
+     * 但弹窗层自己**算上一步的一个台阶**（2026-10 用户反馈补充）：
+     * - 弹窗开着时按上一步 → 只退掉弹窗层、页面不动（`back()` 见下），
+     *   下一步再把它整包带回来（数据由调用点与草稿箱保留），于是"填了一半退出去看一眼再回来继续填"成立；
      * - 从别处（管理地点／其他页／本页签主页）按上一步回来 → 回到这个整体：副页 + 弹窗 + 数据。
      *
      * 传 false（用户自己关掉、或调用点注销）时：清掉当前标记，并把栈里**已经无法兑现**的
@@ -124,23 +135,34 @@ internal class NavHistory(private val capacity: Int = 30) {
     fun clearDialogLayer(): Boolean {
         val hadLayer = current.dialogOpen ||
             backStack.any { it.dialogOpen } ||
-            forwardStack.any { it.dialogOpen }
+            forwardStack.any { it.snapshot.dialogOpen }
         if (!hadLayer) return false
         current = current.withoutDialog()
         demoteDialogLayers()
         return true
     }
 
-    /** 把栈里的弹窗快照降级成"同页、无弹窗"，保留页面这一步。 */
+    /**
+     * 把栈里的弹窗快照降级成"同页、无弹窗"，保留页面这一步。
+     * 折返栈里的「弹窗层」步已无法兑现（用户自己关掉了、或调用点离开了组合），整步丢弃。
+     */
     private fun demoteDialogLayers() {
         for (i in backStack.indices) {
             val snapshot = backStack[i]
             if (snapshot.dialogOpen) backStack[i] = snapshot.withoutDialog()
         }
-        for (i in forwardStack.indices) {
-            val snapshot = forwardStack[i]
-            if (snapshot.dialogOpen) forwardStack[i] = snapshot.withoutDialog()
+        val kept = forwardStack.mapNotNull { step ->
+            when (step) {
+                is ForwardStep.Dialog -> null
+                is ForwardStep.Page -> if (step.snapshot.dialogOpen) {
+                    ForwardStep.Page(step.snapshot.withoutDialog())
+                } else {
+                    step
+                }
+            }
         }
+        forwardStack.clear()
+        kept.forEach { forwardStack.addLast(it) }
     }
 
     /**
@@ -155,23 +177,32 @@ internal class NavHistory(private val capacity: Int = 30) {
         forwardStack.clear()
     }
 
-    fun canGoBack(): Boolean = backStack.isNotEmpty()
+    fun canGoBack(): Boolean = backStack.isNotEmpty() || current.dialogOpen
 
-    /** 回退一步：当前快照移入折返栈，恢复上一快照；到顶返回 null。 */
+    /**
+     * 回退一步：先退掉弹窗层（页面不动、弹窗压进折返栈），弹窗层退完了才回到上一个页面。
+     * 这样"弹窗填了一半按上一步"只关弹窗，下一步能原样带回来继续填。
+     */
     fun back(): PageSnapshot? {
+        if (current.dialogOpen) {
+            forwardStack.addLast(ForwardStep.Dialog(current))
+            current = current.withoutDialog()
+            return current
+        }
         if (backStack.isEmpty()) return null
-        forwardStack.addLast(current)
+        forwardStack.addLast(ForwardStep.Page(current))
         current = backStack.removeLast()
         return current
     }
 
     fun canGoForward(): Boolean = forwardStack.isNotEmpty()
 
-    /** 折返一步：当前快照移入回退栈，恢复下一快照；到底返回 null。 */
+    /** 折返一步：弹窗层直接打开；页面级则把当前页面补回回退栈；到底返回 null。 */
     fun forward(): PageSnapshot? {
         if (forwardStack.isEmpty()) return null
-        backStack.addLast(current)
-        current = forwardStack.removeLast()
+        val step = forwardStack.removeLast()
+        if (step is ForwardStep.Page) backStack.addLast(current)
+        current = step.snapshot
         return current
     }
 

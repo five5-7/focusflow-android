@@ -144,31 +144,42 @@ class NavigationHistoryTest {
     }
 
     @Test
-    fun openingDialogAddsNoHistoryStep() {
-        // 用户口径：打开弹窗本身不算一步。「副页 + 弹窗 + 已填数据」是同一个整体。
+    fun dialogLayerIsOneBackStep() {
+        // 用户口径（2026-10 补充）：弹窗层算「上一步」的一个台阶——
+        // 按下先只关弹窗、页面不动；下一步整包带回来（数据由调用点与草稿箱保留），
+        // 于是"填了一半退出去看一眼、回来继续填"成立。
         val h = NavHistory()
         val courses = snap(2, plan = PlanPage.COURSES)
         h.goTo(courses)
         assertTrue(h.setDialogLayer(true)) // 手动新增 → 打开课程编辑弹窗
         assertEquals(courses.copy(dialogOpen = true), h.current)
-        // 上一步：回到进入课程子页之前的那一步（计划主页），不是"只关弹窗"
-        val previous = h.back()!!
-        assertEquals(PageSnapshot.ROOT, previous)
-        assertFalse(previous.dialogOpen)
-        // 下一步：整包回来——副页 + 弹窗（数据由调用点与草稿箱保留）
+        assertTrue("弹窗开着必须能上一步", h.canGoBack())
+
+        // 上一步：只退掉弹窗层，页面不动
+        val steppedOut = h.back()!!
+        assertEquals(courses, steppedOut)
+        assertFalse(steppedOut.dialogOpen)
+
+        // 下一步：整包回来——副页 + 弹窗
         val restored = h.forward()!!
         assertEquals(courses, restored.withoutDialog())
         assertTrue(restored.dialogOpen)
         assertFalse(h.setDialogLayer(true)) // 已是打开状态
+
+        // 弹窗层退完，再一步才是离开页面
+        assertEquals(courses, h.back())
+        assertEquals(PageSnapshot.ROOT, h.back())
     }
 
     @Test
-    fun dialogOnTabRootAddsNoBackStep() {
-        // 主页上开弹窗不产生历史：上一步没有目标（只能靠底栏回主页）。
+    fun tabRootDialogIsOneBackStep() {
+        // 页签主页上开弹窗也有一条可退的「上一步」：先退弹窗层（页面不动）。
         val h = NavHistory()
         h.goTo(snap(0))
         assertFalse(h.canGoBack())
         h.setDialogLayer(true)
+        assertTrue(h.canGoBack())
+        assertEquals(snap(0), h.back())
         assertFalse(h.canGoBack())
         assertNull(h.back())
     }

@@ -179,6 +179,7 @@ internal fun scheduleWindowOptions(now: Long = System.currentTimeMillis()): List
                     )
                 }
                 Text("这些时间已避开课程和定时任务，并保留前后缓冲。选择只是初步安排，之后仍可改期。", style = MaterialTheme.typography.bodySmall)
+                Text("建议是即时计算出来的，不单独保存；只有点选某个时间后才会写入安排。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (suggestions.isEmpty()) {
                     Text("未来七天暂时没有足够连续的空档。任务会继续保留为弹性安排。")
                 } else suggestions.forEach { suggestion ->

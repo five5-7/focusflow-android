@@ -6,8 +6,10 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.selection.toggleable
@@ -341,9 +343,30 @@ import kotlinx.coroutines.delay
             onClick = onOpenSchedule,
             navigationClick = true
         ) {
-            Row(Modifier.fillMaxWidth().padding(14.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("需要处理 · ${recoveryCandidates.size} 项", fontWeight = FontWeight.Bold)
-                Text("去日程 ›", color = MaterialTheme.colorScheme.primary)
+            Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    // 口径：计数只来自"已错过精确时间或反复改期≥2次"的任务（RecoveryInsights.candidates），
+                    // 不再让人误读成"待安排的弹性任务数"。
+                    Text("已错过或反复改期 · ${recoveryCandidates.size} 项", fontWeight = FontWeight.Bold)
+                    Text("去日程 ›", color = MaterialTheme.colorScheme.primary)
+                }
+                // 条目化：列出的就是计数来源，数字自解释；恢复入口仍在日程页，不自动移动任务。
+                recoveryCandidates.take(2).forEach { candidate ->
+                    Text(
+                        candidate.item.title,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                if (recoveryCandidates.size > 2) {
+                    Text(
+                        "还有 ${recoveryCandidates.size - 2} 项，可在日程里恢复",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
         }
         FocusCard(containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
@@ -701,6 +724,9 @@ private fun TodayStatusPanel(
         animationSpec = MotionSpec.quick(),
         label = "todayStatusArrow"
     )
+    // 丰富模式开（MotionSettings.richForms，与页签平动/底栏形变同一个开关）：展开/收起走可见的垂直展开 + 淡入；
+    // 丰富模式关或动画速度为 0：保持纯淡入淡出——今日状态含多个横向选择器，逐帧重排整页是默认模式要避免的开销。
+    val richForms = MotionSettings.richForms && MotionSpec.animationsEnabled
     // 收编：OutlinedCard → FocusCard。显式保留 Material3 OutlinedCard 的默认底色
     // （OutlinedCardTokens.ContainerColor = surface）与默认描边（1dp outlineVariant）。
     FocusCard(
@@ -738,9 +764,17 @@ private fun TodayStatusPanel(
             }
             AnimatedVisibility(
                 visible = expanded,
-                // 今日状态包含多个横向选择器；淡入保留反馈，避免展开动画逐帧重排整页。
-                enter = fadeIn(MotionSpec.quick()),
-                exit = fadeOut(MotionSpec.exit())
+                enter = if (richForms) {
+                    fadeIn(MotionSpec.quick()) + expandVertically(MotionSpec.enter(), expandFrom = Alignment.Top)
+                } else {
+                    // 纯淡入保留反馈，避免展开动画逐帧重排整页（默认模式的性能特性）。
+                    fadeIn(MotionSpec.quick())
+                },
+                exit = if (richForms) {
+                    fadeOut(MotionSpec.exit()) + shrinkVertically(MotionSpec.exit(), shrinkTowards = Alignment.Top)
+                } else {
+                    fadeOut(MotionSpec.exit())
+                }
             ) {
                 Column(Modifier.fillMaxWidth().padding(top = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     HorizontalDivider()
@@ -863,7 +897,11 @@ private fun StatusChoiceRow(label: String, options: List<String>, selected: Stri
     var moreOpen by remember(item.id) { mutableStateOf(false) }
     FocusCard(
         modifier = Modifier.fillMaxWidth(),
-        containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        // Bug5b：按压目标提到整张卡片。FocusCard 的 onClick 走 CardPressIndication
+        // （8% onSurface，绘制在 Card 形状裁剪层内），沿卡片圆角盖满整卡；
+        // 标题行不再挂 clickable，避免默认 ripple 被行矩形边界约束成方角灰块。
+        onClick = if (selecting) null else onToggle
     ) { Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp)) {
         Row(
             Modifier.fillMaxWidth()
@@ -871,8 +909,7 @@ private fun StatusChoiceRow(label: String, options: List<String>, selected: Stri
                 .then(
                     if (selecting) Modifier.toggleable(
                         value = selected, role = Role.Checkbox, onValueChange = { onToggle() }
-                    ) else Modifier.clickable(role = Role.Button, onClick = onToggle)
-                        .semantics { stateDescription = if (expanded) "已展开" else "已收起" }
+                    ) else Modifier.semantics { stateDescription = if (expanded) "已展开" else "已收起" }
                 )
                 .padding(vertical = 5.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),

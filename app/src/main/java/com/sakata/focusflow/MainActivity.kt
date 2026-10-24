@@ -284,13 +284,24 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
     val context = LocalContext.current
     fun readCoreData() = (coreDataRepository.read() as CoreDataReadResult.Ready).snapshot
     var tab by remember { mutableIntStateOf(0) }
+    // 8.1.0 第三轮：弹窗改为页内浮层（底栏仍可点、历史键可用），见 AppDialog.kt。
+    // 宿主状态要早于各弹窗打开状态声明：打开状态需要知道"弹窗是否正被上一步收起"。
+    val dialogHost = remember { AppDialogHostState() }
+    /** 弹窗已注册但正被"上一步"收起：此时再点同一个入口要当成一次新的打开请求。 */
+    val dialogSuspended: () -> Boolean = remember(dialogHost) { { dialogHost.isOpen && !dialogHost.visible } }
     var todayInboxOpen by remember { mutableStateOf(false) }
-    var addOpen by remember { mutableStateOf(false) }
-    var addTodoOpen by remember { mutableStateOf(false) }
-    var addWantedOpen by remember { mutableStateOf(false) }
-    var addScheduleOpen by remember { mutableStateOf(false) }
-    var addReminderOpen by remember { mutableStateOf(false) }
-    var trashOpen by remember { mutableStateOf(false) }
+    val addOpenState = remember { DialogFlagState(dialogSuspended) }
+    var addOpen by addOpenState
+    val addTodoOpenState = remember { DialogFlagState(dialogSuspended) }
+    var addTodoOpen by addTodoOpenState
+    val addWantedOpenState = remember { DialogFlagState(dialogSuspended) }
+    var addWantedOpen by addWantedOpenState
+    val addScheduleOpenState = remember { DialogFlagState(dialogSuspended) }
+    var addScheduleOpen by addScheduleOpenState
+    val addReminderOpenState = remember { DialogFlagState(dialogSuspended) }
+    var addReminderOpen by addReminderOpenState
+    val trashOpenState = remember { DialogFlagState(dialogSuspended) }
+    var trashOpen by trashOpenState
     var pendingPlanDelete by remember { mutableStateOf<Goal?>(null) }
     var selectedPlanTasks by remember { mutableStateOf(emptySet<Long>()) }
     var pendingIgnoreCourses by remember { mutableStateOf<Set<Course>>(emptySet()) }
@@ -300,23 +311,36 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
     var addMenuOpen by remember { mutableStateOf(false) }
     // 历史导航可能只把加号弹窗收起，Boolean 仍为 true；请求序号保证再次点击会重建并注册弹窗。
     var addMenuRequestId by remember { mutableIntStateOf(0) }
-    var gamePlanOpen by remember { mutableStateOf(false) }
-    var activityOpen by remember { mutableStateOf(false) }
+    val gamePlanOpenState = remember { DialogFlagState(dialogSuspended) }
+    var gamePlanOpen by gamePlanOpenState
+    val activityOpenState = remember { DialogFlagState(dialogSuspended) }
+    var activityOpen by activityOpenState
     var activityPreset by remember { mutableStateOf<ActivityLaunchPreset?>(null) }
     var activityTaskId by remember { mutableStateOf<Long?>(null) }
-    var transitionTarget by remember { mutableStateOf<ActivitySession?>(null) }
+    val transitionTargetState = remember { DialogTargetState<ActivitySession>(dialogSuspended) }
+    var transitionTarget by transitionTargetState
     var rescheduleAfterActivitySession by remember { mutableStateOf<ActivitySession?>(null) }
     var autoPromptedSessionId by remember { mutableStateOf<Long?>(null) }
-    var rescheduleTarget by remember { mutableStateOf<Item?>(null) }
-    var inboxScheduleTarget by remember { mutableStateOf<Item?>(null) }
-    var goalScheduleTarget by remember { mutableStateOf<Goal?>(null) }
-    var flexiblePlanTarget by remember { mutableStateOf<Item?>(null) }
-    var inboxEditTarget by remember { mutableStateOf<Item?>(null) }
-    var todoDetailTarget by remember { mutableStateOf<Item?>(null) }
-    var organizeTarget by remember { mutableStateOf<Item?>(null) }
-    var convertTarget by remember { mutableStateOf<Item?>(null) }
-    var attachTarget by remember { mutableStateOf<Item?>(null) }
-    var attachBatchIds by remember { mutableStateOf<Set<Long>?>(null) }
+    val rescheduleTargetState = remember { DialogTargetState<Item>(dialogSuspended) }
+    var rescheduleTarget by rescheduleTargetState
+    val inboxScheduleTargetState = remember { DialogTargetState<Item>(dialogSuspended) }
+    var inboxScheduleTarget by inboxScheduleTargetState
+    val goalScheduleTargetState = remember { DialogTargetState<Goal>(dialogSuspended) }
+    var goalScheduleTarget by goalScheduleTargetState
+    val flexiblePlanTargetState = remember { DialogTargetState<Item>(dialogSuspended) }
+    var flexiblePlanTarget by flexiblePlanTargetState
+    val inboxEditTargetState = remember { DialogTargetState<Item>(dialogSuspended) }
+    var inboxEditTarget by inboxEditTargetState
+    val todoDetailTargetState = remember { DialogTargetState<Item>(dialogSuspended) }
+    var todoDetailTarget by todoDetailTargetState
+    val organizeTargetState = remember { DialogTargetState<Item>(dialogSuspended) }
+    var organizeTarget by organizeTargetState
+    val convertTargetState = remember { DialogTargetState<Item>(dialogSuspended) }
+    var convertTarget by convertTargetState
+    val attachTargetState = remember { DialogTargetState<Item>(dialogSuspended) }
+    var attachTarget by attachTargetState
+    val attachBatchIdsState = remember { DialogTargetState<Set<Long>>(dialogSuspended) }
+    var attachBatchIds by attachBatchIdsState
     var schedulePresetExact by remember { mutableStateOf<Long?>(null) }
     var gameSessions by remember { mutableStateOf(startup.gameSessions) }
     var gameDetectionEnabled by remember { mutableStateOf(startup.gameDetectionEnabled) }
@@ -336,8 +360,10 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
     var windDownEnabled by remember { mutableStateOf(startup.windDownEnabled) }
     var latestStatusCheckIn by remember { mutableStateOf(startup.latestStatusCheckIn) }
     var statusCheckIns by remember { mutableStateOf(startup.statusCheckIns) }
-    var statusCheckInOpen by remember { mutableStateOf(false) }
-    var activityStatusOpen by remember { mutableStateOf(false) }
+    val statusCheckInOpenState = remember { DialogFlagState(dialogSuspended) }
+    var statusCheckInOpen by statusCheckInOpenState
+    val activityStatusOpenState = remember { DialogFlagState(dialogSuspended) }
+    var activityStatusOpen by activityStatusOpenState
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     // 首启保护窗只记录按下动作；全部隐藏页完成预热后会移除监听，不给日常交互增加重组。
@@ -442,22 +468,29 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
     var amapKey by remember { mutableStateOf(startup.amapKey) }
     var campusCenter by remember { mutableStateOf(startup.campusCenter) }
     var tutorialSearch by remember { mutableStateOf(startup.tutorialSearch) }
-    var tutorialSearchOpen by remember { mutableStateOf(false) }
-    var tutorialFinderOpen by remember { mutableStateOf(false) }
+    val tutorialSearchOpenState = remember { DialogFlagState(dialogSuspended) }
+    var tutorialSearchOpen by tutorialSearchOpenState
+    val tutorialFinderOpenState = remember { DialogFlagState(dialogSuspended) }
+    var tutorialFinderOpen by tutorialFinderOpenState
     var finderContext by remember { mutableStateOf("") }
-    var videoAnalysisOpen by remember { mutableStateOf(false) }
+    val videoAnalysisOpenState = remember { DialogFlagState(dialogSuspended) }
+    var videoAnalysisOpen by videoAnalysisOpenState
     var videoAnalysisModel by remember { mutableStateOf(startup.videoAnalysisModel) }
     var courseVision by remember { mutableStateOf(startup.courseVision) }
     var pendingPlaces by remember { mutableStateOf(startup.pendingPlaces) }
     var courseVisionGuideOpen by remember { mutableStateOf(false) }
     var courseVisionGuideShown by remember { mutableStateOf(startup.courseVisionGuideShown) }
-    var featureIntroOpen by remember { mutableStateOf(false) }
+    val featureIntroOpenState = remember { DialogFlagState(dialogSuspended) }
+    var featureIntroOpen by featureIntroOpenState
     var featureIntroShown by remember { mutableStateOf(startup.featureIntroShown) }
-    var campusLifeChoiceOpen by remember { mutableStateOf(false) }
+    val campusLifeChoiceOpenState = remember { DialogFlagState(dialogSuspended) }
+    var campusLifeChoiceOpen by campusLifeChoiceOpenState
     var campusLifeChoiceShown by remember { mutableStateOf(startup.campusLifeChoiceShown) }
-    var updateNoticeOpen by remember { mutableStateOf(false) }
+    val updateNoticeOpenState = remember { DialogFlagState(dialogSuspended) }
+    var updateNoticeOpen by updateNoticeOpenState
     var lastSeenAppVersion by remember { mutableStateOf(startup.lastSeenAppVersion) }
-    var baselineWhereToFindOpen by remember { mutableStateOf(false) }
+    val baselineWhereToFindOpenState = remember { DialogFlagState(dialogSuspended) }
+    var baselineWhereToFindOpen by baselineWhereToFindOpenState
     // 首次开启课表视觉模型且未填 key 时自动弹出申请引导（只弹一次）。
 
     var courses by remember { mutableStateOf(startup.courses) }
@@ -467,8 +500,10 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
     var courseTimetableCompact by remember { mutableStateOf(startup.courseTimetableCompact) }
     var courseTimetableTrailingDaysExpanded by remember { mutableStateOf(startup.courseTimetableTrailingDaysExpanded) }
     CourseGapPlanner.configure(coursePeriodTable)
-    var courseEditor by remember { mutableStateOf<Course?>(null) }
-    var addCourseOpen by remember { mutableStateOf(false) }
+    val courseEditorState = remember { DialogTargetState<Course>(dialogSuspended) }
+    var courseEditor by courseEditorState
+    val addCourseOpenState = remember { DialogFlagState(dialogSuspended) }
+    var addCourseOpen by addCourseOpenState
     var courseImportRunning by remember { mutableStateOf(false) }
     var courseImportMessage by remember { mutableStateOf<String?>(
         if (mergeRecoveryReady) null else "课程编辑的覆盖设置尚未恢复；请保留数据并重启重试，课程提醒暂不重排。"
@@ -605,13 +640,18 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
     }
     var autoPlanMessage by remember { mutableStateOf<String?>(null) }
     var goals by remember { mutableStateOf(startup.goals) }
-    var addGoalOpen by remember { mutableStateOf(false) }
-    var editGoalTarget by remember { mutableStateOf<Goal?>(null) }
+    val addGoalOpenState = remember { DialogFlagState(dialogSuspended) }
+    var addGoalOpen by addGoalOpenState
+    val editGoalTargetState = remember { DialogTargetState<Goal>(dialogSuspended) }
+    var editGoalTarget by editGoalTargetState
     var goalFinderSuggestion by remember { mutableStateOf("") }
     var resources by remember { mutableStateOf(startup.resources) }
-    var addResourceOpen by remember { mutableStateOf(false) }
-    var summaryTarget by remember { mutableStateOf<LearningResource?>(null) }
-    var completionTarget by remember { mutableStateOf<Item?>(null) }
+    val addResourceOpenState = remember { DialogFlagState(dialogSuspended) }
+    var addResourceOpen by addResourceOpenState
+    val summaryTargetState = remember { DialogTargetState<LearningResource>(dialogSuspended) }
+    var summaryTarget by summaryTargetState
+    val completionTargetState = remember { DialogTargetState<Item>(dialogSuspended) }
+    var completionTarget by completionTargetState
     LaunchedEffect(notificationForegroundCheck) {
         if (notificationForegroundCheck <= 1) return@LaunchedEffect
         goals = readCoreData().goals
@@ -619,16 +659,19 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
         editGoalTarget = null
         goalScheduleTarget = null
     }
-    var feedbackTarget by remember { mutableStateOf<Pair<Item, String>?>(null) }
+    val feedbackTargetState = remember { DialogTargetState<Pair<Item, String>>(dialogSuspended) }
+    var feedbackTarget by feedbackTargetState
     var feedback by remember { mutableStateOf(startup.feedback) }
     var improvementNotes by remember { mutableStateOf(startup.improvementNotes) }
-    var improvementOpen by remember { mutableStateOf(false) }
+    val improvementOpenState = remember { DialogFlagState(dialogSuspended) }
+    var improvementOpen by improvementOpenState
     var baselineProfile by remember { mutableStateOf(startup.baselineProfile) }
     var baselineVariants by remember { mutableStateOf(startup.baselineVariants) }
     var baselineVariantNameOpen by remember { mutableStateOf(false) }
     var onboardingDone by remember { mutableStateOf(startup.onboardingDone) }
     // 权限一站式进行中时先不弹习惯基线引导，避免两个对话框叠在一起；权限流程结束后补弹。
-    var baselineOnboardingOpen by remember { mutableStateOf(!onboardingDone && !permissionOnboardingPending) }
+    val baselineOnboardingOpenState = remember { DialogFlagState(dialogSuspended, !onboardingDone && !permissionOnboardingPending) }
+    var baselineOnboardingOpen by baselineOnboardingOpenState
     LaunchedEffect(permissionOnboardingPending) {
         if (!permissionOnboardingPending && !onboardingDone) baselineOnboardingOpen = true
     }
@@ -659,22 +702,28 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
             updateNoticeOpen = true
         }
     }
-    var baselineEventsOpen by remember { mutableStateOf(false) }
-    var baselineResetConfirmOpen by remember { mutableStateOf(false) }
+    val baselineEventsOpenState = remember { DialogFlagState(dialogSuspended) }
+    var baselineEventsOpen by baselineEventsOpenState
+    val baselineResetConfirmOpenState = remember { DialogFlagState(dialogSuspended) }
+    var baselineResetConfirmOpen by baselineResetConfirmOpenState
     var mealRecords by remember { mutableStateOf(startup.mealRecords) }
     var mealReminderEnabled by remember { mutableStateOf(startup.mealReminderEnabled) }
     var mealDurationTrackingEnabled by remember { mutableStateOf(startup.mealDurationTrackingEnabled) }
     var mealSkipDays by remember { mutableStateOf(startup.mealSkipDays) }
-    var mealPromptOpen by remember { mutableStateOf<MealType?>(null) }
-    var mealFinishOpen by remember { mutableStateOf<MealType?>(null) }
-    var mealRecordsOpen by remember { mutableStateOf(false) }
+    val mealPromptOpenState = remember { DialogTargetState<MealType>(dialogSuspended) }
+    var mealPromptOpen by mealPromptOpenState
+    val mealFinishOpenState = remember { DialogTargetState<MealType>(dialogSuspended) }
+    var mealFinishOpen by mealFinishOpenState
+    val mealRecordsOpenState = remember { DialogFlagState(dialogSuspended) }
+    var mealRecordsOpen by mealRecordsOpenState
     var planPage by remember { mutableStateOf<PlanPage?>(null) }
     var settingsSubPage by remember { mutableStateOf<SettingsSubPage?>(null) }
     var settingsBackStack by remember { mutableStateOf<List<SettingsSubPage>>(emptyList()) }
     // 8.1.0 课程编辑器挂起：从课程编辑器跳转「管理地点与出行参数」时暂存，回到课程页自动重开（草稿箱恢复内容）。
     var suspendedCourseEditor by remember { mutableStateOf<SuspendedCourseEditor?>(null) }
     // 8.1.0 会话历史列表弹窗（长按底栏回退键打开）。
-    var historyListOpen by remember { mutableStateOf(false) }
+    val historyListOpenState = remember { DialogFlagState(dialogSuspended) }
+    var historyListOpen by historyListOpenState
     // 8.1.0 转场判定：只有"跳转"（通知/深链/跨页跳转）才改变位移幅度与静止缩放，其余导航一律普通切换。
     var lastNavWasJump by remember { mutableStateOf(false) }
     // 8.1.0 第三轮：只有"把目标页签的子页收回主页"时才抑制（snapPageChange）；打开子页照常播放放大动画。
@@ -707,7 +756,7 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
     val navHistory = remember { NavHistory() }
     val draftVault = remember { DraftVault() }
     // 8.1.0 第三轮：弹窗改为页内浮层（底栏仍可点、历史键可用），见 AppDialog.kt。
-    val dialogHost = remember { AppDialogHostState() }
+    // 宿主状态与收起判定声明在本函数开头（弹窗打开状态要用到它）。
     // 8.1.0 第四轮：弹窗浮层是历史的一步——上一步只关弹窗（页面不动），下一步原样带回。
     // 真正显示与否由历史决定：current.dialogOpen 为 false 时宿主只"收起"弹窗、不注销内容，
     // 调用点状态与草稿因此都还在（这就是"下一步打开且数据还在"）。
@@ -967,10 +1016,13 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
         globalLoading = false
     }
 
-    var visionServiceChoiceOpen by remember { mutableStateOf(false) }
+    val visionServiceChoiceOpenState = remember { DialogFlagState(dialogSuspended) }
+    var visionServiceChoiceOpen by visionServiceChoiceOpenState
     var selectedVisionService by remember { mutableStateOf<VisionServiceProfile?>(null) }
-    var visionSession by remember { mutableStateOf<VisionSession?>(null) }
-    var visionReviewPayload by remember { mutableStateOf<VisionRecognitionPreview?>(null) }
+    val visionSessionState = remember { DialogTargetState<VisionSession>(dialogSuspended) }
+    var visionSession by visionSessionState
+    val visionReviewPayloadState = remember { DialogTargetState<VisionRecognitionPreview>(dialogSuspended) }
+    var visionReviewPayload by visionReviewPayloadState
     var reviewableVisionChoices by remember { mutableStateOf<List<VisionServiceProfile>>(emptyList()) }
     var visionDefaultId by remember { mutableStateOf<String?>(null) }
     DisposableEffect(Unit) { onDispose { visionSession?.cancel() } }
@@ -1000,11 +1052,11 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
         }
         selectedVisionService = null
     }
-    if (visionServiceChoiceOpen) VisionServiceChoiceDialog(reviewableVisionChoices, visionDefaultId,
+    if (visionServiceChoiceOpen) key(visionServiceChoiceOpenState.requestId) { VisionServiceChoiceDialog(reviewableVisionChoices, visionDefaultId,
         onChoose = { selected -> selectedVisionService = selected; visionServiceChoiceOpen = false; courseScreenshotLauncher.launch(arrayOf("image/*")) },
-        onDismiss = { visionServiceChoiceOpen = false })
+        onDismiss = { visionServiceChoiceOpen = false }) }
     visionReviewPayload?.let { payload ->
-        VisionReviewDialog(
+        key(visionReviewPayloadState.requestId) { VisionReviewDialog(
             payload = payload,
             onApply = { review ->
                 val batch = CourseVisionRecognizer.importReviewedCandidates(review, campusPlaces)
@@ -1015,14 +1067,14 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                 visionReviewPayload = null
                 courseImportMessage = "已取消审核，本次未导入"
             }
-        )
+        ) }
     }
-    if (visionSession != null) AppDialog(onDismissRequest = {}, title = { Text("正在识别课表") },
+    if (visionSession != null) key(visionSessionState.requestId) { AppDialog(onDismissRequest = {}, title = { Text("正在识别课表") },
         text = { Text(courseImportMessage.orEmpty() + "\n取消后本次结果不会写入课程。") },
         confirmButton = { TextButton(onClick = {
             visionSession?.cancel(); visionSession = null; courseImportRunning = false; globalLoading = false
             courseImportMessage = "已取消，本次未导入"
-        }) { Text("取消识别") } })
+        }) { Text("取消识别") } }) }
     val zjuTimetableLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         courseImportRunning = false
         globalLoading = false
@@ -1148,7 +1200,7 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
         scope.launch {
             val label = if (titles.size == 1) "已移入最近删除：《${titles.single()}》"
                 else "已移入最近删除 ${ids.size} 项"
-            if (snackbarHostState.showSnackbar(label, actionLabel = "撤回") == SnackbarResult.ActionPerformed) {
+            if (snackbarHostState.showSnackbar(label, actionLabel = "撤回", duration = SnackbarDuration.Long) == SnackbarResult.ActionPerformed) {
                 val undo = TrashActions.restore(items, ids)
                 if (undo.events.isNotEmpty()) saveItemsWithEvents(undo.items, undo.events)
             }
@@ -1236,7 +1288,7 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
             val (outcome,operationId)=Stage7Inverse.applyTaskBatch(coreDataRepository,result,System.currentTimeMillis())
             if(!refreshRecoveryState(outcome)) return false
             scope.launch {
-                if(snackbarHostState.showSnackbar("已${action.label} ${result.affectedBefore.size} 项",actionLabel="撤回")==SnackbarResult.ActionPerformed && operationId!=null)
+                if(snackbarHostState.showSnackbar("已${action.label} ${result.affectedBefore.size} 项",actionLabel="撤回",duration = SnackbarDuration.Long)==SnackbarResult.ActionPerformed && operationId!=null)
                     refreshRecoveryState(Stage7Inverse.undo(context,coreDataRepository,operationId))
             }
         } else {
@@ -1244,7 +1296,7 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
             if(changed.events.isEmpty() || !saveItemsWithEvents(changed.items,changed.events)) return false
             result.affectedBefore.forEach { removeScheduledActivity(it.id) }
             scope.launch {
-                if(snackbarHostState.showSnackbar("已删除 ${ids.size} 项",actionLabel="撤回")==SnackbarResult.ActionPerformed) {
+                if(snackbarHostState.showSnackbar("已删除 ${ids.size} 项",actionLabel="撤回",duration = SnackbarDuration.Long)==SnackbarResult.ActionPerformed) {
                     val undo=TrashActions.restore(items,ids)
                     if(undo.events.isNotEmpty()) saveItemsWithEvents(undo.items,undo.events)
                 }
@@ -1255,6 +1307,11 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
 
     /** 放回收集箱：清掉时间与范围，保留原调度日记忆；三处共用（回收卡 / 快速改期建议 / 时间轴弹窗）。 */
     fun returnToInbox(item: Item) {
+        // 回收站条目不能再走放回：它是回收站日志的墓碑，改写会破坏 TrashJournal 校验（表现为"保存失败"）。
+        if (item.kind == "回收站") {
+            scope.launch { snackbarHostState.showSnackbar("这条记录在回收站；请先在回收站恢复，再放回收集箱。") }
+            return
+        }
         val result = TaskActions.returnToInbox(items, item)
         if (!saveItemsWithEvent(result.items, result.event)) return
         removeScheduledActivity(item.id)
@@ -1784,7 +1841,7 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                         else {
                             if (action == InboxBatchAction.DELETE) {
                                 scope.launch {
-                                    if (snackbarHostState.showSnackbar("已删除 ${result.affected.size} 项", actionLabel = "撤回") == SnackbarResult.ActionPerformed) {
+                                    if (snackbarHostState.showSnackbar("已删除 ${result.affected.size} 项", actionLabel = "撤回", duration = SnackbarDuration.Long) == SnackbarResult.ActionPerformed) {
                                         val undo = TrashActions.restore(items, selectedIds)
                                         if (undo.events.isNotEmpty()) saveItemsWithEvents(undo.items, undo.events)
                                     }
@@ -1922,7 +1979,7 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                         val completedAt = result.items.first { it.id == item.id }.completedAt ?: return@completeTodo
                         if (saveItemsWithEvent(result.items, result.event)) {
                             scope.launch {
-                                if (snackbarHostState.showSnackbar("已完成《${item.title}》", actionLabel = "撤回") == SnackbarResult.ActionPerformed) {
+                                if (snackbarHostState.showSnackbar("已完成《${item.title}》", actionLabel = "撤回", duration = SnackbarDuration.Long) == SnackbarResult.ActionPerformed) {
                                     val undo = TaskActions.undoCompletion(items, item.id, completedAt)
                                     if (undo.event != null) saveItemsWithEvent(undo.items, undo.event)
                                 }
@@ -2511,18 +2568,18 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                 onAddReminder = { addMenuOpen = false; addReminderOpen = true }
             )
         }
-        if (addWantedOpen) SimpleTitleDialog("新建计划", "计划名称", onDismiss = { addWantedOpen = false }) { title ->
+        if (addWantedOpen) key(addWantedOpenState.requestId) { SimpleTitleDialog("新建计划", "计划名称", onDismiss = { addWantedOpen = false }) { title ->
             val plan = WantedPlanActions.create(goals, title)
             if (plan != null && saveGoals(goals + plan)) { addWantedOpen = false; true } else false
-        }
-        if (addScheduleOpen) GlobalTimeCreateDialog("新建日程", onDismiss = { addScheduleOpen = false }) { title, at ->
+        } }
+        if (addScheduleOpen) key(addScheduleOpenState.requestId) { GlobalTimeCreateDialog("新建日程", onDismiss = { addScheduleOpen = false }) { title, at ->
             val item = Item(title = title, detail = TaskScheduleText.scheduledDetail(at, 60), kind = "任务", scheduledAt = at)
             if (saveItemsWithEvents(listOf(item) + items, listOf(
                     TaskRecorder.event(TaskEventType.TASK_CREATED, item.id, item.title),
                     TaskRecorder.event(TaskEventType.TASK_SCHEDULED, item.id, item.title, scheduledAt = at)
                 ))) { addScheduleOpen = false; true } else false
-        }
-        if (addReminderOpen) GlobalTimeCreateDialog("新建提醒", onDismiss = { addReminderOpen = false; focusedReminderId = null },
+        } }
+        if (addReminderOpen) key(addReminderOpenState.requestId) { GlobalTimeCreateDialog("新建提醒", onDismiss = { addReminderOpen = false; focusedReminderId = null },
             existing = remember(reminderRevision) { StandaloneReminders.all(context) },
             focusedReminderId = focusedReminderId,
             onMoveReminderToInbox = { reminder ->
@@ -2560,7 +2617,7 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
             val saved = StandaloneReminders.create(context, title, at)
             if (saved) { addReminderOpen = false; reminderRevision++; ReminderScheduler.restoreStandaloneReminders(context) }
             saved
-        }
+        } }
         if (pendingTrashConfirm.isNotEmpty()) {
             val target = pendingTrashConfirm.first()
             AlertDialog(
@@ -2581,7 +2638,7 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
             val ordinaryItems=items.filterNot { it.id in owned }
             val courseGroups=(CourseRecoveryOperations.readGroups(coreDataRepository) as? CourseRecoveryGroupsRead.Ready)?.groups.orEmpty()
             val entries=RecoveryEntries.build(snapshot,courseGroups,System.currentTimeMillis())
-            TrashDialog(
+            key(trashOpenState.requestId) { TrashDialog(
                 items=ordinaryItems,groups=snapshot.trashGroups,
                 purgeable=TrashJournal.purgeableIds(ordinaryItems,snapshot.trashGroups),now=System.currentTimeMillis(),
                 onDismiss={trashOpen=false},
@@ -2598,7 +2655,7 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                     refreshRecoveryState(CoreDataWriteResult(if(okay) CoreDataWriteStatus.APPLIED else CoreDataWriteStatus.WRITE_FAILED,"清理未全部完成，已保留未确认部分。"))
                     reminderRevision++
                 }
-            )
+            ) }
         }
         pendingPlanDelete?.let { plan ->
             val selectable=items.filter { it.goalId==plan.id && it.kind=="任务" && it.repeatTemplateId==null && it.trashedAt==null && it.parentCaptureId==null && items.none { child->child.parentCaptureId==it.id } }
@@ -2618,7 +2675,7 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
             text={Text("${pendingIgnoreCourses.size} 个课次将移入恢复记录，保留 30 天。")},
             confirmButton={TextButton(onClick={val targets=pendingIgnoreCourses;pendingIgnoreCourses=emptySet();deleteCoursesWithRecovery(targets)}) {Text("忽略")}},
             dismissButton={TextButton(onClick={pendingIgnoreCourses=emptySet()}) {Text("取消")}})
-        if (addTodoOpen) TodoCreateDialog(
+        if (addTodoOpen) key(addTodoOpenState.requestId) { TodoCreateDialog(
             onDismiss = { addTodoOpen = false },
             onSave = { title, dateOnlyAt, asChecklist, frequency, repeatMinute ->
                 val created = if (frequency.isNotEmpty()) {
@@ -2629,8 +2686,8 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                     else TodoActions.createLines(items, title, dateOnlyAt, minute = repeatMinute)
                 created.created.isNotEmpty() && saveItemsWithEvents(created.items, created.events)
             }
-        )
-        if (gamePlanOpen) GamePlanDialog(
+        ) }
+        if (gamePlanOpen) key(gamePlanOpenState.requestId) { GamePlanDialog(
             courses = activeCourses,
             profile = commuteProfile,
             items = items,
@@ -2649,8 +2706,8 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                 val frequencyNote = if (histMax != null && sameDayCount + 1 > histMax) " · 提醒：这天《${item.title}》已安排 ${sameDayCount + 1} 次，你通常每天最多 $histMax 次" else ""
                 scope.launch { snackbarHostState.showSnackbar("已安排《${item.title}》${weekdayName(weekdayOf(session.plannedStartAt))} ${GoalPlanner.displayTime(startMinute)} 开始，到点提醒收尾$frequencyNote") }
             }
-        )
-        if (addOpen) QuickCaptureDialog(
+        ) }
+        if (addOpen) key(addOpenState.requestId) { QuickCaptureDialog(
             onDismiss = { addOpen = false },
             onSave = capture@ { draft, tomorrow ->
                 val captured = if (tomorrow) {
@@ -2683,8 +2740,8 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                 inboxScheduleTarget = direct
                 schedulePresetExact = exactAt
             }
-        )
-        if (activityOpen) ActivityDialog(suggestedNextStepName, activityPreset, activityHistory, upcomingCommitment, planningEnergyLevel, onDismiss = { activityOpen = false; activityPreset = null }) { category, name, endsAt, nextStep ->
+        ) }
+        if (activityOpen) key(activityOpenState.requestId) { ActivityDialog(suggestedNextStepName, activityPreset, activityHistory, upcomingCommitment, planningEnergyLevel, onDismiss = { activityOpen = false; activityPreset = null }) { category, name, endsAt, nextStep ->
             val now = System.currentTimeMillis()
             val current = CoreDataRepositoryOperations.latestActiveSession(coreDataRepository)
             if (current != null) {
@@ -2705,8 +2762,8 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                 activityPreset = null
                 activityTaskId = null
             }
-        }
-        if (statusCheckInOpen) StatusCheckInDialog(
+        } }
+        if (statusCheckInOpen) key(statusCheckInOpenState.requestId) { StatusCheckInDialog(
             initialEnergy = planningEnergyLevel,
             initialActivity = activeSession?.name.orEmpty(),
             onDismiss = { statusCheckInOpen = false },
@@ -2722,8 +2779,8 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                 nextStatusPromptAt = store.loadNextStatusPromptAt()
                 statusCheckInOpen = false
             }
-        )
-        if (activityStatusOpen) ActivityStatusDialog(
+        ) }
+        if (activityStatusOpen) key(activityStatusOpenState.requestId) { ActivityStatusDialog(
             initialActivity = activeSession?.name.orEmpty(),
             onDismiss = { activityStatusOpen = false },
             onSave = { selectedActivity, remindMinutes ->
@@ -2748,8 +2805,8 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                     }
                 }
             }
-        )
-        transitionTarget?.let { session -> ActivityTransitionDialog(
+        ) }
+        transitionTarget?.let { session -> key(transitionTargetState.requestId) { ActivityTransitionDialog(
             session = session,
             maxExtensions = activitySettings.maxExtensions,
             upcomingCommitment = upcomingCommitment,
@@ -2894,8 +2951,8 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                 activityHistory = CoreDataRepositoryOperations.recentActivitySessions(coreDataRepository, 200)
                 transitionTarget = null
             }
-        ) }
-        rescheduleTarget?.let { item -> RescheduleTimeDialog(item, items, courses, commuteProfile,
+        ) } }
+        rescheduleTarget?.let { item -> key(rescheduleTargetState.requestId) { RescheduleTimeDialog(item, items, courses, commuteProfile,
             title = if (rescheduleAfterActivitySession != null) "改期后结束计时" else "什么时候再提醒？",
             onDismiss = {
                 rescheduleTarget = null
@@ -2935,8 +2992,8 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                     }
                 }
             }
-        } }
-        goalScheduleTarget?.let { goal -> GoalScheduleDialog(
+        } } }
+        goalScheduleTarget?.let { goal -> key(goalScheduleTargetState.requestId) { GoalScheduleDialog(
             goal = goal,
             items = items,
             courses = courses,
@@ -2946,8 +3003,8 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                 scheduleGoalItem(goal, at)
                 goalScheduleTarget = null
             }
-        ) }
-        inboxScheduleTarget?.let { item -> InboxScheduleDialog(
+        ) } }
+        inboxScheduleTarget?.let { item -> key(inboxScheduleTargetState.requestId) { InboxScheduleDialog(
             item = item,
             items = items,
             courses = courses,
@@ -2984,8 +3041,8 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                 schedulePresetExact = null
             },
             initialExactTime = schedulePresetExact
-        ) }
-        flexiblePlanTarget?.let { item -> FlexiblePlanDialog(
+        ) } }
+        flexiblePlanTarget?.let { item -> key(flexiblePlanTargetState.requestId) { FlexiblePlanDialog(
             item = item,
             items = items,
             courses = courses,
@@ -3009,15 +3066,15 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                 ReminderScheduler.scheduleTaskReminder(context, scheduled)
                 flexiblePlanTarget = null
             }
-        ) }
-        inboxEditTarget?.let { item -> InboxEditDialog(item, onDismiss = { inboxEditTarget = null }) editInbox@ { title, detail, durationMinutes, priority ->
+        ) } }
+        inboxEditTarget?.let { item -> key(inboxEditTargetState.requestId) { InboxEditDialog(item, onDismiss = { inboxEditTarget = null }) editInbox@ { title, detail, durationMinutes, priority ->
             // 编辑不记录事件：统计基于发生的事件，编辑不应污染计划/完成率。
             if (!saveItems(items.map { if (it.id == item.id) it.copy(title = title, detail = detail, userNote = detail, durationMinutes = durationMinutes, priority = priority) else it })) return@editInbox
             inboxEditTarget = null
-        } }
+        } } }
         todoDetailTarget?.let { target ->
             items.firstOrNull { it.id == target.id }?.let { item ->
-                TodoDetailDialog(
+                key(todoDetailTargetState.requestId) { TodoDetailDialog(
                     item = item,
                     onDismiss = { todoDetailTarget = null },
                     onSchedule = {
@@ -3058,7 +3115,7 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                             if (cancelled.events.isNotEmpty() && saveItemsWithEvents(cancelled.items, cancelled.events)) {
                                 todoDetailTarget = null
                                 scope.launch {
-                                    if (snackbarHostState.showSnackbar("已取消本次《${item.title}》", actionLabel = "撤回") == SnackbarResult.ActionPerformed) {
+                                    if (snackbarHostState.showSnackbar("已取消本次《${item.title}》", actionLabel = "撤回", duration = SnackbarDuration.Long) == SnackbarResult.ActionPerformed) {
                                         val current = items.firstOrNull { it.id == item.id }
                                         if (current?.kind == "重复历史" && current.repeatOccurrenceDay == item.repeatOccurrenceDay)
                                             saveItemsWithEvent(items.map { if (it.id == item.id) item else it },
@@ -3070,7 +3127,7 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                         }
                         requestTrash(item, "关联的下一步任务需先处理，再删除这项待办。")
                     }
-                )
+                ) }
             }
         }
         // 自填教学楼自动进入地点库：地点库独立于课程，之后可在地点管理里修改分区/用途（计算在 CampusPlacesEditor）。
@@ -3079,14 +3136,14 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
             customPlaces = updated
             store.saveCustomPlaces(updated)
         }
-        if (addCourseOpen) CourseEditorDialog(null, campusPlaces, maxPeriod = coursePeriodTable.periods.size, onDismiss = { addCourseOpen = false }, onOpenCommutePlaces = {
+        if (addCourseOpen) key(addCourseOpenState.requestId) { CourseEditorDialog(null, campusPlaces, maxPeriod = coursePeriodTable.periods.size, onDismiss = { addCourseOpen = false }, onOpenCommutePlaces = {
             addCourseOpen = false; suspendedCourseEditor = SuspendedCourseEditor(null); jumpTo(PageSnapshot(3, todayInboxOpen, planPage, SettingsSubPage.COMMUTE_PLACES, emptyList()))
         }) addCourse@ { course, _ ->
             if (!persistCourses(courses + course.copy(needsConfirmation = false))) return@addCourse
             ensureCoursePlaceInLibrary(course)
             addCourseOpen = false
-        }
-        courseEditor?.let { original -> CourseEditorDialog(original, campusPlaces, maxPeriod = coursePeriodTable.periods.size, onDismiss = { courseEditor = null }, onOpenCommutePlaces = {
+        } }
+        courseEditor?.let { original -> key(courseEditorState.requestId) { CourseEditorDialog(original, campusPlaces, maxPeriod = coursePeriodTable.periods.size, onDismiss = { courseEditor = null }, onOpenCommutePlaces = {
             courseEditor = null; suspendedCourseEditor = SuspendedCourseEditor(original); jumpTo(PageSnapshot(3, todayInboxOpen, planPage, SettingsSubPage.COMMUTE_PLACES, emptyList()))
         }) editCourse@ { edited, followingFrom ->
             if (followingFrom != null) {
@@ -3125,8 +3182,8 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
             }
             ensureCoursePlaceInLibrary(edited)
             courseEditor = null
-        } }
-        if (addGoalOpen || editGoalTarget != null) GoalEditorDialog(
+        } } }
+        if (addGoalOpen || editGoalTarget != null) key(addGoalOpenState.requestId, editGoalTargetState.requestId) { GoalEditorDialog(
             initialGoal = editGoalTarget,
             resources = resources,
             suggestedFirstAction = goalFinderSuggestion,
@@ -3145,8 +3202,8 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                 editGoalTarget = null
                 goalFinderSuggestion = ""
             }
-        }
-        organizeTarget?.let { item -> CaptureOrganizeDialog(
+        } }
+        organizeTarget?.let { item -> key(organizeTargetState.requestId) { CaptureOrganizeDialog(
             item = item,
             onDismiss = { organizeTarget = null },
             onProgress = { nextAction ->
@@ -3172,8 +3229,8 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                 }
             },
             onAttachToPlan = { organizeTarget = null; attachTarget = item }
-        ) }
-        convertTarget?.let { item -> GoalEditorDialog(
+        ) } }
+        convertTarget?.let { item -> key(convertTargetState.requestId) { GoalEditorDialog(
             initialGoal = null,
             initialTitle = item.title,
             initialDurationMinutes = item.durationMinutes,
@@ -3213,8 +3270,8 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                 items = current.items
                 scope.launch { snackbarHostState.showSnackbar("任务或目标已发生变化，请重新打开后操作。") }
             }
-        } }
-        attachTarget?.let { item -> AttachToPlanDialog(
+        } } }
+        attachTarget?.let { item -> key(attachTargetState.requestId) { AttachToPlanDialog(
             goals = goals.filter { it.state == PlanState.IN_PROGRESS },
             onDismiss = { attachTarget = null },
             onAttach = { goal ->
@@ -3225,8 +3282,8 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                     attachTarget = null
                 }
             }
-        ) }
-        attachBatchIds?.let { selectedIds -> AttachToPlanDialog(
+        ) } }
+        attachBatchIds?.let { selectedIds -> key(attachBatchIdsState.requestId) { AttachToPlanDialog(
             goals = goals.filter { it.state == PlanState.IN_PROGRESS },
             onDismiss = { attachBatchIds = null },
             onAttach = { goal ->
@@ -3244,19 +3301,19 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                     }
                 }
             }
-        ) }
-        if (addResourceOpen) ResourceEditorDialog(onDismiss = { addResourceOpen = false }) { resource ->
+        ) } }
+        if (addResourceOpen) key(addResourceOpenState.requestId) { ResourceEditorDialog(onDismiss = { addResourceOpen = false }) { resource ->
             resources = resources + resource
             store.saveResources(resources)
             addResourceOpen = false
-        }
-        if (tutorialSearchOpen) TutorialSearchDialog(
+        } }
+        if (tutorialSearchOpen) key(tutorialSearchOpenState.requestId) { TutorialSearchDialog(
             settings = tutorialSearch,
             onDismiss = { tutorialSearchOpen = false },
             initialTitle = "",
             onLoadingChange = { globalLoading = it }
-        )
-        if (tutorialFinderOpen) TutorialFinderDialog(
+        ) }
+        if (tutorialFinderOpen) key(tutorialFinderOpenState.requestId) { TutorialFinderDialog(
             settings = tutorialSearch,
             initialContext = finderContext,
             onDismiss = { tutorialFinderOpen = false },
@@ -3266,8 +3323,8 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                 tutorialFinderOpen = false
                 scope.launch { snackbarHostState.showSnackbar("已填入候选第一步，请确认后保存目标") }
             }
-        )
-        if (videoAnalysisOpen) VideoAnalysisDialog(
+        ) }
+        if (videoAnalysisOpen) key(videoAnalysisOpenState.requestId) { VideoAnalysisDialog(
             settings = tutorialSearch,
             model = videoAnalysisModel,
             onDismiss = { videoAnalysisOpen = false },
@@ -3279,8 +3336,8 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                 videoAnalysisOpen = false
                 scope.launch { snackbarHostState.showSnackbar("已保存教程《$title》") }
             }
-        )
-        summaryTarget?.let { resource -> ResourceSummaryDialog(
+        ) }
+        summaryTarget?.let { resource -> key(summaryTargetState.requestId) { ResourceSummaryDialog(
             settings = tutorialSearch,
             resource = resource,
             onDismiss = { summaryTarget = null },
@@ -3290,8 +3347,8 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                 store.saveResources(resources)
                 summaryTarget = null
             }
-        ) }
-        completionTarget?.let { item -> CompletionDialog(item, goals.firstOrNull { it.id == item.goalId }, onDismiss = { completionTarget = null }) complete@ { level ->
+        ) } }
+        completionTarget?.let { item -> key(completionTargetState.requestId) { CompletionDialog(item, goals.firstOrNull { it.id == item.goalId }, onDismiss = { completionTarget = null }) complete@ { level ->
             val result = TaskActions.completeWithLevel(items, item, level)
             val goalId = item.goalId
             val updatedGoals = if (goalId == null) goals else {
@@ -3309,21 +3366,21 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
             }
             completionTarget = null
             feedbackTarget = item to level
-        } }
-        feedbackTarget?.let { (item, level) -> FeedbackDialog(level, onDismiss = { feedbackTarget = null }) { difficulty, barrier ->
+        } } }
+        feedbackTarget?.let { (item, level) -> key(feedbackTargetState.requestId) { FeedbackDialog(level, onDismiss = { feedbackTarget = null }) { difficulty, barrier ->
             item.goalId?.let { goalId ->
                 val entry = TaskFeedback(goalId = goalId, completionLevel = level, difficulty = difficulty, barrier = barrier)
                 store.addFeedback(entry)
                 feedback = feedback + entry
             }
             feedbackTarget = null
-        } }
-        if (improvementOpen) ImprovementDialog(onDismiss = { improvementOpen = false }) { text ->
+        } } }
+        if (improvementOpen) key(improvementOpenState.requestId) { ImprovementDialog(onDismiss = { improvementOpen = false }) { text ->
             improvementNotes = improvementNotes + ImprovementNote(text = text)
             store.saveImprovementNotes(improvementNotes)
             improvementOpen = false
-        }
-        if (baselineOnboardingOpen) BaselineOnboardingDialog(
+        } }
+        if (baselineOnboardingOpen) key(baselineOnboardingOpenState.requestId) { BaselineOnboardingDialog(
             initial = baselineProfile,
             onDismiss = {
                 baselineOnboardingOpen = false
@@ -3356,9 +3413,9 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                     baselineWhereToFindOpen = true
                 }
             }
-        )
-        if (baselineWhereToFindOpen) BaselineWhereToFindDialog(onDismiss = { baselineWhereToFindOpen = false })
-        if (campusLifeChoiceOpen) CampusLifeChoiceDialog(
+        ) }
+        if (baselineWhereToFindOpen) key(baselineWhereToFindOpenState.requestId) { BaselineWhereToFindDialog(onDismiss = { baselineWhereToFindOpen = false }) }
+        if (campusLifeChoiceOpen) key(campusLifeChoiceOpenState.requestId) { CampusLifeChoiceDialog(
             onEnable = {
                 campusLifeEnabled = true
                 store.saveCampusLifeEnabled(true)
@@ -3373,21 +3430,21 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                 store.saveCampusLifeChoiceShown(true)
                 campusLifeChoiceOpen = false
             }
-        )
-        if (featureIntroOpen) WelcomeIntroDialog(onDismiss = {
+        ) }
+        if (featureIntroOpen) key(featureIntroOpenState.requestId) { WelcomeIntroDialog(onDismiss = {
             lastSeenAppVersion = BuildConfig.VERSION_NAME
             store.saveLastSeenAppVersion(BuildConfig.VERSION_NAME)
             featureIntroOpen = false
-        })
-        if (updateNoticeOpen) UpdateNoticeDialog(
+        }) }
+        if (updateNoticeOpen) key(updateNoticeOpenState.requestId) { UpdateNoticeDialog(
             version = BuildConfig.VERSION_NAME,
             onDismiss = { updateNoticeOpen = false },
             onOpenRoadmap = {
                 updateNoticeOpen = false
                 jumpTo(PageSnapshot(3, false, null, SettingsSubPage.ROADMAP, emptyList()))
             }
-        )
-        if (baselineEventsOpen) BaselineEventsDialog(
+        ) }
+        if (baselineEventsOpen) key(baselineEventsOpenState.requestId) { BaselineEventsDialog(
             events = store.loadBaselineEvents(500),
             onDismiss = { baselineEventsOpen = false },
             onClear = {
@@ -3395,8 +3452,8 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                 baselineEventsOpen = false
             },
             onDelete = { eventId -> store.removeBaselineEvent(eventId) }
-        )
-        if (baselineResetConfirmOpen) AppDialog(
+        ) }
+        if (baselineResetConfirmOpen) key(baselineResetConfirmOpenState.requestId) { AppDialog(
             onDismissRequest = { baselineResetConfirmOpen = false },
             title = { Text("重建习惯基线？") },
             text = { Text("会清空当前基线资料和全部原始事件记录，并重新开始引导。这个操作不可撤销。") },
@@ -3409,11 +3466,11 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                 }) { Text("重建") }
             },
             dismissButton = { TextButton(onClick = { baselineResetConfirmOpen = false }) { Text("取消") } }
-        )
+        ) }
         mealPromptOpen?.let { type ->
             val weekday = java.util.Calendar.getInstance().get(java.util.Calendar.DAY_OF_WEEK)
             val plan = MealLearning.todayPlan(mealRecords, baselineProfile, weekday, type)
-            MealPromptDialog(
+            key(mealPromptOpenState.requestId) { MealPromptDialog(
                 type, plan,
                 onDismiss = { mealPromptOpen = null },
                 onStarted = {
@@ -3444,14 +3501,14 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                     ReminderScheduler.cancelMealReminder(context, type)
                     mealPromptOpen = null
                 }
-            )
+            ) }
         }
         mealFinishOpen?.let { type ->
             val record = MealLearning.latestOpen(mealRecords, type)
             if (record != null) {
                 val weekday = java.util.Calendar.getInstance().get(java.util.Calendar.DAY_OF_WEEK)
                 val plan = MealLearning.todayPlan(mealRecords, baselineProfile, weekday, type)
-                MealFinishDialog(
+                key(mealFinishOpenState.requestId) { MealFinishDialog(
                     record, type,
                     onDismiss = { mealFinishOpen = null },
                     onFinished = { draft ->
@@ -3485,10 +3542,10 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                         ReminderScheduler.cancelMealReminder(context, type)
                         mealFinishOpen = null
                     }
-                )
+                ) }
             } else mealFinishOpen = null
         }
-        if (historyListOpen) HistoryListDialog(
+        if (historyListOpen) key(historyListOpenState.requestId) { HistoryListDialog(
             entries = navHistory.entries(),
             current = navHistory.current,
             onSelect = { target ->
@@ -3503,15 +3560,15 @@ private fun FocusFlowApp(store: PrototypeStore, coreDataRepository: CoreDataRepo
                 syncDialogLayer()
             },
             onDismiss = { historyListOpen = false }
-        )
-        if (mealRecordsOpen) MealRecordsDialog(
+        ) }
+        if (mealRecordsOpen) key(mealRecordsOpenState.requestId) { MealRecordsDialog(
             records = mealRecords,
             onDismiss = { mealRecordsOpen = false },
             onDelete = { id ->
                 store.deleteMealRecord(id)
                 mealRecords = store.loadMealRecords()
             }
-        )
+        ) }
         } // CompositionLocalProvider(LocalAppDialogHost)
     }
         }

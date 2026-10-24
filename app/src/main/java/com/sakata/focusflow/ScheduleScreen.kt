@@ -62,7 +62,9 @@ internal fun ScheduleScreen(
         .filter { !it.needsConfirmation && it.weekday == weekday }
         .sortedBy { it.startPeriod }
     val flexibleItems = items.filter {
-        !it.done && it.kind != "暂停" && it.kind != "收集箱" && it.scheduledAt == null
+        // 回收站条目必须排除：它们 scheduledAt 已被清空，否则会漏进弹性安排，
+        // 对其执行"放回"会改写回收站墓碑并触发 TrashJournal 校验失败（表现为"保存失败"）。
+        !it.done && it.kind != "暂停" && it.kind != "收集箱" && it.kind != "回收站" && it.scheduledAt == null
     }
     var scheduleMode by remember { mutableStateOf("日") }
     var periodTableOpen by remember { mutableStateOf(false) }
@@ -201,7 +203,9 @@ internal fun ScheduleScreen(
                     item,
                     energyLevel,
                     onPlan = { onPlanFlexible(item) },
-                    onAdjust = { onAdjustFlexible(item) }
+                    onAdjust = { onAdjustFlexible(item) },
+                    onReturn = { onReturnToInbox(item) },
+                    onDelete = { onDeleteItem(item) }
                 )
             }
         }
@@ -228,42 +232,65 @@ internal fun ScheduleScreen(
     }
 }
 
+/**
+ * 弹性安排行：标题/时长/范围在上，四个动作（初步安排、调整范围、放回收集箱、删除）收进卡片底部的一行。
+ * 动作横排而不是继续纵向堆叠，是为了 360dp 宽下仍有足够正文宽度，且卡片不会因第四个按钮再长 48dp；
+ * 大字号下 FlowRow 自动折行，不挤爆行。
+ */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun FlexibleScheduleRow(
     item: Item,
     energyLevel: String,
     onPlan: () -> Unit,
-    onAdjust: () -> Unit
+    onAdjust: () -> Unit,
+    onReturn: () -> Unit,
+    onDelete: () -> Unit
 ) {
     val type = item.scheduleType()
     val typeColor = scheduleColor(type)
     FocusCard(containerColor = typeColor.copy(alpha = 0.10f)) {
-        Row(
+        Column(
             Modifier.fillMaxWidth().padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+            verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            Box(
-                Modifier.width(5.dp).height(46.dp)
-                    .background(typeColor, MaterialTheme.shapes.small)
-            )
-            Column(Modifier.weight(1f)) {
-                Text(item.title, fontWeight = FontWeight.SemiBold)
-                Text(
-                    "预计 ${item.durationMinutes} 分钟 · 当前精力$energyLevel",
-                    style = MaterialTheme.typography.bodySmall
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Box(
+                    Modifier.width(5.dp).height(46.dp)
+                        .background(typeColor, MaterialTheme.shapes.small)
                 )
-                if (item.windowStartAt != null && item.windowEndAt != null) {
+                Column(Modifier.weight(1f)) {
+                    Text(item.title, fontWeight = FontWeight.SemiBold)
                     Text(
-                        "${formatDateTime(item.windowStartAt)} 至 ${formatDateTime(item.windowEndAt)}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary
+                        "预计 ${item.durationMinutes} 分钟 · 当前精力$energyLevel",
+                        style = MaterialTheme.typography.bodySmall
                     )
+                    if (item.windowStartAt != null && item.windowEndAt != null) {
+                        Text(
+                            "${formatDateTime(item.windowStartAt)} 至 ${formatDateTime(item.windowEndAt)}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
                 }
             }
-            Column(horizontalAlignment = Alignment.End) {
+            FlowRow(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.End),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
                 TextButton(onClick = onPlan) { Text("初步安排") }
                 TextButton(onClick = onAdjust) { Text("调整范围") }
+                // 放回收集箱：复用 TaskActions.returnToInbox 既有语义（清时间与范围、保留调度日记忆），
+                // 不是删除，也不进回收站；行即时从弹性安排区消失，任务出现在收集箱。
+                TextButton(onClick = onReturn) { Text("放回") }
+                // 删除：走 onDeleteItem 既有语义——普通任务进回收站（30 天可恢复），
+                // 活动/游戏沿用原有硬删除约定。与时间轴行的删除入口保持一致。
+                TextButton(onClick = onDelete) { Text("删除") }
             }
         }
     }
